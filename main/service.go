@@ -6,7 +6,7 @@ import (
 	"cleanapp/be"
 )
 
-func main()  {
+func main() {
 	log.Println("Hello!")
 	be.StartService()
 	log.Println("Bye!")

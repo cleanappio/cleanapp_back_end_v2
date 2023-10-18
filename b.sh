@@ -1,5 +1,7 @@
-#echo "Building compiler..."
-#go build main/compile.go
+echo "Building client..."
+go build main/client.go
+mv client bin/
+
 echo "Building MAC service..."
 GOARCH="arm64" GOOS="darwin" go build -o service.app main/service.go
 echo "Building Linux service..."
