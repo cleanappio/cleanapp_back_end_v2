@@ -1,2 +1,7 @@
-# cleanapp_back_end_v2
-CleanApp backend version 2.0+
+# Cleanapp Backend version 2+
+
+This reporitory is for CleanApp (http://cleanapp.io) backend development.
+It's a complete rewrite after v.0.
+
+More infro to follow.
+
