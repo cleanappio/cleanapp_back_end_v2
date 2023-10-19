@@ -20,7 +20,7 @@ func main() {
 	"version": "2.0",
 	"id": "0123456789ABBCDEF",
 	"lattitude": 35.1293548,
-	"longitue": -90.1222609,
+	"longitude": -90.1222609,
 	"x": 100,
 	"y": 200,
 	"image": null
@@ -34,5 +34,5 @@ func main() {
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
-	log.Printf("Done, %v", string(body))
+	log.Printf("Done, %s: %v", resp.Status, string(body))
 }

@@ -36,6 +36,10 @@ func Report(c *gin.Context) {
 
 	// Add report to the database.
 	log.Printf("/report got %v", report)
-	// TODO: actually add.
+	err := saveReport(report)
+	if err != nil {
+		log.Printf("Failed to write report with %v", err)
+		c.Status(http.StatusInternalServerError) // 500
+	}
 	c.Status(http.StatusOK) // 200
 }
