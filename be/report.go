@@ -21,6 +21,11 @@ func Report(c *gin.Context) {
 	log.Print("Call to /report")
 	var report ReportArgs
 
+	/* Troubleshooting code:
+		b, _ := c.GetRawData()
+		log.Printf("Got %s", string(b))
+	*/
+
 	// Get the arguments.
 	if err := c.BindJSON(&report); err != nil {
 		log.Printf("Failed to get the argument in /report call: %v", err)

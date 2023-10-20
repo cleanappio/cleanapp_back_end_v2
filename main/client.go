@@ -4,6 +4,8 @@ package main
 import (
 	"bytes"
 	"cleanapp/be"
+	"encoding/base64"
+	//"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -23,7 +25,7 @@ func main() {
 	"longitude": -90.1222609,
 	"x": 100,
 	"y": 200,
-	"image": null
+	"image": "` + base64.StdEncoding.EncodeToString([]byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x48}) +`"
 }`
 
 	resp, err := http.Post(url+be.EndPointReport, contentType, bytes.NewBufferString(buf))
@@ -36,3 +38,4 @@ func main() {
 	body, err := io.ReadAll(resp.Body)
 	log.Printf("Done, %s: %v", resp.Status, string(body))
 }
+
