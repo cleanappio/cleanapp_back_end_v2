@@ -8,13 +8,13 @@ import (
 )
 
 type ReportArgs struct {
-	Version   string  `json:"version"` // Must be "2.0"
-	Id        string  `json:"id"`      // public key.
-	Lattitude float64 `json:"lattitude"`
-	Longitue  float64 `json:"longitude"`
-	X         int32   `json:"x"`
-	Y         int32   `json:"y"`
-	Image     []byte  `json:"image"`
+	Version  string  `json:"version"` // Must be "2.0"
+	Id       string  `json:"id"`      // public key.
+	Latitude float64 `json:"latitude"`
+	Longitue float64 `json:"longitude"`
+	X        int32   `json:"x"`
+	Y        int32   `json:"y"`
+	Image    []byte  `json:"image"`
 }
 
 func Report(c *gin.Context) {
@@ -22,8 +22,8 @@ func Report(c *gin.Context) {
 	var report ReportArgs
 
 	/* Troubleshooting code:
-		b, _ := c.GetRawData()
-		log.Printf("Got %s", string(b))
+	b, _ := c.GetRawData()
+	log.Printf("Got %s", string(b))
 	*/
 
 	// Get the arguments.
@@ -44,7 +44,8 @@ func Report(c *gin.Context) {
 	err := saveReport(report)
 	if err != nil {
 		log.Printf("Failed to write report with %v", err)
-		c.Status(http.StatusInternalServerError) // 500
+		c.String(http.StatusInternalServerError, "Failed to save the report.") // 500
+		return
 	}
 	c.Status(http.StatusOK) // 200
 }

@@ -7,12 +7,14 @@ import (
 )
 
 const (
+	EndPointUser   = "/update_or_create_user"
 	EndPointReport = "/report"
 )
 
 func StartService() {
 	log.Println("Starting the service...")
 	router := gin.Default()
+	router.POST(EndPointUser, UpdateUser)
 	router.POST(EndPointReport, Report)
 
 	router.Run("localhost:8080")
