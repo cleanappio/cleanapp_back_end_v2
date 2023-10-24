@@ -17,6 +17,7 @@ func StartService() {
 	router.POST(EndPointUser, UpdateUser)
 	router.POST(EndPointReport, Report)
 
-	router.Run("localhost:8080")
+	router.Run(":8080")
+	//router.Run("localhost:8080")
 	log.Println("Finished the service. Should not ever being seen.")
 }

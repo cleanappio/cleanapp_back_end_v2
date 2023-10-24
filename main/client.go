@@ -5,9 +5,10 @@ import (
 	"bytes"
 	"cleanapp/be"
 	"encoding/base64"
-	//"fmt"
+	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"net/http"
 )
 
@@ -15,12 +16,15 @@ const (
 	url         = "http://127.0.0.1:8080"
 	contentType = "application/json"
 )
+var (
+	userID = fmt.Sprintf("%X", rand.Uint64())
+)
 
 func doUser() {
 	buf := `
 {
 	"version": "2.0",
-	"id": "0123456789ABBCDEF",
+	"id": "` + userID + `",
 	"avatar": "La Puch da Vinchi"
 }`
 
@@ -39,7 +43,7 @@ func doReport() {
 	buf := `
 {
 	"version": "2.0",
-	"id": "0123456789ABBCDEF",
+	"id": "` + userID + `",
 	"latitude": 35.1293548,
 	"longitude": -90.1222609,
 	"x": 100,

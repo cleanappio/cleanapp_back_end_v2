@@ -1,0 +1,12 @@
+
+services:
+  textmetrics:
+    container_name: ibnazer.cleanappserver
+    image: ibnazer/cleanappserver
+    ports:
+      - 8080:8080
+# ??????????????????
+#    environment:
+#      - PORT=8080
+#      - EXECUTION_DURATION=180sec
+
