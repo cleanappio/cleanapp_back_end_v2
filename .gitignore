@@ -1,2 +1,2 @@
-bin/client
+bin/*
 docker/service

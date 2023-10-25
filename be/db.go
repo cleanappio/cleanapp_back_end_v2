@@ -2,25 +2,18 @@ package be
 
 import (
 	"database/sql"
+	"flag"
 	"fmt"
 	"log"
-	"time"
+
+	"cleanapp/common"
 
 	_ "github.com/go-sql-driver/mysql"
 )
 
-func dbConnect() (*sql.DB, error) {
-	db, err := sql.Open("mysql", "server:dev_pass@tcp(mysql)/cleanapp")
-	if err != nil {
-		log.Printf("Failed to connect to the database: %v", err)
-		return nil, err
-	}
-	db.SetConnMaxLifetime(time.Minute * 3)
-	db.SetMaxOpenConns(10)
-	db.SetMaxIdleConns(10)
-	log.Println("Established db connection.")
-	return db, err
-}
+var (
+	mysqlAddress = flag.String("mysql_address", "server:dev_pass@tcp(mysql)/cleanapp", "MySQL address string")
+)
 
 func validateResult(r sql.Result, e error) error {
 	if e != nil {
@@ -42,7 +35,7 @@ func validateResult(r sql.Result, e error) error {
 
 func updateUser(u UserArgs) error {
 	log.Printf("Write: Trying to create or update user %s / %s", u.Id, u.Avatar)
-	db, err := dbConnect()
+	db, err := common.DBConnect(*mysqlAddress)
 	if err != nil {
 		return err
 	}
@@ -56,7 +49,7 @@ func updateUser(u UserArgs) error {
 
 func saveReport(r ReportArgs) error {
 	log.Printf("Write: Trying to save report from user %s to db located at %f,%f", r.Id, r.Latitude, r.Longitue)
-	db, err := dbConnect()
+	db, err := common.DBConnect(*mysqlAddress)
 	if err != nil {
 		return err
 	}
