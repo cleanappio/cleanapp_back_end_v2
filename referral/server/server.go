@@ -24,7 +24,8 @@ func StartServer() {
 	router := gin.Default()
 	handler, err := service.NewHandler()
 	if err != nil {
-		log.Errorf("referral handler creation error, %v", err)
+		log.Errorf("referral handler creation: %w", err)
+		return
 	}
 	router.GET(readReferralEndpoint, handler.ReadReferral)
 	router.POST(writeReferralEndpoint, handler.WriteReferral)

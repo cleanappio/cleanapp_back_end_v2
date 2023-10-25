@@ -37,7 +37,7 @@ func doUser() {
 	resp, err := http.Post(reportUrl+"/update_or_create_user", contentType, bytes.NewBufferString(buf))
 
 	if err != nil {
-		log.Printf("Failed to call the server with %v", err)
+		log.Printf("Failed to call the server with %w", err)
 		return
 	}
 	defer resp.Body.Close()
@@ -61,7 +61,7 @@ func doReport() {
 	resp, err := http.Post(reportUrl+"/report", contentType, bytes.NewBufferString(buf))
 
 	if err != nil {
-		log.Printf("Failed to call the server with %v", err)
+		log.Printf("Failed to call the server with %w", err)
 		return
 	}
 	defer resp.Body.Close()
@@ -78,7 +78,7 @@ func doWriteReferral() {
 	}`
 	resp, err := http.Post(referralUrl+"/writereferral", contentType, bytes.NewBufferString(buf))
 	if err != nil {
-		log.Printf("Failed to call the server with %v", err)
+		log.Printf("Failed to call the server with %w", err)
 		return
 	}
 	defer resp.Body.Close()
@@ -90,7 +90,7 @@ func doReadReferral() {
 	log.Println("doReadReferral()")
 	resp, err := http.Get(referralUrl+"/readreferral?refkey="+url.QueryEscape("192.168.1.34:300:670"))
 	if err != nil {
-		log.Printf("Failed to call the server with %v", err)
+		log.Printf("Failed to call the server with %w", err)
 		return
 	}
 	defer resp.Body.Close()

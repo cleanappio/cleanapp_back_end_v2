@@ -34,7 +34,6 @@ type ReferralHandler struct {
 func NewHandler() (*ReferralHandler, error) {
 	sqldb, err := common.DBConnect(*mysqlAddress)
 	if err != nil {
-		log.Errorf("error in db connecting, %v", err)
 		return nil, err
 	}
 
@@ -46,17 +45,17 @@ func NewHandler() (*ReferralHandler, error) {
 func (h *ReferralHandler) ReadReferral(c *gin.Context) {
 	refQuery := &referralQuery{}
 	if err := c.BindQuery(refQuery); err != nil {
-		log.Errorf("error in query binding, %v", err)
-		c.Status(http.StatusBadRequest)
+		log.Errorf("query binding, %w", err)
 		c.Error(err)
+		c.Status(http.StatusBadRequest)
 		return
 	}
 
 	refValue, err := h.db.ReadReferral(refQuery.RefKey)
 	if err != nil {
-		log.Errorf("error in referral reading, %v", err)
-		c.Status(http.StatusInternalServerError)
+		log.Errorf("referral reading, %v", err)
 		c.Error(err)
+		c.Status(http.StatusInternalServerError)
 		return
 	}
 
@@ -68,14 +67,16 @@ func (h *ReferralHandler) ReadReferral(c *gin.Context) {
 func (h *ReferralHandler) WriteReferral(c *gin.Context) {
 	refData := &referralData{}
 	if err := c.BindJSON(refData); err != nil {
+		log.Errorf("JSON binding, %w", err)
 		c.Status(http.StatusBadRequest)
 		c.Error(err)
 		return
 	}
 
 	if err := h.db.WriteReferral(refData.RefKey, refData.RefValue); err != nil {
-		c.Status(http.StatusInternalServerError)
 		c.Error(err)
+		log.Errorf("referral writing, %w", err)
+		c.Status(http.StatusInternalServerError)
 		return
 	}
 
