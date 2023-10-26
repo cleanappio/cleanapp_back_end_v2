@@ -48,6 +48,7 @@ SHOW COLUMNS FROM referrals;
 -- 2. Replace 'dev_pass' with real password for prod deployments.
 CREATE USER IF NOT EXISTS 'server'@'localhost' IDENTIFIED BY 'dev_pass';
 CREATE USER IF NOT EXISTS 'server'@'%' IDENTIFIED BY 'dev_pass';
+SELECT User, Host FROM mysql.user;
 
 -- Grant rights to the user.
 GRANT ALL ON cleanapp.* TO 'server'@'localhost';

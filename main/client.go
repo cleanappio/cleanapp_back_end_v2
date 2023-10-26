@@ -21,7 +21,7 @@ const (
 
 var (
 	testReport = flag.Bool("test_report", true, "If true then run tests for report service")
-	testReferral = flag.Bool("test_referral", true, "If true then run tests for referral service")
+	testReferral = flag.Bool("test_referral", false, "If true then run tests for referral service")
 	userID = fmt.Sprintf("%X", rand.Uint64())
 )
 

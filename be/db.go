@@ -12,7 +12,8 @@ import (
 )
 
 var (
-	mysqlAddress = flag.String("mysql_address", "server:dev_pass@tcp(mysql)/cleanapp", "MySQL address string")
+	// mysqlAddress = flag.String("mysql_address", "server:dev_pass@tcp(localhost:33060)/cleanapp", "MySQL address string")
+	mysqlAddress = flag.String("mysql_address", "server:dev_pass@tcp(cleanupdb:3306)/cleanapp", "MySQL address string")
 )
 
 func validateResult(r sql.Result, e error) error {

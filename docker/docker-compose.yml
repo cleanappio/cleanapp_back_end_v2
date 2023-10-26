@@ -1,12 +1,31 @@
 
+# To start run:
+#   MYSQL_ROOT_PASSWORD=secret docker-compose up -d
+# To stop and delete the data:
+#   docker-compose down -v
+# To stop without deleting the data:
+#   docker-compose down
+
+version: '3'
+
 services:
-  textmetrics:
+  cleanappserver:
     container_name: ibnazer.cleanappserver
     image: ibnazer/cleanappserver
     ports:
       - 8080:8080
-# ??????????????????
-#    environment:
-#      - PORT=8080
-#      - EXECUTION_DURATION=180sec
+
+  cleanupdb:
+    container_name: cleanappdb
+    image: mysql:8.0
+    environment:
+      - MYSQL_ROOT_PASSWORD
+    volumes:
+      - mysql:/var/lib/mysql
+      - "../db/setup.sql:/docker-entrypoint-initdb.d/setup.sql"
+    ports:
+      - 3306:3306
+
+volumes:
+  mysql:
 
