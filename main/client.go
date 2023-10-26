@@ -3,24 +3,30 @@ package main
 
 import (
 	"bytes"
-	"cleanapp/be"
 	"encoding/base64"
+	"flag"
 	"fmt"
 	"io"
 	"log"
 	"math/rand"
 	"net/http"
+	"net/url"
 )
 
 const (
-	url         = "http://127.0.0.1:8080"
+	reportUrl   = "http://127.0.0.1:8080"
+	referralUrl = "http://127.0.0.1:8081"
 	contentType = "application/json"
 )
+
 var (
+	testReport = flag.Bool("test_report", true, "If true then run tests for report service")
+	testReferral = flag.Bool("test_referral", true, "If true then run tests for referral service")
 	userID = fmt.Sprintf("%X", rand.Uint64())
 )
 
 func doUser() {
+	log.Println("DoUser()")
 	buf := `
 {
 	"version": "2.0",
@@ -28,10 +34,10 @@ func doUser() {
 	"avatar": "La Puch da Vinchi"
 }`
 
-	resp, err := http.Post(url+be.EndPointUser, contentType, bytes.NewBufferString(buf))
+	resp, err := http.Post(reportUrl+"/update_or_create_user", contentType, bytes.NewBufferString(buf))
 
 	if err != nil {
-		log.Printf("Failed to call the server with %v", err)
+		log.Printf("Failed to call the server with %w", err)
 		return
 	}
 	defer resp.Body.Close()
@@ -40,6 +46,7 @@ func doUser() {
 }
 
 func doReport() {
+	log.Println("doReport()")
 	buf := `
 {
 	"version": "2.0",
@@ -51,10 +58,39 @@ func doReport() {
 	"image": "` + base64.StdEncoding.EncodeToString([]byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x48}) + `"
 }`
 
-	resp, err := http.Post(url+be.EndPointReport, contentType, bytes.NewBufferString(buf))
+	resp, err := http.Post(reportUrl+"/report", contentType, bytes.NewBufferString(buf))
 
 	if err != nil {
-		log.Printf("Failed to call the server with %v", err)
+		log.Printf("Failed to call the server with %w", err)
+		return
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	log.Printf("Done, %s: %v", resp.Status, string(body))
+}
+
+func doWriteReferral() {
+	log.Println("doWriteReferral()")
+	buf := `
+	{
+		"refkey": "192.168.1.34:300:670",
+		"refvalue": "abcdef"
+	}`
+	resp, err := http.Post(referralUrl+"/writereferral", contentType, bytes.NewBufferString(buf))
+	if err != nil {
+		log.Printf("Failed to call the server with %w", err)
+		return
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	log.Printf("Done, %s: %v", resp.Status, string(body))
+}
+
+func doReadReferral() {
+	log.Println("doReadReferral()")
+	resp, err := http.Get(referralUrl+"/readreferral?refkey="+url.QueryEscape("192.168.1.34:300:670"))
+	if err != nil {
+		log.Printf("Failed to call the server with %w", err)
 		return
 	}
 	defer resp.Body.Close()
@@ -63,6 +99,13 @@ func doReport() {
 }
 
 func main() {
+	flag.Parse()
+
+	if *testReport {
 	doUser()
 	doReport()
+}
+if *testReferral {
+	doWriteReferral()
+	doReadReferral()}
 }
