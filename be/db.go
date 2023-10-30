@@ -11,6 +11,10 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
+const (
+	steps = 10 // Steps in geo coordinates withoing a geo port. It seems not practical to have more that 10x10 spots on such a small screen.
+)
+
 var (
 	// mysqlAddress = flag.String("mysql_address", "server:dev_pass@tcp(localhost:33060)/cleanapp", "MySQL address string")
 	mysqlAddress = flag.String("mysql_address", "server:dev_pass@tcp(cleanupdb:3306)/cleanapp", "MySQL address string")
@@ -61,4 +65,72 @@ func saveReport(r ReportArgs) error {
 		r.Id, r.Latitude, r.Longitue, r.X, r.Y, r.Image)
 
 	return validateResult(result, err)
+}
+
+func makeCoord(v float64, base, step float64) int64 {
+	r := (v-step)/step
+	if r  < 0 || r > steps {
+		log.Printf("%v is outside of 10*%v from %v", v, step, base)
+		return 0.0
+	}
+	return int64(r)
+}
+
+func getMap(m MapArgs) ([]*MapResult, error) {
+	log.Printf("Write: Trying to map/coordinates from user %s from db around %f,%f", m.Id, m.Latitude, m.Longitue)
+	db, err := common.DBConnect(*mysqlAddress)
+	if err != nil {
+		return nil, err
+	}
+	late := m.Latitude + m.Length
+	lone := m.Longitue + m.Width
+	latw := m.Length / steps
+	lonw := m.Width / steps
+
+	// TODO: Limit the time scope, say, last  week. Or make it a parameter.
+	rows, err := db.Query(`
+	  SELECT latitude, longitude
+	  FROM reports
+	  WHERE latitude > ? AND longitude > ?
+	  	AND latitude < ? AND longitude < ?
+	`, m.Latitude, m.Longitue, late, lone)
+	if err != nil {
+		log.Printf("Could not retrieve reports: %v", err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	// TODO: Do not return more than 100, the client may break,
+	// and the user will not percive so many results.
+	r := make(map[int64]*MapResult)
+
+	for rows.Next() {
+		var (
+			lat   float64
+			lon   float64
+		)
+		if err := rows.Scan(&lat, &lon); err != nil {
+			log.Printf("Cannot scan a row with error %v",  err) 
+			continue
+		}
+		lt := makeCoord(lat, m.Latitude, latw)
+		ln := makeCoord(lon, m.Longitue, lonw)
+		ndx := lt*1000 + ln
+		if _, ok := r[ndx]; !ok {
+			r[ndx] = &MapResult{
+				Latitude: lat + float64(lt)/5,
+				Longitude: lon + float64(ln)/5,
+				Count: 0,
+			}
+		}
+		r[ndx].Count += 1
+	}
+	
+	log.Printf("%d lines found", len(r))
+	var rr []*MapResult
+	for _, ri := range r {
+		rr = append(rr, ri)
+	}
+
+	return rr, nil
 }

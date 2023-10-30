@@ -45,20 +45,51 @@ func doUser() {
 	log.Printf("Done, %s: %v", resp.Status, string(body))
 }
 
+// TODO: consider moving to common.
+func RandomizeFloat(v, max float64) string {
+	return fmt.Sprintf("%f", v+rand.Float64()*2*max - max) 
+}
+
+func randomizeInt(v int64, max int64) int64 {
+	return int64(v + int64(rand.Float64()*float64(max)*2-float64(max)));
+}
+
 func doReport() {
 	log.Println("doReport()")
 	buf := `
 {
 	"version": "2.0",
 	"id": "` + userID + `",
-	"latitude": 35.1293548,
-	"longitude": -90.1222609,
+	"latitude": ` + RandomizeFloat(35.1293548, 1.0) + `,
+	"longitude": ` + RandomizeFloat(-90.1222609, 1.0) + `,
 	"x": 100,
-	"y": 200,
+	"y": 150,
 	"image": "` + base64.StdEncoding.EncodeToString([]byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x48}) + `"
 }`
 
 	resp, err := http.Post(reportUrl+"/report", contentType, bytes.NewBufferString(buf))
+
+	if err != nil {
+		log.Printf("Failed to call the server with %w", err)
+		return
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	log.Printf("Done, %s: %v", resp.Status, string(body))
+}
+
+func doMap() {
+	log.Println("doReport()")
+	buf := `
+{
+	"version": "2.0",
+	"id": "` + userID + `",
+	"latitude": ` + RandomizeFloat(35.1293548, 1.0) + `,
+	"longitude": ` + RandomizeFloat(-90.1222609, 1.0) + `,
+	"width": 1,
+	"length": 1}`
+
+	resp, err := http.Post(reportUrl+"/get_map", contentType, bytes.NewBufferString(buf))
 
 	if err != nil {
 		log.Printf("Failed to call the server with %w", err)
@@ -104,6 +135,7 @@ func main() {
 	if *testReport {
 	doUser()
 	doReport()
+	doMap()
 }
 if *testReferral {
 	doWriteReferral()

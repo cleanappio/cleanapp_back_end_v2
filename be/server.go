@@ -11,6 +11,7 @@ import (
 const (
 	EndPointUser   = "/update_or_create_user"
 	EndPointReport = "/report"
+	EndPointGetMap = "/get_map"
 )
 
 var (
@@ -22,8 +23,8 @@ func StartService() {
 	router := gin.Default()
 	router.POST(EndPointUser, UpdateUser)
 	router.POST(EndPointReport, Report)
+	router.POST(EndPointGetMap, GetMap)
 
 	router.Run(fmt.Sprintf(":%d", *serverPort))
-	//router.Run("localhost:8080")
 	log.Println("Finished the service. Should not ever being seen.")
 }
