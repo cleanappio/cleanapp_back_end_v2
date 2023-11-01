@@ -79,15 +79,15 @@ func doReport() {
 }
 
 func doMap() {
-	log.Println("doReport()")
+	log.Println("doMap()")
 	buf := `
 {
 	"version": "2.0",
 	"id": "` + userID + `",
-	"latitude": ` + RandomizeFloat(35.1293548, 1.0) + `,
-	"longitude": ` + RandomizeFloat(-90.1222609, 1.0) + `,
-	"width": 1,
-	"length": 1}`
+	"latitude": 35.0,
+	"longitude": -95.0,
+	"latw": 10,
+	"lonw": 10}`
 
 	resp, err := http.Post(reportUrl+"/get_map", contentType, bytes.NewBufferString(buf))
 

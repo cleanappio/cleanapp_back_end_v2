@@ -13,14 +13,8 @@ type MapArgs struct {
 	Id      string `json:"id"`      // public key.
 	Latitude float64 `json:"latitude"`
 	Longitue float64 `json:"longitude"`
-	Width        float64   `json:"width"`
-	Length        float64   `json:"length"`
-}
-
-type MapResult struct {
-	Latitude float64
-	Longitude float64
-	Count int64
+	LatW        float64   `json:"latw"`
+	LonW        float64   `json:"lonw"`
 }
 
 func GetMap(c *gin.Context) {
@@ -53,9 +47,12 @@ func GetMap(c *gin.Context) {
 		c.Status(http.StatusInternalServerError) // 500
 		return
 	}
-	for _, i := range r {
-		fmt.Printf("%v", i)
+	a := NewAggregator(ma.Latitude, ma.Longitue, ma.LatW, ma.LonW, 10, 10)
+	for _, p := range r {
+		a.AddPoint(p.Latitude, p.Longitude)
+		fmt.Printf("%v", p)
+
 	}
-	c.IndentedJSON(http.StatusOK, r)
-	c.Status(http.StatusOK) // 200
+	c.IndentedJSON(http.StatusOK, a.ToArray()) // 200
+	//c.Status(http.StatusOK) // 200
 }
