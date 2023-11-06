@@ -63,15 +63,13 @@ func saveReport(r ReportArgs) error {
 	return validateResult(result, err)
 }
 
-func getMap(m MapArgs) ([]MapResult, error) {
-	log.Printf("Write: Trying to map/coordinates from user %s from db around %f,%f", m.Id, m.Latitude, m.Longitue)
+func getMap(m ViewPort) ([]MapResult, error) {
+	log.Printf("Write: Trying to map/coordinates from db in %f,%f:%f,%f", m.LatTop, m.LonLeft, m.LatBottom, m.LonRight)
 	db, err := common.DBConnect(*mysqlAddress)
 	if err != nil {
 		return nil, err
 	}
-	late := m.Latitude + m.LatW
-	lone := m.Longitue + m.LonW
-	log.Printf("%f:%f to %f:%f",m.Latitude, m.Longitue, late, lone)
+	log.Printf("%f:%f to %f:%f", m.LatTop, m.LonLeft, m.LatBottom, m.LonRight)
 	//latw := m.LatW / steps
 	//lonw := m.LonW / steps
 
@@ -80,8 +78,8 @@ func getMap(m MapArgs) ([]MapResult, error) {
 	  SELECT latitude, longitude
 	  FROM reports
 	  WHERE latitude > ? AND longitude > ?
-	  	AND latitude < ? AND longitude < ?
-	`, m.Latitude, m.Longitue, late, lone)
+	  	AND latitude <= ? AND longitude <= ?
+	`, m.LatTop, m.LonLeft, m.LatBottom, m.LonRight)
 	if err != nil {
 		log.Printf("Could not retrieve reports: %v", err)
 		return nil, err
@@ -92,11 +90,11 @@ func getMap(m MapArgs) ([]MapResult, error) {
 
 	for rows.Next() {
 		var (
-			lat   float64
-			lon   float64
+			lat float64
+			lon float64
 		)
 		if err := rows.Scan(&lat, &lon); err != nil {
-			log.Printf("Cannot scan a row with error %v",  err) 
+			log.Printf("Cannot scan a row with error %v", err)
 			continue
 		}
 		log.Printf("%f:%f", lat, lon)

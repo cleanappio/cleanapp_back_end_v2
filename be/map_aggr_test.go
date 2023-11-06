@@ -5,8 +5,9 @@ import (
 	"testing"
 )
 
-func TestAggregator(t *testing.T) {
-	a := NewAggregator(4.0, 5.0, 10.0, 5.0, 10, 5)
+func TestMapAggregator(t *testing.T) {
+	a := NewMapAggregator(4.0, 5.0, 9.0, 10.0, 5, 4)
+	fmt.Printf("%v", a)
 
 	type val struct {
 		lon float64
@@ -25,10 +26,11 @@ func TestAggregator(t *testing.T) {
 
 	for _, v := range vals {
 		a.AddPoint(v.lat, v.lon)
-	} 
+	}
 
 	r := a.ToArray()
-	e := map[string]bool{"{5.5 5.5 2}": true, "{7.5 5.5 1}": true, "{8.5 7.5 3}": true}
+	e := map[string]bool{"{5.5 5.625 2}": true, "{7.5 5.625 1}": true, "{8.5 8.125 3}": true}
+	fmt.Printf("%v", r)
 	if len(r) != len(e) {
 		t.Errorf("Result length %d is different from the expected %d", len(r), len(e))
 	}
