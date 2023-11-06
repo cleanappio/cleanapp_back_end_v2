@@ -4,12 +4,12 @@ import (
 	"flag"
 	"log"
 
-	"cleanapp/be"
+	"cleanapp/backend/impl"
 )
 
 func main() {
 	flag.Parse()
 	log.Println("Hello!")
-	be.StartService()
+	backend.StartService()
 	log.Println("Bye!")
 }

@@ -1,4 +1,4 @@
-package service
+package backend
 
 import (
 	"database/sql"
@@ -11,18 +11,18 @@ import (
 )
 
 var (
-	refDB *referralDB
-	mock  sqlmock.Sqlmock
+	sDB  *sqlDB
+	mock sqlmock.Sqlmock
 )
 
 func setUp() {
 	var db *sql.DB
 	db, mock, _ = sqlmock.New()
-	refDB = &referralDB{db}
+	sDB = &sqlDB{db}
 }
 
 func tearDown() {
-	refDB.db.Close()
+	sDB.db.Close()
 }
 
 var it = beforeeach.Create(setUp, tearDown)
@@ -75,12 +75,12 @@ func TestReadReferral(t *testing.T) {
 						FromCSVString(strings.Join(testCase.refValues, "\n")))
 			}
 
-			refvalue, err := refDB.ReadReferral(testCase.refKey)
+			refvalue, err := sDB.readReferral(testCase.refKey)
 			if testCase.errorExpected != (err != nil) {
-				t.Errorf("%s, refDB.ReadReferral: expected error: %v, got error: %e", testCase.name, testCase.errorExpected, err)
+				t.Errorf("%s, sDB.ReadReferral: expected error: %v, got error: %e", testCase.name, testCase.errorExpected, err)
 			}
 			if refvalue != testCase.expectedValue {
-				t.Errorf("%s, refDB.ReadReferral: expected %s, got %s", testCase.name, testCase.expectedValue, refvalue)
+				t.Errorf("%s, sDB.ReadReferral: expected %s, got %s", testCase.name, testCase.expectedValue, refvalue)
 			}
 		}
 	})
@@ -148,8 +148,8 @@ func TestWriteReferral(t *testing.T) {
 				}
 			}
 
-			if err := refDB.WriteReferral(testCase.refKey, testCase.refValue); testCase.errorExpected != (err != nil) {
-				t.Errorf("%s, refDB.WriteReferral: expected error: %v, got error: %e", testCase.name, testCase.errorExpected, err)
+			if err := sDB.writeReferral(testCase.refKey, testCase.refValue); testCase.errorExpected != (err != nil) {
+				t.Errorf("%s, sDB.WriteReferral: expected error: %v, got error: %e", testCase.name, testCase.errorExpected, err)
 			}
 		}
 	})

@@ -1,4 +1,4 @@
-package be
+package backend
 
 import (
 	"fmt"
@@ -15,16 +15,13 @@ type ViewPort struct {
 	LonRight  float64 `json:"lonright"`
 }
 
-type S2Cell string
-
 type MapArgs struct {
 	Version string   `json:"version"` // Must be "2.0"
 	Id      string   `json:"id"`      // public key.
 	VPort   ViewPort `json:"vport"`
-	S2Cells []S2Cell `json:"s2cells"` // Nullable, not implemented yet.
 }
 
-func GetMap(c *gin.Context) {
+func (h *handler) getMap(c *gin.Context) {
 	log.Print("Call to /get_map")
 	var ma MapArgs
 
@@ -47,7 +44,7 @@ func GetMap(c *gin.Context) {
 
 	// Add user to the database.
 	log.Printf("/get_map got %v", ma)
-	r, err := getMap(ma.VPort)
+	r, err := h.sDB.getMap(ma.VPort)
 	if err != nil {
 		log.Printf("Failed to update user with %v", err)
 		c.Status(http.StatusInternalServerError) // 500

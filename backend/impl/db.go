@@ -1,20 +1,26 @@
-package be
+package backend
 
 import (
 	"database/sql"
-	"flag"
 	"fmt"
 	"log"
-
-	"cleanapp/common"
+	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 )
 
-var (
-	// mysqlAddress = flag.String("mysql_address", "server:dev_pass@tcp(localhost:33060)/cleanapp", "MySQL address string")
-	mysqlAddress = flag.String("mysql_address", "server:dev_pass@tcp(cleanupdb:3306)/cleanapp", "MySQL address string")
-)
+func dbConnect(mysqlAddress string) (*sql.DB, error) {
+	db, err := sql.Open("mysql", mysqlAddress)
+	if err != nil {
+		log.Printf("Failed to connect to the database: %v", err)
+		return nil, err
+	}
+	db.SetConnMaxLifetime(time.Minute * 3)
+	db.SetMaxOpenConns(10)
+	db.SetMaxIdleConns(10)
+	log.Println("Established db connection.")
+	return db, err
+}
 
 func validateResult(r sql.Result, e error) error {
 	if e != nil {
@@ -34,28 +40,24 @@ func validateResult(r sql.Result, e error) error {
 	return nil
 }
 
-func updateUser(u UserArgs) error {
-	log.Printf("Write: Trying to create or update user %s / %s", u.Id, u.Avatar)
-	db, err := common.DBConnect(*mysqlAddress)
-	if err != nil {
-		return err
-	}
+type sqlDB struct {
+	db *sql.DB
+}
 
-	result, err := db.Exec(`INSERT INTO users (id, avatar) VALUES (?, ?)
+func (s *sqlDB) updateUser(u UserArgs) error {
+	log.Printf("Write: Trying to create or update user %s / %s", u.Id, u.Avatar)
+
+	result, err := s.db.Exec(`INSERT INTO users (id, avatar) VALUES (?, ?)
 	                        ON DUPLICATE KEY UPDATE avatar=?`,
 		u.Id, u.Avatar, u.Avatar)
 
 	return validateResult(result, err)
 }
 
-func saveReport(r ReportArgs) error {
+func (s *sqlDB) saveReport(r ReportArgs) error {
 	log.Printf("Write: Trying to save report from user %s to db located at %f,%f", r.Id, r.Latitude, r.Longitue)
-	db, err := common.DBConnect(*mysqlAddress)
-	if err != nil {
-		return err
-	}
 
-	result, err := db.Exec(`INSERT
+	result, err := s.db.Exec(`INSERT
 	  INTO reports (id, latitude, longitude, x, y, image)
 	  VALUES (?, ?, ?, ?, ?, ?)`,
 		r.Id, r.Latitude, r.Longitue, r.X, r.Y, r.Image)
@@ -63,18 +65,11 @@ func saveReport(r ReportArgs) error {
 	return validateResult(result, err)
 }
 
-func getMap(m ViewPort) ([]MapResult, error) {
+func (s *sqlDB) getMap(m ViewPort) ([]MapResult, error) {
 	log.Printf("Write: Trying to map/coordinates from db in %f,%f:%f,%f", m.LatTop, m.LonLeft, m.LatBottom, m.LonRight)
-	db, err := common.DBConnect(*mysqlAddress)
-	if err != nil {
-		return nil, err
-	}
-	log.Printf("%f:%f to %f:%f", m.LatTop, m.LonLeft, m.LatBottom, m.LonRight)
-	//latw := m.LatW / steps
-	//lonw := m.LonW / steps
 
 	// TODO: Limit the time scope, say, last  week. Or make it a parameter.
-	rows, err := db.Query(`
+	rows, err := s.db.Query(`
 	  SELECT latitude, longitude
 	  FROM reports
 	  WHERE latitude > ? AND longitude > ?
@@ -101,4 +96,48 @@ func getMap(m ViewPort) ([]MapResult, error) {
 		r = append(r, MapResult{Latitude: lat, Longitude: lon, Count: 1})
 	}
 	return r, nil
+}
+
+func (s *sqlDB) readReferral(key string) (string, error) {
+	log.Printf("Read: retrieving the referral code for the device %s\n", key)
+
+	rows, err := s.db.Query(`SELECT refvalue
+		FROM referrals
+		WHERE refkey = ?`,
+		key)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+
+	var value string
+	// Take only the first row. Ignore others as duplicates are not expected.
+	if !rows.Next() {
+		return "", nil
+	}
+	if err := rows.Scan(&value); err != nil {
+		return "", err
+	}
+	return value, nil
+}
+
+func (s *sqlDB) writeReferral(key, value string) error {
+	log.Printf("Write: Trying to save the referral from device %s with value %s\n", key, value)
+
+	existing, err := s.readReferral(key)
+	if err != nil {
+		return err
+	}
+
+	// If the referral already exists then just return without inserting
+	if existing != "" {
+		return nil
+	}
+
+	_, err = s.db.Exec(`INSERT
+	  INTO referrals (refkey, refvalue)
+	  VALUES (?, ?)`,
+		key, value)
+
+	return err
 }

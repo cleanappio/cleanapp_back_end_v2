@@ -1,4 +1,4 @@
-package be
+package backend
 
 import (
 	"log"
@@ -17,7 +17,7 @@ type ReportArgs struct {
 	Image    []byte  `json:"image"`
 }
 
-func Report(c *gin.Context) {
+func (h *handler) report(c *gin.Context) {
 	log.Print("Call to /report")
 	var report ReportArgs
 
@@ -41,7 +41,7 @@ func Report(c *gin.Context) {
 
 	// Add report to the database.
 	log.Printf("/report got %v", report)
-	err := saveReport(report)
+	err := h.sDB.saveReport(report)
 	if err != nil {
 		log.Printf("Failed to write report with %v", err)
 		c.String(http.StatusInternalServerError, "Failed to save the report.") // 500

@@ -1,4 +1,4 @@
-package be
+package backend
 
 import (
 	"log"

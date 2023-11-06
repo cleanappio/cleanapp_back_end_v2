@@ -1,4 +1,4 @@
-package be
+package backend
 
 import (
 	"log"
@@ -13,7 +13,7 @@ type UserArgs struct {
 	Avatar  string `json:"avatar"`
 }
 
-func UpdateUser(c *gin.Context) {
+func (h *handler) updateUser(c *gin.Context) {
 	log.Print("Call to /update_or_create_user")
 	var user UserArgs
 
@@ -37,7 +37,7 @@ func UpdateUser(c *gin.Context) {
 
 	// Add user to the database.
 	log.Printf("/update_or_create_user got %v", user)
-	err := updateUser(user)
+	err := h.sDB.updateUser(user)
 	if err != nil {
 		log.Printf("Failed to update user with %v", err)
 		c.Status(http.StatusInternalServerError) // 500
