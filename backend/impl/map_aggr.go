@@ -1,9 +1,5 @@
 package backend
 
-import (
-	"log"
-)
-
 type MapResult struct {
 	Latitude  float64
 	Longitude float64
@@ -38,14 +34,12 @@ func (a MapAggregator) AddPoint(lat, lon float64) {
 	latX := int((lat - vp.LatTop) / a.latStep)
 	lonX := int((lon - vp.LonLeft) / a.lonStep)
 	if latX < 0 || lonX < 0 || latX >= a.latCnt || lonX >= a.lonCnt {
-		log.Printf("%f:%f results in  %d:%d index outside of the box", lat, lon, latX, lonX)
 		return
 	}
 	x := latX*a.lonCnt + lonX
 	v, ok := a.v[x]
 	if ok {
 		v.Count += 1
-		log.Printf("%d:%d (.2%f:.2%f)->%d %d", latX, lonX, lat, lon, x, v.Count)
 		return
 	}
 	a.v[x] = &MapResult{
@@ -53,7 +47,6 @@ func (a MapAggregator) AddPoint(lat, lon float64) {
 		Longitude: vp.LonLeft + a.lonStep*(0.5+float64(lonX)),
 		Count:     1,
 	}
-	log.Printf("%d:%d->%d 1", latX, lonX, x)
 }
 
 func (a MapAggregator) ToArray() []MapResult {

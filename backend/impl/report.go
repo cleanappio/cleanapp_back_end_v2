@@ -1,9 +1,9 @@
 package backend
 
 import (
-	"log"
 	"net/http"
 
+	"github.com/apex/log"
 	"github.com/gin-gonic/gin"
 )
 
@@ -18,7 +18,7 @@ type ReportArgs struct {
 }
 
 func (h *handler) report(c *gin.Context) {
-	log.Print("Call to /report")
+	log.Info("Call to /report")
 	var report ReportArgs
 
 	/* Troubleshooting code:
@@ -28,22 +28,22 @@ func (h *handler) report(c *gin.Context) {
 
 	// Get the arguments.
 	if err := c.BindJSON(&report); err != nil {
-		log.Printf("Failed to get the argument in /report call: %v", err)
+		log.Infof("Failed to get the argument in /report call: %v", err)
 		c.String(http.StatusInternalServerError, "Could not read JSON input.") // 500
 		return
 	}
 
 	if report.Version != "2.0" {
-		log.Printf("Bad version in /report, expected: 2.0, got: %v", report.Version)
+		log.Infof("Bad version in /report, expected: 2.0, got: %v", report.Version)
 		c.String(http.StatusNotAcceptable, "Bad API version, expecting 2.0.") // 406
 		return
 	}
 
 	// Add report to the database.
-	log.Printf("/report got %v", report)
+	log.Infof("/report got %v", report)
 	err := h.sDB.saveReport(report)
 	if err != nil {
-		log.Printf("Failed to write report with %v", err)
+		log.Infof("Failed to write report with %v", err)
 		c.String(http.StatusInternalServerError, "Failed to save the report.") // 500
 		return
 	}
