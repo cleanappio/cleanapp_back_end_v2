@@ -18,7 +18,7 @@ type handler struct {
 	sDB *sqlDB
 }
 
-func newHandler(router *gin.Engine) (*handler, error) {
+func newHandler() (*handler, error) {
 	db, err := dbConnect(*mysqlAddress)
 	if err != nil {
 		return nil, err
@@ -33,7 +33,7 @@ func StartService() {
 	log.Info("Starting the service...")
 	router := gin.Default()
 
-	handler, err := newHandler(router)
+	handler, err := newHandler()
 	if err != nil {
 		log.Errorf("http handler creation: %w", err)
 		return
