@@ -1,0 +1,141 @@
+package backend
+
+import (
+	"cleanapp/api"
+	"database/sql"
+	"fmt"
+	"time"
+
+	"github.com/apex/log"
+	_ "github.com/go-sql-driver/mysql"
+)
+
+func dbConnect(mysqlAddress string) (*sql.DB, error) {
+	db, err := sql.Open("mysql", mysqlAddress)
+	if err != nil {
+		log.Infof("Failed to connect to the database: %v", err)
+		return nil, err
+	}
+	db.SetConnMaxLifetime(time.Minute * 3)
+	db.SetMaxOpenConns(10)
+	db.SetMaxIdleConns(10)
+	log.Info("Established db connection.")
+	return db, err
+}
+
+func validateResult(r sql.Result, e error) error {
+	if e != nil {
+		log.Errorf("Query failed: %w", e)
+		return e
+	}
+	rows, err := r.RowsAffected()
+	if err != nil {
+		log.Errorf("Failed to get status of db op: %w", err)
+		return err
+	}
+	if rows != 1 {
+		return fmt.Errorf("expected to affect 1 row, affected %d", rows)
+	}
+	return nil
+}
+
+type sqlDB struct {
+	db *sql.DB
+}
+
+func (s *sqlDB) updateUser(u api.UserArgs) error {
+	log.Infof("Write: Trying to create or update user %s / %s", u.Id, u.Avatar)
+
+	result, err := s.db.Exec(`INSERT INTO users (id, avatar) VALUES (?, ?)
+	                        ON DUPLICATE KEY UPDATE avatar=?`,
+		u.Id, u.Avatar, u.Avatar)
+
+	return validateResult(result, err)
+}
+
+func (s *sqlDB) saveReport(r api.ReportArgs) error {
+	log.Infof("Write: Trying to save report from user %s to db located at %f,%f", r.Id, r.Latitude, r.Longitue)
+
+	result, err := s.db.Exec(`INSERT
+	  INTO reports (id, latitude, longitude, x, y, image)
+	  VALUES (?, ?, ?, ?, ?, ?)`,
+		r.Id, r.Latitude, r.Longitue, r.X, r.Y, r.Image)
+
+	return validateResult(result, err)
+}
+
+func (s *sqlDB) getMap(m api.ViewPort) ([]MapResult, error) {
+	log.Infof("Write: Trying to map/coordinates from db in %f,%f:%f,%f", m.LatTop, m.LonLeft, m.LatBottom, m.LonRight)
+
+	// TODO: Limit the time scope, say, last  week. Or make it a parameter.
+	rows, err := s.db.Query(`
+	  SELECT latitude, longitude
+	  FROM reports
+	  WHERE latitude > ? AND longitude > ?
+	  	AND latitude <= ? AND longitude <= ?
+	`, m.LatTop, m.LonLeft, m.LatBottom, m.LonRight)
+	if err != nil {
+		log.Errorf("Could not retrieve reports: %w", err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	r := make([]MapResult, 0, 100)
+
+	for rows.Next() {
+		var (
+			lat float64
+			lon float64
+		)
+		if err := rows.Scan(&lat, &lon); err != nil {
+			log.Errorf("Cannot scan a row with error %w", err)
+			continue
+		}
+		r = append(r, MapResult{Latitude: lat, Longitude: lon, Count: 1})
+	}
+	return r, nil
+}
+
+func (s *sqlDB) readReferral(key string) (string, error) {
+	log.Infof("Read: retrieving the referral code for the device %s\n", key)
+
+	rows, err := s.db.Query(`SELECT refvalue
+		FROM referrals
+		WHERE refkey = ?`,
+		key)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+
+	var value string
+	// Take only the first row. Ignore others as duplicates are not expected.
+	if !rows.Next() {
+		return "", nil
+	}
+	if err := rows.Scan(&value); err != nil {
+		return "", err
+	}
+	return value, nil
+}
+
+func (s *sqlDB) writeReferral(key, value string) error {
+	log.Infof("Write: Trying to save the referral from device %s with value %s\n", key, value)
+
+	existing, err := s.readReferral(key)
+	if err != nil {
+		return err
+	}
+
+	// If the referral already exists then just return without inserting
+	if existing != "" {
+		return nil
+	}
+
+	_, err = s.db.Exec(`INSERT
+	  INTO referrals (refkey, refvalue)
+	  VALUES (?, ?)`,
+		key, value)
+
+	return err
+}
