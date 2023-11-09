@@ -15,5 +15,5 @@ It should be up and running now. If not, contact eldarm@cleanapp.io
 
 ## More
 
-More infro to follow.
+More infro to be added.
 
