@@ -19,7 +19,7 @@ services:
     container_name: cleanappdb
     image: mysql:8.0
     environment:
-      - MYSQL_ROOT_PASSWORD
+      - MYSQL_ROOT_PASSWORD=$MYSQL_ROOT_PASSWORD
     volumes:
       - mysql:/var/lib/mysql
       - "../db/setup.sql:/docker-entrypoint-initdb.d/setup.sql"

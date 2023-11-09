@@ -14,9 +14,10 @@ import (
 
 	"cleanapp/be"
 )
-
+// 34.132.121.53
 const (
-	serviceUrl  = "http://127.0.0.1:8080"
+	// serviceUrl  = "http://127.0.0.1:8080" // Local
+	serviceUrl  = "http://34.132.121.53:80" // Google Cloud
 	referralUrl = "http://127.0.0.1:8081"
 	contentType = "application/json"
 )
@@ -39,7 +40,7 @@ func doUser() {
 	resp, err := http.Post(serviceUrl+be.EndPointUser, contentType, bytes.NewBufferString(buf))
 
 	if err != nil {
-		log.Printf("Failed to call the server with %w", err)
+		log.Printf("Failed to call the server with %v", err)
 		return
 	}
 	defer resp.Body.Close()
@@ -73,7 +74,7 @@ func doReport() {
 	resp, err := http.Post(serviceUrl+be.EndPointReport, contentType, bytes.NewBufferString(buf))
 
 	if err != nil {
-		log.Printf("Failed to call the server with %w", err)
+		log.Printf("Failed to call the server with %v", err)
 		return
 	}
 	defer resp.Body.Close()
@@ -98,7 +99,7 @@ func doMap() {
 	resp, err := http.Post(serviceUrl+be.EndPointGetMap, contentType, bytes.NewBufferString(buf))
 
 	if err != nil {
-		log.Printf("Failed to call the server with %w", err)
+		log.Printf("Failed to call the server with %v", err)
 		return
 	}
 	defer resp.Body.Close()
