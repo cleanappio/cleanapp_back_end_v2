@@ -55,17 +55,17 @@ func updatePrivacyAndTOC(db *sql.DB, args *PrivacyAndTOCArgs) error {
 		result, err := db.Exec(`UPDATE users
 			SET privacy = ?, agree_toc = ?
 			WHERE id = ?`, args.Privacy, args.AgreeTOC, args.Id)
-		return validateResult(result, err, true)
+		return validateResult(result, err, false)
 	} else if args.Privacy != "" {
 		result, err := db.Exec(`UPDATE users
 			SET privacy = ?
 			WHERE id = ?`, args.Privacy, args.Id)
-		return validateResult(result, err, true)
+		return validateResult(result, err, false)
 	} else if args.AgreeTOC != "" {
 		result, err := db.Exec(`UPDATE users
 			SET agree_toc = ?
 			WHERE id = ?`, args.AgreeTOC, args.Id)
-		return validateResult(result, err, true)
+		return validateResult(result, err, false)
 	}
 	return fmt.Errorf("either privacy or agree_toc should be specified")
 }
