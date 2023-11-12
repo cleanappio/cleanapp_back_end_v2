@@ -124,3 +124,48 @@ func getMap(m ViewPort) ([]MapResult, error) {
 	}
 	return r, nil
 }
+
+func readReport(db *sql.DB, args *ReadReportArgs) (*ReadReportResponse, error) {
+	log.Printf("Read: Getting the report %d\n", args.Seq)
+
+	rows, err := db.Query(`SELECT
+		r.id, r.image, u.avatar, u.privacy
+		FROM reports AS r
+		JOIN users AS u
+		ON r.id = u.id
+		WHERE r.seq = ?`,
+		args.Seq)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	const shareData = "sharing_data_live"
+
+	var (
+		id string
+		image []byte
+		avatar string
+		privacy string
+	)
+
+	// Take only the first row. Ignore others as duplicates are not expected.
+	if !rows.Next() {
+		return nil, fmt.Errorf("Report %d wasn't found", args.Seq)
+	}
+
+	if err := rows.Scan(&id, &image, &avatar, &privacy); err != nil {
+		return nil, err
+	}
+
+	ret := &ReadReportResponse{
+		Id: id,
+		Image: image,
+	}
+
+	if privacy == shareData {
+		ret.Avatar = avatar
+	}
+
+	return ret, nil
+}
