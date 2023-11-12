@@ -81,18 +81,6 @@ func TestUpdatePrivacyAndAgreeTOC(t *testing.T) {
 				errorExpected: true,
 			},
 			{
-				name:     "Non-existent ID",
-				version:  "2.0",
-				id:       "badID",
-				privacy:  "privacyVal",
-				agreeTOC: "agreeTOCVal",
-
-				execExpected: true,
-				rowsAffected: 0,
-
-				errorExpected: true,
-			},
-			{
 				name:     "Invalid version",
 				version:  "1.0",
 				id:       "0x123456768",

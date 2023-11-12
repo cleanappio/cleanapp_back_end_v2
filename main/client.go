@@ -16,8 +16,8 @@ import (
 )
 // 34.132.121.53
 const (
-	// serviceUrl  = "http://127.0.0.1:8080" // Local
-	serviceUrl  = "http://34.132.121.53:80" // Google Cloud
+	serviceUrl  = "http://127.0.0.1:8080" // Local
+	// serviceUrl  = "http://34.132.121.53:80" // Google Cloud
 	referralUrl = "http://127.0.0.1:8081"
 	contentType = "application/json"
 )
