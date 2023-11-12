@@ -10,7 +10,9 @@ CREATE TABLE IF NOT EXISTS users (
   id VARCHAR(255),
   avatar VARCHAR(255),
   team INT, -- 0 UNKNOWN, 1 BLUE, 2 GREEN, see map.go
-  ts TIMESTAMP DEFAULT current_timestamp,
+  ts timestamp default current_timestamp,
+  privacy varchar(255),
+  agree_toc varchar(255),
   PRIMARY KEY (id)
 );
 SHOW TABLES;
