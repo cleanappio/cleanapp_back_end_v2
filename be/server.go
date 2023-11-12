@@ -9,9 +9,10 @@ import (
 )
 
 const (
-	EndPointUser   = "/update_or_create_user"
-	EndPointReport = "/report"
-	EndPointGetMap = "/get_map"
+	EndPointUser          = "/update_or_create_user"
+	EndPointPrivacyAndTOC = "/update_privacy_and_toc"
+	EndPointReport        = "/report"
+	EndPointGetMap        = "/get_map"
 )
 
 var (
@@ -22,6 +23,7 @@ func StartService() {
 	log.Println("Starting the service...")
 	router := gin.Default()
 	router.POST(EndPointUser, UpdateUser)
+	router.POST(EndPointPrivacyAndTOC, UpdatePrivacyAndTOC)
 	router.POST(EndPointReport, Report)
 	router.POST(EndPointGetMap, GetMap)
 

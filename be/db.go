@@ -48,6 +48,28 @@ func updateUser(u UserArgs) error {
 	return validateResult(result, err)
 }
 
+func updatePrivacyAndTOC(db *sql.DB, args *PrivacyAndTOCArgs) error {
+	log.Printf("Writing privacy and TOC %v", args)
+
+	if args.Privacy != "" && args.AgreeTOC != "" {
+		result, err := db.Exec(`UPDATE users
+			SET privacy = ?, agree_toc = ?
+			WHERE id = ?`, args.Privacy, args.AgreeTOC, args.Id)
+		return validateResult(result, err)
+	} else if args.Privacy != "" {
+		result, err := db.Exec(`UPDATE users
+			SET privacy = ?
+			WHERE id = ?`, args.Privacy, args.Id)
+		return validateResult(result, err)
+	} else if args.AgreeTOC != "" {
+		result, err := db.Exec(`UPDATE users
+			SET agree_toc = ?
+			WHERE id = ?`, args.AgreeTOC, args.Id)
+		return validateResult(result, err)
+	}
+	return fmt.Errorf("either privacy or agree_toc should be specified")
+}
+
 func saveReport(r ReportArgs) error {
 	log.Printf("Write: Trying to save report from user %s to db located at %f,%f", r.Id, r.Latitude, r.Longitue)
 	db, err := common.DBConnect(*mysqlAddress)
