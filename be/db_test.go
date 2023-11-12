@@ -2,6 +2,8 @@ package be
 
 import (
 	"database/sql"
+	"fmt"
+	"reflect"
 	"testing"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
@@ -116,6 +118,81 @@ func TestUpdatePrivacyAndAgreeTOC(t *testing.T) {
 				AgreeTOC: testCase.agreeTOC,
 			}); testCase.errorExpected != (err != nil) {
 				t.Errorf("%s, updatePrivacyAndTOC: expected error: %v, got error: %v", testCase.name, testCase.errorExpected, err)
+			}
+		}
+	})
+}
+
+func TestReadReport(t *testing.T) {
+	it(func() {
+		testCases := []struct {
+			name      string
+			seq       int
+			seqExists bool
+			sharing   string
+
+			expectResponse *ReadReportResponse
+			expectError    bool
+		}{
+			{
+				name:      "Request existing report with enabled avatar",
+				seq:       123,
+				seqExists: true,
+				sharing:   "sharing_data_live",
+				expectResponse: &ReadReportResponse{
+					Id:     "0x1234",
+					Image:  []byte{97, 98, 99, 100, 101, 102, 103, 104},
+					Avatar: "testuser",
+				},
+				expectError: false,
+			},
+			{
+				name:      "Request existing report with disabled avatar",
+				seq:       123,
+				seqExists: true,
+				sharing:   "not_sharing_data_live",
+				expectResponse: &ReadReportResponse{
+					Id:     "0x1234",
+					Image:  []byte{97, 98, 99, 100, 101, 102, 103, 104},
+					Avatar: "",
+				},
+				expectError: false,
+			},
+			{
+				name:        "Request non-existing report",
+				seq:         99999,
+				seqExists:   false,
+				sharing:     "sharing_data_live",
+				expectResponse: nil,
+				expectError: true,
+			},
+		}
+
+		columns := []string{
+			"id",
+			"image",
+			"avatar",
+			"privacy",
+		}
+		for _, testCase := range testCases {
+			values := ""
+			if testCase.seqExists {
+				values = fmt.Sprintf("0x1234,abcdefgh,testuser,%s", testCase.sharing)
+			}
+			mock.ExpectQuery("SELECT r.id, r.image, u.avatar, u.privacy FROM reports AS r JOIN users AS u	ON r.id = u.id WHERE r.seq = ?").WithArgs(testCase.seq).
+				WillReturnRows(sqlmock.NewRows(columns).
+					FromCSVString(values))
+
+			response, err := readReport(db, &ReadReportArgs{
+				Seq: testCase.seq,
+			})
+
+			if testCase.expectError != (err != nil) {
+				t.Errorf("%s, readReport: expected error: %v, got error: %v", testCase.name, testCase.expectError, err)
+			}
+
+			if !reflect.DeepEqual(response, testCase.expectResponse) {
+				t.Errorf("%s, readReport: expected %v, got %v", testCase.name, testCase.expectResponse, response)
 			}
 		}
 	})
