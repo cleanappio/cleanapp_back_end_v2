@@ -42,7 +42,7 @@ func updateUser(u UserArgs) error {
 	}
 
 	result, err := db.Exec(`INSERT INTO users (id, avatar) VALUES (?, ?)
-	                        ON DUPLICATE KEY UPDATE id=?`,
+	                        ON DUPLICATE KEY UPDATE avatar=?`,
 		u.Id, u.Avatar, u.Avatar)
 
 	return validateResult(result, err)
