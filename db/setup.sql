@@ -10,6 +10,8 @@ CREATE TABLE IF NOT EXISTS users (
   id varchar(255),
   avatar varchar(255),
   ts timestamp default current_timestamp,
+  privacy varchar(255),
+  agree_toc varchar(255),
   PRIMARY KEY (id)
 );
 SHOW TABLES;

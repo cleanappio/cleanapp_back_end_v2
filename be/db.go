@@ -16,7 +16,7 @@ var (
 	mysqlAddress = flag.String("mysql_address", "server:dev_pass@tcp(cleanupdb:3306)/cleanapp", "MySQL address string")
 )
 
-func validateResult(r sql.Result, e error) error {
+func validateResult(r sql.Result, e error, checkRowsAffected bool) error {
 	if e != nil {
 		log.Printf("Query failed: %v", e)
 		return e
@@ -26,7 +26,7 @@ func validateResult(r sql.Result, e error) error {
 		log.Printf("Failed to get status of db op: %s", err)
 		return err
 	}
-	if rows != 1 {
+	if checkRowsAffected && rows != 1 {
 		m := fmt.Sprintf("Expected to affect 1 row, affected %d", rows)
 		log.Print(m)
 		return fmt.Errorf(m)
@@ -45,7 +45,29 @@ func updateUser(u UserArgs) error {
 	                        ON DUPLICATE KEY UPDATE avatar=?`,
 		u.Id, u.Avatar, u.Avatar)
 
-	return validateResult(result, err)
+	return validateResult(result, err, false)
+}
+
+func updatePrivacyAndTOC(db *sql.DB, args *PrivacyAndTOCArgs) error {
+	log.Printf("Writing privacy and TOC %v", args)
+
+	if args.Privacy != "" && args.AgreeTOC != "" {
+		result, err := db.Exec(`UPDATE users
+			SET privacy = ?, agree_toc = ?
+			WHERE id = ?`, args.Privacy, args.AgreeTOC, args.Id)
+		return validateResult(result, err, false)
+	} else if args.Privacy != "" {
+		result, err := db.Exec(`UPDATE users
+			SET privacy = ?
+			WHERE id = ?`, args.Privacy, args.Id)
+		return validateResult(result, err, false)
+	} else if args.AgreeTOC != "" {
+		result, err := db.Exec(`UPDATE users
+			SET agree_toc = ?
+			WHERE id = ?`, args.AgreeTOC, args.Id)
+		return validateResult(result, err, false)
+	}
+	return fmt.Errorf("either privacy or agree_toc should be specified")
 }
 
 func saveReport(r ReportArgs) error {
@@ -60,7 +82,7 @@ func saveReport(r ReportArgs) error {
 	  VALUES (?, ?, ?, ?, ?, ?)`,
 		r.Id, r.Latitude, r.Longitue, r.X, r.Y, r.Image)
 
-	return validateResult(result, err)
+	return validateResult(result, err, true)
 }
 
 func getMap(m ViewPort) ([]MapResult, error) {
@@ -101,4 +123,49 @@ func getMap(m ViewPort) ([]MapResult, error) {
 		r = append(r, MapResult{Latitude: lat, Longitude: lon, Count: 1})
 	}
 	return r, nil
+}
+
+func readReport(db *sql.DB, args *ReadReportArgs) (*ReadReportResponse, error) {
+	log.Printf("Read: Getting the report %d\n", args.Seq)
+
+	rows, err := db.Query(`SELECT
+		r.id, r.image, u.avatar, u.privacy
+		FROM reports AS r
+		JOIN users AS u
+		ON r.id = u.id
+		WHERE r.seq = ?`,
+		args.Seq)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	const shareData = "sharing_data_live"
+
+	var (
+		id string
+		image []byte
+		avatar string
+		privacy string
+	)
+
+	// Take only the first row. Ignore others as duplicates are not expected.
+	if !rows.Next() {
+		return nil, fmt.Errorf("Report %d wasn't found", args.Seq)
+	}
+
+	if err := rows.Scan(&id, &image, &avatar, &privacy); err != nil {
+		return nil, err
+	}
+
+	ret := &ReadReportResponse{
+		Id: id,
+		Image: image,
+	}
+
+	if privacy == shareData {
+		ret.Avatar = avatar
+	}
+
+	return ret, nil
 }
