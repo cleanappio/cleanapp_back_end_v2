@@ -23,10 +23,11 @@ CREATE TABLE IF NOT EXISTS reports(
   seq INT NOT NULL AUTO_INCREMENT,
   ts TIMESTAMP default current_timestamp,
   id VARCHAR(255) NOT NULL,
+  team INT, -- 0 UNKNOWN, 1 BLUE, 2 GREEN, see map.go
   latitude FLOAT NOT NULL,
   longitude FLOAT NOT NULL,
-  x INT,
-  y INT,
+  x FLOAT, # 0.0..1.0
+  y FLOAT, # 0.0..1.0
   image LONGBLOB NOT NULL,
   PRIMARY KEY (seq)
 );
