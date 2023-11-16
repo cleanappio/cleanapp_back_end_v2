@@ -12,22 +12,22 @@ type TeamColor int
 
 const (
 	Unknown = 0
-	Blue = 1
-	Greed = 2
+	Blue    = 1
+	Greed   = 2
 )
 
 func UserIdToTeam(id string) TeamColor {
-  if len(id) > 2 {
-	id = id[:len(id)-2]
-  }
-  if len(id) > 3 {
-	id = id[len(id)-4:]
-  }
-  t, e := strconv.ParseInt(id, 16, 64)
-  if e != nil {
-	return 1
-  }
-  return TeamColor(t % 2 + 1)
+	if len(id) > 2 {
+		id = id[:len(id)-2]
+	}
+	if len(id) > 3 {
+		id = id[len(id)-4:]
+	}
+	t, e := strconv.ParseInt(id, 16, 64)
+	if e != nil {
+		return 1
+	}
+	return TeamColor(t%2 + 1)
 }
 
 type UserArgs struct {
@@ -70,5 +70,5 @@ func UpdateUser(c *gin.Context) {
 		c.Status(http.StatusInternalServerError) // 500
 		return
 	}
-	c.IndentedJSON(http.StatusOK, UserResp{ Team: UserIdToTeam(user.Id) }) // 200
+	c.IndentedJSON(http.StatusOK, UserResp{Team: UserIdToTeam(user.Id)}) // 200
 }
