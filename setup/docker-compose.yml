@@ -11,7 +11,7 @@ version: '3'
 services:
   cleanappserver:
     container_name: ibnazer.cleanappserver
-    image: ibnazer/cleanappserver
+    image: ibnazer/cleanappserver:1.5
     ports:
       - 8080:8080
 

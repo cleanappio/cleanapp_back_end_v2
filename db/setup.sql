@@ -7,9 +7,10 @@ SHOW DATABASES;
 
 -- Create the report table.
 CREATE TABLE IF NOT EXISTS users (
-  id varchar(255),
-  avatar varchar(255),
-  ts timestamp default current_timestamp,
+  id VARCHAR(255),
+  avatar VARCHAR(255),
+  team INT, -- 0 UNKNOWN, 1 BLUE, 2 GREEN, see map.go
+  ts TIMESTAMP DEFAULT current_timestamp,
   PRIMARY KEY (id)
 );
 SHOW TABLES;
@@ -20,13 +21,13 @@ SHOW COLUMNS FROM users;
 -- Create the report table.
 CREATE TABLE IF NOT EXISTS reports(
   seq INT NOT NULL AUTO_INCREMENT,
-  ts timestamp default current_timestamp,
-  id varchar(255) NOT NULL,
-  latitude float NOT NULL,
-  longitude float NOT NULL,
-  x int,
-  y int,
-  image longblob NOT NULL,
+  ts TIMESTAMP default current_timestamp,
+  id VARCHAR(255) NOT NULL,
+  latitude FLOAT NOT NULL,
+  longitude FLOAT NOT NULL,
+  x INT,
+  y INT,
+  image LONGBLOB NOT NULL,
   PRIMARY KEY (seq)
 );
 SHOW TABLES;

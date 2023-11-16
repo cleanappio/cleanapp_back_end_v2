@@ -61,5 +61,4 @@ func GetMap(c *gin.Context) {
 
 	}
 	c.IndentedJSON(http.StatusOK, a.ToArray()) // 200
-	//c.Status(http.StatusOK) // 200
 }
