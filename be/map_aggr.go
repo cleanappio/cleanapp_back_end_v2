@@ -45,12 +45,16 @@ func (a MapAggregator) AddPoint(lat, lon float64) {
 	v, ok := a.v[x]
 	if ok {
 		v.Count += 1
+		// Second+ times only mid-quadrant:
+		v.Latitude = vp.LatTop + a.latStep*(0.5+float64(latX))
+		v.Longitude = vp.LonLeft + a.lonStep*(0.5+float64(lonX))
 		log.Printf("%d:%d (.2%f:.2%f)->%d %d", latX, lonX, lat, lon, x, v.Count)
 		return
 	}
+	// First time only the exact coordinates.
 	a.v[x] = &MapResult{
-		Latitude:  vp.LatTop + a.latStep*(0.5+float64(latX)),
-		Longitude: vp.LonLeft + a.lonStep*(0.5+float64(lonX)),
+		Latitude:  lat,
+		Longitude: lon,
 		Count:     1,
 	}
 	log.Printf("%d:%d->%d 1", latX, lonX, x)
