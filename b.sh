@@ -2,7 +2,7 @@ echo "Building client..."
 go build -o bin/client main/client.go
 
 echo "Building MAC service..."
-GOARCH="arm64" GOOS="darwin" go build -o bin/service.app main/service.go
+GOARCH="arm64" GOOS="darwin" go build -o bin/serviceapp main/service.go
 echo "Building Linux service..."
 GOARCH="amd64" GOOS="linux" go build -o bin/service main/service.go
 echo "Building Windows service..."

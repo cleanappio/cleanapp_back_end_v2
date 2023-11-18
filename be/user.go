@@ -13,17 +13,15 @@ type TeamColor int
 const (
 	Unknown = 0
 	Blue    = 1
-	Greed   = 2
+	Green   = 2
 )
 
 func UserIdToTeam(id string) TeamColor {
+	ch := "1"
 	if len(id) > 2 {
-		id = id[:len(id)-2]
+		ch = id[len(id)-2:len(id)-1]
 	}
-	if len(id) > 3 {
-		id = id[len(id)-4:]
-	}
-	t, e := strconv.ParseInt(id, 16, 64)
+	t, e := strconv.ParseInt(ch, 16, 64)
 	if e != nil {
 		return 1
 	}
