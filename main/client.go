@@ -91,8 +91,7 @@ func doMap() {
 		"lonleft": -95.0,
 		"latbottom": 36.0,
 		"lonright": -85.0
-	},
-	"s2cells": []
+	}
 }`
 
 	resp, err := http.Post(serviceUrl+be.EndPointGetMap, contentType, bytes.NewBufferString(buf))

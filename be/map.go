@@ -21,7 +21,6 @@ type MapArgs struct {
 	Version string   `json:"version"` // Must be "2.0"
 	Id      string   `json:"id"`      // public key.
 	VPort   ViewPort `json:"vport"`
-	S2Cells []S2Cell `json:"s2cells"` // Nullable, not implemented yet.
 }
 
 func GetMap(c *gin.Context) {
