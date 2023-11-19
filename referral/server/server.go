@@ -27,7 +27,7 @@ func StartServer() {
 		log.Errorf("referral handler creation: %w", err)
 		return
 	}
-	router.GET(readReferralEndpoint, handler.ReadReferral)
+	router.POST(readReferralEndpoint, handler.ReadReferral)
 	router.POST(writeReferralEndpoint, handler.WriteReferral)
 
 	router.Run(fmt.Sprintf(":%d", *serverPort))

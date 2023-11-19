@@ -7,11 +7,12 @@ SHOW DATABASES;
 
 -- Create the report table.
 CREATE TABLE IF NOT EXISTS users (
-  id varchar(255),
-  avatar varchar(255),
-  ts timestamp default current_timestamp,
-  privacy varchar(255),
-  agree_toc varchar(255),
+  id VARCHAR(255),
+  avatar VARCHAR(255),
+  referral VARCHAR(32),
+  ts TIMESTAMP default current_timestamp,
+  privacy VARCHAR(255),
+  agree_toc VARCHAR(255),
   PRIMARY KEY (id)
 );
 SHOW TABLES;
@@ -22,13 +23,13 @@ SHOW COLUMNS FROM users;
 -- Create the report table.
 CREATE TABLE IF NOT EXISTS reports(
   seq INT NOT NULL AUTO_INCREMENT,
-  ts timestamp default current_timestamp,
-  id varchar(255) NOT NULL,
-  latitude float NOT NULL,
-  longitude float NOT NULL,
-  x int,
-  y int,
-  image longblob NOT NULL,
+  ts TIMESTAMP default current_timestamp,
+  id VARCHAR(255) NOT NULL,
+  latitude FLOAT NOT NULL,
+  longitude FLOAT NOT NULL,
+  x INT,
+  y INT,
+  image LONGBLOB NOT NULL,
   PRIMARY KEY (seq)
 );
 SHOW TABLES;
@@ -43,6 +44,15 @@ CREATE TABLE IF NOT EXISTS referrals(
 SHOW TABLES;
 DESCRIBE TABLE referrals;
 SHOW COLUMNS FROM referrals;
+
+CREATE TABLE IF NOT EXISTS users_refcodes(
+  referral CHAR(32) NOT NULL,
+  id VARCHAR(255) NOT NULL,
+  PRIMARY KEY (referral)
+);
+SHOW TABLES;
+DESCRIBE TABLE users_refcodes;
+SHOW COLUMNS FROM users_refcodes;
 
 -- Create the user.
 -- 1. Remove '%' user
