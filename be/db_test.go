@@ -25,6 +25,63 @@ func tearDown() {
 
 var it = beforeeach.Create(setUp, tearDown)
 
+func TestUpdateOrCreateUser(t *testing.T) {
+	it(func() {
+		testCases := []struct {
+			name     string
+			version  string
+			id       string
+			avatar   string
+			referral string
+
+			execExpected bool
+			rowsAffected int64
+
+			errorExpected bool
+		}{
+			{
+				name:     "Insert or update user",
+				version:  "2.0",
+				id:       "0x12345678",
+				avatar:   "user1",
+				referral: "abcdef",
+
+				execExpected: true,
+				rowsAffected: 1,
+
+				errorExpected: false,
+			}, {
+				name:     "Invalid version",
+				version:  "1.0",
+				id:       "0x123456768",
+				avatar:   "user1",
+				referral: "abcdef",
+
+				execExpected: false,
+
+				errorExpected: true,
+			},
+		}
+
+		for _, testCase := range testCases {
+			if testCase.execExpected {
+				mock.ExpectExec(
+					"INSERT INTO users \\(id, avatar, referral\\) VALUES \\((.+), (.+), (.+)\\) ON DUPLICATE KEY UPDATE avatar=(.+), referral=(.+)").
+					WithArgs(testCase.id, testCase.avatar, testCase.referral, testCase.avatar, testCase.referral).
+					WillReturnResult(sqlmock.NewResult(1, testCase.rowsAffected))
+			}
+			if err := updateUser(db, &UserArgs{
+				Version:  testCase.version,
+				Id:       testCase.id,
+				Avatar: testCase.avatar,
+				Referral: testCase.referral,
+			}); testCase.errorExpected != (err != nil) {
+				t.Errorf("%s, updateUser: expected error: %v, got error: %v", testCase.name, testCase.errorExpected, err)
+			}
+		}
+	})
+}
+
 func TestUpdatePrivacyAndAgreeTOC(t *testing.T) {
 	it(func() {
 		testCases := []struct {
@@ -159,12 +216,12 @@ func TestReadReport(t *testing.T) {
 				expectError: false,
 			},
 			{
-				name:        "Request non-existing report",
-				seq:         99999,
-				seqExists:   false,
-				sharing:     "sharing_data_live",
+				name:           "Request non-existing report",
+				seq:            99999,
+				seqExists:      false,
+				sharing:        "sharing_data_live",
 				expectResponse: nil,
-				expectError: true,
+				expectError:    true,
 			},
 		}
 

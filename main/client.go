@@ -10,7 +10,6 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
-	"net/url"
 
 	"cleanapp/be"
 )
@@ -34,7 +33,8 @@ func doUser() {
 {
 	"version": "2.0",
 	"id": "` + userID + `",
-	"avatar": "La Puch da Vinchi"
+	"avatar": "La Puch da Vinchi",
+	"referral": "AaBbCc"
 }`
 
 	resp, err := http.Post(serviceUrl+be.EndPointUser, contentType, bytes.NewBufferString(buf))
@@ -126,7 +126,11 @@ func doWriteReferral() {
 
 func doReadReferral() {
 	log.Println("doReadReferral()")
-	resp, err := http.Get(referralUrl + "/readreferral?refkey=" + url.QueryEscape("192.168.1.34:300:670"))
+	buf := `
+	{
+		"refkey": "192.168.1.34:300:670"
+	}`
+	resp, err := http.Post(referralUrl + "/readreferral", contentType, bytes.NewBufferString(buf))
 	if err != nil {
 		log.Printf("Failed to call the server with %w", err)
 		return

@@ -1,6 +1,7 @@
 package be
 
 import (
+	"cleanapp/common"
 	"log"
 	"net/http"
 
@@ -8,9 +9,10 @@ import (
 )
 
 type UserArgs struct {
-	Version string `json:"version"` // Must be "2.0"
-	Id      string `json:"id"`      // public key.
-	Avatar  string `json:"avatar"`
+	Version  string `json:"version"` // Must be "2.0"
+	Id       string `json:"id"`      // public key.
+	Avatar   string `json:"avatar"`
+	Referral string `json:"referral"`
 }
 
 type UserResp struct {
@@ -48,7 +50,14 @@ func UpdateUser(c *gin.Context) {
 
 	// Add user to the database.
 	log.Printf("/update_or_create_user got %v", user)
-	err := updateUser(user)
+
+	db, err := common.DBConnect(*mysqlAddress)
+	if err != nil {
+		log.Printf("%v", err)
+		return
+	}
+
+	err = updateUser(db, &user)
 	if err != nil {
 		log.Printf("Failed to update user with %v", err)
 		c.Status(http.StatusInternalServerError) // 500

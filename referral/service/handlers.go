@@ -44,8 +44,8 @@ func NewHandler() (*ReferralHandler, error) {
 
 func (h *ReferralHandler) ReadReferral(c *gin.Context) {
 	refQuery := &referralQuery{}
-	if err := c.BindQuery(refQuery); err != nil {
-		log.Errorf("query binding, %w", err)
+	if err := c.BindJSON(refQuery); err != nil {
+		log.Errorf("JSON binding, %w", err)
 		c.Error(err)
 		c.Status(http.StatusBadRequest)
 		return
