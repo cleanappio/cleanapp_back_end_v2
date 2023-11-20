@@ -17,12 +17,13 @@ const (
 )
 
 func UserIdToTeam(id string) TeamColor {
-	ch := "1"
-	if len(id) > 2 {
-		ch = id[len(id)-2:len(id)-1]
+	if id == "" {
+		log.Printf("Empty user ID %q, this must not happen.", id)
+		return 1
 	}
-	t, e := strconv.ParseInt(ch, 16, 64)
+	t, e := strconv.ParseInt(id[len(id)-1:], 16, 64)
 	if e != nil {
+		log.Printf("Bad user ID %s, err %v", id, e)
 		return 1
 	}
 	return TeamColor(t%2 + 1)
