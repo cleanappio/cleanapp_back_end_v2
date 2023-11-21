@@ -34,16 +34,11 @@ func validateResult(r sql.Result, e error, checkRowsAffected bool) error {
 	return nil
 }
 
-func updateUser(u UserArgs) error {
+func updateUser(db *sql.DB, u *UserArgs) error {
 	log.Printf("Write: Trying to create or update user %s / %s", u.Id, u.Avatar)
-	db, err := common.DBConnect(*mysqlAddress)
-	if err != nil {
-		return err
-	}
-
-	result, err := db.Exec(`INSERT INTO users (id, avatar) VALUES (?, ?)
-	                        ON DUPLICATE KEY UPDATE avatar=?`,
-		u.Id, u.Avatar, u.Avatar)
+	result, err := db.Exec(`INSERT INTO users (id, avatar, referral) VALUES (?, ?, ?)
+	                        ON DUPLICATE KEY UPDATE avatar=?, referral=?`,
+		u.Id, u.Avatar, u.Referral, u.Avatar, u.Referral)
 
 	return validateResult(result, err, false)
 }
