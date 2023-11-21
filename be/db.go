@@ -102,3 +102,40 @@ func getMap(m ViewPort) ([]MapResult, error) {
 	}
 	return r, nil
 }
+
+
+func getStats(id string) (StatsResponse, error) {
+	log.Printf("Write: Trying to get stats for user %s", id)
+	db, err := common.DBConnect(*mysqlAddress)
+	if err != nil {
+		return StatsResponse{}, err
+	}
+
+	rows, err := db.Query(`
+	   SELECT COUNT(*)
+	   FROM reports
+	   WHERE id = ?
+	 `, id)
+	if err != nil {
+	 	log.Printf("Could not retrieve number of kittens for user %q: %v", id, err)
+	 	return StatsResponse{}, err
+	}
+	defer rows.Close()
+
+	cnt := 0
+	err = nil
+	if rows.Next() {
+		if err := rows.Scan(&cnt); err != nil {
+			log.Printf("Cannot count number of kittens for user %q with error %v", id, err)
+		}
+	} else {
+		log.Printf("Zero rows counting kittens for user %q, returning 0.", id)
+		err = fmt.Errorf("zero rows counting kittens for user %q, returning 0", id)
+	}
+
+	return StatsResponse {
+		Version: "2.0",
+		Id: id,
+		Kittens: cnt,
+	}, err
+}

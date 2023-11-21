@@ -134,6 +134,25 @@ func doReadReferral() {
 	log.Printf("Done, %s: %v", resp.Status, string(body))
 }
 
+func doStats() {
+	log.Println("doStats()")
+	buf := `
+{
+	"version": "2.0",
+	"id": "` + userID + `"
+}`
+
+	resp, err := http.Post(serviceUrl+be.EndPointGetStats, contentType, bytes.NewBufferString(buf))
+
+	if err != nil {
+		log.Printf("Failed to call the server with %w", err)
+		return
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	log.Printf("Done, %s: %v", resp.Status, string(body))
+}
+
 func main() {
 	flag.Parse()
 
@@ -141,6 +160,7 @@ func main() {
 		doUser()
 		doReport()
 		doMap()
+		doStats()
 	}
 	if *testReferral {
 		doWriteReferral()

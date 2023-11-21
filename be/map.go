@@ -15,8 +15,6 @@ type ViewPort struct {
 	LonRight  float64 `json:"lonright"`
 }
 
-type S2Cell string
-
 type MapArgs struct {
 	Version string   `json:"version"` // Must be "2.0"
 	Id      string   `json:"id"`      // public key.
