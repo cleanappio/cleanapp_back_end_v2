@@ -3,31 +3,9 @@ package be
 import (
 	"log"
 	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 )
-
-type TeamColor int
-
-const (
-	Unknown = 0
-	Blue    = 1
-	Green   = 2
-)
-
-func UserIdToTeam(id string) TeamColor {
-	if id == "" {
-		log.Printf("Empty user ID %q, this must not happen.", id)
-		return 1
-	}
-	t, e := strconv.ParseInt(id[len(id)-1:], 16, 64)
-	if e != nil {
-		log.Printf("Bad user ID %s, err %v", id, e)
-		return 1
-	}
-	return TeamColor(t%2 + 1)
-}
 
 type UserArgs struct {
 	Version string `json:"version"` // Must be "2.0"
@@ -69,5 +47,5 @@ func UpdateUser(c *gin.Context) {
 		c.Status(http.StatusInternalServerError) // 500
 		return
 	}
-	c.IndentedJSON(http.StatusOK, UserResp{Team: UserIdToTeam(user.Id)}) // 200
+	c.IndentedJSON(http.StatusOK, UserResp{Team: userIdToTeam(user.Id)}) // 200
 }

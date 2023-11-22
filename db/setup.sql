@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS reports(
   seq INT NOT NULL AUTO_INCREMENT,
   ts TIMESTAMP default current_timestamp,
   id VARCHAR(255) NOT NULL,
-  team INT, -- 0 UNKNOWN, 1 BLUE, 2 GREEN, see map.go
+  team INT NOT NULL, -- 0 UNKNOWN, 1 BLUE, 2 GREEN, see map.go
   latitude FLOAT NOT NULL,
   longitude FLOAT NOT NULL,
   x FLOAT, # 0.0..1.0
@@ -56,4 +56,4 @@ SELECT User, Host FROM mysql.user;
 -- Grant rights to the user.
 GRANT ALL ON cleanapp.* TO 'server'@'localhost';
 GRANT ALL ON cleanapp.* TO 'server'@'%';
-GRANT READ ON cleanapp.* TO 'imorter'@'%';  // We don't make secret out of reports, so that's safe.
+GRANT SELECT ON cleanapp.* TO 'importer'@'%';  -- We don't make secret out of reports, so that's safe.

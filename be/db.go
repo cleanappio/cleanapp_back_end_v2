@@ -41,9 +41,9 @@ func updateUser(u UserArgs) error {
 		return err
 	}
 
-	result, err := db.Exec(`INSERT INTO users (id, avatar) VALUES (?, ?)
+	result, err := db.Exec(`INSERT INTO users (id, avatar, team) VALUES (?, ?, ?)
 	                        ON DUPLICATE KEY UPDATE avatar=?`,
-		u.Id, u.Avatar, u.Avatar)
+		u.Id, u.Avatar, userIdToTeam(u.Id), u.Avatar)
 
 	return validateResult(result, err)
 }
@@ -56,9 +56,9 @@ func saveReport(r ReportArgs) error {
 	}
 
 	result, err := db.Exec(`INSERT
-	  INTO reports (id, latitude, longitude, x, y, image)
-	  VALUES (?, ?, ?, ?, ?, ?)`,
-		r.Id, r.Latitude, r.Longitue, r.X, r.Y, r.Image)
+	  INTO reports (id, team, latitude, longitude, x, y, image)
+	  VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		r.Id, userIdToTeam(r.Id), r.Latitude, r.Longitue, r.X, r.Y, r.Image)
 
 	return validateResult(result, err)
 }
@@ -103,7 +103,6 @@ func getMap(m ViewPort) ([]MapResult, error) {
 	return r, nil
 }
 
-
 func getStats(id string) (StatsResponse, error) {
 	log.Printf("Write: Trying to get stats for user %s", id)
 	db, err := common.DBConnect(*mysqlAddress)
@@ -117,8 +116,8 @@ func getStats(id string) (StatsResponse, error) {
 	   WHERE id = ?
 	 `, id)
 	if err != nil {
-	 	log.Printf("Could not retrieve number of kittens for user %q: %v", id, err)
-	 	return StatsResponse{}, err
+		log.Printf("Could not retrieve number of kittens for user %q: %v", id, err)
+		return StatsResponse{}, err
 	}
 	defer rows.Close()
 
@@ -133,9 +132,45 @@ func getStats(id string) (StatsResponse, error) {
 		err = fmt.Errorf("zero rows counting kittens for user %q, returning 0", id)
 	}
 
-	return StatsResponse {
+	return StatsResponse{
 		Version: "2.0",
-		Id: id,
+		Id:      id,
 		Kittens: cnt,
+	}, err
+}
+
+func getTeams() (TeamsResponse, error) {
+	log.Printf("Write: Trying to get teams results")
+	db, err := common.DBConnect(*mysqlAddress)
+	if err != nil {
+		return TeamsResponse{}, err
+	}
+
+	rows, err := db.Query(`
+	   SELECT
+	     SUM(IF(Team=1,1,0)) AS Blue,
+	     SUM(IF(Team=2,1,0)) AS Green
+	   FROM reports
+	 `) // TODO: Limit the timeline.
+	if err != nil {
+		log.Printf("Could not calculate teams stats: %v", err)
+		return TeamsResponse{}, err
+	}
+	defer rows.Close()
+
+	blue, green := 0, 0
+	err = nil
+	if rows.Next() {
+		if err := rows.Scan(&blue, &green); err != nil {
+			log.Printf("Cannot count team stats with error %v", err)
+		}
+	} else {
+		log.Printf("Zero rows counting team stats, returning 0s.")
+		err = fmt.Errorf("zero rows counting team stats returning 0s")
+	}
+
+	return TeamsResponse{
+		Blue:  blue,
+		Green: green,
 	}, err
 }

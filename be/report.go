@@ -8,8 +8,9 @@ import (
 )
 
 type ReportArgs struct {
-	Version  string  `json:"version"` // Must be "2.0"
-	Id       string  `json:"id"`      // public key.
+	Version string `json:"version"` // Must be "2.0"
+	Id      string `json:"id"`      // public key.
+	// Team     TeamColor This must be added on db layer.`
 	Latitude float64 `json:"latitude"`
 	Longitue float64 `json:"longitude"`
 	X        float64 `json:"x"` // 0.0..1.0
