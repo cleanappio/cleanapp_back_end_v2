@@ -33,6 +33,7 @@ func TestUpdateOrCreateUser(t *testing.T) {
 			id       string
 			avatar   string
 			referral string
+			team 		 int
 
 			execExpected bool
 			rowsAffected int64
@@ -45,6 +46,7 @@ func TestUpdateOrCreateUser(t *testing.T) {
 				id:       "0x12345678",
 				avatar:   "user1",
 				referral: "abcdef",
+				team:     1,
 
 				execExpected: true,
 				rowsAffected: 1,
@@ -56,6 +58,7 @@ func TestUpdateOrCreateUser(t *testing.T) {
 				id:       "0x123456768",
 				avatar:   "user1",
 				referral: "abcdef",
+				team:     1,
 
 				execExpected: false,
 
@@ -66,8 +69,8 @@ func TestUpdateOrCreateUser(t *testing.T) {
 		for _, testCase := range testCases {
 			if testCase.execExpected {
 				mock.ExpectExec(
-					"INSERT INTO users \\(id, avatar, referral\\) VALUES \\((.+), (.+), (.+)\\) ON DUPLICATE KEY UPDATE avatar=(.+), referral=(.+)").
-					WithArgs(testCase.id, testCase.avatar, testCase.referral, testCase.avatar, testCase.referral).
+					"INSERT INTO users \\(id, avatar, referral, team\\) VALUES \\((.+), (.+), (.+), (.+)\\) ON DUPLICATE KEY UPDATE avatar=(.+), referral=(.+), team=(.+)").
+					WithArgs(testCase.id, testCase.avatar, testCase.referral, testCase.team, testCase.avatar, testCase.referral, testCase.team).
 					WillReturnResult(sqlmock.NewResult(1, testCase.rowsAffected))
 			}
 			if err := updateUser(db, &UserArgs{

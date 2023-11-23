@@ -19,13 +19,6 @@ type UserResp struct {
 	Team TeamColor `json:"team"` // Blue or Green
 }
 
-type PrivacyAndTOCArgs struct {
-	Version  string `json:"version"` // Must be "2.0"
-	Id       string `json:"id"`      // public key.
-	Privacy  string `json:"privacy"`
-	AgreeTOC string `json:"agree_toc"`
-}
-
 func UpdateUser(c *gin.Context) {
 	log.Print("Call to /update_or_create_user")
 	var user UserArgs
