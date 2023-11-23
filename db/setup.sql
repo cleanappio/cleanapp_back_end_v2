@@ -9,10 +9,11 @@ SHOW DATABASES;
 CREATE TABLE IF NOT EXISTS users (
   id VARCHAR(255),
   avatar VARCHAR(255),
+  team INT, -- 0 UNKNOWN, 1 BLUE, 2 GREEN, see map.go
+  privacy varchar(255),
+  agree_toc varchar(255),
   referral VARCHAR(32),
   ts TIMESTAMP default current_timestamp,
-  privacy VARCHAR(255),
-  agree_toc VARCHAR(255),
   PRIMARY KEY (id)
 );
 SHOW TABLES;
@@ -25,10 +26,11 @@ CREATE TABLE IF NOT EXISTS reports(
   seq INT NOT NULL AUTO_INCREMENT,
   ts TIMESTAMP default current_timestamp,
   id VARCHAR(255) NOT NULL,
+  team INT NOT NULL, -- 0 UNKNOWN, 1 BLUE, 2 GREEN, see map.go
   latitude FLOAT NOT NULL,
   longitude FLOAT NOT NULL,
-  x INT,
-  y INT,
+  x FLOAT, # 0.0..1.0
+  y FLOAT, # 0.0..1.0
   image LONGBLOB NOT NULL,
   PRIMARY KEY (seq)
 );
@@ -60,8 +62,10 @@ SHOW COLUMNS FROM users_refcodes;
 -- 2. Replace 'dev_pass' with real password for prod deployments.
 CREATE USER IF NOT EXISTS 'server'@'localhost' IDENTIFIED BY 'dev_pass';
 CREATE USER IF NOT EXISTS 'server'@'%' IDENTIFIED BY 'dev_pass';
+CREATE USER IF NOT EXISTS 'importer'@'%' IDENTIFIED BY 'dev_pass';
 SELECT User, Host FROM mysql.user;
 
 -- Grant rights to the user.
 GRANT ALL ON cleanapp.* TO 'server'@'localhost';
 GRANT ALL ON cleanapp.* TO 'server'@'%';
+GRANT SELECT ON cleanapp.* TO 'importer'@'%';  -- We don't make secret out of reports, so that's safe.

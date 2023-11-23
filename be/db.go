@@ -36,9 +36,9 @@ func validateResult(r sql.Result, e error, checkRowsAffected bool) error {
 
 func updateUser(db *sql.DB, u *UserArgs) error {
 	log.Printf("Write: Trying to create or update user %s / %s", u.Id, u.Avatar)
-	result, err := db.Exec(`INSERT INTO users (id, avatar, referral) VALUES (?, ?, ?)
-	                        ON DUPLICATE KEY UPDATE avatar=?, referral=?`,
-		u.Id, u.Avatar, u.Referral, u.Avatar, u.Referral)
+	result, err := db.Exec(`INSERT INTO users (id, avatar, referral, team) VALUES (?, ?, ?, ?)
+	                        ON DUPLICATE KEY UPDATE avatar=?, referral=?, team=?`,
+		u.Id, u.Avatar, u.Referral, userIdToTeam(u.Id), u.Avatar, u.Referral, userIdToTeam(u.Id))
 
 	return validateResult(result, err, false)
 }
@@ -73,9 +73,9 @@ func saveReport(r ReportArgs) error {
 	}
 
 	result, err := db.Exec(`INSERT
-	  INTO reports (id, latitude, longitude, x, y, image)
-	  VALUES (?, ?, ?, ?, ?, ?)`,
-		r.Id, r.Latitude, r.Longitue, r.X, r.Y, r.Image)
+	  INTO reports (id, team, latitude, longitude, x, y, image)
+	  VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		r.Id, userIdToTeam(r.Id), r.Latitude, r.Longitue, r.X, r.Y, r.Image)
 
 	return validateResult(result, err, true)
 }
@@ -118,6 +118,78 @@ func getMap(m ViewPort) ([]MapResult, error) {
 		r = append(r, MapResult{Latitude: lat, Longitude: lon, Count: 1})
 	}
 	return r, nil
+}
+
+func getStats(id string) (StatsResponse, error) {
+	log.Printf("Write: Trying to get stats for user %s", id)
+	db, err := common.DBConnect(*mysqlAddress)
+	if err != nil {
+		return StatsResponse{}, err
+	}
+
+	rows, err := db.Query(`
+	   SELECT COUNT(*)
+	   FROM reports
+	   WHERE id = ?
+	 `, id)
+	if err != nil {
+		log.Printf("Could not retrieve number of kittens for user %q: %v", id, err)
+		return StatsResponse{}, err
+	}
+	defer rows.Close()
+
+	cnt := 0
+	err = nil
+	if rows.Next() {
+		if err := rows.Scan(&cnt); err != nil {
+			log.Printf("Cannot count number of kittens for user %q with error %v", id, err)
+		}
+	} else {
+		log.Printf("Zero rows counting kittens for user %q, returning 0.", id)
+		err = fmt.Errorf("zero rows counting kittens for user %q, returning 0", id)
+	}
+
+	return StatsResponse{
+		Version: "2.0",
+		Id:      id,
+		Kittens: cnt,
+	}, err
+}
+
+func getTeams() (TeamsResponse, error) {
+	log.Printf("Write: Trying to get teams results")
+	db, err := common.DBConnect(*mysqlAddress)
+	if err != nil {
+		return TeamsResponse{}, err
+	}
+
+	rows, err := db.Query(`
+	   SELECT
+	     SUM(IF(Team=1,1,0)) AS Blue,
+	     SUM(IF(Team=2,1,0)) AS Green
+	   FROM reports
+	 `) // TODO: Limit the timeline.
+	if err != nil {
+		log.Printf("Could not calculate teams stats: %v", err)
+		return TeamsResponse{}, err
+	}
+	defer rows.Close()
+
+	blue, green := 0, 0
+	err = nil
+	if rows.Next() {
+		if err := rows.Scan(&blue, &green); err != nil {
+			log.Printf("Cannot count team stats with error %v", err)
+		}
+	} else {
+		log.Printf("Zero rows counting team stats, returning 0s.")
+		err = fmt.Errorf("zero rows counting team stats returning 0s")
+	}
+
+	return TeamsResponse{
+		Blue:  blue,
+		Green: green,
+	}, err
 }
 
 func readReport(db *sql.DB, args *ReadReportArgs) (*ReadReportResponse, error) {

@@ -59,16 +59,17 @@ func randomizeInt(v int64, max int64) int64 {
 
 func doReport() {
 	log.Println("doReport()")
-	buf := `
+	buf := fmt.Sprintf(`
 {
 	"version": "2.0",
-	"id": "` + userID + `",
-	"latitude": ` + RandomizeFloat(35.1293548, 1.0) + `,
-	"longitude": ` + RandomizeFloat(-90.1222609, 1.0) + `,
-	"x": 100,
-	"y": 150,
-	"image": "` + base64.StdEncoding.EncodeToString([]byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x48}) + `"
-}`
+	"id": "%s",
+	"latitude": %s,
+	"longitude": %s,
+	"x": %f,
+	"y": %f,
+	"image": "%s"
+}`, userID, RandomizeFloat(35.1293548, 1.0), RandomizeFloat(-90.1222609, 1.0), rand.Float64(), rand.Float64(),
+    base64.StdEncoding.EncodeToString([]byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x48}))
 
 	resp, err := http.Post(serviceUrl+be.EndPointReport, contentType, bytes.NewBufferString(buf))
 
@@ -92,8 +93,7 @@ func doMap() {
 		"lonleft": -95.0,
 		"latbottom": 36.0,
 		"lonright": -85.0
-	},
-	"s2cells": []
+	}
 }`
 
 	resp, err := http.Post(serviceUrl+be.EndPointGetMap, contentType, bytes.NewBufferString(buf))
@@ -140,6 +140,44 @@ func doReadReferral() {
 	log.Printf("Done, %s: %v", resp.Status, string(body))
 }
 
+func doStats() {
+	log.Println("doStats()")
+	buf := `
+{
+	"version": "2.0",
+	"id": "` + userID + `"
+}`
+
+	resp, err := http.Post(serviceUrl+be.EndPointGetStats, contentType, bytes.NewBufferString(buf))
+
+	if err != nil {
+		log.Printf("Failed to call the server with %w", err)
+		return
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	log.Printf("Done, %s: %v", resp.Status, string(body))
+}
+
+func doTeams() {
+	log.Println("doTeams()")
+	buf := `
+{
+	"version": "2.0",
+	"id": "` + userID + `"
+}`
+
+	resp, err := http.Post(serviceUrl+be.EndPointGetTeams, contentType, bytes.NewBufferString(buf))
+
+	if err != nil {
+		log.Printf("Failed to call the server with %w", err)
+		return
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	log.Printf("Done, %s: %v", resp.Status, string(body))
+}
+
 func main() {
 	flag.Parse()
 
@@ -147,6 +185,8 @@ func main() {
 		doUser()
 		doReport()
 		doMap()
+		doStats()
+		doTeams()
 	}
 	if *testReferral {
 		doWriteReferral()

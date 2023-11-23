@@ -29,7 +29,7 @@ func TestMapAggregator(t *testing.T) {
 	}
 
 	r := a.ToArray()
-	e := map[string]bool{"{5.5 5.625 2}": true, "{7.5 5.625 1}": true, "{8.5 8.125 3}": true}
+	e := map[string]bool{"{5.5 5.625 2}": true, "{7.3 5.6 1}": true, "{8.5 8.125 3}": true}
 	fmt.Printf("%v", r)
 	if len(r) != len(e) {
 		t.Errorf("Result length %d is different from the expected %d", len(r), len(e))

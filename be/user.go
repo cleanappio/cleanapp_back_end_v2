@@ -15,6 +15,10 @@ type UserArgs struct {
 	Referral string `json:"referral"`
 }
 
+type UserResp struct {
+	Team TeamColor `json:"team"` // Blue or Green
+}
+
 func UpdateUser(c *gin.Context) {
 	log.Print("Call to /update_or_create_user")
 	var user UserArgs
@@ -52,5 +56,5 @@ func UpdateUser(c *gin.Context) {
 		c.Status(http.StatusInternalServerError) // 500
 		return
 	}
-	c.Status(http.StatusOK) // 200
+	c.IndentedJSON(http.StatusOK, UserResp{Team: userIdToTeam(user.Id)}) // 200
 }

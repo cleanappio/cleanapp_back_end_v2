@@ -42,7 +42,7 @@ installDocker
 
 # Pull images:
 docker pull mysql:8.0
-docker pull ibnazer/cleanappserver
+docker pull ibnazer/cleanapp:1.5
 
 # Start our docker images.
 ./up.sh
