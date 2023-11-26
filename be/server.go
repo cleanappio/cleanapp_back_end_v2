@@ -12,11 +12,13 @@ import (
 const (
 	EndPointUser          = "/update_or_create_user"
 	EndPointReport        = "/report"
-	EndPointReadReport = "/read_report"
+	EndPointReadReport    = "/read_report"
 	EndPointGetMap        = "/get_map"
 	EndPointGetStats      = "/get_stats"
 	EndPointGetTeams      = "/get_teams"
 	EndPointPrivacyAndTOC = "/update_privacy_and_toc"
+	EndPointReadReferral  = "/readreferral"
+	EndPointWriteReferral = "/writereferral"
 )
 
 var (
@@ -60,6 +62,8 @@ func StartService() {
 	router.POST(EndPointGetMap, GetMap)
 	router.POST(EndPointGetStats, GetStats)
 	router.POST(EndPointGetTeams, GetTeams)
+	router.POST(EndPointReadReferral, ReadReferral)
+	router.POST(EndPointWriteReferral, WriteReferral)
 
 	router.Run(fmt.Sprintf(":%d", *serverPort))
 	log.Println("Finished the service. Should not ever being seen.")

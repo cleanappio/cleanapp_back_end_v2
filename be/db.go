@@ -12,7 +12,6 @@ import (
 )
 
 var (
-	// mysqlAddress = flag.String("mysql_address", "server:dev_pass@tcp(localhost:33060)/cleanapp", "MySQL address string")
 	mysqlAddress = flag.String("mysql_address", "server:dev_pass@tcp(cleanupdb:3306)/cleanapp", "MySQL address string")
 )
 
@@ -210,9 +209,9 @@ func readReport(db *sql.DB, args *ReadReportArgs) (*ReadReportResponse, error) {
 	const shareData = "sharing_data_live"
 
 	var (
-		id string
-		image []byte
-		avatar string
+		id      string
+		image   []byte
+		avatar  string
 		privacy string
 	)
 
@@ -226,7 +225,7 @@ func readReport(db *sql.DB, args *ReadReportArgs) (*ReadReportResponse, error) {
 	}
 
 	ret := &ReadReportResponse{
-		Id: id,
+		Id:    id,
 		Image: image,
 	}
 
@@ -235,4 +234,64 @@ func readReport(db *sql.DB, args *ReadReportArgs) (*ReadReportResponse, error) {
 	}
 
 	return ret, nil
+}
+
+func readReferral(db *sql.DB, key string) (string, error) {
+	log.Printf("Read: retrieving the referral code for the device %s\n", key)
+
+	rows, err := db.Query(`SELECT refvalue
+		FROM referrals
+		WHERE refkey = ?`,
+		key)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+
+	var value string
+	// Take only the first row. Ignore others as duplicates are not expected.
+	if !rows.Next() {
+		return "", nil
+	}
+	if err := rows.Scan(&value); err != nil {
+		return "", err
+	}
+	return value, nil
+}
+
+func writeReferral(db *sql.DB, key, value string) error {
+	log.Printf("Write: Trying to save the referral from device %s with value %s\n", key, value)
+
+	existing, err := readReferral(db, key)
+	if err != nil {
+		return err
+	}
+
+	// If the referral already exists then just return without inserting
+	if existing != "" {
+		return nil
+	}
+
+	_, err = db.Exec(`INSERT
+	  INTO referrals (refkey, refvalue)
+	  VALUES (?, ?)`,
+		key, value)
+
+	return err
+}
+
+func generateReferral(db *sql.DB, req *GenRefRequest, codeGen func () string) (*GenRefResponse, error) {
+	log.Printf("Generate and store referral code for the user %s", req.Id)
+	refCode := codeGen()
+
+	if _, err := db.Exec(`INSERT
+		INTO users_refcodes (id, referral)
+		VALUES (?, ?)`,
+		req.Id, refCode); err != nil {
+			return nil, err
+		}
+	
+	return &GenRefResponse{
+		RefValue: refCode,
+	}, nil
 }

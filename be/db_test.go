@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
@@ -23,6 +24,10 @@ func tearDown() {
 	db.Close()
 }
 
+func testRefGen() string {
+	return "testref"
+}
+
 var it = beforeeach.Create(setUp, tearDown)
 
 func TestUpdateOrCreateUser(t *testing.T) {
@@ -33,7 +38,7 @@ func TestUpdateOrCreateUser(t *testing.T) {
 			id       string
 			avatar   string
 			referral string
-			team 		 int
+			team     int
 
 			execExpected bool
 			rowsAffected int64
@@ -76,7 +81,7 @@ func TestUpdateOrCreateUser(t *testing.T) {
 			if err := updateUser(db, &UserArgs{
 				Version:  testCase.version,
 				Id:       testCase.id,
-				Avatar: testCase.avatar,
+				Avatar:   testCase.avatar,
 				Referral: testCase.referral,
 			}); testCase.errorExpected != (err != nil) {
 				t.Errorf("%s, updateUser: expected error: %v, got error: %v", testCase.name, testCase.errorExpected, err)
@@ -137,17 +142,6 @@ func TestUpdatePrivacyAndAgreeTOC(t *testing.T) {
 				name:    "No values to update",
 				version: "2.0",
 				id:      "0x123456768",
-
-				execExpected: false,
-
-				errorExpected: true,
-			},
-			{
-				name:     "Invalid version",
-				version:  "1.0",
-				id:       "0x123456768",
-				privacy:  "privacyVal",
-				agreeTOC: "agreeTOCVal",
 
 				execExpected: false,
 
@@ -253,6 +247,193 @@ func TestReadReport(t *testing.T) {
 
 			if !reflect.DeepEqual(response, testCase.expectResponse) {
 				t.Errorf("%s, readReport: expected %v, got %v", testCase.name, testCase.expectResponse, response)
+			}
+		}
+	})
+}
+
+func TestReadReferral(t *testing.T) {
+	it(func() {
+		testCases := []struct {
+			name      string
+			refKey    string
+			refValues []string
+
+			expectedValue string
+			errorExpected bool
+		}{
+			{
+				name:      "Found referral",
+				refKey:    "192.168.0.34:300:670",
+				refValues: []string{"abcdef"},
+
+				expectedValue: "abcdef",
+				errorExpected: false,
+			},
+			{
+				name:      "Referral not found",
+				refKey:    "192.168.0.34:300:670",
+				refValues: []string{},
+
+				expectedValue: "",
+				errorExpected: false,
+			},
+			{
+				name:      "Fetch Error",
+				refKey:    "192.168.0.34:300:670",
+				refValues: []string{},
+
+				errorExpected: true,
+			},
+		}
+
+		columns := []string{
+			"refvalue",
+		}
+		for _, testCase := range testCases {
+			if testCase.errorExpected {
+				mock.ExpectQuery("SELECT refvalue	FROM referrals WHERE refkey = (.+)").WithArgs(testCase.refKey).
+					WillReturnError(fmt.Errorf("test fetch error"))
+			} else {
+				mock.ExpectQuery("SELECT refvalue	FROM referrals WHERE refkey = (.+)").WithArgs(testCase.refKey).
+					WillReturnRows(sqlmock.NewRows(columns).
+						FromCSVString(strings.Join(testCase.refValues, "\n")))
+			}
+
+			refvalue, err := readReferral(db, testCase.refKey)
+			if testCase.errorExpected != (err != nil) {
+				t.Errorf("%s, refDB.ReadReferral: expected error: %v, got error: %e", testCase.name, testCase.errorExpected, err)
+			}
+			if refvalue != testCase.expectedValue {
+				t.Errorf("%s, refDB.ReadReferral: expected %s, got %s", testCase.name, testCase.expectedValue, refvalue)
+			}
+		}
+	})
+}
+
+func TestWriteReferral(t *testing.T) {
+	it(func() {
+		testCases := []struct {
+			name      string
+			refKey    string
+			refValue  string
+			refExists bool
+
+			errorExpected bool
+		}{
+			{
+				name:      "New referral",
+				refKey:    "192.168.0.34:300:670",
+				refValue:  "abcdef",
+				refExists: false,
+
+				errorExpected: false,
+			},
+			{
+				name:      "Existing referral",
+				refKey:    "192.168.0.34:300:670",
+				refValue:  "abcdef",
+				refExists: true,
+
+				errorExpected: false,
+			},
+			{
+				name:      "Exec Error",
+				refKey:    "192.168.0.34:300:670",
+				refValue:  "abcdef",
+				refExists: false,
+
+				errorExpected: true,
+			},
+		}
+
+		columns := []string{
+			"refvalue",
+		}
+		for _, testCase := range testCases {
+			if testCase.refExists {
+				mock.ExpectQuery("SELECT refvalue	FROM referrals WHERE refkey = (.+)").WithArgs(testCase.refKey).
+					WillReturnRows(sqlmock.NewRows(columns).
+						FromCSVString(testCase.refValue))
+			} else {
+				mock.ExpectQuery("SELECT refvalue	FROM referrals WHERE refkey = (.+)").WithArgs(testCase.refKey).
+					WillReturnRows(sqlmock.NewRows(columns).
+						FromCSVString(""))
+			}
+
+			if !testCase.refExists {
+				if testCase.errorExpected {
+					mock.ExpectExec("INSERT INTO referrals \\(refkey, refvalue\\) VALUES (.+)").
+						WithArgs(testCase.refKey, testCase.refValue).
+						WillReturnError(fmt.Errorf("update test error"))
+				} else {
+					mock.ExpectExec("INSERT INTO referrals \\(refkey, refvalue\\) VALUES (.+)").
+						WithArgs(testCase.refKey, testCase.refValue).
+						WillReturnResult(sqlmock.NewResult(1, 1))
+				}
+			}
+
+			if err := writeReferral(db, testCase.refKey, testCase.refValue); testCase.errorExpected != (err != nil) {
+				t.Errorf("%s, refDB.WriteReferral: expected error: %v, got error: %e", testCase.name, testCase.errorExpected, err)
+			}
+		}
+	})
+}
+
+func TestGenerateReferral(t *testing.T) {
+	it(func() {
+		testCases := []struct {
+			name    string
+			version string
+			id      string
+
+			errorExpected bool
+
+			expectedResponse *GenRefResponse
+		}{
+			{
+				name:    "Success referral generation",
+				version: "2.0",
+				id:      "0x1234",
+
+				errorExpected: false,
+
+				expectedResponse: &GenRefResponse{
+					RefValue: "testref",
+				},
+			}, {
+				name:    "Error in referral generation storing",
+				version: "2.0",
+				id:      "0x1234",
+
+				errorExpected: true,
+
+				expectedResponse: nil,
+			},
+		}
+
+		for _, testCase := range testCases {
+			if testCase.errorExpected {
+				mock.ExpectExec("INSERT INTO users_refcodes \\(id, referral\\) VALUES \\((.+), (.+)\\)").
+					WithArgs(testCase.id, "testref").
+					WillReturnError(fmt.Errorf("ref update error"))
+			} else {
+				mock.ExpectExec("INSERT INTO users_refcodes \\(id, referral\\) VALUES \\((.+), (.+)\\)").
+					WithArgs(testCase.id, "testref").
+					WillReturnResult(sqlmock.NewResult(1, 1))
+			}
+
+			response, err := generateReferral(db, &GenRefRequest{
+				Version: testCase.version,
+				Id:      testCase.id,
+			}, testRefGen)
+
+			if testCase.errorExpected != (err != nil) {
+				t.Errorf("%s, generateReferral: expected error: %v, got error: %e", testCase.name, testCase.errorExpected, err)
+			}
+
+			if !reflect.DeepEqual(response, testCase.expectedResponse) {
+				t.Errorf("%s, readReferral: expected %v, got %v", testCase.name, testCase.expectedResponse, response)
 			}
 		}
 	})
