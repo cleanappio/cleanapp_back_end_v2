@@ -1,51 +1,111 @@
 # Full Cleanapp.io setup on a clean Linux machine.
+#
 # Pre-reqs:
 # 1. Linux machine: Debian/Ubuntu/...
 # 2. Files from our setup folder locally in a local folder
 #    (pulled from Github or otherwise).
-#    *MUST HAVE: docker-compose.yml* and must update sercrets in .env file.
+#    *MUST HAVE: docker-compose.yml* and MUST update sercrets below.
 # 3. Update up.sh with real passwords before the first run!
+#
+# Give any arg to skip the installation, e.g. "./setup.sh local"
 
-installDocker() {
-    # See instructions at https://docs.docker.com/engine/install/ubuntu/
-    for pkg in docker.io docker-doc docker-compose docker-compose-v2 podman-docker containerd runc
-    do
-        sudo apt-get remove $pkg
-    done
+# Create .env file with secrets (***UPDATE BEFORE RUNNING!***):
+cat >.env << ENV
+# Setting secrets, update before running.
+MYSQL_ROOT_PASSWORD=secret
+MYSQL_APP_PASSWORD=secret
+MYSQL_READER_PASSWORD=secret
+ENV
 
-    # Add Docker's official GPG key:
-    sudo apt-get update
-    sudo apt-get install ca-certificates curl gnupg
-    sudo install -m 0755 -d /etc/apt/keyrings
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-    sudo chmod a+r /etc/apt/keyrings/docker.gpg
+cat >up.sh << UP
+# Turn up CleanApp service.
+# Assumes dependencies are in place (docker)
+docker-compose up -d
+UP
+chmod a+x up.sh
 
-    # Add the repository to Apt sources:
-    echo \
-    "deb [arch="$(dpkg --print-architecture)" signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-    "$(. /etc/os-release && echo "$VERSION_CODENAME")" stable" | \
-    sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-    sudo apt-get update
+cat >down.sh << DOWN
+# Turn down CleanApp service.
+docker-compose down
+# To clean up the database:
+# docker-compose down -v
+DOWN
+chmod a+x down.sh
 
-    # Actually install docker
-    sudo apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+# Create docker-compose.yml file.
+cat >docker-compose.yml << COMPOSE
+version: '3'
 
-    #Add docker-compose:
-    sudo apt  install docker-compose
+services:
+  cleanappserver:
+    container_name: cleanappserver
+    image: ibnazer/cleanappserver:1.6
+    ports:
+      - 8080:8080
 
-    # Check that it all works:
-    sudo docker run hello-world
-}
+  cleanupdb:
+    container_name: cleanappdb
+    image: ibnazer/cleanappdb:1.6
+    environment:
+      - MYSQL_ROOT_PASSWORD=\$MYSQL_ROOT_PASSWORD
+    volumes:
+      - mysql:/var/lib/mysql
+    ports:
+      - 3306:3306
 
-# Install docker.
-installDocker
+volumes:
+  mysql:
 
-# Pull images:
-docker pull mysql:8.0
-docker pull ibnazer/cleanapp:1.5
+COMPOSE
 
-# Start our docker images.
-./up.sh
+echo "Arguments: $@"
+echo "Arguments 0: $0"
+echo "Arguments 1: $1"
+echo "Arguments 2: $2"
+if [ "$1" == "" ]
+then
+    # Install dependencies:
+    installDocker() {
+        # See instructions at https://docs.docker.com/engine/install/ubuntu/
+        for pkg in docker.io docker-doc docker-compose docker-compose-v2 podman-docker containerd runc
+        do
+            sudo apt-get remove $pkg
+        done
 
-# Done, we are running.
-echo *** Done, we are running.
+        # Add Docker's official GPG key:
+        sudo apt-get update
+        sudo apt-get install ca-certificates curl gnupg
+        sudo install -m 0755 -d /etc/apt/keyrings
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+        sudo chmod a+r /etc/apt/keyrings/docker.gpg
+
+        # Add the repository to Apt sources:
+        echo \
+        "deb [arch="$(dpkg --print-architecture)" signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+        "$(. /etc/os-release && echo "$VERSION_CODENAME")" stable" | \
+        sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+        sudo apt-get update
+
+        # Actually install docker
+        sudo apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+        #Add docker-compose:
+        sudo apt  install docker-compose
+
+        # Check that it all works:
+        sudo docker run hello-world
+    }
+
+    # Install docker.
+    installDocker
+
+    # Pull images:
+    docker pull ibnazer/cleanappserver:1.6
+    docker pull ibnazer/cleanappdb:1.6
+
+    # Start our docker images.
+    ./up.sh
+    echo "*** We are running."
+fi
+
+echo '*** Done.'
