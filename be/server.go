@@ -17,8 +17,8 @@ const (
 	EndPointGetStats      = "/get_stats"
 	EndPointGetTeams      = "/get_teams"
 	EndPointPrivacyAndTOC = "/update_privacy_and_toc"
-	EndPointReadReferral  = "/readreferral"
-	EndPointWriteReferral = "/writereferral"
+	EndPointReadReferral  = "/read_referral"
+	EndPointWriteReferral = "/write_referral"
 )
 
 var (

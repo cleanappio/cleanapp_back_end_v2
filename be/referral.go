@@ -9,16 +9,16 @@ import (
 )
 
 type ReferralQuery struct {
-	RefKey string `form:"refkey"`
+	RefKey string `form:"refkey"` // A key in format <IPAddress>:<screenwidth>:<screenheight>
 }
 
 type ReferralResult struct {
-	RefValue string `json:"refvalue"`
+	RefValue string `json:"refvalue"` // A referral code, example: aSvd3B6fEhJ
 }
 
 type ReferralData struct {
-	RefKey   string `json:"refkey"`
-	RefValue string `json:"refvalue"`
+	RefKey   string `json:"refkey"`   // A key in format <IPAddress>:<screenwidth>:<screenheight>
+	RefValue string `json:"refvalue"` // A referral code, example: aSvd3B6fEhJ
 }
 
 type GenRefRequest struct {
@@ -27,7 +27,7 @@ type GenRefRequest struct {
 }
 
 type GenRefResponse struct {
-	RefValue string `json:"refvalue"`
+	RefValue string `json:"refvalue"` // A referral code, example: aSvd3B6fEhJ
 }
 
 func ReadReferral(c *gin.Context) {
@@ -104,7 +104,7 @@ func GenerateReferral(c *gin.Context) {
 		return
 	}
 
-	ref, err := generateReferral(db, req, randRefGen);
+	ref, err := generateReferral(db, req, randRefGen)
 	if err != nil {
 		log.Errorf("referral generating, %w", err)
 		c.Status(http.StatusInternalServerError)
@@ -112,5 +112,5 @@ func GenerateReferral(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, ref);
+	c.JSON(http.StatusOK, ref)
 }

@@ -111,7 +111,7 @@ func doWriteReferral() {
 		"refkey": "192.168.1.34:300:670",
 		"refvalue": "abcdef"
 	}`
-	resp, err := http.Post(serviceUrl+"/writereferral", contentType, bytes.NewBufferString(buf))
+	resp, err := http.Post(serviceUrl+"/write_referral", contentType, bytes.NewBufferString(buf))
 	if err != nil {
 		log.Printf("Failed to call the server with %w", err)
 		return
@@ -127,7 +127,7 @@ func doReadReferral() {
 	{
 		"refkey": "192.168.1.34:300:670"
 	}`
-	resp, err := http.Post(serviceUrl + "/readreferral", contentType, bytes.NewBufferString(buf))
+	resp, err := http.Post(serviceUrl + "/read_referral", contentType, bytes.NewBufferString(buf))
 	if err != nil {
 		log.Printf("Failed to call the server with %w", err)
 		return
