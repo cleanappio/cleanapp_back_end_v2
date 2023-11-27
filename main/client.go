@@ -17,13 +17,10 @@ import (
 const (
 	serviceUrl  = "http://127.0.0.1:8080" // Local
 	// serviceUrl  = "http://34.132.121.53:80" // Google Cloud
-	referralUrl = "http://127.0.0.1:8081"
 	contentType = "application/json"
 )
 
 var (
-	testReport   = flag.Bool("test_report", true, "If true then run tests for report service")
-	testReferral = flag.Bool("test_referral", false, "If true then run tests for referral service")
 	userID       = fmt.Sprintf("%X", rand.Uint64())
 )
 
@@ -114,7 +111,7 @@ func doWriteReferral() {
 		"refkey": "192.168.1.34:300:670",
 		"refvalue": "abcdef"
 	}`
-	resp, err := http.Post(referralUrl+"/writereferral", contentType, bytes.NewBufferString(buf))
+	resp, err := http.Post(serviceUrl+"/write_referral", contentType, bytes.NewBufferString(buf))
 	if err != nil {
 		log.Printf("Failed to call the server with %w", err)
 		return
@@ -130,7 +127,7 @@ func doReadReferral() {
 	{
 		"refkey": "192.168.1.34:300:670"
 	}`
-	resp, err := http.Post(referralUrl + "/readreferral", contentType, bytes.NewBufferString(buf))
+	resp, err := http.Post(serviceUrl + "/read_referral", contentType, bytes.NewBufferString(buf))
 	if err != nil {
 		log.Printf("Failed to call the server with %w", err)
 		return
@@ -181,15 +178,11 @@ func doTeams() {
 func main() {
 	flag.Parse()
 
-	if *testReport {
 		doUser()
 		doReport()
 		doMap()
 		doStats()
 		doTeams()
-	}
-	if *testReferral {
 		doWriteReferral()
 		doReadReferral()
-	}
 }
