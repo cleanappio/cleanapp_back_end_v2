@@ -57,7 +57,7 @@ volumes:
 
 COMPOSE
 
-# Set passwords. On the target machine change to yhour favorite etxt editor:
+# Set passwords. On the target machine you can change 'vim' to your favorite text editor:
 vim .env
 
 # Docker install
@@ -68,11 +68,6 @@ then
     echo "Not installing. Bye."
     exit
 fi
-
-# case $yn in
-#     [Yy]* ) echo "Intsalling...";;
-#     * ) echo "Not installing. Bye."; exit;;
-# esac
 
 # Install dependencies:
 installDocker() {
@@ -106,14 +101,14 @@ installDocker() {
     sudo docker run hello-world
 }
 
-# # Install docker.
-# installDocker
+# Install docker.
+installDocker
 
-# # Pull images:
-# docker pull ibnazer/cleanappserver:1.6
-# docker pull ibnazer/cleanappdb:1.6
+# Pull images:
+docker pull ibnazer/cleanappserver:1.6
+docker pull ibnazer/cleanappdb:1.6
 
-# # Start our docker images.
-# ./up.sh
+# Start our docker images.
+./up.sh
 
 echo "*** We are running, done."
