@@ -1,2 +1,6 @@
 bin/*
 docker/service
+setup/.env
+setup/up.sh
+setup/down.sh
+setup/docker-compose.yml
