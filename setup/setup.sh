@@ -2,16 +2,15 @@
 #
 # Pre-reqs:
 # 1. Linux machine: Debian/Ubuntu/...
-# 2. Files from our setup folder locally in a local folder
+# 2. setup.sh file from our setup folder locally in a local folder
 #    (pulled from Github or otherwise).
-#    *MUST HAVE: docker-compose.yml* and MUST update sercrets below.
-# 3. Update up.sh with real passwords before the first run!
 #
 # Give any arg to skip the installation, e.g. "./setup.sh local"
 
-# Create .env file with secrets (***UPDATE BEFORE RUNNING!***):
+# Create necessary files.
+
 cat >.env << ENV
-# Setting secrets, update before running.
+# Setting secrets, please, update with real passwords and save/exit editor.
 MYSQL_ROOT_PASSWORD=secret
 MYSQL_APP_PASSWORD=secret
 MYSQL_READER_PASSWORD=secret
@@ -58,54 +57,63 @@ volumes:
 
 COMPOSE
 
-echo "Arguments: $@"
-echo "Arguments 0: $0"
-echo "Arguments 1: $1"
-echo "Arguments 2: $2"
-if [ "$1" == "" ]
-then
-    # Install dependencies:
-    installDocker() {
-        # See instructions at https://docs.docker.com/engine/install/ubuntu/
-        for pkg in docker.io docker-doc docker-compose docker-compose-v2 podman-docker containerd runc
-        do
-            sudo apt-get remove $pkg
-        done
+# Set passwords. On the target machine change to yhour favorite etxt editor:
+vim .env
 
-        # Add Docker's official GPG key:
-        sudo apt-get update
-        sudo apt-get install ca-certificates curl gnupg
-        sudo install -m 0755 -d /etc/apt/keyrings
-        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-        sudo chmod a+r /etc/apt/keyrings/docker.gpg
+# Docker install
+read -p "Do you wish to install this program? [y/N]" yn
 
-        # Add the repository to Apt sources:
-        echo \
-        "deb [arch="$(dpkg --print-architecture)" signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-        "$(. /etc/os-release && echo "$VERSION_CODENAME")" stable" | \
-        sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-        sudo apt-get update
-
-        # Actually install docker
-        sudo apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-
-        #Add docker-compose:
-        sudo apt  install docker-compose
-
-        # Check that it all works:
-        sudo docker run hello-world
-    }
-
-    # Install docker.
-    installDocker
-
-    # Pull images:
-    docker pull ibnazer/cleanappserver:1.6
-    docker pull ibnazer/cleanappdb:1.6
-
-    # Start our docker images.
-    ./up.sh
-    echo "*** We are running."
+if [[ "$yn" != "y" && "$yn" != "Y" ]]
+then 
+    echo "Not installing. Bye."
+    exit
 fi
 
-echo '*** Done.'
+# case $yn in
+#     [Yy]* ) echo "Intsalling...";;
+#     * ) echo "Not installing. Bye."; exit;;
+# esac
+
+# Install dependencies:
+installDocker() {
+    # See instructions at https://docs.docker.com/engine/install/ubuntu/
+    for pkg in docker.io docker-doc docker-compose docker-compose-v2 podman-docker containerd runc
+    do
+        sudo apt-get remove $pkg
+    done
+
+    # Add Docker's official GPG key:
+    sudo apt-get update
+    sudo apt-get install ca-certificates curl gnupg
+    sudo install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    sudo chmod a+r /etc/apt/keyrings/docker.gpg
+
+    # Add the repository to Apt sources:
+    echo \
+    "deb [arch="$(dpkg --print-architecture)" signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+    "$(. /etc/os-release && echo "$VERSION_CODENAME")" stable" | \
+    sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+    sudo apt-get update
+
+    # Actually install docker
+    sudo apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+    #Add docker-compose:
+    sudo apt  install docker-compose
+
+    # Check that it all works:
+    sudo docker run hello-world
+}
+
+# # Install docker.
+# installDocker
+
+# # Pull images:
+# docker pull ibnazer/cleanappserver:1.6
+# docker pull ibnazer/cleanappdb:1.6
+
+# # Start our docker images.
+# ./up.sh
+
+echo "*** We are running, done."
