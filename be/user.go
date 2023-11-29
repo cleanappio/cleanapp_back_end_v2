@@ -49,6 +49,7 @@ func UpdateUser(c *gin.Context) {
 		log.Printf("%v", err)
 		return
 	}
+	defer db.Close()
 
 	err = updateUser(db, &user)
 	if err != nil {

@@ -39,6 +39,7 @@ func UpdatePrivacyAndTOC(c *gin.Context) {
 		log.Printf("%v", err)
 		return
 	}
+	defer db.Close()
 
 	err = updatePrivacyAndTOC(db, &args)
 	if err != nil {
