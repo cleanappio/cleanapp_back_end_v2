@@ -191,6 +191,93 @@ func getTeams() (TeamsResponse, error) {
 	}, err
 }
 
+func getTopScores(db *sql.DB, args *BaseArgs, topRecords int) (*TopScoresResponse, error) {
+	rows, err := db.Query(`
+		SELECT u.id, u.avatar, count(*) AS cnt
+		FROM reports r JOIN users u ON r.id = u.id
+		GROUP BY u.id
+		ORDER BY cnt DESC
+		LIMIT ?`, topRecords)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	ret := &TopScoresResponse{
+		Records: []TopScoresRecord{},
+	}
+	i := 1
+	hasYou := false
+	for rows.Next() {
+		var id, avatar string
+		var cnt int
+
+		if err := rows.Scan(&id, &avatar, &cnt); err != nil {
+			return nil, err
+		}
+		ret.Records = append(ret.Records, TopScoresRecord{
+			Place: i,
+			Title: avatar,
+			Kitn:  cnt,
+			IsYou: id == args.Id,
+		})
+		i += 1
+		if id == args.Id {
+			hasYou = true
+		}
+	}
+
+	if hasYou {
+		return ret, nil;
+	}
+
+	rows, err = db.Query(`
+		SELECT u.id, u.avatar, count(*) AS cnt
+		FROM reports r JOIN users u ON r.id = u.id
+		WHERE u.id = ?
+		GROUP BY u.id`, args.Id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	if rows.Next() {
+		var id, avatar string
+		var cnt int
+		if err := rows.Scan(&id, &avatar, &cnt); err != nil {
+			return nil, err
+		}
+		you := TopScoresRecord{
+			Title: avatar,
+			Kitn: cnt,
+			IsYou: true,
+		}
+		newRows, err := db.Query(`
+		SELECT count(*) AS c FROM(
+			SELECT id, count(*) AS cnt
+				FROM reports r
+				GROUP BY id
+				HAVING cnt > ?
+			) AS t
+		`, cnt)
+		if (err != nil) {
+			return nil, err
+		}
+		if newRows.Next() {
+			var yourCnt int;
+			if err := newRows.Scan(&yourCnt); err != nil {
+				return nil, err
+			}
+			you.Place = yourCnt + 1
+			if yourCnt < topRecords {
+				you.Place = topRecords + 1
+			}
+		}
+		ret.Records = append(ret.Records, you)
+	}
+	return ret, nil;
+}
+
 func readReport(db *sql.DB, args *ReadReportArgs) (*ReadReportResponse, error) {
 	log.Printf("Read: Getting the report %d\n", args.Seq)
 
@@ -280,7 +367,7 @@ func writeReferral(db *sql.DB, key, value string) error {
 	return err
 }
 
-func generateReferral(db *sql.DB, req *GenRefRequest, codeGen func () string) (*GenRefResponse, error) {
+func generateReferral(db *sql.DB, req *GenRefRequest, codeGen func() string) (*GenRefResponse, error) {
 	log.Printf("Generate and store referral code for the user %s", req.Id)
 	refCode := codeGen()
 
@@ -288,9 +375,9 @@ func generateReferral(db *sql.DB, req *GenRefRequest, codeGen func () string) (*
 		INTO users_refcodes (id, referral)
 		VALUES (?, ?)`,
 		req.Id, refCode); err != nil {
-			return nil, err
-		}
-	
+		return nil, err
+	}
+
 	return &GenRefResponse{
 		RefValue: refCode,
 	}, nil
