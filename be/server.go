@@ -10,15 +10,16 @@ import (
 )
 
 const (
-	EndPointUser          = "/update_or_create_user"
-	EndPointReport        = "/report"
-	EndPointReadReport    = "/read_report"
-	EndPointGetMap        = "/get_map"
-	EndPointGetStats      = "/get_stats"
-	EndPointGetTeams      = "/get_teams"
-	EndPointPrivacyAndTOC = "/update_privacy_and_toc"
-	EndPointReadReferral  = "/read_referral"
-	EndPointWriteReferral = "/write_referral"
+	EndPointUser             = "/update_or_create_user"
+	EndPointReport           = "/report"
+	EndPointReadReport       = "/read_report"
+	EndPointGetMap           = "/get_map"
+	EndPointGetStats         = "/get_stats"
+	EndPointGetTeams         = "/get_teams"
+	EndPointPrivacyAndTOC    = "/update_privacy_and_toc"
+	EndPointReadReferral     = "/read_referral"
+	EndPointWriteReferral    = "/write_referral"
+	EndPointGenerateReferral = "/generate_referral"
 )
 
 var (
@@ -64,6 +65,7 @@ func StartService() {
 	router.POST(EndPointGetTeams, GetTeams)
 	router.POST(EndPointReadReferral, ReadReferral)
 	router.POST(EndPointWriteReferral, WriteReferral)
+	router.POST(EndPointGenerateReferral, GenerateReferral)
 
 	router.Run(fmt.Sprintf(":%d", *serverPort))
 	log.Println("Finished the service. Should not ever being seen.")
