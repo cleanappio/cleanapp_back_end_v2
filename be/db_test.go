@@ -25,7 +25,7 @@ func tearDown() {
 }
 
 func testRefGen() string {
-	return "testref"
+	return "testrefid"
 }
 
 var it = beforeeach.Create(setUp, tearDown)
@@ -386,7 +386,9 @@ func TestGenerateReferral(t *testing.T) {
 			name    string
 			version string
 			id      string
+			refcode string
 
+			refExists     bool
 			errorExpected bool
 
 			expectedResponse *GenRefResponse
@@ -395,32 +397,60 @@ func TestGenerateReferral(t *testing.T) {
 				name:    "Success referral generation",
 				version: "2.0",
 				id:      "0x1234",
+				refcode: "testrefid",
 
+				refExists:     false,
 				errorExpected: false,
 
 				expectedResponse: &GenRefResponse{
-					RefValue: "testref",
+					RefValue: "testrefid",
+				},
+			}, {
+				name:    "Success existing referral retrieval",
+				version: "2.0",
+				id:      "0x5678",
+				refcode: "testrefid",
+
+				refExists:     true,
+				errorExpected: false,
+
+				expectedResponse: &GenRefResponse{
+					RefValue: "testrefid",
 				},
 			}, {
 				name:    "Error in referral generation storing",
 				version: "2.0",
-				id:      "0x1234",
+				id:      "0x9012",
+				refcode: "testrefid",
 
+				refExists:     false,
 				errorExpected: true,
 
 				expectedResponse: nil,
 			},
 		}
 
+		columns := []string{
+			"referral",
+		}
 		for _, testCase := range testCases {
-			if testCase.errorExpected {
-				mock.ExpectExec("INSERT INTO users_refcodes \\(id, referral\\) VALUES \\((.+), (.+)\\)").
-					WithArgs(testCase.id, "testref").
-					WillReturnError(fmt.Errorf("ref update error"))
+			if testCase.refExists {
+				mock.ExpectQuery("SELECT referral FROM users_refcodes WHERE id = (.+)").
+					WithArgs(testCase.id).
+					WillReturnRows(sqlmock.NewRows(columns).FromCSVString(testCase.refcode))
 			} else {
-				mock.ExpectExec("INSERT INTO users_refcodes \\(id, referral\\) VALUES \\((.+), (.+)\\)").
-					WithArgs(testCase.id, "testref").
-					WillReturnResult(sqlmock.NewResult(1, 1))
+				mock.ExpectQuery("SELECT referral FROM users_refcodes WHERE id = (.+)").
+					WithArgs(testCase.id).
+					WillReturnRows(sqlmock.NewRows(columns))
+				if testCase.errorExpected {
+					mock.ExpectExec("INSERT INTO users_refcodes \\(id, referral\\) VALUES \\((.+), (.+)\\)").
+						WithArgs(testCase.id, testCase.refcode).
+						WillReturnError(fmt.Errorf("ref update error"))
+				} else {
+					mock.ExpectExec("INSERT INTO users_refcodes \\(id, referral\\) VALUES \\((.+), (.+)\\)").
+						WithArgs(testCase.id, testCase.refcode).
+						WillReturnResult(sqlmock.NewResult(1, 1))
+				}
 			}
 
 			response, err := generateReferral(db, &GenRefRequest{
@@ -433,7 +463,7 @@ func TestGenerateReferral(t *testing.T) {
 			}
 
 			if !reflect.DeepEqual(response, testCase.expectedResponse) {
-				t.Errorf("%s, readReferral: expected %v, got %v", testCase.name, testCase.expectedResponse, response)
+				t.Errorf("%s, generateReferral: expected %v, got %v", testCase.name, testCase.expectedResponse, response)
 			}
 		}
 	})

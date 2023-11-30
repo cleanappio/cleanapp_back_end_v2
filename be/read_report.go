@@ -43,6 +43,7 @@ func ReadReport(c *gin.Context) {
 		log.Printf("%v", err)
 		return
 	}
+	defer db.Close()
 
 	result, err := readReport(db, args)
 	if err != nil {
