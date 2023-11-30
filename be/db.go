@@ -191,13 +191,13 @@ func getTeams() (TeamsResponse, error) {
 	}, err
 }
 
-func getTopScores(db *sql.DB, args *BaseArgs, topRecords int) (*TopScoresResponse, error) {
+func getTopScores(db *sql.DB, args *BaseArgs, topCount int) (*TopScoresResponse, error) {
 	rows, err := db.Query(`
 		SELECT u.id, u.avatar, count(*) AS cnt
 		FROM reports r JOIN users u ON r.id = u.id
 		GROUP BY u.id
 		ORDER BY cnt DESC
-		LIMIT ?`, topRecords)
+		LIMIT ?`, topCount)
 	if err != nil {
 		return nil, err
 	}
@@ -227,6 +227,7 @@ func getTopScores(db *sql.DB, args *BaseArgs, topRecords int) (*TopScoresRespons
 		}
 	}
 
+	// If the list contains the user, we are done, no need to fetch user's stats.
 	if hasYou {
 		return ret, nil;
 	}
@@ -253,8 +254,9 @@ func getTopScores(db *sql.DB, args *BaseArgs, topRecords int) (*TopScoresRespons
 			IsYou: true,
 		}
 		newRows, err := db.Query(`
-		SELECT count(*) AS c FROM(
-			SELECT id, count(*) AS cnt
+			SELECT count(*) AS c
+			FROM(
+				SELECT id, count(*) AS cnt
 				FROM reports r
 				GROUP BY id
 				HAVING cnt > ?
@@ -269,8 +271,8 @@ func getTopScores(db *sql.DB, args *BaseArgs, topRecords int) (*TopScoresRespons
 				return nil, err
 			}
 			you.Place = yourCnt + 1
-			if yourCnt < topRecords {
-				you.Place = topRecords + 1
+			if yourCnt < topCount {
+				you.Place = topCount + 1
 			}
 		}
 		ret.Records = append(ret.Records, you)
