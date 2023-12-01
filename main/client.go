@@ -177,12 +177,31 @@ func doStats() {
 func doTeams() {
 	log.Println("doTeams()")
 	buf := `
-{
-	"version": "2.0",
-	"id": "` + userID + `"
-}`
+	{
+		"version": "2.0",
+		"id": "` + userID + `"
+	}`
 
 	resp, err := http.Post(serviceUrl+be.EndPointGetTeams, contentType, bytes.NewBufferString(buf))
+
+	if err != nil {
+		log.Printf("Failed to call the server with %w", err)
+		return
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	log.Printf("Done, %s: %v", resp.Status, string(body))
+}
+
+func doTopScores() {
+	log.Printf("doTopScores()")
+	buf := `
+	{
+		"version": "2.0",
+		"id": "` + userID + `"
+	}`
+
+	resp, err := http.Post(serviceUrl+be.EndPointGetTopScores, contentType, bytes.NewBufferString(buf))
 
 	if err != nil {
 		log.Printf("Failed to call the server with %w", err)
@@ -201,6 +220,7 @@ func main() {
 		doMap()
 		doStats()
 		doTeams()
+		doTopScores()
 		doWriteReferral()
 		doReadReferral()
 		doGenerateReferral()

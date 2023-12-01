@@ -16,6 +16,7 @@ const (
 	EndPointGetMap           = "/get_map"
 	EndPointGetStats         = "/get_stats"
 	EndPointGetTeams         = "/get_teams"
+	EndPointGetTopScores     = "/get_top_scores"
 	EndPointPrivacyAndTOC    = "/update_privacy_and_toc"
 	EndPointReadReferral     = "/read_referral"
 	EndPointWriteReferral    = "/write_referral"
@@ -63,6 +64,7 @@ func StartService() {
 	router.POST(EndPointGetMap, GetMap)
 	router.POST(EndPointGetStats, GetStats)
 	router.POST(EndPointGetTeams, GetTeams)
+	router.POST(EndPointGetTopScores, GetTopScores)
 	router.POST(EndPointReadReferral, ReadReferral)
 	router.POST(EndPointWriteReferral, WriteReferral)
 	router.POST(EndPointGenerateReferral, GenerateReferral)

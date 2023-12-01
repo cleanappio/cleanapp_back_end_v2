@@ -196,6 +196,95 @@ func getTeams() (TeamsResponse, error) {
 	}, err
 }
 
+func getTopScores(db *sql.DB, args *BaseArgs, topCount int) (*TopScoresResponse, error) {
+	rows, err := db.Query(`
+		SELECT u.id, u.avatar, count(*) AS cnt
+		FROM reports r JOIN users u ON r.id = u.id
+		GROUP BY u.id
+		ORDER BY cnt DESC
+		LIMIT ?`, topCount)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	ret := &TopScoresResponse{
+		Records: []TopScoresRecord{},
+	}
+	i := 1
+	hasYou := false
+	for rows.Next() {
+		var id, avatar string
+		var cnt int
+
+		if err := rows.Scan(&id, &avatar, &cnt); err != nil {
+			return nil, err
+		}
+		ret.Records = append(ret.Records, TopScoresRecord{
+			Place: i,
+			Title: avatar,
+			Kitn:  cnt,
+			IsYou: id == args.Id,
+		})
+		i += 1
+		if id == args.Id {
+			hasYou = true
+		}
+	}
+
+	// If the list contains the user, we are done, no need to fetch user's stats.
+	if hasYou {
+		return ret, nil;
+	}
+
+	rows, err = db.Query(`
+		SELECT u.id, u.avatar, count(*) AS cnt
+		FROM reports r JOIN users u ON r.id = u.id
+		WHERE u.id = ?
+		GROUP BY u.id`, args.Id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	if rows.Next() {
+		var id, avatar string
+		var cnt int
+		if err := rows.Scan(&id, &avatar, &cnt); err != nil {
+			return nil, err
+		}
+		you := TopScoresRecord{
+			Title: avatar,
+			Kitn: cnt,
+			IsYou: true,
+		}
+		newRows, err := db.Query(`
+			SELECT count(*) AS c
+			FROM(
+				SELECT id, count(*) AS cnt
+				FROM reports r
+				GROUP BY id
+				HAVING cnt > ?
+			) AS t
+		`, cnt)
+		if (err != nil) {
+			return nil, err
+		}
+		if newRows.Next() {
+			var yourCnt int;
+			if err := newRows.Scan(&yourCnt); err != nil {
+				return nil, err
+			}
+			you.Place = yourCnt + 1
+			if yourCnt < topCount {
+				you.Place = topCount + 1
+			}
+		}
+		ret.Records = append(ret.Records, you)
+	}
+	return ret, nil;
+}
+
 func readReport(db *sql.DB, args *ReadReportArgs) (*ReadReportResponse, error) {
 	log.Printf("Read: Getting the report %d\n", args.Seq)
 

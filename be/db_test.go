@@ -177,6 +177,149 @@ func TestUpdatePrivacyAndAgreeTOC(t *testing.T) {
 	})
 }
 
+func TestGetTopScores(t *testing.T) {
+	it(func() {
+		testCases := []struct {
+			name         string
+			base         *BaseArgs
+			topN         int
+			retList      []string
+			youRet       string
+			yourCnt      int
+			cntBeforeYou string
+
+			expectResponse *TopScoresResponse
+			expectError    bool
+		}{
+			{
+				name: "You're in top",
+				base: &BaseArgs{
+					Version: "2.0",
+					Id:      "0x1234",
+				},
+				topN: 3,
+				retList: []string{
+					"0x5678,Ava1,1095",
+					"0x1234,AvaYou,1003",
+					"0x9012,Ava3, 988",
+				},
+
+				expectResponse: &TopScoresResponse{
+					Records: []TopScoresRecord{
+						{
+							Place: 1,
+							Title: "Ava1",
+							Kitn:  1095,
+						}, {
+							Place: 2,
+							Title: "AvaYou",
+							Kitn:  1003,
+							IsYou: true,
+						}, {
+							Place: 3,
+							Title: "Ava3",
+							Kitn:  988,
+						},
+					},
+				},
+			}, {
+				name: "You're not in top",
+				base: &BaseArgs{
+					Version: "2.0",
+					Id:      "0x1234",
+				},
+				topN: 3,
+				retList: []string{
+					"0x5678,Ava1,1095",
+					"0x7777,Ava2,1003",
+					"0x9012,Ava3, 988",
+				},
+				youRet:       "0x1234,AvaYou,99",
+				yourCnt:      99,
+				cntBeforeYou: "49",
+
+				expectResponse: &TopScoresResponse{
+					Records: []TopScoresRecord{
+						{
+							Place: 1,
+							Title: "Ava1",
+							Kitn:  1095,
+						}, {
+							Place: 2,
+							Title: "Ava2",
+							Kitn:  1003,
+						}, {
+							Place: 3,
+							Title: "Ava3",
+							Kitn:  988,
+						}, {
+							Place: 50,
+							Title: "AvaYou",
+							Kitn:  99,
+							IsYou: true,
+						},
+					},
+				},
+			}, {
+				name: "Error in query",
+				base: &BaseArgs{
+					Version: "2.0",
+					Id:      "0x1234",
+				},
+				topN: 3,
+				retList: []string{
+					"0x5678,Ava1,1095",
+					"0x7777,Ava2,1003",
+					"0x9012,Ava3, 988",
+				},
+				youRet:       "0x1234,AvaYou,99",
+				yourCnt:      99,
+				cntBeforeYou: "49",
+
+				expectResponse: nil,
+				expectError: true,
+			},
+		}
+
+		recordColumns := []string{"id", "avatar", "cnt"}
+		countColunms := []string{"c"}
+		for _, testCase := range testCases {
+			if testCase.expectError {
+				mock.ExpectQuery("SELECT u\\.id, u\\.avatar, count\\(\\*\\) AS cnt FROM reports r JOIN users u ON r\\.id = u\\.id	GROUP BY u\\.id	ORDER BY cnt DESC	LIMIT (.+)").
+					WithArgs(testCase.topN).
+					WillReturnError(fmt.Errorf("query error"))
+			} else {
+				mock.ExpectQuery("SELECT u\\.id, u\\.avatar, count\\(\\*\\) AS cnt FROM reports r JOIN users u ON r\\.id = u\\.id	GROUP BY u\\.id	ORDER BY cnt DESC	LIMIT (.+)").
+					WithArgs(testCase.topN).
+					WillReturnRows(
+						sqlmock.NewRows(recordColumns).
+							FromCSVString(strings.Join(testCase.retList, "\n")))
+			}
+			if testCase.youRet != "" {
+				mock.ExpectQuery("SELECT u\\.id, u\\.avatar, count\\(\\*\\) AS cnt FROM reports r JOIN users u ON r\\.id = u\\.id WHERE u\\.id = (.+) GROUP BY u\\.id").
+					WithArgs(testCase.base.Id).
+					WillReturnRows(
+						sqlmock.NewRows(recordColumns).
+							FromCSVString(testCase.youRet))
+				mock.ExpectQuery("SELECT count\\(\\*\\) AS c FROM\\( SELECT id, count\\(\\*\\) AS cnt FROM reports r GROUP BY id HAVING cnt \\> (.+) \\) AS t").
+					WithArgs(testCase.yourCnt).
+					WillReturnRows(
+						sqlmock.NewRows(countColunms).
+							FromCSVString(testCase.cntBeforeYou))
+			}
+
+			response, err := getTopScores(db, testCase.base, testCase.topN)
+			if testCase.expectError != (err != nil) {
+				t.Errorf("%s, getTopScores: expected error: %v, got error: %v", testCase.name, testCase.expectError, err)
+			}
+
+			if !reflect.DeepEqual(response, testCase.expectResponse) {
+				t.Errorf("%s, getTopScores: expected %v, got %v", testCase.name, testCase.expectResponse, response)
+			}
+		}
+	})
+}
+
 func TestReadReport(t *testing.T) {
 	it(func() {
 		testCases := []struct {
