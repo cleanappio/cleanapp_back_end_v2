@@ -296,7 +296,7 @@ func TestGetTopScores(t *testing.T) {
 							FromCSVString(strings.Join(testCase.retList, "\n")))
 			}
 			if testCase.youRet != "" {
-				mock.ExpectQuery("SELECT u\\.id, u\\.avatar, count\\(\\*\\) AS cnt FROM reports r JOIN users u ON r\\.id = u\\.id WHERE u\\.id = (.+) GROUP BY u\\.id").
+				mock.ExpectQuery("SELECT u\\.id, u\\.avatar, count\\(\\*\\) AS cnt FROM reports r RIGHT OUTER JOIN users u ON r\\.id = u\\.id WHERE u\\.id = (.+) GROUP BY u\\.id").
 					WithArgs(testCase.base.Id).
 					WillReturnRows(
 						sqlmock.NewRows(recordColumns).
