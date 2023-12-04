@@ -40,51 +40,87 @@ func TestUpdateOrCreateUser(t *testing.T) {
 			referral string
 			team     int
 
+			retList      []string
 			execExpected bool
-			rowsAffected int64
 
-			errorExpected bool
+			expectResponse *UserResp
+			expectError    bool
 		}{
 			{
-				name:     "Insert or update user",
+				name:     "New user",
 				version:  "2.0",
 				id:       "0x12345678",
 				avatar:   "user1",
 				referral: "abcdef",
 				team:     1,
 
+				retList:      []string{},
 				execExpected: true,
-				rowsAffected: 1,
 
-				errorExpected: false,
+				expectResponse: &UserResp{
+					Team:      1,
+					DupAvatar: false,
+				},
+				expectError: false,
 			}, {
-				name:     "Invalid version",
-				version:  "1.0",
+				name:     "Existing user",
+				version:  "2.0",
 				id:       "0x123456768",
 				avatar:   "user1",
 				referral: "abcdef",
 				team:     1,
 
+				retList:      []string{"0x123456768"},
+				execExpected: true,
+
+				expectError: false,
+				expectResponse: &UserResp{
+					Team:      1,
+					DupAvatar: false,
+				},
+			}, {
+				name:     "Duplicate avatar",
+				version:  "2.0",
+				id:       "0x123456768",
+				avatar:   "user1",
+				referral: "abcdef",
+				team:     1,
+
+				retList:      []string{"0x87654321"},
 				execExpected: false,
 
-				errorExpected: true,
+				expectError: true,
+				expectResponse: &UserResp{
+					Team:      0,
+					DupAvatar: true,
+				},
 			},
 		}
 
+		recordColumns := []string{"id"}
 		for _, testCase := range testCases {
+			mock.ExpectQuery("SELECT id FROM users WHERE avatar = (.+)").
+				WithArgs(testCase.avatar).
+				WillReturnRows(
+					sqlmock.NewRows(recordColumns).
+						FromCSVString(strings.Join(testCase.retList, "\n")))
 			if testCase.execExpected {
 				mock.ExpectExec(
 					"INSERT INTO users \\(id, avatar, referral, team\\) VALUES \\((.+), (.+), (.+), (.+)\\) ON DUPLICATE KEY UPDATE avatar=(.+), referral=(.+), team=(.+)").
 					WithArgs(testCase.id, testCase.avatar, testCase.referral, testCase.team, testCase.avatar, testCase.referral, testCase.team).
-					WillReturnResult(sqlmock.NewResult(1, testCase.rowsAffected))
+					WillReturnResult(sqlmock.NewResult(1, 1))
 			}
-			if err := updateUser(db, &UserArgs{
+			resp, err := updateUser(db, &UserArgs{
 				Version:  testCase.version,
 				Id:       testCase.id,
 				Avatar:   testCase.avatar,
 				Referral: testCase.referral,
-			}); testCase.errorExpected != (err != nil) {
-				t.Errorf("%s, updateUser: expected error: %v, got error: %v", testCase.name, testCase.errorExpected, err)
+			})
+			if testCase.expectError != (err != nil) {
+				t.Errorf("%s, updateUser: expected error: %v, got error: %v", testCase.name, testCase.expectError, err)
+			}
+			if !reflect.DeepEqual(resp, testCase.expectResponse) {
+				t.Errorf("%s, updateUser: expected %v, got %v", testCase.name, testCase.expectResponse, resp)
 			}
 		}
 	})
@@ -277,7 +313,7 @@ func TestGetTopScores(t *testing.T) {
 				cntBeforeYou: "49",
 
 				expectResponse: nil,
-				expectError: true,
+				expectError:    true,
 			},
 		}
 
