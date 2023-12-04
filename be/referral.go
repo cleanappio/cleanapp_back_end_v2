@@ -44,6 +44,7 @@ func ReadReferral(c *gin.Context) {
 		log.Errorf("%v", err)
 		return
 	}
+	defer db.Close()
 
 	refValue, err := readReferral(db, refQuery.RefKey)
 	if err != nil {
@@ -72,6 +73,7 @@ func WriteReferral(c *gin.Context) {
 		log.Errorf("%v", err)
 		return
 	}
+	defer db.Close()
 
 	if err := writeReferral(db, refData.RefKey, refData.RefValue); err != nil {
 		c.Error(err)
@@ -103,6 +105,7 @@ func GenerateReferral(c *gin.Context) {
 		log.Errorf("%v", err)
 		return
 	}
+	defer db.Close()
 
 	ref, err := generateReferral(db, req, randRefGen)
 	if err != nil {

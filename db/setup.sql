@@ -51,7 +51,7 @@ SHOW COLUMNS FROM referrals;
 CREATE TABLE IF NOT EXISTS users_refcodes(
   referral CHAR(32) NOT NULL,
   id VARCHAR(255) NOT NULL,
-  PRIMARY KEY (referral)
+  PRIMARY KEY (id)
 );
 SHOW TABLES;
 DESCRIBE TABLE users_refcodes;

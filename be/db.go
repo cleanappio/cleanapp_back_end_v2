@@ -100,6 +100,7 @@ func saveReport(r ReportArgs) error {
 	if err != nil {
 		return err
 	}
+	defer db.Close()
 
 	result, err := db.Exec(`INSERT
 	  INTO reports (id, team, latitude, longitude, x, y, image)
@@ -115,6 +116,8 @@ func getMap(m ViewPort) ([]MapResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer db.Close()
+
 	log.Printf("%f:%f to %f:%f", m.LatTop, m.LonLeft, m.LatBottom, m.LonRight)
 	//latw := m.LatW / steps
 	//lonw := m.LonW / steps
@@ -155,6 +158,7 @@ func getStats(id string) (StatsResponse, error) {
 	if err != nil {
 		return StatsResponse{}, err
 	}
+	defer db.Close()
 
 	rows, err := db.Query(`
 	   SELECT COUNT(*)
@@ -191,6 +195,7 @@ func getTeams() (TeamsResponse, error) {
 	if err != nil {
 		return TeamsResponse{}, err
 	}
+	defer db.Close()
 
 	rows, err := db.Query(`
 	   SELECT
@@ -401,7 +406,28 @@ func writeReferral(db *sql.DB, key, value string) error {
 
 func generateReferral(db *sql.DB, req *GenRefRequest, codeGen func() string) (*GenRefResponse, error) {
 	log.Printf("Generate and store referral code for the user %s", req.Id)
-	refCode := codeGen()
+
+	rows, err := db.Query(`SELECT referral
+		FROM users_refcodes
+		WHERE id = ?`,
+		req.Id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var refCode string
+	// Take only the first row. Ignore others as duplicates are not expected.
+	if rows.Next() {
+		if err := rows.Scan(&refCode); err != nil {
+			return nil, err
+		}
+		return &GenRefResponse{
+			RefValue: refCode,
+		}, nil
+	}
+
+	refCode = codeGen()
 
 	if _, err := db.Exec(`INSERT
 		INTO users_refcodes (id, referral)
