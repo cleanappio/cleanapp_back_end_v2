@@ -44,7 +44,7 @@ func UpdateUser(c *gin.Context) {
 	// Add user to the database.
 	log.Printf("/update_or_create_user got %v", user)
 
-	db, err := common.DBConnect(*mysqlAddress)
+	db, err := common.DBConnect(mysqlAddress())
 	if err != nil {
 		log.Printf("%v", err)
 		return

@@ -34,7 +34,7 @@ func UpdatePrivacyAndTOC(c *gin.Context) {
 	// Add user to the database.
 	log.Printf("/update_privacy_and_toc got %v", args)
 
-	db, err := common.DBConnect(*mysqlAddress)
+	db, err := common.DBConnect(mysqlAddress())
 	if err != nil {
 		log.Printf("%v", err)
 		return

@@ -15,6 +15,7 @@ COPY ./service .
 # USER cleanapper
 
 EXPOSE 8080/tcp
-CMD [ "./service" ]
+# CMD [ "./service", "--mysql_password=${MYSQL_APP_PASSWORD}" ] # TODO: FIX!!!
+CMD "./service" "--mysql_password=${MYSQL_APP_PASSWORD}" # shelll form to get env substitution.
 # ENTRYPOINT [ "./service" ]
 
