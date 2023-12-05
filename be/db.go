@@ -247,7 +247,7 @@ func getTopScores(db *sql.DB, args *BaseArgs, topCount int) (*TopScoresResponse,
 
 	rows, err = db.Query(`
 		SELECT u.id, u.avatar, count(*) AS cnt
-		FROM reports r JOIN users u ON r.id = u.id
+		FROM reports r RIGHT OUTER JOIN users u ON r.id = u.id
 		WHERE u.id = ?
 		GROUP BY u.id`, args.Id)
 	if err != nil {
