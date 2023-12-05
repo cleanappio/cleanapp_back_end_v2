@@ -4,9 +4,6 @@ RUN echo 'APT::Install-Recommends "0";' >> /etc/apt/apt.conf.d/00-docker
 RUN DEBIAN_FRONTEND=noninteractive \
    apt-get update \
    && rm -rf /var/lib/apt/lists/*
-
-#   && apt-get install -y python3 \
-#   && apt-get install -y curl \
  
 USER root
 COPY ./service .
@@ -15,6 +12,4 @@ COPY ./service .
 # USER cleanapper
 
 EXPOSE 8080/tcp
-CMD [ "./service" ]
-# ENTRYPOINT [ "./service" ]
-
+CMD "./service" "--mysql_password=${MYSQL_APP_PASSWORD}" "--mysql_host=cleanappdb" # shell form to get env substitution.
