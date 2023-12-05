@@ -47,7 +47,7 @@ services:
     ports:
       - 8080:8080
 
-  cleanupdb:
+  cleanappdb:
     container_name: cleanappdb
     image: ibnazer/cleanappdb:1.6
     environment:

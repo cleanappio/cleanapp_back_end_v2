@@ -13,14 +13,13 @@ import (
 
 var (
 	mysqlPassword = flag.String("mysql_password", "secret", "MySQL password.")
-	mysqlHost = flag.String("mysql_host", "cleanupdb", "MySQL host.")
+	mysqlHost = flag.String("mysql_host", "localhost", "MySQL host.")
 	mysqlPort = flag.String("mysql_port", "3306", "MySQL port.")
 	mysqlDb = flag.String("mysql_db", "cleanapp", "MySQL database to use.")
 )
 
 func mysqlAddress() string {
 	db := fmt.Sprintf("server:%s@tcp(%s:%s)/%s", *mysqlPassword, *mysqlHost, *mysqlPort, *mysqlDb)
-	// log.Printf("DB connect string: %q", db) // Troubleshooting only. Exposes password.
 	return db
 }
 
