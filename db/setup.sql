@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS users (
   ts TIMESTAMP default current_timestamp,
   PRIMARY KEY (id)
 );
+CREATE UNIQUE INDEX avatar_idx ON users(avatar);
 SHOW TABLES;
 DESCRIBE TABLE users;
 SHOW COLUMNS FROM users;
