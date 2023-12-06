@@ -12,8 +12,16 @@ import (
 )
 
 var (
-	mysqlAddress = flag.String("mysql_address", "server:dev_pass@tcp(cleanupdb:3306)/cleanapp", "MySQL address string")
+	mysqlPassword = flag.String("mysql_password", "secret", "MySQL password.")
+	mysqlHost = flag.String("mysql_host", "localhost", "MySQL host.")
+	mysqlPort = flag.String("mysql_port", "3306", "MySQL port.")
+	mysqlDb = flag.String("mysql_db", "cleanapp", "MySQL database to use.")
 )
+
+func mysqlAddress() string {
+	db := fmt.Sprintf("server:%s@tcp(%s:%s)/%s", *mysqlPassword, *mysqlHost, *mysqlPort, *mysqlDb)
+	return db
+}
 
 func validateResult(r sql.Result, e error, checkRowsAffected bool) error {
 	if e != nil {
@@ -96,7 +104,7 @@ func updatePrivacyAndTOC(db *sql.DB, args *PrivacyAndTOCArgs) error {
 
 func saveReport(r ReportArgs) error {
 	log.Printf("Write: Trying to save report from user %s to db located at %f,%f", r.Id, r.Latitude, r.Longitue)
-	db, err := common.DBConnect(*mysqlAddress)
+	db, err := common.DBConnect(mysqlAddress())
 	if err != nil {
 		return err
 	}
@@ -112,7 +120,7 @@ func saveReport(r ReportArgs) error {
 
 func getMap(m ViewPort) ([]MapResult, error) {
 	log.Printf("Write: Trying to map/coordinates from db in %f,%f:%f,%f", m.LatTop, m.LonLeft, m.LatBottom, m.LonRight)
-	db, err := common.DBConnect(*mysqlAddress)
+	db, err := common.DBConnect(mysqlAddress())
 	if err != nil {
 		return nil, err
 	}
@@ -154,7 +162,7 @@ func getMap(m ViewPort) ([]MapResult, error) {
 
 func getStats(id string) (StatsResponse, error) {
 	log.Printf("Write: Trying to get stats for user %s", id)
-	db, err := common.DBConnect(*mysqlAddress)
+	db, err := common.DBConnect(mysqlAddress())
 	if err != nil {
 		return StatsResponse{}, err
 	}
@@ -191,7 +199,7 @@ func getStats(id string) (StatsResponse, error) {
 
 func getTeams() (TeamsResponse, error) {
 	log.Printf("Write: Trying to get teams results")
-	db, err := common.DBConnect(*mysqlAddress)
+	db, err := common.DBConnect(mysqlAddress())
 	if err != nil {
 		return TeamsResponse{}, err
 	}

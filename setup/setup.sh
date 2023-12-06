@@ -10,7 +10,9 @@
 # Create necessary files.
 
 cat >.env << ENV
-# Setting secrets, please, update with real passwords and save/exit editor.
+# Setting secrets, please, edit this file
+# to set the real passwords and then save
+# and exit the editor to let the script contiueß.
 MYSQL_ROOT_PASSWORD=secret
 MYSQL_APP_PASSWORD=secret
 MYSQL_READER_PASSWORD=secret
@@ -39,14 +41,19 @@ services:
   cleanappserver:
     container_name: cleanappserver
     image: ibnazer/cleanappserver:1.6
+    environment:
+      - MYSQL_ROOT_PASSWORD=\$MYSQL_ROOT_PASSWORD
+      - MYSQL_APP_PASSWORD=\$MYSQL_APP_PASSWORD
     ports:
       - 8080:8080
 
-  cleanupdb:
+  cleanappdb:
     container_name: cleanappdb
     image: ibnazer/cleanappdb:1.6
     environment:
       - MYSQL_ROOT_PASSWORD=\$MYSQL_ROOT_PASSWORD
+      - MYSQL_APP_PASSWORD=\$MYSQL_APP_PASSWORD
+      - MYSQL_READER_PASSWORD=\$MYSQL_READER_PASSWORD
     volumes:
       - mysql:/var/lib/mysql
     ports:

@@ -60,10 +60,12 @@ SHOW COLUMNS FROM users_refcodes;
 -- Create the user.
 -- 1. Remove '%' user
 --    if the server and mysql run on the same instance.
--- 2. Replace 'dev_pass' with real password for prod deployments.
-CREATE USER IF NOT EXISTS 'server'@'localhost' IDENTIFIED BY 'dev_pass';
-CREATE USER IF NOT EXISTS 'server'@'%' IDENTIFIED BY 'dev_pass';
-CREATE USER IF NOT EXISTS 'importer'@'%' IDENTIFIED BY 'dev_pass';
+--    (still need if it from two images)
+-- 2. Replace 'secret' with real password for prod deployments.
+-- TODO(eldarm): eliminate #2
+CREATE USER IF NOT EXISTS 'server'@'localhost' IDENTIFIED BY 'secret';
+CREATE USER IF NOT EXISTS 'server'@'%' IDENTIFIED BY 'secret';
+CREATE USER IF NOT EXISTS 'importer'@'%' IDENTIFIED BY 'secret';
 SELECT User, Host FROM mysql.user;
 
 -- Grant rights to the user.
