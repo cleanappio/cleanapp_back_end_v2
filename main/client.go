@@ -87,9 +87,9 @@ func doMap() {
 	"version": "2.0",
 	"id": "` + userID + `",
 	"vport": {
-		"lattop": 34.0,
+		"lattop": 36.0,
 		"lonleft": -95.0,
-		"latbottom": 36.0,
+		"latbottom": 34.0,
 		"lonright": -85.0
 	}
 }`
