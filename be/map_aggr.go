@@ -17,16 +17,11 @@ type MapAggregator struct {
 	v                map[int]*MapResult
 }
 
-func NewMapAggregator(latTop, lonLeft, latBottom, lonRight float64, latCnt, lonCnt int) MapAggregator {
+func NewMapAggregator(vp *ViewPort, latCnt, lonCnt int) MapAggregator {
 	return MapAggregator{
-		vp: ViewPort{
-			LatTop:    latTop,
-			LonLeft:   lonLeft,
-			LatBottom: latBottom,
-			LonRight:  lonRight,
-		},
-		latStep: (latBottom - latTop) / float64(latCnt),
-		lonStep: (lonRight - lonLeft) / float64(lonCnt),
+		vp: *vp,
+		latStep: (vp.LatMax - vp.LatMin) / float64(latCnt),
+		lonStep: (vp.LonMax - vp.LonMin) / float64(lonCnt),
 		latCnt:  latCnt,
 		lonCnt:  lonCnt,
 		v:       make(map[int]*MapResult),
@@ -35,8 +30,8 @@ func NewMapAggregator(latTop, lonLeft, latBottom, lonRight float64, latCnt, lonC
 
 func (a MapAggregator) AddPoint(lat, lon float64) {
 	vp := &a.vp
-	latX := int((lat - vp.LatTop) / a.latStep)
-	lonX := int((lon - vp.LonLeft) / a.lonStep)
+	latX := int((lat - vp.LatMin) / a.latStep)
+	lonX := int((lon - vp.LonMin) / a.lonStep)
 	if latX < 0 || lonX < 0 || latX >= a.latCnt || lonX >= a.lonCnt {
 		log.Printf("%f:%f results in  %d:%d index outside of the box", lat, lon, latX, lonX)
 		return
@@ -46,8 +41,8 @@ func (a MapAggregator) AddPoint(lat, lon float64) {
 	if ok {
 		v.Count += 1
 		// Second+ times only mid-quadrant:
-		v.Latitude = vp.LatTop + a.latStep*(0.5+float64(latX))
-		v.Longitude = vp.LonLeft + a.lonStep*(0.5+float64(lonX))
+		v.Latitude = vp.LatMin + a.latStep*(0.5+float64(latX))
+		v.Longitude = vp.LonMin + a.lonStep*(0.5+float64(lonX))
 		log.Printf("%d:%d (.2%f:.2%f)->%d %d", latX, lonX, lat, lon, x, v.Count)
 		return
 	}
