@@ -5,9 +5,9 @@ import (
 )
 
 type MapResult struct {
-	Latitude  float64
-	Longitude float64
-	Count     int64
+	Latitude  float64 `json:"latitude"`
+	Longitude float64 `json:"longitude"`
+	Count     int64   `json:"count"`
 }
 
 type MapAggregator struct {
@@ -19,7 +19,7 @@ type MapAggregator struct {
 
 func NewMapAggregator(vp *ViewPort, latCnt, lonCnt int) MapAggregator {
 	return MapAggregator{
-		vp: *vp,
+		vp:      *vp,
 		latStep: (vp.LatMax - vp.LatMin) / float64(latCnt),
 		lonStep: (vp.LonMax - vp.LonMin) / float64(lonCnt),
 		latCnt:  latCnt,
