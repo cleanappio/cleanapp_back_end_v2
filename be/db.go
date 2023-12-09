@@ -20,6 +20,7 @@ var (
 
 func mysqlAddress() string {
 	db := fmt.Sprintf("server:%s@tcp(%s:%s)/%s", *mysqlPassword, *mysqlHost, *mysqlPort, *mysqlDb)
+	// log.Printf("DB connect string: %q", db) // Troubleshooting only. Exposes password.
 	return db
 }
 
@@ -131,12 +132,17 @@ func getMap(m ViewPort) ([]MapResult, error) {
 	//lonw := m.LonW / steps
 
 	// TODO: Limit the time scope, say, last  week. Or make it a parameter.
+	// TODO: Handle 180 meridian inside.
+	// Exmaples of rectangles:
+	// Zurich 47.3677679,8.5554069 => 47.3602948,8.5766434 top > bottom, left<right
+	// Memphis, TN 35.5293051,-90.4510656 => 34.770288,-89.4742701 top > bottom, left < right
+	// Madagascra -14.489877, 44.066256 => -26.459353, 52.375980 top > bottom, left < right
 	rows, err := db.Query(`
 	  SELECT latitude, longitude
 	  FROM reports
 	  WHERE latitude > ? AND longitude > ?
 	  	AND latitude <= ? AND longitude <= ?
-	`, m.LatTop, m.LonLeft, m.LatBottom, m.LonRight)
+	`, m.LatBottom, m.LonLeft, m.LatTop, m.LonRight)
 	if err != nil {
 		log.Printf("Could not retrieve reports: %v", err)
 		return nil, err
