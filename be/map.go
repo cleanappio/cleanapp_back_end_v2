@@ -9,10 +9,10 @@ import (
 )
 
 type ViewPort struct {
-	LatTop    float64 `json:"lattop"`
-	LonLeft   float64 `json:"lonleft"`
-	LatBottom float64 `json:"latbottom"`
-	LonRight  float64 `json:"lonright"`
+	LatMin float64 `json:"latmin"`
+	LonMin float64 `json:"lonmin"`
+	LatMax float64 `json:"latmax"`
+	LonMax float64 `json:"lonmax"`
 }
 
 type MapArgs struct {
@@ -24,10 +24,6 @@ type MapArgs struct {
 func GetMap(c *gin.Context) {
 	log.Print("Call to /get_map")
 	var ma MapArgs
-
-	// Troubleshooting code:
-	// b, _ := c.GetRawData()
-	// log.Printf("Got %s", string(b))
 
 	// Get the arguments.
 	if err := c.BindJSON(&ma); err != nil {
@@ -51,7 +47,7 @@ func GetMap(c *gin.Context) {
 		return
 	}
 	vp := &ma.VPort
-	a := NewMapAggregator(vp.LatTop, vp.LonLeft, vp.LatBottom, vp.LonRight, 10, 10)
+	a := NewMapAggregator(vp, 10, 10)
 	for _, p := range r {
 		a.AddPoint(p.Latitude, p.Longitude)
 		fmt.Printf("%v", p)

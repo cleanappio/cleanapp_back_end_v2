@@ -20,7 +20,6 @@ var (
 
 func mysqlAddress() string {
 	db := fmt.Sprintf("server:%s@tcp(%s:%s)/%s", *mysqlPassword, *mysqlHost, *mysqlPort, *mysqlDb)
-	// log.Printf("DB connect string: %q", db) // Troubleshooting only. Exposes password.
 	return db
 }
 
@@ -120,16 +119,14 @@ func saveReport(r ReportArgs) error {
 }
 
 func getMap(m ViewPort) ([]MapResult, error) {
-	log.Printf("Write: Trying to map/coordinates from db in %f,%f:%f,%f", m.LatTop, m.LonLeft, m.LatBottom, m.LonRight)
+	log.Printf("Write: Trying to map/coordinates from db in %f,%f:%f,%f", m.LatMin, m.LonMin, m.LatMax, m.LonMax)
 	db, err := common.DBConnect(mysqlAddress())
 	if err != nil {
 		return nil, err
 	}
 	defer db.Close()
 
-	log.Printf("%f:%f to %f:%f", m.LatTop, m.LonLeft, m.LatBottom, m.LonRight)
-	//latw := m.LatW / steps
-	//lonw := m.LonW / steps
+	log.Printf("%f:%f to %f:%f", m.LatMin, m.LonMin, m.LatMax, m.LonMax)
 
 	// TODO: Limit the time scope, say, last  week. Or make it a parameter.
 	// TODO: Handle 180 meridian inside.
@@ -142,7 +139,7 @@ func getMap(m ViewPort) ([]MapResult, error) {
 	  FROM reports
 	  WHERE latitude > ? AND longitude > ?
 	  	AND latitude <= ? AND longitude <= ?
-	`, m.LatBottom, m.LonLeft, m.LatTop, m.LonRight)
+	`, m.LatMin, m.LonMin, m.LatMax, m.LonMax)
 	if err != nil {
 		log.Printf("Could not retrieve reports: %v", err)
 		return nil, err
