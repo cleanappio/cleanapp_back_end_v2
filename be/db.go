@@ -126,8 +126,6 @@ func getMap(m ViewPort) ([]MapResult, error) {
 	}
 	defer db.Close()
 
-	log.Printf("%f:%f to %f:%f", m.LatMin, m.LonMin, m.LatMax, m.LonMax)
-
 	// TODO: Limit the time scope, say, last  week. Or make it a parameter.
 	// TODO: Handle 180 meridian inside.
 	// Exmaples of rectangles:
@@ -157,7 +155,6 @@ func getMap(m ViewPort) ([]MapResult, error) {
 			log.Printf("Cannot scan a row with error %v", err)
 			continue
 		}
-		log.Printf("%f:%f", lat, lon)
 		r = append(r, MapResult{Latitude: lat, Longitude: lon, Count: 1})
 	}
 	return r, nil

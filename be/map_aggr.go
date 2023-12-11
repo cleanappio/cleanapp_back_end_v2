@@ -4,12 +4,6 @@ import (
 	"log"
 )
 
-type MapResult struct {
-	Latitude  float64 `json:"latitude"`
-	Longitude float64 `json:"longitude"`
-	Count     int64   `json:"count"`
-}
-
 type MapAggregator struct {
 	vp               ViewPort
 	latStep, lonStep float64 // May be negative west of Grinwich and in Southern hemisphere.
@@ -43,7 +37,6 @@ func (a MapAggregator) AddPoint(lat, lon float64) {
 		// Second+ times only mid-quadrant:
 		v.Latitude = vp.LatMin + a.latStep*(0.5+float64(latX))
 		v.Longitude = vp.LonMin + a.lonStep*(0.5+float64(lonX))
-		log.Printf("%d:%d (.2%f:.2%f)->%d %d", latX, lonX, lat, lon, x, v.Count)
 		return
 	}
 	// First time only the exact coordinates.
@@ -52,7 +45,6 @@ func (a MapAggregator) AddPoint(lat, lon float64) {
 		Longitude: lon,
 		Count:     1,
 	}
-	log.Printf("%d:%d->%d 1", latX, lonX, x)
 }
 
 func (a MapAggregator) ToArray() []MapResult {
