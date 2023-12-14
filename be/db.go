@@ -20,7 +20,6 @@ var (
 
 func mysqlAddress() string {
 	db := fmt.Sprintf("server:%s@tcp(%s:%s)/%s", *mysqlPassword, *mysqlHost, *mysqlPort, *mysqlDb)
-	// log.Printf("DB connect string: %q", db) // Troubleshooting only. Exposes password.
 	return db
 }
 
@@ -42,13 +41,43 @@ func validateResult(r sql.Result, e error, checkRowsAffected bool) error {
 	return nil
 }
 
-func updateUser(db *sql.DB, u *UserArgs) error {
+func updateUser(db *sql.DB, u *UserArgs) (*UserResp, error) {
 	log.Printf("Write: Trying to create or update user %s / %s", u.Id, u.Avatar)
+	rows, err := db.Query("SELECT id FROM users WHERE avatar = ?", u.Avatar)
+	if err != nil {
+		log.Printf("Couldn't get user with avatar %s", u.Avatar)
+		return nil, err
+	}
+	defer rows.Close()
+
+	if rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		if id != u.Id {
+			return &UserResp{
+					DupAvatar: true,
+				}, fmt.Errorf("duplicated avatar %s for the user %s: avatar already exists for the user %s",
+					u.Avatar,
+					u.Id,
+					id)
+		}
+	}
+
+	team := userIdToTeam(u.Id)
+
 	result, err := db.Exec(`INSERT INTO users (id, avatar, referral, team) VALUES (?, ?, ?, ?)
 	                        ON DUPLICATE KEY UPDATE avatar=?, referral=?, team=?`,
-		u.Id, u.Avatar, u.Referral, userIdToTeam(u.Id), u.Avatar, u.Referral, userIdToTeam(u.Id))
+		u.Id, u.Avatar, u.Referral, userIdToTeam(u.Id), u.Avatar, u.Referral, team)
 
-	return validateResult(result, err, false)
+	err = validateResult(result, err, false)
+	if err != nil {
+		return nil, err
+	}
+	return &UserResp{
+		Team: team,
+	}, nil
 }
 
 func updatePrivacyAndTOC(db *sql.DB, args *PrivacyAndTOCArgs) error {
@@ -90,16 +119,14 @@ func saveReport(r ReportArgs) error {
 }
 
 func getMap(m ViewPort) ([]MapResult, error) {
-	log.Printf("Write: Trying to map/coordinates from db in %f,%f:%f,%f", m.LatTop, m.LonLeft, m.LatBottom, m.LonRight)
+	log.Printf("Write: Trying to map/coordinates from db in %f,%f:%f,%f", m.LatMin, m.LonMin, m.LatMax, m.LonMax)
 	db, err := common.DBConnect(mysqlAddress())
 	if err != nil {
 		return nil, err
 	}
 	defer db.Close()
 
-	log.Printf("%f:%f to %f:%f", m.LatTop, m.LonLeft, m.LatBottom, m.LonRight)
-	//latw := m.LatW / steps
-	//lonw := m.LonW / steps
+	log.Printf("%f:%f to %f:%f", m.LatMin, m.LonMin, m.LatMax, m.LonMax)
 
 	// TODO: Limit the time scope, say, last  week. Or make it a parameter.
 	// TODO: Handle 180 meridian inside.
@@ -112,7 +139,7 @@ func getMap(m ViewPort) ([]MapResult, error) {
 	  FROM reports
 	  WHERE latitude > ? AND longitude > ?
 	  	AND latitude <= ? AND longitude <= ?
-	`, m.LatBottom, m.LonLeft, m.LatTop, m.LonRight)
+	`, m.LatMin, m.LonMin, m.LatMax, m.LonMax)
 	if err != nil {
 		log.Printf("Could not retrieve reports: %v", err)
 		return nil, err
@@ -248,12 +275,12 @@ func getTopScores(db *sql.DB, args *BaseArgs, topCount int) (*TopScoresResponse,
 
 	// If the list contains the user, we are done, no need to fetch user's stats.
 	if hasYou {
-		return ret, nil;
+		return ret, nil
 	}
 
 	rows, err = db.Query(`
 		SELECT u.id, u.avatar, count(*) AS cnt
-		FROM reports r JOIN users u ON r.id = u.id
+		FROM reports r RIGHT OUTER JOIN users u ON r.id = u.id
 		WHERE u.id = ?
 		GROUP BY u.id`, args.Id)
 	if err != nil {
@@ -269,7 +296,7 @@ func getTopScores(db *sql.DB, args *BaseArgs, topCount int) (*TopScoresResponse,
 		}
 		you := TopScoresRecord{
 			Title: avatar,
-			Kitn: cnt,
+			Kitn:  cnt,
 			IsYou: true,
 		}
 		newRows, err := db.Query(`
@@ -281,11 +308,11 @@ func getTopScores(db *sql.DB, args *BaseArgs, topCount int) (*TopScoresResponse,
 				HAVING cnt > ?
 			) AS t
 		`, cnt)
-		if (err != nil) {
+		if err != nil {
 			return nil, err
 		}
 		if newRows.Next() {
-			var yourCnt int;
+			var yourCnt int
 			if err := newRows.Scan(&yourCnt); err != nil {
 				return nil, err
 			}
@@ -296,7 +323,7 @@ func getTopScores(db *sql.DB, args *BaseArgs, topCount int) (*TopScoresResponse,
 		}
 		ret.Records = append(ret.Records, you)
 	}
-	return ret, nil;
+	return ret, nil
 }
 
 func readReport(db *sql.DB, args *ReadReportArgs) (*ReadReportResponse, error) {
