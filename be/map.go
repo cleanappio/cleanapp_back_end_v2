@@ -58,7 +58,6 @@ func GetMap(c *gin.Context) {
 		c.Status(http.StatusInternalServerError) // 500
 		return
 	}
-	// a := NewMapAggregator(&ma.VPort, 10, 10)
 	a := NewMapAggregatorS2(&ma.VPort, &ma.Center)
 	for _, p := range r {
 		a.AddPoint(p)
