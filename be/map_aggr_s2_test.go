@@ -23,6 +23,17 @@ func TestMapAggregatorS2(t *testing.T) {
 	}
 	vals := []val{
 		{lon: 4.5, lat: 5.3},
+		{lon: 4.51, lat: 5.31},
+		{lon: 4.52, lat: 5.32},
+		{lon: 4.53, lat: 5.33},
+		{lon: 4.54, lat: 5.34},
+		{lon: 4.55, lat: 5.35},
+		{lon: 4.56, lat: 5.36},
+		{lon: 4.57, lat: 5.37},
+		{lon: 4.58, lat: 5.38},
+		{lon: 4.59, lat: 5.39},
+		{lon: 4.6, lat: 5.4},
+		{lon: 4.61, lat: 5.41},
 		{lon: 4.1, lat: 5.7},
 		{lon: 5.6, lat: 7.3},
 		{lon: 7.5, lat: 8.3},
@@ -32,16 +43,19 @@ func TestMapAggregatorS2(t *testing.T) {
 		{lon: 3.7, lat: 5.1},
 	}
 
-	for _, v := range vals {
-		a.AddPoint(v.lat, v.lon)
+	for i, v := range vals {
+		a.AddPoint(MapResult{Latitude: v.lat, Longitude: v.lon, Count: 1, ReportID: int64(i), Team: 1})
 	}
 
 	r := a.ToArray()
 	e := map[string]bool{
-		"{9.13346520192252 6.407735769346235 2}": true,
-		"{9.073922316826462 9.189905212974633 1}": true,
-		"{6.394177107399892 3.7435089912669084 3}": true,
-		"{6.368035609920834 6.407735769346235 1}": true,
+    "{5.1 3.7 1 18 1}": true,
+    "{5.7132243245354655 4.397635665480262 13 0 0}": true,
+    "{7.3 5.6 1 13 1}": true,
+    "{8.3 7.5 1 14 1}": true,
+    "{8.1 7.7 1 15 1}": true,
+    "{8.9 7.9 1 16 1}": true,
+    "{9.1 10.7 1 17 1}": true,
 	}
 	fmt.Printf("%v", r)
 	if len(r) != len(e) {

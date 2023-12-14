@@ -6,9 +6,9 @@ import (
 	"github.com/golang/geo/s2"
 )
 
-type aggrUnit struct{
-	cnt int64
-	origCell s2.CellID
+type aggrUnit struct {
+	cnt     int64
+	origRes []MapResult
 }
 
 type mapAggregatorS2 struct {
@@ -17,9 +17,11 @@ type mapAggregatorS2 struct {
 }
 
 const (
-	expectedCells = 160
-	minLevel = 6
-	maxLevel = 16
+	expectedCells = 32
+	minLevel      = 2
+	maxLevel      = 18
+	levelStep     = 2
+	minRepToAggr  = 10
 )
 
 func cellBaseLevel(vp *ViewPort, center *Point) int {
@@ -41,11 +43,18 @@ func cellBaseLevel(vp *ViewPort, center *Point) int {
 
 	for lv := maxLevel; lv >= minLevel; lv-- {
 		cc := s2.CellFromCellID(centerLL.Parent(lv))
-		if (vpArea / cc.ApproxArea() < expectedCells) {
-			return lv
+		// Finding the s2cell level with which the viewport area can be
+		// approx. covered by a number expectedCells s2cells.
+		if vpArea/cc.ApproxArea() < expectedCells {
+			// Applying s2cells with a step levelStep
+			alignedLv := lv / levelStep * levelStep
+			if alignedLv == lv {
+				return alignedLv
+			}
+			return alignedLv + levelStep
 		}
 	}
-	return minLevel  // Large enough level
+	return minLevel
 }
 
 func NewMapAggregatorS2(vp *ViewPort, center *Point) mapAggregatorS2 {
@@ -56,28 +65,38 @@ func NewMapAggregatorS2(vp *ViewPort, center *Point) mapAggregatorS2 {
 	}
 }
 
-func (a *mapAggregatorS2) AddPoint(lat, lon float64) {
-	pc := s2.CellIDFromLatLng(s2.LatLngFromDegrees(lat, lon))
+func (a *mapAggregatorS2) AddPoint(mapRes MapResult) {
+	pc := s2.CellIDFromLatLng(s2.LatLngFromDegrees(mapRes.Latitude, mapRes.Longitude))
 	parent := pc.Parent(a.level)
 	if _, ok := a.aggrs[parent]; !ok {
 		a.aggrs[parent] = &aggrUnit{}
 	}
 	a.aggrs[parent].cnt += 1
-	a.aggrs[parent].origCell = pc
+
+	// Seeing how many cells are aggregated in the parent cell.
+	// If <= minRepToAggr then add the report to origin report results.
+	// Otherwise clear report results which is a signal to use aggregated
+	// result.
+	if a.aggrs[parent].cnt < minRepToAggr {
+		a.aggrs[parent].origRes = append(a.aggrs[parent].origRes, mapRes)
+	} else {
+		a.aggrs[parent].origRes = nil
+	}
 }
 
 func (a *mapAggregatorS2) ToArray() []MapResult {
 	r := make([]MapResult, 0, len(a.aggrs))
 	for c, unit := range a.aggrs {
 		ll := c.LatLng()
-		if unit.cnt == 1 {
-			ll = unit.origCell.LatLng()
+		if unit.origRes != nil {
+			r = append(r, unit.origRes...)
+		} else {
+			r = append(r, MapResult{
+				Latitude:  ll.Lat.Degrees(),
+				Longitude: ll.Lng.Degrees(),
+				Count:     unit.cnt,
+			})
 		}
-		r = append(r, MapResult{
-			Latitude: ll.Lat.Degrees(),
-			Longitude: ll.Lng.Degrees(),
-			Count: unit.cnt,
-		})
 	}
 	return r
 }

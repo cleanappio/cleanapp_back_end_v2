@@ -27,9 +27,11 @@ type MapArgs struct {
 }
 
 type MapResult struct {
-	Latitude  float64 `json:"latitude"`
-	Longitude float64 `json:"longitude"`
-	Count     int64   `json:"count"`
+	Latitude  float64   `json:"latitude"`
+	Longitude float64   `json:"longitude"`
+	Count     int64     `json:"count"`
+	ReportID  int64     `json:"report_id"` // Ignored if Count > 1
+	Team      TeamColor `json:"team"`      // Ignored if Count > 1
 }
 
 func GetMap(c *gin.Context) {
@@ -59,7 +61,7 @@ func GetMap(c *gin.Context) {
 	// a := NewMapAggregator(&ma.VPort, 10, 10)
 	a := NewMapAggregatorS2(&ma.VPort, &ma.Center)
 	for _, p := range r {
-		a.AddPoint(p.Latitude, p.Longitude)
+		a.AddPoint(p)
 	}
 	c.IndentedJSON(http.StatusOK, a.ToArray()) // 200
 }
