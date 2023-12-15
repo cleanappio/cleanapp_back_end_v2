@@ -10,6 +10,7 @@ import (
 )
 
 const (
+	EndPointHelp             = "/help"
 	EndPointUser             = "/update_or_create_user"
 	EndPointReport           = "/report"
 	EndPointReadReport       = "/read_report"
@@ -57,6 +58,7 @@ func userIdToTeam(id string) TeamColor {
 func StartService() {
 	log.Println("Starting the service...")
 	router := gin.Default()
+	router.GET(EndPointHelp,Help)
 	router.POST(EndPointUser, UpdateUser)
 	router.POST(EndPointPrivacyAndTOC, UpdatePrivacyAndTOC)
 	router.POST(EndPointReport, Report)

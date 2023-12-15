@@ -16,8 +16,9 @@ import (
 
 // 34.132.121.53
 const (
-	serviceUrl  = "http://127.0.0.1:8080" // Local
-	// serviceUrl  = "http://34.132.121.53:80" // Google Cloud
+	// serviceUrl  = "http://127.0.0.1:8080" // Local
+	// serviceUrl  = "http://34.132.121.53:8080" // Google Cloud
+	serviceUrl  = "http://api.cleanapp.io:8080" // Google Cloud
 	contentType = "application/json"
 )
 

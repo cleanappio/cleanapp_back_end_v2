@@ -21,7 +21,7 @@ ENV
 cat >up.sh << UP
 # Turn up CleanApp service.
 # Assumes dependencies are in place (docker)
-sudo docker-compose up -d
+sudo docker-compose up -d --remove-orphans
 UP
 sudo chmod a+x up.sh
 
