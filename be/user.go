@@ -17,6 +17,7 @@ type UserArgs struct {
 
 type UserResp struct {
 	Team TeamColor `json:"team"` // Blue or Green
+	DupAvatar bool `json:"dup_avatar"`
 }
 
 func UpdateUser(c *gin.Context) {
@@ -51,11 +52,16 @@ func UpdateUser(c *gin.Context) {
 	}
 	defer db.Close()
 
-	err = updateUser(db, &user)
+	resp, err := updateUser(db, &user)
 	if err != nil {
-		log.Printf("Failed to update user with %v", err)
-		c.Status(http.StatusInternalServerError) // 500
-		return
+		if resp != nil && resp.DupAvatar {
+			// Printing error and returning success, the duplicate info is in response
+			log.Printf("%v", err)
+		} else {
+			log.Printf("Failed to update user with %v", err)
+			c.Status(http.StatusInternalServerError) // 500
+			return
+		}
 	}
-	c.IndentedJSON(http.StatusOK, UserResp{Team: userIdToTeam(user.Id)}) // 200
+	c.IndentedJSON(http.StatusOK, resp) // 200
 }
