@@ -52,7 +52,7 @@ func UpdateUser(c *gin.Context) {
 	}
 	defer db.Close()
 
-	resp, err := updateUser(db, &user)
+	resp, err := updateUser(db, &user, userIdToTeam)
 	if err != nil {
 		if resp != nil && resp.DupAvatar {
 			// Printing error and returning success, the duplicate info is in response
