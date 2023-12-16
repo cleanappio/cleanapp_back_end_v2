@@ -647,3 +647,39 @@ func TestGenerateReferral(t *testing.T) {
 		}
 	})
 }
+
+func TestCleanupReferral(t *testing.T) {
+	it(func() {
+		testCases := []struct {
+			name string
+			refkey string
+
+			errorExpected bool
+		}{
+			{
+				name: "Success cleanup",
+				refkey: "192.168.1.1:300:700",
+				errorExpected: false,
+			},{
+				name: "Failed cleanup",
+				refkey: "192.168.1.2:350:750",
+				errorExpected: true,
+			},
+		}
+		for _, testCase := range testCases {
+			if testCase.errorExpected {
+				mock.ExpectExec("DELETE FROM referrals WHERE refkey = (.+)").
+					WithArgs(testCase.refkey).
+					WillReturnError(fmt.Errorf("ref delete error"))
+			} else {
+				mock.ExpectExec("DELETE FROM referrals WHERE refkey = (.+)").
+					WithArgs(testCase.refkey).
+					WillReturnResult(sqlmock.NewResult(1, 1))
+			}
+
+			if err := cleanupReferral(db, testCase.refkey); testCase.errorExpected != (err != nil) {
+				t.Errorf("%s, cleanupReferral: expected error: %v, got error: %v", testCase.name, testCase.errorExpected, err)
+			}
+		}
+	})
+}
