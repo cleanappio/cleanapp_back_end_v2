@@ -47,7 +47,6 @@ func userIdToTeam(id string) TeamColor {
 		return 1
 	}
 	md5 := md5.Sum([]byte(id))
-	log.Println(md5)
 	return TeamColor(md5[len(md5)-1]%2 + 1)
 }
 
