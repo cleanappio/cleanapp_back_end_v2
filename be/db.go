@@ -41,7 +41,7 @@ func validateResult(r sql.Result, e error, checkRowsAffected bool) error {
 	return nil
 }
 
-func updateUser(db *sql.DB, u *UserArgs) (*UserResp, error) {
+func updateUser(db *sql.DB, u *UserArgs, teamGen func(string) TeamColor) (*UserResp, error) {
 	log.Printf("Write: Trying to create or update user %s / %s", u.Id, u.Avatar)
 	rows, err := db.Query("SELECT id FROM users WHERE avatar = ?", u.Avatar)
 	if err != nil {
@@ -65,7 +65,7 @@ func updateUser(db *sql.DB, u *UserArgs) (*UserResp, error) {
 		}
 	}
 
-	team := userIdToTeam(u.Id)
+	team := teamGen(u.Id)
 
 	result, err := db.Exec(`INSERT INTO users (id, avatar, referral, team) VALUES (?, ?, ?, ?)
 	                        ON DUPLICATE KEY UPDATE avatar=?, referral=?, team=?`,

@@ -30,6 +30,10 @@ func testRefGen() string {
 
 var it = beforeeach.Create(setUp, tearDown)
 
+func testTeamGen(string) TeamColor {
+	return Blue
+}
+
 func TestUpdateOrCreateUser(t *testing.T) {
 	it(func() {
 		testCases := []struct {
@@ -115,7 +119,7 @@ func TestUpdateOrCreateUser(t *testing.T) {
 				Id:       testCase.id,
 				Avatar:   testCase.avatar,
 				Referral: testCase.referral,
-			})
+			}, testTeamGen)
 			if testCase.expectError != (err != nil) {
 				t.Errorf("%s, updateUser: expected error: %v, got error: %v", testCase.name, testCase.expectError, err)
 			}
