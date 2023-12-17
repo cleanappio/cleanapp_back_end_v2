@@ -10,18 +10,20 @@ import (
 
 type ReadReportArgs struct {
 	Version string `json:"version"` // Must be "2.0"
+	Id      string `json:"id"`      // User public address
 	Seq     int    `json:"seq"`     // Report ID.
 }
 
 type ReadReportResponse struct {
 	Id     string `json:"id"`
 	Avatar string `json:"avatar"`
+	Own    bool   `json:"own"`
 	Image  []byte `json:"image"`
 }
 
 func ReadReport(c *gin.Context) {
 	log.Print("Call to /read_report")
-	var args *ReadReportArgs
+	args := &ReadReportArgs{}
 
 	if err := c.BindJSON(args); err != nil {
 		log.Printf("Failed to get the argument in /read_report call: %v", err)

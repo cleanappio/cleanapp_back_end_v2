@@ -17,7 +17,7 @@ type mapAggregatorS2 struct {
 }
 
 const (
-	expectedCells = 32
+	expectedCells = 16
 	minLevel      = 2
 	maxLevel      = 18
 	levelStep     = 2

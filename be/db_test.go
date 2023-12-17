@@ -364,6 +364,7 @@ func TestReadReport(t *testing.T) {
 	it(func() {
 		testCases := []struct {
 			name      string
+			id        string
 			seq       int
 			seqExists bool
 			sharing   string
@@ -373,6 +374,7 @@ func TestReadReport(t *testing.T) {
 		}{
 			{
 				name:      "Request existing report with enabled avatar",
+				id:        "0x5678",
 				seq:       123,
 				seqExists: true,
 				sharing:   "sharing_data_live",
@@ -380,11 +382,13 @@ func TestReadReport(t *testing.T) {
 					Id:     "0x1234",
 					Image:  []byte{97, 98, 99, 100, 101, 102, 103, 104},
 					Avatar: "testuser",
+					Own:    false,
 				},
 				expectError: false,
 			},
 			{
 				name:      "Request existing report with disabled avatar",
+				id:        "0x5678",
 				seq:       123,
 				seqExists: true,
 				sharing:   "not_sharing_data_live",
@@ -392,6 +396,21 @@ func TestReadReport(t *testing.T) {
 					Id:     "0x1234",
 					Image:  []byte{97, 98, 99, 100, 101, 102, 103, 104},
 					Avatar: "",
+					Own:    false,
+				},
+				expectError: false,
+			},
+			{
+				name:      "Request existing report from own user",
+				id:        "0x1234",
+				seq:       123,
+				seqExists: true,
+				sharing:   "not_sharing_data_live",
+				expectResponse: &ReadReportResponse{
+					Id:     "0x1234",
+					Image:  []byte{97, 98, 99, 100, 101, 102, 103, 104},
+					Avatar: "testuser",
+					Own:    true,
 				},
 				expectError: false,
 			},
@@ -421,6 +440,7 @@ func TestReadReport(t *testing.T) {
 					FromCSVString(values))
 
 			response, err := readReport(db, &ReadReportArgs{
+				Id:  testCase.id,
 				Seq: testCase.seq,
 			})
 

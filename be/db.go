@@ -363,8 +363,12 @@ func readReport(db *sql.DB, args *ReadReportArgs) (*ReadReportResponse, error) {
 		Image: image,
 	}
 
-	if privacy == shareData {
+	if privacy == shareData || id == args.Id {
 		ret.Avatar = avatar
+	}
+
+	if id == args.Id {
+		ret.Own = true
 	}
 
 	return ret, nil
