@@ -1,6 +1,7 @@
 package be
 
 import (
+	"context"
 	"database/sql"
 	"flag"
 	"fmt"
@@ -21,24 +22,6 @@ var (
 func mysqlAddress() string {
 	db := fmt.Sprintf("server:%s@tcp(%s:%s)/%s", *mysqlPassword, *mysqlHost, *mysqlPort, *mysqlDb)
 	return db
-}
-
-func validateResult(r sql.Result, e error, checkRowsAffected bool) error {
-	if e != nil {
-		log.Printf("Query failed: %v", e)
-		return e
-	}
-	rows, err := r.RowsAffected()
-	if err != nil {
-		log.Printf("Failed to get status of db op: %s", err)
-		return err
-	}
-	if checkRowsAffected && rows != 1 {
-		m := fmt.Sprintf("Expected to affect 1 row, affected %d", rows)
-		log.Print(m)
-		return fmt.Errorf(m)
-	}
-	return nil
 }
 
 func updateUser(db *sql.DB, u *UserArgs, teamGen func(string) TeamColor) (*UserResp, error) {
@@ -67,11 +50,10 @@ func updateUser(db *sql.DB, u *UserArgs, teamGen func(string) TeamColor) (*UserR
 
 	team := teamGen(u.Id)
 
-	result, err := db.Exec(`INSERT INTO users (id, avatar, referral, team) VALUES (?, ?, ?, ?)
+	_, err = db.Exec(`INSERT INTO users (id, avatar, referral, team) VALUES (?, ?, ?, ?)
 	                        ON DUPLICATE KEY UPDATE avatar=?, referral=?, team=?`,
 		u.Id, u.Avatar, u.Referral, team, u.Avatar, u.Referral, team)
 
-	err = validateResult(result, err, false)
 	if err != nil {
 		return nil, err
 	}
@@ -84,38 +66,50 @@ func updatePrivacyAndTOC(db *sql.DB, args *PrivacyAndTOCArgs) error {
 	log.Printf("Writing privacy and TOC %v", args)
 
 	if args.Privacy != "" && args.AgreeTOC != "" {
-		result, err := db.Exec(`UPDATE users
+		_, err := db.Exec(`UPDATE users
 			SET privacy = ?, agree_toc = ?
 			WHERE id = ?`, args.Privacy, args.AgreeTOC, args.Id)
-		return validateResult(result, err, false)
+		return err
 	} else if args.Privacy != "" {
-		result, err := db.Exec(`UPDATE users
+		_, err := db.Exec(`UPDATE users
 			SET privacy = ?
 			WHERE id = ?`, args.Privacy, args.Id)
-		return validateResult(result, err, false)
+		return err
 	} else if args.AgreeTOC != "" {
-		result, err := db.Exec(`UPDATE users
+		_, err := db.Exec(`UPDATE users
 			SET agree_toc = ?
 			WHERE id = ?`, args.AgreeTOC, args.Id)
-		return validateResult(result, err, false)
+		return err
 	}
 	return fmt.Errorf("either privacy or agree_toc should be specified")
 }
 
-func saveReport(r ReportArgs) error {
+func saveReport(db *sql.DB, r ReportArgs) error {
 	log.Printf("Write: Trying to save report from user %s to db located at %f,%f", r.Id, r.Latitude, r.Longitue)
-	db, err := common.DBConnect(mysqlAddress())
+
+	ctx := context.Background()
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
+		log.Printf("Error creating transaction: %v\n", err)
 		return err
 	}
-	defer db.Close()
+	defer tx.Rollback()
 
-	result, err := db.Exec(`INSERT
+	_, err = tx.ExecContext(ctx, `INSERT
 	  INTO reports (id, team, latitude, longitude, x, y, image)
 	  VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		r.Id, userIdToTeam(r.Id), r.Latitude, r.Longitue, r.X, r.Y, r.Image)
+	if err != nil {
+		log.Printf("Error inserting report: %v\n", err)
+		return err
+	}
 
-	return validateResult(result, err, true)
+	_, err = tx.ExecContext(ctx, `UPDATE users SET kitns_daily = kitns_daily + 1 WHERE id = ?`, r.Id)
+	if err != nil {
+		log.Printf("Error update kitns: %v\n", err)
+		return err
+	}
+	return tx.Commit()
 }
 
 func getMap(m ViewPort) ([]MapResult, error) {
@@ -238,9 +232,8 @@ func getTeams() (TeamsResponse, error) {
 
 func getTopScores(db *sql.DB, args *BaseArgs, topCount int) (*TopScoresResponse, error) {
 	rows, err := db.Query(`
-		SELECT u.id, u.avatar, count(*) AS cnt
-		FROM reports r JOIN users u ON r.id = u.id
-		GROUP BY u.id
+		SELECT id, avatar, kitns_daily + kitns_disbursed + kitns_ref_daily + kitns_ref_disbursed AS cnt
+		FROM users
 		ORDER BY cnt DESC
 		LIMIT ?`, topCount)
 	if err != nil {
@@ -255,7 +248,7 @@ func getTopScores(db *sql.DB, args *BaseArgs, topCount int) (*TopScoresResponse,
 	hasYou := false
 	for rows.Next() {
 		var id, avatar string
-		var cnt int
+		var cnt float64
 
 		if err := rows.Scan(&id, &avatar, &cnt); err != nil {
 			return nil, err
@@ -278,10 +271,9 @@ func getTopScores(db *sql.DB, args *BaseArgs, topCount int) (*TopScoresResponse,
 	}
 
 	rows, err = db.Query(`
-		SELECT u.id, u.avatar, count(*) AS cnt
-		FROM reports r RIGHT OUTER JOIN users u ON r.id = u.id
-		WHERE u.id = ?
-		GROUP BY u.id`, args.Id)
+		SELECT id, avatar, kitns_daily + kitns_disbursed + kitns_ref_daily + kitns_ref_disbursed AS cnt
+		FROM users
+		WHERE id = ?`, args.Id)
 	if err != nil {
 		return nil, err
 	}
@@ -289,7 +281,7 @@ func getTopScores(db *sql.DB, args *BaseArgs, topCount int) (*TopScoresResponse,
 
 	if rows.Next() {
 		var id, avatar string
-		var cnt int
+		var cnt float64
 		if err := rows.Scan(&id, &avatar, &cnt); err != nil {
 			return nil, err
 		}
@@ -300,16 +292,13 @@ func getTopScores(db *sql.DB, args *BaseArgs, topCount int) (*TopScoresResponse,
 		}
 		newRows, err := db.Query(`
 			SELECT count(*) AS c
-			FROM(
-				SELECT id, count(*) AS cnt
-				FROM reports r
-				GROUP BY id
-				HAVING cnt > ?
-			) AS t
+			FROM users
+			WHERE kitns_daily + kitns_disbursed + kitns_ref_daily + kitns_ref_disbursed > ?
 		`, cnt)
 		if err != nil {
 			return nil, err
 		}
+		defer newRows.Close()
 		if newRows.Next() {
 			var yourCnt int
 			if err := newRows.Scan(&yourCnt); err != nil {

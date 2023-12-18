@@ -1,6 +1,7 @@
 package be
 
 import (
+	"cleanapp/common"
 	"log"
 	"net/http"
 
@@ -8,9 +9,8 @@ import (
 )
 
 type ReportArgs struct {
-	Version string `json:"version"` // Must be "2.0"
-	Id      string `json:"id"`      // public key.
-	// Team     TeamColor This must be added on db layer.`
+	Version  string  `json:"version"` // Must be "2.0"
+	Id       string  `json:"id"`      // public key.
 	Latitude float64 `json:"latitude"`
 	Longitue float64 `json:"longitude"`
 	X        float64 `json:"x"` // 0.0..1.0
@@ -21,11 +21,6 @@ type ReportArgs struct {
 func Report(c *gin.Context) {
 	log.Print("Call to /report")
 	var report ReportArgs
-
-	/* Troubleshooting code:
-	b, _ := c.GetRawData()
-	log.Printf("Got %s", string(b))
-	*/
 
 	// Get the arguments.
 	if err := c.BindJSON(&report); err != nil {
@@ -40,9 +35,16 @@ func Report(c *gin.Context) {
 		return
 	}
 
+	db, err := common.DBConnect(mysqlAddress())
+	if err != nil {
+		log.Printf("%v", err)
+		return
+	}
+	defer db.Close()
+
 	// Add report to the database.
 	log.Printf("/report got %v", report)
-	err := saveReport(report)
+	err = saveReport(db, report)
 	if err != nil {
 		log.Printf("Failed to write report with %v", err)
 		c.String(http.StatusInternalServerError, "Failed to save the report.") // 500
