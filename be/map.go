@@ -45,6 +45,8 @@ func GetMap(c *gin.Context) {
 		return
 	}
 
+	log.Printf("/get_map got %v", ma)
+
 	if ma.Version != "2.0" {
 		log.Printf("Bad version in /update_or_create_user, expected: 2.0, got: %v", ma.Version)
 		c.String(http.StatusNotAcceptable, "Bad API version, expecting 2.0.") // 406

@@ -21,17 +21,17 @@ ENV
 cat >up.sh << UP
 # Turn up CleanApp service.
 # Assumes dependencies are in place (docker)
-docker-compose up -d
+sudo docker-compose up -d
 UP
-chmod a+x up.sh
+sudo chmod a+x up.sh
 
 cat >down.sh << DOWN
 # Turn down CleanApp service.
-docker-compose down
+sudo docker-compose down
 # To clean up the database:
 # docker-compose down -v
 DOWN
-chmod a+x down.sh
+sudo chmod a+x down.sh
 
 # Create docker-compose.yml file.
 cat >docker-compose.yml << COMPOSE
@@ -112,8 +112,8 @@ installDocker() {
 installDocker
 
 # Pull images:
-docker pull ibnazer/cleanappserver:1.6
-docker pull ibnazer/cleanappdb:1.6
+sudo docker pull ibnazer/cleanappserver:1.6
+sudo docker pull ibnazer/cleanappdb:1.6
 
 # Start our docker images.
 ./up.sh
