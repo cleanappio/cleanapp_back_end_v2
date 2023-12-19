@@ -1,10 +1,10 @@
 package be
 
 import (
+	"crypto/md5"
 	"flag"
 	"fmt"
 	"log"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 )
@@ -46,12 +46,8 @@ func userIdToTeam(id string) TeamColor {
 		log.Printf("Empty user ID %q, this must not happen.", id)
 		return 1
 	}
-	t, e := strconv.ParseInt(id[len(id)-1:], 16, 64)
-	if e != nil {
-		log.Printf("Bad user ID %s, err %v", id, e)
-		return 1
-	}
-	return TeamColor(t%2 + 1)
+	md5 := md5.Sum([]byte(id))
+	return TeamColor(md5[len(md5)-1]%2 + 1)
 }
 
 func StartService() {

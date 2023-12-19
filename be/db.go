@@ -13,9 +13,9 @@ import (
 
 var (
 	mysqlPassword = flag.String("mysql_password", "secret", "MySQL password.")
-	mysqlHost = flag.String("mysql_host", "localhost", "MySQL host.")
-	mysqlPort = flag.String("mysql_port", "3306", "MySQL port.")
-	mysqlDb = flag.String("mysql_db", "cleanapp", "MySQL database to use.")
+	mysqlHost     = flag.String("mysql_host", "localhost", "MySQL host.")
+	mysqlPort     = flag.String("mysql_port", "3306", "MySQL port.")
+	mysqlDb       = flag.String("mysql_db", "cleanapp", "MySQL database to use.")
 )
 
 func mysqlAddress() string {
@@ -41,7 +41,7 @@ func validateResult(r sql.Result, e error, checkRowsAffected bool) error {
 	return nil
 }
 
-func updateUser(db *sql.DB, u *UserArgs) (*UserResp, error) {
+func updateUser(db *sql.DB, u *UserArgs, teamGen func(string) TeamColor) (*UserResp, error) {
 	log.Printf("Write: Trying to create or update user %s / %s", u.Id, u.Avatar)
 	rows, err := db.Query("SELECT id FROM users WHERE avatar = ?", u.Avatar)
 	if err != nil {
@@ -65,11 +65,11 @@ func updateUser(db *sql.DB, u *UserArgs) (*UserResp, error) {
 		}
 	}
 
-	team := userIdToTeam(u.Id)
+	team := teamGen(u.Id)
 
 	result, err := db.Exec(`INSERT INTO users (id, avatar, referral, team) VALUES (?, ?, ?, ?)
 	                        ON DUPLICATE KEY UPDATE avatar=?, referral=?, team=?`,
-		u.Id, u.Avatar, u.Referral, userIdToTeam(u.Id), u.Avatar, u.Referral, team)
+		u.Id, u.Avatar, u.Referral, team, u.Avatar, u.Referral, team)
 
 	err = validateResult(result, err, false)
 	if err != nil {
@@ -126,8 +126,6 @@ func getMap(m ViewPort) ([]MapResult, error) {
 	}
 	defer db.Close()
 
-	log.Printf("%f:%f to %f:%f", m.LatMin, m.LonMin, m.LatMax, m.LonMax)
-
 	// TODO: Limit the time scope, say, last  week. Or make it a parameter.
 	// TODO: Handle 180 meridian inside.
 	// Exmaples of rectangles:
@@ -135,7 +133,7 @@ func getMap(m ViewPort) ([]MapResult, error) {
 	// Memphis, TN 35.5293051,-90.4510656 => 34.770288,-89.4742701 top > bottom, left < right
 	// Madagascra -14.489877, 44.066256 => -26.459353, 52.375980 top > bottom, left < right
 	rows, err := db.Query(`
-	  SELECT latitude, longitude
+	  SELECT seq, latitude, longitude, team
 	  FROM reports
 	  WHERE latitude > ? AND longitude > ?
 	  	AND latitude <= ? AND longitude <= ?
@@ -150,15 +148,16 @@ func getMap(m ViewPort) ([]MapResult, error) {
 
 	for rows.Next() {
 		var (
-			lat float64
-			lon float64
+			lat  float64
+			lon  float64
+			seq  int64
+			team TeamColor
 		)
-		if err := rows.Scan(&lat, &lon); err != nil {
-			log.Printf("Cannot scan a row with error %v", err)
+		if err := rows.Scan(&seq, &lat, &lon, &team); err != nil {
+			log.Printf("Cannot scan a row: %v", err)
 			continue
 		}
-		log.Printf("%f:%f", lat, lon)
-		r = append(r, MapResult{Latitude: lat, Longitude: lon, Count: 1})
+		r = append(r, MapResult{Latitude: lat, Longitude: lon, Count: 1, ReportID: seq, Team: team})
 	}
 	return r, nil
 }
