@@ -63,5 +63,10 @@ func UpdateUser(c *gin.Context) {
 			return
 		}
 	}
+
+	if user.Referral != "" {
+		// TODO: Make the call async after the db connection is handled by the db controller
+		cleanupReferral(db, user.Referral)
+	}
 	c.IndentedJSON(http.StatusOK, resp) // 200
 }

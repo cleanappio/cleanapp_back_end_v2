@@ -14,7 +14,8 @@ CREATE TABLE IF NOT EXISTS users (
   agree_toc varchar(255),
   referral VARCHAR(32),
   ts TIMESTAMP default current_timestamp,
-  PRIMARY KEY (id)
+  PRIMARY KEY (id),
+  UNIQUE INDEX avatar_idx (avatar)
 );
 SHOW TABLES;
 DESCRIBE TABLE users;
@@ -40,7 +41,8 @@ SHOW COLUMNS FROM reports;
 CREATE TABLE IF NOT EXISTS referrals(
   refkey CHAR(128) NOT NULL,
   refvalue CHAR(32),
-  PRIMARY KEY (refkey)
+  PRIMARY KEY (refkey),
+  INDEX ref_idx (refvalue)
 );
 SHOW TABLES;
 DESCRIBE TABLE referrals;
