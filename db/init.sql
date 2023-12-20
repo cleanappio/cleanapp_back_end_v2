@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS referrals(
   refkey CHAR(128) NOT NULL,
   refvalue CHAR(32),
   PRIMARY KEY (refkey),
-  UNIQUE INDEX ref_idx (refvalue)
+  INDEX ref_idx (refvalue)
 );
 SHOW TABLES;
 DESCRIBE TABLE referrals;
