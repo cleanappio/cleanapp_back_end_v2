@@ -33,7 +33,7 @@ type GenRefResponse struct {
 func ReadReferral(c *gin.Context) {
 	refQuery := &ReferralQuery{}
 	if err := c.BindJSON(refQuery); err != nil {
-		log.Errorf("JSON binding, %w", err)
+		log.Errorf("JSON binding, %v", err)
 		c.Error(err)
 		c.Status(http.StatusBadRequest)
 		return
@@ -62,7 +62,7 @@ func ReadReferral(c *gin.Context) {
 func WriteReferral(c *gin.Context) {
 	refData := &ReferralData{}
 	if err := c.BindJSON(refData); err != nil {
-		log.Errorf("JSON binding, %w", err)
+		log.Errorf("JSON binding, %v", err)
 		c.Status(http.StatusBadRequest)
 		c.Error(err)
 		return
@@ -77,7 +77,7 @@ func WriteReferral(c *gin.Context) {
 
 	if err := writeReferral(db, refData.RefKey, refData.RefValue); err != nil {
 		c.Error(err)
-		log.Errorf("referral writing, %w", err)
+		log.Errorf("referral writing, %v", err)
 		c.Status(http.StatusInternalServerError)
 		return
 	}
@@ -88,7 +88,7 @@ func WriteReferral(c *gin.Context) {
 func GenerateReferral(c *gin.Context) {
 	req := &GenRefRequest{}
 	if err := c.BindJSON(req); err != nil {
-		log.Errorf("JSON binding, %w", err)
+		log.Errorf("JSON binding, %v", err)
 		c.Status(http.StatusBadRequest)
 		c.Error(err)
 		return
@@ -109,7 +109,7 @@ func GenerateReferral(c *gin.Context) {
 
 	ref, err := generateReferral(db, req, randRefGen)
 	if err != nil {
-		log.Errorf("referral generating, %w", err)
+		log.Errorf("referral generating, %v", err)
 		c.Status(http.StatusInternalServerError)
 		c.Error(err)
 		return
