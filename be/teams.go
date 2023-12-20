@@ -34,7 +34,7 @@ func GetTeams(c *gin.Context) {
 		return
 	}
 
-	// Add user to the database.
+	// Get teams stats.
 	log.Printf("%s got %v", EndPointGetTeams, ba)
 	r, err := getTeams()
 	if err != nil {

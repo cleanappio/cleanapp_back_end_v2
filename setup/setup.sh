@@ -21,7 +21,7 @@ ENV
 cat >up.sh << UP
 # Turn up CleanApp service.
 # Assumes dependencies are in place (docker)
-sudo docker-compose up -d
+sudo docker-compose up -d --remove-orphans
 UP
 sudo chmod a+x up.sh
 
@@ -29,7 +29,7 @@ cat >down.sh << DOWN
 # Turn down CleanApp service.
 sudo docker-compose down
 # To clean up the database:
-# docker-compose down -v
+# sudo docker-compose down -v
 DOWN
 sudo chmod a+x down.sh
 
@@ -117,5 +117,8 @@ sudo docker pull ibnazer/cleanappdb:1.6
 
 # Start our docker images.
 ./up.sh
+
+# Cleanup passwords from the disk.
+sudo rm .env
 
 echo "*** We are running, done."
