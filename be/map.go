@@ -1,7 +1,6 @@
 package be
 
 import (
-	"fmt"
 	"log"
 	"net/http"
 
@@ -15,10 +14,24 @@ type ViewPort struct {
 	LonMax float64 `json:"lonmax"`
 }
 
+type Point struct {
+	Lat float64 `json:"lat"`
+	Lon float64 `json:"lon"`
+}
+
 type MapArgs struct {
 	Version string   `json:"version"` // Must be "2.0"
 	Id      string   `json:"id"`      // public key.
 	VPort   ViewPort `json:"vport"`
+	Center  Point    `json:"center"`
+}
+
+type MapResult struct {
+	Latitude  float64   `json:"latitude"`
+	Longitude float64   `json:"longitude"`
+	Count     int64     `json:"count"`
+	ReportID  int64     `json:"report_id"` // Ignored if Count > 1
+	Team      TeamColor `json:"team"`      // Ignored if Count > 1
 }
 
 func GetMap(c *gin.Context) {
@@ -32,6 +45,8 @@ func GetMap(c *gin.Context) {
 		return
 	}
 
+	log.Printf("/get_map got %v", ma)
+
 	if ma.Version != "2.0" {
 		log.Printf("Bad version in /update_or_create_user, expected: 2.0, got: %v", ma.Version)
 		c.String(http.StatusNotAcceptable, "Bad API version, expecting 2.0.") // 406
@@ -39,19 +54,15 @@ func GetMap(c *gin.Context) {
 	}
 
 	// Add user to the database.
-	log.Printf("/get_map got %v", ma)
 	r, err := getMap(ma.VPort)
 	if err != nil {
 		log.Printf("Failed to update user with %v", err)
 		c.Status(http.StatusInternalServerError) // 500
 		return
 	}
-	vp := &ma.VPort
-	a := NewMapAggregator(vp, 10, 10)
+	a := NewMapAggregatorS2(&ma.VPort, &ma.Center)
 	for _, p := range r {
-		a.AddPoint(p.Latitude, p.Longitude)
-		fmt.Printf("%v", p)
-
+		a.AddPoint(p)
 	}
 	c.IndentedJSON(http.StatusOK, a.ToArray()) // 200
 }

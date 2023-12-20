@@ -92,6 +92,10 @@ func doMap() {
 		"lonmin": -95.0,
 		"latmax": 36.0,
 		"lonmax": -85.0
+	},
+	"center": {
+		"lat": 35.0,
+		"lon": -90.0
 	}
 }`
 
