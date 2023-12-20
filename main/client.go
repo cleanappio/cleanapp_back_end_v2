@@ -14,7 +14,6 @@ import (
 	"cleanapp/be"
 )
 
-// 34.132.121.53
 const (
 	// serviceUrl  = "http://127.0.0.1:8080" // Local
 	// serviceUrl  = "http://34.132.121.53:8080" // Google Cloud
