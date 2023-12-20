@@ -150,7 +150,7 @@ func getMap(m ViewPort) ([]MapResult, error) {
 		var (
 			lat  float64
 			lon  float64
-		seq  int64
+			seq  int64
 			team TeamColor
 		)
 		if err := rows.Scan(&seq, &lat, &lon, &team); err != nil {
