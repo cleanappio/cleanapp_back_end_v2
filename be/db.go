@@ -444,12 +444,12 @@ func generateReferral(db *sql.DB, req *GenRefRequest, codeGen func() string) (*G
 	}, nil
 }
 
-func cleanupReferral(db *sql.DB, ref string) error {
-	log.Printf("Cleaning up referral %s\n", ref)
+func cleanupReferral(db *sql.DB, refKey string) error {
+	log.Printf("Cleaning up referral %s\n", refKey)
 
 	if _, err := db.Exec(`DELETE
 		FROM referrals
-		WHERE refvalue = ?`, ref); err != nil {
+		WHERE refkey = ?`, refKey); err != nil {
 		log.Printf("Error cleaning up referral, %v\n", err)
 		return err
 	}

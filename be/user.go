@@ -13,11 +13,12 @@ type UserArgs struct {
 	Id       string `json:"id"`      // public key.
 	Avatar   string `json:"avatar"`
 	Referral string `json:"referral"`
+	RefKey   string `json:"ref_key"`
 }
 
 type UserResp struct {
-	Team TeamColor `json:"team"` // Blue or Green
-	DupAvatar bool `json:"dup_avatar"`
+	Team      TeamColor `json:"team"` // Blue or Green
+	DupAvatar bool      `json:"dup_avatar"`
 }
 
 func UpdateUser(c *gin.Context) {
@@ -66,7 +67,7 @@ func UpdateUser(c *gin.Context) {
 
 	if user.Referral != "" {
 		// TODO: Make the call async after the db connection is handled by the db controller
-		cleanupReferral(db, user.Referral)
+		cleanupReferral(db, user.RefKey)
 	}
 	c.IndentedJSON(http.StatusOK, resp) // 200
 }

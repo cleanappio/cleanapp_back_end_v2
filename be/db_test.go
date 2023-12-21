@@ -816,19 +816,19 @@ func TestGenerateReferral(t *testing.T) {
 func TestCleanupReferral(t *testing.T) {
 	it(func() {
 		testCases := []struct {
-			name string
-			ref  string
+			name   string
+			refKey string
 
 			errorExpected bool
 		}{
 			{
-				name: "Success cleanup",
-				ref:  "abcdef",
+				name:   "Success cleanup",
+				refKey: "192.168.1.1:600:300",
 
 				errorExpected: false,
 			}, {
-				name: "Failed cleanup",
-				ref:  "uvwxyz",
+				name:   "Failed cleanup",
+				refKey: "192.168.1.2:600:300",
 
 				errorExpected: true,
 			},
@@ -836,16 +836,16 @@ func TestCleanupReferral(t *testing.T) {
 		for _, testCase := range testCases {
 			setUp()
 			if testCase.errorExpected {
-				mock.ExpectExec("DELETE FROM referrals WHERE refvalue = (.+)").
-					WithArgs(testCase.ref).
+				mock.ExpectExec("DELETE FROM referrals WHERE refkey = (.+)").
+					WithArgs(testCase.refKey).
 					WillReturnError(fmt.Errorf("ref delete error"))
 			} else {
-				mock.ExpectExec("DELETE FROM referrals WHERE refvalue = (.+)").
-					WithArgs(testCase.ref).
+				mock.ExpectExec("DELETE FROM referrals WHERE refkey = (.+)").
+					WithArgs(testCase.refKey).
 					WillReturnResult(sqlmock.NewResult(1, 1))
 			}
 
-			if err := cleanupReferral(db, testCase.ref); testCase.errorExpected != (err != nil) {
+			if err := cleanupReferral(db, testCase.refKey); testCase.errorExpected != (err != nil) {
 				t.Errorf("%s, cleanupReferral: expected error: %v, got error: %v", testCase.name, testCase.errorExpected, err)
 			}
 		}
