@@ -3,6 +3,7 @@ package be
 import (
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -34,6 +35,8 @@ type MapResult struct {
 	Team      TeamColor `json:"team"`      // Ignored if Count > 1
 }
 
+const retention = 24 * 30 * time.Hour  // For initial run it's one hour. To be reduced after we get more users.
+
 func GetMap(c *gin.Context) {
 	log.Print("Call to /get_map")
 	var ma MapArgs
@@ -54,7 +57,7 @@ func GetMap(c *gin.Context) {
 	}
 
 	// Add user to the database.
-	r, err := getMap(ma.VPort)
+	r, err := getMap(ma.VPort, retention)
 	if err != nil {
 		log.Printf("Failed to update user with %v", err)
 		c.Status(http.StatusInternalServerError) // 500

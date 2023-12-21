@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"time"
 
 	"cleanapp/common"
 
@@ -112,8 +113,8 @@ func saveReport(db *sql.DB, r ReportArgs) error {
 	return tx.Commit()
 }
 
-func getMap(m ViewPort) ([]MapResult, error) {
-	log.Printf("Write: Trying to map/coordinates from db in %f,%f:%f,%f", m.LatMin, m.LonMin, m.LatMax, m.LonMax)
+func getMap(m ViewPort, retention time.Duration) ([]MapResult, error) {
+	log.Printf("Write: Trying to map/coordinates from db in %f,%f:%f,%f with retention %v", m.LatMin, m.LonMin, m.LatMax, m.LonMax, retention)
 	db, err := common.DBConnect(mysqlAddress())
 	if err != nil {
 		return nil, err
@@ -131,7 +132,8 @@ func getMap(m ViewPort) ([]MapResult, error) {
 	  FROM reports
 	  WHERE latitude > ? AND longitude > ?
 	  	AND latitude <= ? AND longitude <= ?
-	`, m.LatMin, m.LonMin, m.LatMax, m.LonMax)
+			AND TIMESTAMPDIFF(HOUR, ts, NOW()) <= ?
+	`, m.LatMin, m.LonMin, m.LatMax, m.LonMax, retention.Hours())
 	if err != nil {
 		log.Printf("Could not retrieve reports: %v", err)
 		return nil, err
