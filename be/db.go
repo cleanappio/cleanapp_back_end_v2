@@ -179,29 +179,27 @@ func getMap(m ViewPort) ([]MapResult, error) {
 	return r, nil
 }
 
-func getStats(id string) (StatsResponse, error) {
+func getStats(db *sql.DB, id string) (*StatsResponse, error) {
 	log.Printf("Write: Trying to get stats for user %s", id)
-	db, err := common.DBConnect(mysqlAddress())
-	if err != nil {
-		return StatsResponse{}, err
-	}
-	defer db.Close()
 
 	rows, err := db.Query(`
-	   SELECT COUNT(*)
-	   FROM reports
+	   SELECT kitns_daily, kitns_disbursed, kitns_ref_daily, kitns_ref_disbursed
+	   FROM users
 	   WHERE id = ?
 	 `, id)
 	if err != nil {
 		log.Printf("Could not retrieve number of kittens for user %q: %v", id, err)
-		return StatsResponse{}, err
+		return nil, err
 	}
 	defer rows.Close()
 
-	cnt := 0
+	kitnsDaily := 0
+	kitnsDisbursed := 0
+	kitnsRefDaily := 0.0
+	kitnsRefDisbursed := 0.0
 	err = nil
 	if rows.Next() {
-		if err := rows.Scan(&cnt); err != nil {
+		if err := rows.Scan(&kitnsDaily, &kitnsDisbursed, &kitnsRefDaily, &kitnsRefDisbursed); err != nil {
 			log.Printf("Cannot count number of kittens for user %q with error %v", id, err)
 		}
 	} else {
@@ -209,10 +207,13 @@ func getStats(id string) (StatsResponse, error) {
 		err = fmt.Errorf("zero rows counting kittens for user %q, returning 0", id)
 	}
 
-	return StatsResponse{
-		Version: "2.0",
-		Id:      id,
-		Kittens: cnt,
+	return &StatsResponse{
+		Version:           "2.0",
+		Id:                id,
+		KitnsDaily:        kitnsDaily,
+		KitnsDisbursed:    kitnsDisbursed,
+		KitnsRefDaily:     kitnsRefDaily,
+		KitnsRefDisbusded: kitnsRefDisbursed,
 	}, err
 }
 
