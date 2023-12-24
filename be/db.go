@@ -1,6 +1,7 @@
 package be
 
 import (
+	"context"
 	"database/sql"
 	"flag"
 	"fmt"
@@ -23,22 +24,20 @@ func mysqlAddress() string {
 	return db
 }
 
-func validateResult(r sql.Result, e error, checkRowsAffected bool) error {
+func logResult(r sql.Result, e error) {
 	if e != nil {
 		log.Printf("Query failed: %v", e)
-		return e
+		return
 	}
 	rows, err := r.RowsAffected()
 	if err != nil {
 		log.Printf("Failed to get status of db op: %s", err)
-		return err
+		return
 	}
-	if checkRowsAffected && rows != 1 {
+	if rows != 1 {
 		m := fmt.Sprintf("Expected to affect 1 row, affected %d", rows)
 		log.Print(m)
-		return fmt.Errorf(m)
 	}
-	return nil
 }
 
 func updateUser(db *sql.DB, u *UserArgs, teamGen func(string) TeamColor) (*UserResp, error) {
@@ -71,7 +70,8 @@ func updateUser(db *sql.DB, u *UserArgs, teamGen func(string) TeamColor) (*UserR
 	                        ON DUPLICATE KEY UPDATE avatar=?, referral=?, team=?`,
 		u.Id, u.Avatar, u.Referral, team, u.Avatar, u.Referral, team)
 
-	err = validateResult(result, err, false)
+	logResult(result, err)
+
 	if err != nil {
 		return nil, err
 	}
@@ -87,35 +87,52 @@ func updatePrivacyAndTOC(db *sql.DB, args *PrivacyAndTOCArgs) error {
 		result, err := db.Exec(`UPDATE users
 			SET privacy = ?, agree_toc = ?
 			WHERE id = ?`, args.Privacy, args.AgreeTOC, args.Id)
-		return validateResult(result, err, false)
+		logResult(result, err)
+		return err
 	} else if args.Privacy != "" {
 		result, err := db.Exec(`UPDATE users
 			SET privacy = ?
 			WHERE id = ?`, args.Privacy, args.Id)
-		return validateResult(result, err, false)
+		logResult(result, err)
+		return err
 	} else if args.AgreeTOC != "" {
 		result, err := db.Exec(`UPDATE users
 			SET agree_toc = ?
 			WHERE id = ?`, args.AgreeTOC, args.Id)
-		return validateResult(result, err, false)
+		logResult(result, err)
+		return err
 	}
 	return fmt.Errorf("either privacy or agree_toc should be specified")
 }
 
-func saveReport(r ReportArgs) error {
+func saveReport(db *sql.DB, r ReportArgs) error {
 	log.Printf("Write: Trying to save report from user %s to db located at %f,%f", r.Id, r.Latitude, r.Longitue)
-	db, err := common.DBConnect(mysqlAddress())
+
+	ctx := context.Background()
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
+		log.Printf("Error creating transaction: %v\n", err)
 		return err
 	}
-	defer db.Close()
+	defer tx.Rollback()
 
-	result, err := db.Exec(`INSERT
+	result, err := tx.ExecContext(ctx, `INSERT
 	  INTO reports (id, team, latitude, longitude, x, y, image)
 	  VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		r.Id, userIdToTeam(r.Id), r.Latitude, r.Longitue, r.X, r.Y, r.Image)
+	logResult(result, err)
+	if err != nil {
+		log.Printf("Error inserting report: %v\n", err)
+		return err
+	}
 
-	return validateResult(result, err, true)
+	result, err = tx.ExecContext(ctx, `UPDATE users SET kitns_daily = kitns_daily + 1 WHERE id = ?`, r.Id)
+	logResult(result, err)
+	if err != nil {
+		log.Printf("Error update kitns: %v\n", err)
+		return err
+	}
+	return tx.Commit()
 }
 
 func getMap(m ViewPort) ([]MapResult, error) {
@@ -238,9 +255,8 @@ func getTeams() (TeamsResponse, error) {
 
 func getTopScores(db *sql.DB, args *BaseArgs, topCount int) (*TopScoresResponse, error) {
 	rows, err := db.Query(`
-		SELECT u.id, u.avatar, count(*) AS cnt
-		FROM reports r JOIN users u ON r.id = u.id
-		GROUP BY u.id
+		SELECT id, avatar, kitns_daily + kitns_disbursed + kitns_ref_daily + kitns_ref_disbursed AS cnt
+		FROM users
 		ORDER BY cnt DESC
 		LIMIT ?`, topCount)
 	if err != nil {
@@ -255,7 +271,7 @@ func getTopScores(db *sql.DB, args *BaseArgs, topCount int) (*TopScoresResponse,
 	hasYou := false
 	for rows.Next() {
 		var id, avatar string
-		var cnt int
+		var cnt float64
 
 		if err := rows.Scan(&id, &avatar, &cnt); err != nil {
 			return nil, err
@@ -278,10 +294,9 @@ func getTopScores(db *sql.DB, args *BaseArgs, topCount int) (*TopScoresResponse,
 	}
 
 	rows, err = db.Query(`
-		SELECT u.id, u.avatar, count(*) AS cnt
-		FROM reports r RIGHT OUTER JOIN users u ON r.id = u.id
-		WHERE u.id = ?
-		GROUP BY u.id`, args.Id)
+		SELECT id, avatar, kitns_daily + kitns_disbursed + kitns_ref_daily + kitns_ref_disbursed AS cnt
+		FROM users
+		WHERE id = ?`, args.Id)
 	if err != nil {
 		return nil, err
 	}
@@ -289,7 +304,7 @@ func getTopScores(db *sql.DB, args *BaseArgs, topCount int) (*TopScoresResponse,
 
 	if rows.Next() {
 		var id, avatar string
-		var cnt int
+		var cnt float64
 		if err := rows.Scan(&id, &avatar, &cnt); err != nil {
 			return nil, err
 		}
@@ -300,16 +315,13 @@ func getTopScores(db *sql.DB, args *BaseArgs, topCount int) (*TopScoresResponse,
 		}
 		newRows, err := db.Query(`
 			SELECT count(*) AS c
-			FROM(
-				SELECT id, count(*) AS cnt
-				FROM reports r
-				GROUP BY id
-				HAVING cnt > ?
-			) AS t
+			FROM users
+			WHERE kitns_daily + kitns_disbursed + kitns_ref_daily + kitns_ref_disbursed > ?
 		`, cnt)
 		if err != nil {
 			return nil, err
 		}
+		defer newRows.Close()
 		if newRows.Next() {
 			var yourCnt int
 			if err := newRows.Scan(&yourCnt); err != nil {
@@ -410,10 +422,12 @@ func writeReferral(db *sql.DB, key, value string) error {
 		return nil
 	}
 
-	_, err = db.Exec(`INSERT
+	result, err := db.Exec(`INSERT
 	  INTO referrals (refkey, refvalue)
 	  VALUES (?, ?)`,
 		key, value)
+
+	logResult(result, err)
 
 	return err
 }
@@ -443,10 +457,13 @@ func generateReferral(db *sql.DB, req *GenRefRequest, codeGen func() string) (*G
 
 	refCode = codeGen()
 
-	if _, err := db.Exec(`INSERT
+	result, err := db.Exec(`INSERT
 		INTO users_refcodes (id, referral)
 		VALUES (?, ?)`,
-		req.Id, refCode); err != nil {
+		req.Id, refCode)
+	logResult(result, err)
+
+	if err != nil {
 		return nil, err
 	}
 
@@ -458,9 +475,12 @@ func generateReferral(db *sql.DB, req *GenRefRequest, codeGen func() string) (*G
 func cleanupReferral(db *sql.DB, ref string) error {
 	log.Printf("Cleaning up referral %s\n", ref)
 
-	if _, err := db.Exec(`DELETE
+	result, err := db.Exec(`DELETE
 		FROM referrals
-		WHERE refvalue = ?`, ref); err != nil {
+		WHERE refvalue = ?`, ref)
+	logResult(result, err)
+
+	if err != nil {
 		log.Printf("Error cleaning up referral, %v\n", err)
 		return err
 	}

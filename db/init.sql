@@ -13,6 +13,10 @@ CREATE TABLE IF NOT EXISTS users (
   privacy varchar(255),
   agree_toc varchar(255),
   referral VARCHAR(32),
+  kitns_daily INT DEFAULT 0,
+  kitns_disbursed INT DEFAULT 0,
+  kitns_ref_daily DECIMAL(18, 6) DEFAULT 0.0,
+  kitns_ref_disbursed DECIMAL(18, 6) DEFAULT 0.0,
   ts TIMESTAMP default current_timestamp,
   PRIMARY KEY (id),
   UNIQUE INDEX avatar_idx (avatar)

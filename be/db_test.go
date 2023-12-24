@@ -103,6 +103,7 @@ func TestUpdateOrCreateUser(t *testing.T) {
 
 		recordColumns := []string{"id"}
 		for _, testCase := range testCases {
+			setUp()
 			mock.ExpectQuery("SELECT id FROM users WHERE avatar = (.+)").
 				WithArgs(testCase.avatar).
 				WillReturnRows(
@@ -190,6 +191,7 @@ func TestUpdatePrivacyAndAgreeTOC(t *testing.T) {
 		}
 
 		for _, testCase := range testCases {
+			setUp()
 			if testCase.execExpected {
 				if testCase.privacy != "" && testCase.agreeTOC != "" {
 					mock.ExpectExec("UPDATE users SET privacy = (.+), agree_toc = (.+) WHERE id = (.+)").
@@ -217,6 +219,140 @@ func TestUpdatePrivacyAndAgreeTOC(t *testing.T) {
 	})
 }
 
+func TestSaveReport(t *testing.T) {
+	const (
+		ERROR_NONE = iota
+		ERROR_COMMIT_TRAN
+		ERROR_UPDATE_USER
+		ERROR_INSERT_REPORT
+		ERROR_BEGIN_TRAN
+	)
+	it(func() {
+		testCases := []struct {
+			name string
+			r    ReportArgs
+
+			expectError int
+		}{
+			{
+				name: "Add report success",
+				r: ReportArgs{
+					Version:  "2.0",
+					Id:       "0x1234",
+					Latitude: 40.12345,
+					Longitue: 8.12345,
+					X:        0.5,
+					Y:        0.5,
+					Image:    []byte{1, 2, 3, 4, 5, 6, 7, 8},
+				},
+				expectError: ERROR_NONE,
+			},
+			{
+				name: "Add report begin transaction error",
+				r: ReportArgs{
+					Version:  "2.0",
+					Id:       "0x5678",
+					Latitude: 40.67890,
+					Longitue: 8.67890,
+					X:        0.1,
+					Y:        0.1,
+					Image:    []byte{1, 2, 3, 4, 5, 6, 7, 8},
+				},
+				expectError: ERROR_BEGIN_TRAN,
+			},
+			{
+				name: "Add report insert error",
+				r: ReportArgs{
+					Version:  "2.0",
+					Id:       "0x9012",
+					Latitude: 41.67890,
+					Longitue: 9.67890,
+					X:        0.2,
+					Y:        0.2,
+					Image:    []byte{1, 2, 3, 4, 5, 6, 7, 8},
+				},
+				expectError: ERROR_INSERT_REPORT,
+			},
+			{
+				name: "Add report user update error",
+				r: ReportArgs{
+					Version:  "2.0",
+					Id:       "0x3456",
+					Latitude: 42.67890,
+					Longitue: 10.67890,
+					X:        0.3,
+					Y:        0.3,
+					Image:    []byte{1, 2, 3, 4, 5, 6, 7, 8},
+				},
+				expectError: ERROR_UPDATE_USER,
+			},
+			{
+				name: "Add report commit transaction error",
+				r: ReportArgs{
+					Version:  "2.0",
+					Id:       "0x7890",
+					Latitude: 43.67890,
+					Longitue: 11.67890,
+					X:        0.4,
+					Y:        0.4,
+					Image:    []byte{1, 2, 3, 4, 5, 6, 7, 8},
+				},
+				expectError: ERROR_COMMIT_TRAN,
+			},
+		}
+
+		for _, testCase := range testCases {
+			setUp()
+			if testCase.expectError == ERROR_BEGIN_TRAN {
+				mock.ExpectBegin().WillReturnError(fmt.Errorf("begin transaction error"))
+			} else if testCase.expectError < ERROR_BEGIN_TRAN {
+				mock.ExpectBegin()
+			}
+			if testCase.expectError == ERROR_INSERT_REPORT {
+				mock.ExpectExec("INSERT	INTO reports \\(id, team, latitude, longitude, x, y, image\\)	VALUES \\((.+), (.+), (.+), (.+), (.+), (.+), (.+)\\)").
+					WithArgs(
+						testCase.r.Id,
+						1,
+						testCase.r.Latitude,
+						testCase.r.Longitue,
+						testCase.r.X,
+						testCase.r.Y,
+						testCase.r.Image).
+					WillReturnError(fmt.Errorf("insert report error"))
+			} else if testCase.expectError < ERROR_INSERT_REPORT {
+				mock.ExpectExec("INSERT	INTO reports \\(id, team, latitude, longitude, x, y, image\\)	VALUES \\((.+), (.+), (.+), (.+), (.+), (.+), (.+)\\)").
+					WithArgs(
+						testCase.r.Id,
+						1,
+						testCase.r.Latitude,
+						testCase.r.Longitue,
+						testCase.r.X,
+						testCase.r.Y,
+						testCase.r.Image).
+					WillReturnResult(sqlmock.NewResult(1, 1))
+			}
+			if testCase.expectError == ERROR_UPDATE_USER {
+				mock.ExpectExec("UPDATE users SET kitns_daily \\= kitns_daily \\+ 1 WHERE id = (.+)").
+					WithArgs(testCase.r.Id).
+					WillReturnError(fmt.Errorf("update user error"))
+			} else if testCase.expectError < ERROR_UPDATE_USER {
+				mock.ExpectExec("UPDATE users SET kitns_daily \\= kitns_daily \\+ 1 WHERE id = (.+)").
+					WithArgs(testCase.r.Id).
+					WillReturnResult(sqlmock.NewResult(1, 1))
+				mock.ExpectCommit()
+			}
+			if testCase.expectError == ERROR_COMMIT_TRAN {
+				mock.ExpectCommit().WillReturnError(fmt.Errorf("error commit transaction"))
+			} else if testCase.expectError < ERROR_COMMIT_TRAN {
+				mock.ExpectCommit()
+			}
+			if err := saveReport(db, testCase.r); (testCase.expectError == ERROR_NONE) != (err == nil) {
+				t.Errorf("%s, saveReport: expected %v, got %v", testCase.name, testCase.expectError, err)
+			}
+		}
+	})
+}
+
 func TestGetTopScores(t *testing.T) {
 	it(func() {
 		testCases := []struct {
@@ -225,7 +361,7 @@ func TestGetTopScores(t *testing.T) {
 			topN         int
 			retList      []string
 			youRet       string
-			yourCnt      int
+			yourCnt      float64
 			cntBeforeYou string
 
 			expectResponse *TopScoresResponse
@@ -324,24 +460,25 @@ func TestGetTopScores(t *testing.T) {
 		recordColumns := []string{"id", "avatar", "cnt"}
 		countColunms := []string{"c"}
 		for _, testCase := range testCases {
+			setUp()
 			if testCase.expectError {
-				mock.ExpectQuery("SELECT u\\.id, u\\.avatar, count\\(\\*\\) AS cnt FROM reports r JOIN users u ON r\\.id = u\\.id	GROUP BY u\\.id	ORDER BY cnt DESC	LIMIT (.+)").
+				mock.ExpectQuery("SELECT id, avatar, kitns_daily \\+ kitns_disbursed \\+ kitns_ref_daily \\+ kitns_ref_disbursed AS cnt	FROM users ORDER BY cnt DESC LIMIT (.+)").
 					WithArgs(testCase.topN).
 					WillReturnError(fmt.Errorf("query error"))
 			} else {
-				mock.ExpectQuery("SELECT u\\.id, u\\.avatar, count\\(\\*\\) AS cnt FROM reports r JOIN users u ON r\\.id = u\\.id	GROUP BY u\\.id	ORDER BY cnt DESC	LIMIT (.+)").
+				mock.ExpectQuery("SELECT id, avatar, kitns_daily \\+ kitns_disbursed \\+ kitns_ref_daily \\+ kitns_ref_disbursed AS cnt	FROM users ORDER BY cnt DESC LIMIT (.+)").
 					WithArgs(testCase.topN).
 					WillReturnRows(
 						sqlmock.NewRows(recordColumns).
 							FromCSVString(strings.Join(testCase.retList, "\n")))
 			}
 			if testCase.youRet != "" {
-				mock.ExpectQuery("SELECT u\\.id, u\\.avatar, count\\(\\*\\) AS cnt FROM reports r RIGHT OUTER JOIN users u ON r\\.id = u\\.id WHERE u\\.id = (.+) GROUP BY u\\.id").
+				mock.ExpectQuery("SELECT id, avatar, kitns_daily \\+ kitns_disbursed \\+ kitns_ref_daily \\+ kitns_ref_disbursed AS cnt	FROM users WHERE id \\= (.+)").
 					WithArgs(testCase.base.Id).
 					WillReturnRows(
 						sqlmock.NewRows(recordColumns).
 							FromCSVString(testCase.youRet))
-				mock.ExpectQuery("SELECT count\\(\\*\\) AS c FROM\\( SELECT id, count\\(\\*\\) AS cnt FROM reports r GROUP BY id HAVING cnt \\> (.+) \\) AS t").
+				mock.ExpectQuery("SELECT count\\(\\*\\) AS c FROM users	WHERE kitns_daily \\+ kitns_disbursed \\+ kitns_ref_daily \\+ kitns_ref_disbursed \\> (.+)").
 					WithArgs(testCase.yourCnt).
 					WillReturnRows(
 						sqlmock.NewRows(countColunms).
@@ -431,6 +568,7 @@ func TestReadReport(t *testing.T) {
 			"privacy",
 		}
 		for _, testCase := range testCases {
+			setUp()
 			values := ""
 			if testCase.seqExists {
 				values = fmt.Sprintf("0x1234,abcdefgh,testuser,%s", testCase.sharing)
@@ -494,6 +632,7 @@ func TestReadReferral(t *testing.T) {
 			"refvalue",
 		}
 		for _, testCase := range testCases {
+			setUp()
 			if testCase.errorExpected {
 				mock.ExpectQuery("SELECT refvalue	FROM referrals WHERE refkey = (.+)").WithArgs(testCase.refKey).
 					WillReturnError(fmt.Errorf("test fetch error"))
@@ -554,6 +693,7 @@ func TestWriteReferral(t *testing.T) {
 			"refvalue",
 		}
 		for _, testCase := range testCases {
+			setUp()
 			if testCase.refExists {
 				mock.ExpectQuery("SELECT refvalue	FROM referrals WHERE refkey = (.+)").WithArgs(testCase.refKey).
 					WillReturnRows(sqlmock.NewRows(columns).
@@ -637,6 +777,7 @@ func TestGenerateReferral(t *testing.T) {
 			"referral",
 		}
 		for _, testCase := range testCases {
+			setUp()
 			if testCase.refExists {
 				mock.ExpectQuery("SELECT referral FROM users_refcodes WHERE id = (.+)").
 					WithArgs(testCase.id).
@@ -693,6 +834,7 @@ func TestCleanupReferral(t *testing.T) {
 			},
 		}
 		for _, testCase := range testCases {
+			setUp()
 			if testCase.errorExpected {
 				mock.ExpectExec("DELETE FROM referrals WHERE refvalue = (.+)").
 					WithArgs(testCase.ref).

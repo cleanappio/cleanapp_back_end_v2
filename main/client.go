@@ -31,7 +31,7 @@ func doUser() {
 {
 	"version": "2.0",
 	"id": "` + userID + `",
-	"avatar": "La Puch da Vinchi",
+	"avatar": "Avatar-` + userID + `",
 	"referral": "AaBbCc"
 }`
 

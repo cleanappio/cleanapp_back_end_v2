@@ -9,10 +9,10 @@ import (
 )
 
 type TopScoresRecord struct {
-	Place int    `json:"place"`
-	Title string `json:"title"`
-	Kitn  int    `json:"kitn"`
-	IsYou bool   `json:"is_you"`
+	Place int     `json:"place"`
+	Title string  `json:"title"`
+	Kitn  float64 `json:"kitn"`
+	IsYou bool    `json:"is_you"`
 }
 
 type TopScoresResponse struct {
@@ -41,6 +41,7 @@ func GetTopScores(c *gin.Context) {
 		log.Printf("%v", err)
 		return
 	}
+	defer db.Close()
 
 	r, err := getTopScores(db, &ba, 7)
 	if err != nil {
