@@ -25,6 +25,22 @@ func mysqlAddress() string {
 	return db
 }
 
+func logResult(r sql.Result, e error) {
+	if e != nil {
+		log.Printf("Query failed: %v", e)
+		return
+	}
+	rows, err := r.RowsAffected()
+	if err != nil {
+		log.Printf("Failed to get status of db op: %s", err)
+		return
+	}
+	if rows != 1 {
+		m := fmt.Sprintf("Expected to affect 1 row, affected %d", rows)
+		log.Print(m)
+	}
+}
+
 func updateUser(db *sql.DB, u *UserArgs, teamGen func(string) TeamColor) (*UserResp, error) {
 	log.Printf("Write: Trying to create or update user %s / %s", u.Id, u.Avatar)
 	rows, err := db.Query("SELECT id FROM users WHERE avatar = ?", u.Avatar)
@@ -51,9 +67,11 @@ func updateUser(db *sql.DB, u *UserArgs, teamGen func(string) TeamColor) (*UserR
 
 	team := teamGen(u.Id)
 
-	_, err = db.Exec(`INSERT INTO users (id, avatar, referral, team) VALUES (?, ?, ?, ?)
+	result, err := db.Exec(`INSERT INTO users (id, avatar, referral, team) VALUES (?, ?, ?, ?)
 	                        ON DUPLICATE KEY UPDATE avatar=?, referral=?, team=?`,
 		u.Id, u.Avatar, u.Referral, team, u.Avatar, u.Referral, team)
+
+	logResult(result, err)
 
 	if err != nil {
 		return nil, err
@@ -67,19 +85,22 @@ func updatePrivacyAndTOC(db *sql.DB, args *PrivacyAndTOCArgs) error {
 	log.Printf("Writing privacy and TOC %v", args)
 
 	if args.Privacy != "" && args.AgreeTOC != "" {
-		_, err := db.Exec(`UPDATE users
+		result, err := db.Exec(`UPDATE users
 			SET privacy = ?, agree_toc = ?
 			WHERE id = ?`, args.Privacy, args.AgreeTOC, args.Id)
+		logResult(result, err)
 		return err
 	} else if args.Privacy != "" {
-		_, err := db.Exec(`UPDATE users
+		result, err := db.Exec(`UPDATE users
 			SET privacy = ?
 			WHERE id = ?`, args.Privacy, args.Id)
+		logResult(result, err)
 		return err
 	} else if args.AgreeTOC != "" {
-		_, err := db.Exec(`UPDATE users
+		result, err := db.Exec(`UPDATE users
 			SET agree_toc = ?
 			WHERE id = ?`, args.AgreeTOC, args.Id)
+		logResult(result, err)
 		return err
 	}
 	return fmt.Errorf("either privacy or agree_toc should be specified")
@@ -96,16 +117,18 @@ func saveReport(db *sql.DB, r ReportArgs) error {
 	}
 	defer tx.Rollback()
 
-	_, err = tx.ExecContext(ctx, `INSERT
+	result, err := tx.ExecContext(ctx, `INSERT
 	  INTO reports (id, team, latitude, longitude, x, y, image)
 	  VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		r.Id, userIdToTeam(r.Id), r.Latitude, r.Longitue, r.X, r.Y, r.Image)
+	logResult(result, err)
 	if err != nil {
 		log.Printf("Error inserting report: %v\n", err)
 		return err
 	}
 
-	_, err = tx.ExecContext(ctx, `UPDATE users SET kitns_daily = kitns_daily + 1 WHERE id = ?`, r.Id)
+	result, err = tx.ExecContext(ctx, `UPDATE users SET kitns_daily = kitns_daily + 1 WHERE id = ?`, r.Id)
+	logResult(result, err)
 	if err != nil {
 		log.Printf("Error update kitns: %v\n", err)
 		return err
@@ -401,10 +424,12 @@ func writeReferral(db *sql.DB, key, value string) error {
 		return nil
 	}
 
-	_, err = db.Exec(`INSERT
+	result, err := db.Exec(`INSERT
 	  INTO referrals (refkey, refvalue)
 	  VALUES (?, ?)`,
 		key, value)
+
+	logResult(result, err)
 
 	return err
 }
@@ -434,10 +459,13 @@ func generateReferral(db *sql.DB, req *GenRefRequest, codeGen func() string) (*G
 
 	refCode = codeGen()
 
-	if _, err := db.Exec(`INSERT
+	result, err := db.Exec(`INSERT
 		INTO users_refcodes (id, referral)
 		VALUES (?, ?)`,
-		req.Id, refCode); err != nil {
+		req.Id, refCode)
+	logResult(result, err)
+
+	if err != nil {
 		return nil, err
 	}
 
@@ -449,9 +477,12 @@ func generateReferral(db *sql.DB, req *GenRefRequest, codeGen func() string) (*G
 func cleanupReferral(db *sql.DB, ref string) error {
 	log.Printf("Cleaning up referral %s\n", ref)
 
-	if _, err := db.Exec(`DELETE
+	result, err := db.Exec(`DELETE
 		FROM referrals
-		WHERE refvalue = ?`, ref); err != nil {
+		WHERE refvalue = ?`, ref)
+	logResult(result, err)
+
+	if err != nil {
 		log.Printf("Error cleaning up referral, %v\n", err)
 		return err
 	}
