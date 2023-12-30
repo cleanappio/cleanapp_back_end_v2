@@ -56,13 +56,13 @@ func TestUpdateOrCreateUser(t *testing.T) {
 				id:       "0x12345678",
 				avatar:   "user1",
 				referral: "abcdef",
-				team:     1,
+				team:     Blue,
 
 				retList:      []string{},
 				execExpected: true,
 
 				expectResponse: &UserResp{
-					Team:      1,
+					Team:      Blue,
 					DupAvatar: false,
 				},
 				expectError: false,
@@ -72,14 +72,14 @@ func TestUpdateOrCreateUser(t *testing.T) {
 				id:       "0x123456768",
 				avatar:   "user1",
 				referral: "abcdef",
-				team:     1,
+				team:     Blue,
 
 				retList:      []string{"0x123456768"},
 				execExpected: true,
 
 				expectError: false,
 				expectResponse: &UserResp{
-					Team:      1,
+					Team:      Blue,
 					DupAvatar: false,
 				},
 			}, {
@@ -88,7 +88,7 @@ func TestUpdateOrCreateUser(t *testing.T) {
 				id:       "0x123456768",
 				avatar:   "user1",
 				referral: "abcdef",
-				team:     1,
+				team:     Blue,
 
 				retList:      []string{"0x87654321"},
 				execExpected: false,
@@ -492,6 +492,67 @@ func TestGetTopScores(t *testing.T) {
 
 			if !reflect.DeepEqual(response, testCase.expectResponse) {
 				t.Errorf("%s, getTopScores: expected %v, got %v", testCase.name, testCase.expectResponse, response)
+			}
+		}
+	})
+}
+
+func TestGetStats(t *testing.T) {
+	it(func() {
+		testCases := []struct {
+			name string
+			id   string
+
+			expectResponse *StatsResponse
+			expectError    bool
+		}{
+			{
+				name: "Get stats success",
+				id:   "0x1234",
+
+				expectResponse: &StatsResponse{
+					Version:           "2.0",
+					Id:                "0x1234",
+					KitnsDaily:        10,
+					KitnsDisbursed:    1000,
+					KitnsRefDaily:     0.25,
+					KitnsRefDisbusded: 5.5,
+				},
+				expectError: false,
+			}, {
+				name: "Get stats error",
+				id:   "0x5678",
+
+				expectResponse: nil,
+				expectError:    true,
+			},
+		}
+
+		recordColumns := []string{
+			"kitns_daily",
+			"kitns_disbursed",
+			"kitns_ref_daily",
+			"kitns_ref_disbursed",
+		}
+		for _, testCase := range testCases {
+			setUp()
+			if testCase.expectError {
+				mock.ExpectQuery("SELECT kitns_daily, kitns_disbursed, kitns_ref_daily, kitns_ref_disbursed	FROM users WHERE id = (.+)").
+					WithArgs(testCase.id).
+					WillReturnError(fmt.Errorf("error getting kitns"))
+			} else {
+				mock.ExpectQuery("SELECT kitns_daily, kitns_disbursed, kitns_ref_daily, kitns_ref_disbursed	FROM users WHERE id = (.+)").
+					WithArgs(testCase.id).
+					WillReturnRows(sqlmock.NewRows(recordColumns).FromCSVString("10,1000,0.25,5.5"))
+			}
+
+			response, err := getStats(db, testCase.id)
+			if testCase.expectError != (err != nil) {
+				t.Errorf("%s, getStats: expected error: %v, got error: %v", testCase.name, testCase.expectError, err)
+			}
+
+			if !reflect.DeepEqual(response, testCase.expectResponse) {
+				t.Errorf("%s, getStats: expected %v, got %v", testCase.name, testCase.expectResponse, response)
 			}
 		}
 	})
