@@ -144,7 +144,6 @@ func getMap(m ViewPort, retention time.Duration) ([]MapResult, error) {
 	}
 	defer db.Close()
 
-	// TODO: Limit the time scope, say, last  week. Or make it a parameter.
 	// TODO: Handle 180 meridian inside.
 	// Exmaples of rectangles:
 	// Zurich 47.3677679,8.5554069 => 47.3602948,8.5766434 top > bottom, left<right
