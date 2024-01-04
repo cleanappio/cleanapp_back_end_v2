@@ -7,6 +7,9 @@
 #
 # Give any arg to skip the installation, e.g. "./setup.sh local"
 
+# Docker images label:
+DOCKER_LABEL='1.6'
+
 # Create necessary files.
 
 cat >.env << ENV
@@ -58,6 +61,12 @@ services:
       - mysql:/var/lib/mysql
     ports:
       - 3306:3306
+
+  cleanappapp:
+    container_name: cleanappapp
+    image: ibnazer/cleanappapp:1.6
+    ports:
+      - 3000:80
 
 volumes:
   mysql:
@@ -112,8 +121,9 @@ installDocker() {
 installDocker
 
 # Pull images:
-sudo docker pull ibnazer/cleanappserver:1.6
-sudo docker pull ibnazer/cleanappdb:1.6
+sudo docker pull ibnazer/cleanappserver:${DOCKER_LABEL}
+sudo docker pull ibnazer/cleanappdb:${DOCKER_LABEL}
+sudo docker pull ibnazer/cleanappapp:${DOCKER_LABEL}
 
 # Start our docker images.
 ./up.sh
