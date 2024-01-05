@@ -32,6 +32,7 @@ type MapResult struct {
 	Count     int64     `json:"count"`
 	ReportID  int64     `json:"report_id"` // Ignored if Count > 1
 	Team      TeamColor `json:"team"`      // Ignored if Count > 1
+	Own       bool      `json:"own"`
 }
 
 func GetMap(c *gin.Context) {
@@ -54,7 +55,7 @@ func GetMap(c *gin.Context) {
 	}
 
 	// Add user to the database.
-	r, err := getMap(ma.VPort)
+	r, err := getMap(ma.Id, ma.VPort)
 	if err != nil {
 		log.Printf("Failed to update user with %v", err)
 		c.Status(http.StatusInternalServerError) // 500

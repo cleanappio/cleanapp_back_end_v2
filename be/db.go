@@ -135,7 +135,7 @@ func saveReport(db *sql.DB, r ReportArgs) error {
 	return tx.Commit()
 }
 
-func getMap(m ViewPort) ([]MapResult, error) {
+func getMap(userId string, m ViewPort) ([]MapResult, error) {
 	log.Printf("Write: Trying to map/coordinates from db in %f,%f:%f,%f", m.LatMin, m.LonMin, m.LatMax, m.LonMax)
 	db, err := common.DBConnect(mysqlAddress())
 	if err != nil {
@@ -150,7 +150,7 @@ func getMap(m ViewPort) ([]MapResult, error) {
 	// Memphis, TN 35.5293051,-90.4510656 => 34.770288,-89.4742701 top > bottom, left < right
 	// Madagascra -14.489877, 44.066256 => -26.459353, 52.375980 top > bottom, left < right
 	rows, err := db.Query(`
-	  SELECT seq, latitude, longitude, team
+	  SELECT seq, latitude, longitude, team, id
 	  FROM reports
 	  WHERE latitude > ? AND longitude > ?
 	  	AND latitude <= ? AND longitude <= ?
@@ -169,12 +169,13 @@ func getMap(m ViewPort) ([]MapResult, error) {
 			lon  float64
 			seq  int64
 			team TeamColor
+			id string
 		)
-		if err := rows.Scan(&seq, &lat, &lon, &team); err != nil {
+		if err := rows.Scan(&seq, &lat, &lon, &team, &id); err != nil {
 			log.Printf("Cannot scan a row: %v", err)
 			continue
 		}
-		r = append(r, MapResult{Latitude: lat, Longitude: lon, Count: 1, ReportID: seq, Team: team})
+		r = append(r, MapResult{Latitude: lat, Longitude: lon, Count: 1, ReportID: seq, Team: team, Own: id == userId})
 	}
 	return r, nil
 }
