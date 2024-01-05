@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"time"
 
 	"cleanapp/common"
 
@@ -135,26 +136,26 @@ func saveReport(db *sql.DB, r ReportArgs) error {
 	return tx.Commit()
 }
 
-func getMap(m ViewPort) ([]MapResult, error) {
-	log.Printf("Write: Trying to map/coordinates from db in %f,%f:%f,%f", m.LatMin, m.LonMin, m.LatMax, m.LonMax)
+func getMap(userId string, m ViewPort, retention time.Duration) ([]MapResult, error) {
+	log.Printf("Write: Trying to map/coordinates from db in %f,%f:%f,%f with retention %v", m.LatMin, m.LonMin, m.LatMax, m.LonMax, retention)
 	db, err := common.DBConnect(mysqlAddress())
 	if err != nil {
 		return nil, err
 	}
 	defer db.Close()
 
-	// TODO: Limit the time scope, say, last  week. Or make it a parameter.
 	// TODO: Handle 180 meridian inside.
 	// Exmaples of rectangles:
 	// Zurich 47.3677679,8.5554069 => 47.3602948,8.5766434 top > bottom, left<right
 	// Memphis, TN 35.5293051,-90.4510656 => 34.770288,-89.4742701 top > bottom, left < right
 	// Madagascra -14.489877, 44.066256 => -26.459353, 52.375980 top > bottom, left < right
 	rows, err := db.Query(`
-	  SELECT seq, latitude, longitude, team
+	  SELECT seq, latitude, longitude, team, id
 	  FROM reports
 	  WHERE latitude > ? AND longitude > ?
 	  	AND latitude <= ? AND longitude <= ?
-	`, m.LatMin, m.LonMin, m.LatMax, m.LonMax)
+			AND TIMESTAMPDIFF(HOUR, ts, NOW()) <= ?
+	`, m.LatMin, m.LonMin, m.LatMax, m.LonMax, retention.Hours())
 	if err != nil {
 		log.Printf("Could not retrieve reports: %v", err)
 		return nil, err
@@ -169,12 +170,13 @@ func getMap(m ViewPort) ([]MapResult, error) {
 			lon  float64
 			seq  int64
 			team TeamColor
+			id string
 		)
-		if err := rows.Scan(&seq, &lat, &lon, &team); err != nil {
+		if err := rows.Scan(&seq, &lat, &lon, &team, &id); err != nil {
 			log.Printf("Cannot scan a row: %v", err)
 			continue
 		}
-		r = append(r, MapResult{Latitude: lat, Longitude: lon, Count: 1, ReportID: seq, Team: team})
+		r = append(r, MapResult{Latitude: lat, Longitude: lon, Count: 1, ReportID: seq, Team: team, Own: id == userId})
 	}
 	return r, nil
 }
