@@ -39,7 +39,12 @@ It should be up and running now. If not, contact eldarm@cleanapp.io
 sudo docker-compose down -v
 ```
 
+## Direct dependencies
 
+Docker images (1.6 is 2.0(Alpha) version):
+1. BE API server: ibnazer/cleanappserver:1.6
+2. BE Database: ibnazer/cleanappdb:1.6
+3. BE application server (currently referral redirection service only): ibnazer/cleanappapp:1.6
 
 ## More
 

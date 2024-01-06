@@ -33,9 +33,10 @@ type MapResult struct {
 	Count     int64     `json:"count"`
 	ReportID  int64     `json:"report_id"` // Ignored if Count > 1
 	Team      TeamColor `json:"team"`      // Ignored if Count > 1
+	Own       bool      `json:"own"`
 }
 
-const retention = 24 * 30 * time.Hour  // For initial run it's one hour. To be reduced after we get more users.
+const retention = 24 * 30 * time.Hour  // For initial run it's one month. To be reduced after we get more users.
 
 func GetMap(c *gin.Context) {
 	log.Print("Call to /get_map")
@@ -57,7 +58,7 @@ func GetMap(c *gin.Context) {
 	}
 
 	// Add user to the database.
-	r, err := getMap(ma.VPort, retention)
+	r, err := getMap(ma.Id, ma.VPort, retention)
 	if err != nil {
 		log.Printf("Failed to update user with %v", err)
 		c.Status(http.StatusInternalServerError) // 500
