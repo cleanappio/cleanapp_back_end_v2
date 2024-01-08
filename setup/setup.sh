@@ -19,6 +19,10 @@ cat >.env << ENV
 MYSQL_ROOT_PASSWORD=secret
 MYSQL_APP_PASSWORD=secret
 MYSQL_READER_PASSWORD=secret
+# These env variables don't contain any secrets and passed AS IS (no editing)
+REACT_APP_REF_API_ENDPOINT="http://localhost:8080/write_referral/"
+REACT_APP_PLAYSTORE_URL="https://play.google.com/store/apps/details?id=com.cleanapp"
+REACT_APP_APPSTORE_URL="https://apps.apple.com/us/app/cleanapp/id6466403301"
 ENV
 
 cat >up.sh << UP
