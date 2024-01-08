@@ -46,6 +46,45 @@ Docker images (1.6 is 2.0(Alpha) version):
 2. BE Database: ibnazer/cleanappdb:1.6
 3. BE application server (currently referral redirection service only): ibnazer/cleanappapp:1.6
 
+## Open ports
+
+* API server exposes port 8080.
+* APP server exposes port 3000.
+* MySQL DB uses port 3306 but currently does not expose it externally. Do so,
+if you want to connect to it from outside.
+
+### How to expose port in Google Cloud
+
+Caveat: Google Cloud UI is not stable, so the instruction below may become obsolete. This is the status on January 2024.
+
+On the account level you need to create firewall rules "allow-8080" and "allow-3000"
+
+Dashboard -> VPC Network -> Firewall, look at VPC Firewall Rules.
+
+It will have the list of available rules.
+On top of the page (!Not near the table!) there will be a button "Create Firewall Rule"
+
+- Name: allow-8080
+- Description: Allow port 8080.
+- Target tags: allow-8080
+- Source filters, IP ranges: 0.0.0.0/0
+- Protocols and ports: tcp:8080
+- It's ok to leaave the rest default.
+
+Create another rule for port 3000.
+
+You are almost done. Now in Compute Engine > VM Instances select the one you want to use. Pick Edit at the top. Go to network tags and add "allow-8080" and "allow-3000". Save. 
+
+You are ready to deploy on this VM.
+
+## Verifying once set up
+
+From outside try:
+- http://dev.api.cleanapp.io:8080/help
+- http://dev.app.cleanapp.io:3000/help
+
+Both times you will get a plain short welcome message with CleanApp API/APP version. 
+
 ## More
 
 More infro is to be added.
