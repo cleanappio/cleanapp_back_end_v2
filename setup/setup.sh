@@ -66,7 +66,7 @@ services:
     container_name: cleanappapp
     image: ibnazer/cleanappapp:1.6
     ports:
-      - 3000:80
+      - 3000:3000
 
 volumes:
   mysql:
