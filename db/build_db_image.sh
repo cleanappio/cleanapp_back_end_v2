@@ -1,3 +1,3 @@
-echo "Buiding docker db image..."
-docker build . -t ibnazer/cleanappdb:1.6
-# docker push ibnazer/cleanappdb
+echo "Buiding MySQL DB docker image..."
+docker build . -t ${DOCKER_PREFIX}/cleanappdb:${DOCKER_LABEL}
+# docker push ${DOCKER_PREFIX}/cleanappdb

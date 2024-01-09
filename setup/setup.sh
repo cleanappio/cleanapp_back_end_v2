@@ -7,8 +7,9 @@
 #
 # Give any arg to skip the installation, e.g. "./setup.sh local"
 
-# Docker images label:
-DOCKER_LABEL='1.6'
+# Docker stuff:
+DOCKER_LABEL="1.6"       # Docker images label.
+DOCKER_PREFIX="ibnazer"  # Dockerhub images prefix.
 
 # Create necessary files.
 
@@ -47,7 +48,7 @@ version: '3'
 services:
   cleanappserver:
     container_name: cleanappserver
-    image: ibnazer/cleanappserver:1.6
+    image: ${DOCKER_PREFIX}/cleanappserver:${DOCKER_LABEL}
     environment:
       - MYSQL_ROOT_PASSWORD=\$MYSQL_ROOT_PASSWORD
       - MYSQL_APP_PASSWORD=\$MYSQL_APP_PASSWORD
@@ -56,7 +57,7 @@ services:
 
   cleanappdb:
     container_name: cleanappdb
-    image: ibnazer/cleanappdb:1.6
+    image: ${DOCKER_PREFIX}/cleanappdb:${DOCKER_LABEL}
     environment:
       - MYSQL_ROOT_PASSWORD=\$MYSQL_ROOT_PASSWORD
       - MYSQL_APP_PASSWORD=\$MYSQL_APP_PASSWORD
@@ -68,7 +69,7 @@ services:
 
   cleanappapp:
     container_name: cleanappapp
-    image: ibnazer/cleanappapp:1.6
+    image: ${DOCKER_PREFIX}/cleanappapp:${DOCKER_LABEL}
     ports:
       - 3000:3000
 
@@ -125,9 +126,9 @@ installDocker() {
 installDocker
 
 # Pull images:
-sudo docker pull ibnazer/cleanappserver:${DOCKER_LABEL}
-sudo docker pull ibnazer/cleanappdb:${DOCKER_LABEL}
-sudo docker pull ibnazer/cleanappapp:${DOCKER_LABEL}
+sudo docker pull ${DOCKER_PREFIX}/cleanappserver:${DOCKER_LABEL}
+sudo docker pull ${DOCKER_PREFIX}/cleanappdb:${DOCKER_LABEL}
+sudo docker pull ${DOCKER_PREFIX}/cleanappapp:${DOCKER_LABEL}
 
 # Start our docker images.
 ./up.sh
