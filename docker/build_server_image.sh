@@ -1,4 +1,4 @@
-echo "Buiding docker image..."
+echo "Buiding API server docker image..."
 cp ../bin/service ./
-docker build . -t ibnazer/cleanappserver:1.6
-# docker push ibnazer/cleanappserver
+docker build . -t ${DOCKER_PREFIX}/cleanappserver:${DOCKER_LABEL}
+# docker push ${DOCKER_PREFIX}/cleanappserver
