@@ -85,6 +85,43 @@ From outside try:
 
 Both times you will get a plain short welcome message with CleanApp API/APP version. 
 
+# Docker & DockerHub
+
+Docker image:
+```
+<DOCKER_PREFIX>/cleanappapp:<DOCKER_LABEL>
+```
+e.g.
+```
+ibnazer/cleanappapp:1.6
+```
+*(1.6 is 2.0.alpha)*
+
+When building an image update the script to build it ./dockerapp/build_server_image.sh: at the top there are two environment
+variables: DOCKER_LABEL and DOCKER_PREFIX.
+
+> **IMPORTANT:** When you build your new image your Docker client must run.
+
+> **IMPORTANT:** When you push your new image to DockerHub, you must own the prefix.
+
+# Google Cloud VM Instances
+
+## Configuration
+We picked
+
+* E2 Low cost, day-to-day computing
+* US-Central1 Iowa
+* e2-medium (2 vCPU, 1 core, 4 GB memory)
+* 10Gb Disk
+* ubuntu-2004-focal-v20231101
+  *Canonical, Ubuntu, 20.04 LTS, amd64 focal image built on 2023-11-01
+* HTTP/HTTPS allowed.
+
+## Our VM instances
+
+* cleanapp-1 Dev instance, dev.app/api.cleanapp.io point to this instance (external IP 34.132.121.53).
+* cleanapp-prod Prod instance, app/api.cleanapp.io point to this instance (external IP 35.184.156.86)
+
 ## More
 
 More infro is to be added.
