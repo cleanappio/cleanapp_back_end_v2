@@ -8,15 +8,17 @@ It's a complete rewrite after v.0.
 Pre-requisites: Linux (Debian/Ubuntu/...), this is tested on Google Drive Ubuntu VPS instance.
 
 1. Login to the target machine.
-2. Get setup.sh into the current directory, e.g. using
+   * On GCloud you go to the dashboard, pick the instance, and the click on SSH
+1. Get setup.sh into the current directory, e.g. using
 ```shell
 curl https://raw.githubusercontent.com/cleanappio/cleanapp_back_end_v2/main/setup/setup.sh > setup.sh
 ```
-3. Run
+3. In case you use non-standard Docker images, open setup.sh and edit two Docker params at the top.
+4. Run
 ```
 ./setup.sh
 ```
-4. When doing it, you will be asked to set the DB passwords:
+5. When doing it, you will be asked to set the DB passwords:
 
 * MYSQL_ROOT_PASSWORD for MySQL root user password.
 * MYSQL_APP_PASSWORD for MySQL password for the API server.
@@ -38,6 +40,12 @@ It should be up and running now. If not, contact eldarm@cleanapp.io
 ```
 sudo docker-compose down -v
 ```
+4. Refreshing images to the newly built versions:
+    1. Stop services
+    2. Delete loaded images (```docker images``` and ```docker image``` commands, you may need to use -f flag)
+    3. If you need a different label or prefix, edit ```docker-compose.yaml``` file.
+    4. (preferable) Load new images using ```sudo docker pull``` command
+    5. Restart services.
 
 ## Direct dependencies
 
@@ -71,7 +79,7 @@ On top of the page (!Not near the table!) there will be a button "Create Firewal
 - Protocols and ports: tcp:8080
 - It's ok to leaave the rest default.
 
-Create another rule for port 3000.
+Create another rule for port 3000 using the same way.
 
 You are almost done. Now in Compute Engine > VM Instances select the one you want to use. Pick Edit at the top. Go to network tags and add "allow-8080" and "allow-3000". Save. 
 
@@ -83,7 +91,7 @@ From outside try:
 - http://dev.api.cleanapp.io:8080/help
 - http://dev.app.cleanapp.io:3000/help
 
-Both times you will get a plain short welcome message with CleanApp API/APP version. 
+Both times you will get a plain short welcome message with CleanApp API/APP version. Remove ```dev.``` prefix for prod instance.
 
 # Docker & DockerHub
 
@@ -119,8 +127,8 @@ We picked
 
 ## Our VM instances
 
-* cleanapp-1 Dev instance, dev.app/api.cleanapp.io point to this instance (external IP 34.132.121.53).
-* cleanapp-prod Prod instance, app/api.cleanapp.io point to this instance (external IP 35.184.156.86)
+* **cleanapp-1** Dev instance, http://dev.api.cleanapp.io / http://dev.app.cleanapp.io point to this instance (external IP 34.132.121.53).
+* **cleanapp-prod** Prod instance, http://api.cleanapp.io / http://app.cleanapp.io point to this instance (external IP 35.184.156.86)
 
 ## More
 
