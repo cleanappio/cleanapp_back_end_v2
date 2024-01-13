@@ -1,9 +1,36 @@
 # Cleanapp Backend version 2+
 
 This repository is for CleanApp (http://cleanapp.io) backend development.
-It's a complete rewrite after v.0.
 
-## Installation
+## Upload Docker image
+
+Currently we're using personal free of charge DockerHub repositories for simplicity and money saving.
+
+### Preparation
+1.  Make sure docker is installed on your machine.
+1.  Make sure you have an account on Docker hub.
+1.  Create the .env file in the project root directory if it doesn't exist.
+1.  Put the following content into there:
+    ```
+    DOCKER_PREFIX=eko2000
+    DOCKER_LABEL=2
+    ```
+
+### Login to Dockerhub
+1.  Set up the access token on your Docker account.
+1.  Run login
+    ```
+    docker login -u <dockerhub_user_name>
+    ```
+
+### Docker image building
+1.  Make sure the docker daemon is running on your machine.
+1.  Run the build_server_image.sh
+    ```
+    cd docker && ./build_server_image.sh
+    ```
+
+### Cloud Deployment
 
 Pre-requisites: Linux (Debian/Ubuntu/...), this is tested on Google Drive Ubuntu VPS instance.
 
@@ -13,20 +40,21 @@ Pre-requisites: Linux (Debian/Ubuntu/...), this is tested on Google Drive Ubuntu
 ```shell
 curl https://raw.githubusercontent.com/cleanappio/cleanapp_back_end_v2/main/setup/setup.sh > setup.sh
 ```
-3. In case you use non-standard Docker images, open setup.sh and edit two Docker params at the top.
-4. Run
+1. Run
 ```
 ./setup.sh
 ```
-5. When doing it, you will be asked to set the DB passwords:
+1. When doing it, you will be asked to set specific docker and mysql settings:
 
+* DOCKER_PREFIX
+* DOCKER_LABEL
 * MYSQL_ROOT_PASSWORD for MySQL root user password.
 * MYSQL_APP_PASSWORD for MySQL password for the API server.
 * MYSQL_READER_PASSWORD for MySQL password for database reading/import.
 
 It should be up and running now. If not, contact eldarm@cleanapp.io
 
-## Operations
+### Operations
 
 1. Stopping:
 ```
@@ -47,21 +75,21 @@ sudo docker-compose down -v
     4. (preferable) Load new images using ```sudo docker pull``` command
     5. Restart services.
 
-## Direct dependencies
+### Direct dependencies
 
-Docker images (1.6 is 2.0(Alpha) version):
-1. BE API server: ibnazer/cleanappserver:1.6
-2. BE Database: ibnazer/cleanappdb:1.6
-3. BE application server (currently referral redirection service only): ibnazer/cleanappapp:1.6
+Docker images:
+1. API server: &lt;dockerusername&gt;/cleanappserver:&lt;label&gt;
+2. Database: &lt;dockerusername&gt;/cleanappdb:&lt;label&gt;
+3. web application: &lt;dockerusername&gt;/cleanappapp:&lt;label&gt;
 
-## Open ports
+### Open ports
 
 * API server exposes port 8080.
 * APP server exposes port 3000.
 * MySQL DB uses port 3306 but currently does not expose it externally. Do so,
 if you want to connect to it from outside.
 
-### How to expose port in Google Cloud
+#### How to expose port in Google Cloud
 
 Caveat: Google Cloud UI is not stable, so the instruction below may become obsolete. This is the status on January 2024.
 
@@ -85,7 +113,7 @@ You are almost done. Now in Compute Engine > VM Instances select the one you wan
 
 You are ready to deploy on this VM.
 
-## Verifying once set up
+### Verifying once set up
 
 From outside try:
 - http://dev.api.cleanapp.io:8080/help
@@ -93,37 +121,7 @@ From outside try:
 
 Both times you will get a plain short welcome message with CleanApp API/APP version. Remove ```dev.``` prefix for prod instance.
 
-# Docker & DockerHub
-
-Docker image:
-```
-<DOCKER_PREFIX>/cleanappapp:<DOCKER_LABEL>
-```
-e.g.
-```
-ibnazer/cleanappapp:1.6
-```
-*(1.6 is 2.0.alpha)*
-
-When building an image update the script to build it ./dockerapp/build_server_image.sh: at the top there are two environment
-variables: DOCKER_LABEL and DOCKER_PREFIX.
-
-> **IMPORTANT:** When you build your new image your Docker client must run.
-
-> **IMPORTANT:** When you push your new image to DockerHub, you must own the prefix.
-
-# Google Cloud VM Instances
-
-## Configuration
-We picked
-
-* E2 Low cost, day-to-day computing
-* US-Central1 Iowa
-* e2-medium (2 vCPU, 1 core, 4 GB memory)
-* 10Gb Disk
-* ubuntu-2004-focal-v20231101
-  *Canonical, Ubuntu, 20.04 LTS, amd64 focal image built on 2023-11-01
-* HTTP/HTTPS allowed.
+# Google Cloud VM Configuration
 
 ## Our VM instances
 

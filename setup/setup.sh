@@ -7,24 +7,33 @@
 #
 # Give any arg to skip the installation, e.g. "./setup.sh local"
 
-# Docker stuff:
-DOCKER_LABEL="1.6"       # Docker images label.
-DOCKER_PREFIX="ibnazer"  # Dockerhub images prefix.
-
 # Create necessary files.
 
 cat >.env << ENV
-# Setting secrets, please, edit this file
+# Docker configuration, please edit
+# to set your Docker image data
+DOCKER_PREFIX="REPLACE WITH YOUR DOCKER NAME"
+DOCKER_LABEL="REPLACE WITH YOUR DOCKER IMAGE LABEL"
+
+# Setting secrets, please edit
 # to set the real passwords and then save
 # and exit the editor to let the script contiueß.
-MYSQL_ROOT_PASSWORD=secret
-MYSQL_APP_PASSWORD=secret
-MYSQL_READER_PASSWORD=secret
+MYSQL_ROOT_PASSWORD="REPLACE WITH MYSQL ROOT PASSWORD"
+MYSQL_APP_PASSWORD="REPLACE WITH MYSQL APP PASSWORD"
+MYSQL_READER_PASSWORD="REPLACE WITH MYSQL READER PASSWORD"
+
 # These env variables don't contain any secrets and passed AS IS (no editing)
 REACT_APP_REF_API_ENDPOINT="http://localhost:8080/write_referral/"
 REACT_APP_PLAYSTORE_URL="https://play.google.com/store/apps/details?id=com.cleanapp"
 REACT_APP_APPSTORE_URL="https://apps.apple.com/us/app/cleanapp/id6466403301"
 ENV
+
+# Set secrets and Docker image config.
+# On the target machine you can change 'vim' to your favorite text editor:
+vim .env
+
+# Apply variables
+. .env
 
 cat >up.sh << UP
 # Turn up CleanApp service.
@@ -77,9 +86,6 @@ volumes:
   mysql:
 
 COMPOSE
-
-# Set passwords. On the target machine you can change 'vim' to your favorite text editor:
-vim .env
 
 # Docker install
 read -p "Do you wish to install this program? [y/N]" yn
