@@ -52,7 +52,7 @@ curl https://raw.githubusercontent.com/cleanappio/cleanapp_back_end_v2/main/setu
 * MYSQL_APP_PASSWORD for MySQL password for the API server.
 * MYSQL_READER_PASSWORD for MySQL password for database reading/import.
 
-It should be up and running now. If not, contact eldarm@cleanapp.io
+It should be up and running now.
 
 ### Operations
 
