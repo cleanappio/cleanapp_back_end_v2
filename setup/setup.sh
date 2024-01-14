@@ -15,9 +15,9 @@ cat >up.sh << UP
 
 # Secrets
 cat >.env << ENV
-export MYSQL_ROOT_PASSWORD=\\$(gcloud secrets versions access 1 --secret="MYSQL_ROOT_PASSWORD")
-export MYSQL_APP_PASSWORD=\\$(gcloud secrets versions access 1 --secret="MYSQL_APP_PASSWORD")
-export MYSQL_READER_PASSWORD=\\$(gcloud secrets versions access 1 --secret="MYSQL_READER_PASSWORD")
+export MYSQL_ROOT_PASSWORD=\\$\(gcloud secrets versions access 1 --secret="MYSQL_ROOT_PASSWORD"\)
+export MYSQL_APP_PASSWORD=\\$\(gcloud secrets versions access 1 --secret="MYSQL_APP_PASSWORD"\)
+export MYSQL_READER_PASSWORD=\\$\(gcloud secrets versions access 1 --secret="MYSQL_READER_PASSWORD"\)
 
 ENV
 
