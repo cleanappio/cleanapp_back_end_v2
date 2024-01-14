@@ -1,11 +1,21 @@
 # Cleanapp Backend version 2+
 
 This repository is for CleanApp (http://cleanapp.io) backend development.
-It's a complete rewrite after v.0.
 
-## Installation
+# Installation
 
-Pre-requisites: Linux (Debian/Ubuntu/...), this is tested on Google Drive Ubuntu VPS instance.
+## Build Docker image
+
+1.  Modify the Docker image version if necessary. Open the file `docker/.version` and set the desired value of the `BUILD_VERSION`.
+1.  Run the `docker/build_server_image.sh` from the `docker` directory.
+    ```
+    cd docker &&
+    ./build_server_image.sh
+    ```
+
+## Deploying in Google Cloud
+
+Pre-requisites: Linux (Debian/Ubuntu/...), this is tested on Google Cloud Ubuntu VPS instance.
 
 1. Login to the target machine.
    * On GCloud you go to the dashboard, pick the instance, and the click on SSH
@@ -18,13 +28,8 @@ curl https://raw.githubusercontent.com/cleanappio/cleanapp_back_end_v2/main/setu
 ```
 ./setup.sh
 ```
-5. When doing it, you will be asked to set the DB passwords:
 
-* MYSQL_ROOT_PASSWORD for MySQL root user password.
-* MYSQL_APP_PASSWORD for MySQL password for the API server.
-* MYSQL_READER_PASSWORD for MySQL password for database reading/import.
-
-It should be up and running now. If not, contact eldarm@cleanapp.io
+It should be up and running now.
 
 ## Operations
 
@@ -46,13 +51,6 @@ sudo docker-compose down -v
     3. If you need a different label or prefix, edit ```docker-compose.yaml``` file.
     4. (preferable) Load new images using ```sudo docker pull``` command
     5. Restart services.
-
-## Direct dependencies
-
-Docker images (1.6 is 2.0(Alpha) version):
-1. BE API server: ibnazer/cleanappserver:1.6
-2. BE Database: ibnazer/cleanappdb:1.6
-3. BE application server (currently referral redirection service only): ibnazer/cleanappapp:1.6
 
 ## Open ports
 
