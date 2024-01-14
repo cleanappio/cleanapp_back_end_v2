@@ -134,3 +134,10 @@ We picked
 
 More infro is to be added.
 
+### Draft of an alternative deployment process
+
+**Docker build on gcloud**
+
+```
+gcloud builds submit --region=us-central1 --tag us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-service-image:<tag>
+```
