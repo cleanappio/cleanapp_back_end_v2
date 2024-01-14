@@ -14,17 +14,19 @@ cat >up.sh << UP
 # Assumes dependencies are in place (docker)
 
 # Secrets
+cat >.env << ENV
 export MYSQL_ROOT_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_ROOT_PASSWORD")
 export MYSQL_APP_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_APP_PASSWORD")
 export MYSQL_READER_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_READER_PASSWORD")
 
+ENV
+
 sudo docker-compose up -d --remove-orphans
 
-export MYSQL_ROOT_PASSWORD=""
-export MYSQL_APP_PASSWORD=""
-export MYSQL_READER_PASSWORD=""
+rm -f .env
 
 UP
+
 sudo chmod a+x up.sh
 
 cat >down.sh << DOWN
