@@ -14,9 +14,9 @@ cat >up.sh << UP
 # Assumes dependencies are in place (docker)
 
 # Secrets
-MYSQL_ROOT_PASSWORD=$(gcloud secrets versions access 1 --secret="MYSQL_ROOT_PASSWORD")
-MYSQL_APP_PASSWORD=$(gcloud secrets versions access 1 --secret="MYSQL_APP_PASSWORD")
-MYSQL_READER_PASSWORD=$(gcloud secrets versions access 1 --secret="MYSQL_READER_PASSWORD")
+MYSQL_ROOT_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_ROOT_PASSWORD")
+MYSQL_APP_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_APP_PASSWORD")
+MYSQL_READER_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_READER_PASSWORD")
 
 sudo docker-compose up -d --remove-orphans
 UP
