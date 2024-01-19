@@ -4,6 +4,14 @@ This repository is for CleanApp (http://cleanapp.io) backend development.
 
 # Installation
 
+## Pre-requisites
+
+1.  Make sure that your local machine has Docker installed. https://docs.docker.com/engine/install/
+1.  Make sure you're prepared for working with GoogleCloud.
+    1.  You got necessary access to Google Cloud services. Ask project admins for them.
+    1.  You have gcloud command line interface installed, https://cloud.google.com/sdk/docs/install
+    1.  You are successfully logged in gcloud, https://cloud.google.com/sdk/gcloud/reference/auth/login
+
 ## Build Docker image
 
 1.  Modify the Docker image version if necessary. Open the file `docker/.version` and set the desired value of the `BUILD_VERSION`.
@@ -21,10 +29,10 @@ Pre-requisites: Linux (Debian/Ubuntu/...), this is tested on Google Cloud Ubuntu
    * On GCloud you go to the dashboard, pick the instance, and the click on SSH
 1. Get setup.sh into the current directory, e.g. using
 ```shell
-curl https://raw.githubusercontent.com/cleanappio/cleanapp_back_end_v2/main/setup/setup.sh > setup.sh
+curl https://raw.githubusercontent.com/cleanappio/cleanapp_back_end_v2/main/setup/setup.sh > setup.sh &&
+sudo chmod a+x setup.h
 ```
-3. In case you use non-standard Docker images, open setup.sh and edit two Docker params at the top.
-4. Run
+1. Run
 ```
 ./setup.sh
 ```
@@ -131,11 +139,3 @@ We picked
 ## More
 
 More infro is to be added.
-
-### Draft of an alternative deployment process
-
-**Docker build on gcloud**
-
-```
-gcloud builds submit --region=us-central1 --tag us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-service-image:<tag>
-```
