@@ -221,11 +221,11 @@ func main() {
 
 		doUser()
 		doReport()
-		// doMap()
-		// doStats()
-		// doTeams()
-		// doTopScores()
-		// doWriteReferral()
-		// doReadReferral()
-		// doGenerateReferral()
+		doMap()
+		doStats()
+		doTeams()
+		doTopScores()
+		doWriteReferral()
+		doReadReferral()
+		doGenerateReferral()
 }
