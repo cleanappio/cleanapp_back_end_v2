@@ -7,30 +7,26 @@
 #
 # Give any arg to skip the installation, e.g. "./setup.sh local"
 
-# Docker stuff:
-DOCKER_LABEL="1.6"       # Docker images label.
-DOCKER_PREFIX="ibnazer"  # Dockerhub images prefix.
-
 # Create necessary files.
-
-cat >.env << ENV
-# Setting secrets, please, edit this file
-# to set the real passwords and then save
-# and exit the editor to let the script contiueß.
-MYSQL_ROOT_PASSWORD=secret
-MYSQL_APP_PASSWORD=secret
-MYSQL_READER_PASSWORD=secret
-# These env variables don't contain any secrets and passed AS IS (no editing)
-REACT_APP_REF_API_ENDPOINT="http://localhost:8080/write_referral/"
-REACT_APP_PLAYSTORE_URL="https://play.google.com/store/apps/details?id=com.cleanapp"
-REACT_APP_APPSTORE_URL="https://apps.apple.com/us/app/cleanapp/id6466403301"
-ENV
 
 cat >up.sh << UP
 # Turn up CleanApp service.
 # Assumes dependencies are in place (docker)
+
+# Secrets
+cat >.env << ENV
+MYSQL_ROOT_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_ROOT_PASSWORD")
+MYSQL_APP_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_APP_PASSWORD")
+MYSQL_READER_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_READER_PASSWORD")
+
+ENV
+
 sudo docker-compose up -d --remove-orphans
+
+rm -f .env
+
 UP
+
 sudo chmod a+x up.sh
 
 cat >down.sh << DOWN
@@ -41,35 +37,50 @@ sudo docker-compose down
 DOWN
 sudo chmod a+x down.sh
 
+# Docker images
+DOCKER_PREFIX="us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo"
+SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-service-image:live"
+DB_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-db-image:live"
+WEB_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-web-image:live"
+
+# Cleanapp Web env variables
+REACT_APP_REF_API_ENDPOINT="http://dev.api.cleanapp.io:8080/write_referral/"
+REACT_APP_PLAYSTORE_URL="https://play.google.com/store/apps/details?id=com.cleanapp"
+REACT_APP_APPSTORE_URL="https://apps.apple.com/us/app/cleanapp/id6466403301"
+
 # Create docker-compose.yml file.
 cat >docker-compose.yml << COMPOSE
 version: '3'
 
 services:
-  cleanappserver:
-    container_name: cleanappserver
-    image: ${DOCKER_PREFIX}/cleanappserver:${DOCKER_LABEL}
+  cleanapp_service:
+    container_name: cleanapp_service
+    image: ${SERVICE_DOCKER_IMAGE}
     environment:
-      - MYSQL_ROOT_PASSWORD=\$MYSQL_ROOT_PASSWORD
-      - MYSQL_APP_PASSWORD=\$MYSQL_APP_PASSWORD
+      - MYSQL_ROOT_PASSWORD=\${MYSQL_ROOT_PASSWORD}
+      - MYSQL_APP_PASSWORD=\${MYSQL_APP_PASSWORD}
     ports:
       - 8080:8080
 
-  cleanappdb:
-    container_name: cleanappdb
-    image: ${DOCKER_PREFIX}/cleanappdb:${DOCKER_LABEL}
+  cleanapp_db:
+    container_name: cleanapp_db
+    image: ${DB_DOCKER_IMAGE}
     environment:
-      - MYSQL_ROOT_PASSWORD=\$MYSQL_ROOT_PASSWORD
-      - MYSQL_APP_PASSWORD=\$MYSQL_APP_PASSWORD
-      - MYSQL_READER_PASSWORD=\$MYSQL_READER_PASSWORD
+      - MYSQL_ROOT_PASSWORD=\${MYSQL_ROOT_PASSWORD}
+      - MYSQL_APP_PASSWORD=\${MYSQL_APP_PASSWORD}
+      - MYSQL_READER_PASSWORD=\${MYSQL_READER_PASSWORD}
     volumes:
       - mysql:/var/lib/mysql
     ports:
       - 3306:3306
 
-  cleanappapp:
-    container_name: cleanappapp
-    image: ${DOCKER_PREFIX}/cleanappapp:${DOCKER_LABEL}
+  cleanapp_web:
+    container_name: cleanapp_web
+    image: ${WEB_DOCKER_IMAGE}
+    environment:
+      - REACT_APP_REF_API_ENDPOINT=${REACT_APP_REF_API_ENDPOINT}
+      - REACT_APP_PLAYSTORE_URL=${REACT_APP_PLAYSTORE_URL}
+      - REACT_APP_APPSTORE_URL=${REACT_APP_APPSTORE_URL}
     ports:
       - 3000:3000
 
@@ -77,9 +88,6 @@ volumes:
   mysql:
 
 COMPOSE
-
-# Set passwords. On the target machine you can change 'vim' to your favorite text editor:
-vim .env
 
 # Docker install
 read -p "Do you wish to install this program? [y/N]" yn
@@ -126,14 +134,11 @@ installDocker() {
 installDocker
 
 # Pull images:
-sudo docker pull ${DOCKER_PREFIX}/cleanappserver:${DOCKER_LABEL}
-sudo docker pull ${DOCKER_PREFIX}/cleanappdb:${DOCKER_LABEL}
-sudo docker pull ${DOCKER_PREFIX}/cleanappapp:${DOCKER_LABEL}
+docker pull ${SERVICE_DOCKER_IMAGE}
+docker pull ${DB_DOCKER_IMAGE}
+docker pull ${WEB_DOCKER_IMAGE}
 
 # Start our docker images.
 ./up.sh
-
-# Cleanup passwords from the disk.
-sudo rm .env
 
 echo "*** We are running, done."
