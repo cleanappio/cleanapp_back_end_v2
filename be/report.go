@@ -43,7 +43,7 @@ func Report(c *gin.Context) {
 	defer db.Close()
 
 	// Add report to the database.
-	log.Printf("/report got %v", report)
+	logReport(report)
 	err = saveReport(db, report)
 	if err != nil {
 		log.Printf("Failed to write report with %v", err)
@@ -51,4 +51,9 @@ func Report(c *gin.Context) {
 		return
 	}
 	c.Status(http.StatusOK) // 200
+}
+
+func logReport(r ReportArgs) {
+	r.Image = nil
+	log.Printf("/report got %v", r)
 }
