@@ -12,7 +12,12 @@ This repository is for CleanApp (http://cleanapp.io) backend development.
     1.  You have gcloud command line interface installed, https://cloud.google.com/sdk/docs/install
     1.  You are successfully logged in gcloud, https://cloud.google.com/sdk/gcloud/reference/auth/login
 
-## Build Docker image
+## Installation steps
+
+1.  Build docker image on your local machine.
+1.  Deploy services on the cloud or local machine.
+
+### Build Docker image
 
 1.  Modify the Docker image version if necessary. Open the file `docker/.version` and set the desired value of the `BUILD_VERSION`.
 1.  Run the `docker/build_server_image.sh` from the `docker` directory.
@@ -21,9 +26,13 @@ This repository is for CleanApp (http://cleanapp.io) backend development.
     ./build_server_image.sh
     ```
 
-## Deploying in Google Cloud
+### Deploying in Google Cloud
 
-Pre-requisites: Linux (Debian/Ubuntu/...), this is tested on Google Cloud Ubuntu VPS instance.
+Pre-requisites
+
+*   Linux (Debian/Ubuntu/...), this is tested on Google Cloud Ubuntu VPS instance.
+*   Make sure that gcloud is present on the cloud machine. It should be pre-installed by google cloud.
+*   for installing on your local machine make sure that you installed gcloud.
 
 1. Login to the target machine.
    * On GCloud you go to the dashboard, pick the instance, and the click on SSH
