@@ -355,7 +355,7 @@ func readReport(db *sql.DB, args *ReadReportArgs) (*ReadReportResponse, error) {
 	}
 	defer rows.Close()
 
-	const shareData = "sharing_data_live"
+	const shareData = "share_data_live"
 
 	var (
 		id      string
