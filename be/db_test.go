@@ -575,7 +575,7 @@ func TestReadReport(t *testing.T) {
 				id:        "0x5678",
 				seq:       123,
 				seqExists: true,
-				sharing:   "sharing_data_live",
+				sharing:   "share_data_live",
 				expectResponse: &ReadReportResponse{
 					Id:     "0x1234",
 					Image:  []byte{97, 98, 99, 100, 101, 102, 103, 104},
@@ -616,7 +616,7 @@ func TestReadReport(t *testing.T) {
 				name:           "Request non-existing report",
 				seq:            99999,
 				seqExists:      false,
-				sharing:        "sharing_data_live",
+				sharing:        "share_data_live",
 				expectResponse: nil,
 				expectError:    true,
 			},
