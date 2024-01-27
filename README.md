@@ -39,7 +39,7 @@ Pre-requisites
 1. Get setup.sh into the current directory, e.g. using
 ```shell
 curl https://raw.githubusercontent.com/cleanappio/cleanapp_back_end_v2/main/setup/setup.sh > setup.sh &&
-sudo chmod a+x setup.h
+sudo chmod a+x setup.sh
 ```
 1. Run
 ```
