@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"math"
 
 	"github.com/apex/log"
 )
@@ -141,7 +140,7 @@ func redeemStep(db *sql.DB, referral string, kitnsToRefer int, refLevel int) err
 }
 
 func getRefCoeffForLevel(level int) float32 {
-	return float32(math.Pow(0.5, float64(level)))
+	return 0.1 / float32(level)
 }
 
 func logResult(msgPrefix string, r sql.Result, e error) {

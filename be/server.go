@@ -22,6 +22,7 @@ const (
 	EndPointReadReferral     = "/read_referral"
 	EndPointWriteReferral    = "/write_referral"
 	EndPointGenerateReferral = "/generate_referral"
+	EndPointReferralsRedeem  = "/referrals_redeem"
 )
 
 var (
@@ -54,7 +55,7 @@ func userIdToTeam(id string) TeamColor {
 func StartService() {
 	log.Println("Starting the service...")
 	router := gin.Default()
-	router.GET(EndPointHelp,Help)
+	router.GET(EndPointHelp, Help)
 	router.POST(EndPointUser, UpdateUser)
 	router.POST(EndPointPrivacyAndTOC, UpdatePrivacyAndTOC)
 	router.POST(EndPointReport, Report)
@@ -66,6 +67,7 @@ func StartService() {
 	router.POST(EndPointReadReferral, ReadReferral)
 	router.POST(EndPointWriteReferral, WriteReferral)
 	router.POST(EndPointGenerateReferral, GenerateReferral)
+	router.POST(EndPointReferralsRedeem, ReferralsRedeem)
 
 	router.Run(fmt.Sprintf(":%d", *serverPort))
 	log.Println("Finished the service. Should not ever being seen.")
