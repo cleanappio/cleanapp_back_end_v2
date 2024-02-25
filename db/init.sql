@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS users (
   kitns_disbursed INT DEFAULT 0,
   kitns_ref_daily DECIMAL(18, 6) DEFAULT 0.0,
   kitns_ref_disbursed DECIMAL(18, 6) DEFAULT 0.0,
+  kitns_ref_redeemed INT DEFAULT 0,
   ts TIMESTAMP default current_timestamp,
   PRIMARY KEY (id),
   UNIQUE INDEX avatar_idx (avatar)
