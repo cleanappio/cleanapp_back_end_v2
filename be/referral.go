@@ -39,7 +39,7 @@ func ReadReferral(c *gin.Context) {
 		return
 	}
 
-	db, err := common.DBConnect(mysqlAddress())
+	db, err := common.DBConnect()
 	if err != nil {
 		log.Errorf("%v", err)
 		return
@@ -68,7 +68,7 @@ func WriteReferral(c *gin.Context) {
 		return
 	}
 
-	db, err := common.DBConnect(mysqlAddress())
+	db, err := common.DBConnect()
 	if err != nil {
 		log.Errorf("%v", err)
 		return
@@ -100,7 +100,7 @@ func GenerateReferral(c *gin.Context) {
 		return
 	}
 
-	db, err := common.DBConnect(mysqlAddress())
+	db, err := common.DBConnect()
 	if err != nil {
 		log.Errorf("%v", err)
 		return

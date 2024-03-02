@@ -1,5 +1,6 @@
 bin/*
-docker/service
+docker_backend/service
+docker_referrals/referrals
 setup/.env
 setup/up.sh
 setup/down.sh

@@ -2,6 +2,12 @@
 
 This repository is for CleanApp (http://cleanapp.io) backend development.
 
+# Environments
+There are three environments:
+*   `local` - a local machine outside cloud
+*   `dev` - development machine in cloud
+*   `prod` - production machine in cloud
+
 # Installation
 
 ## Pre-requisites
@@ -14,16 +20,25 @@ This repository is for CleanApp (http://cleanapp.io) backend development.
 
 ## Installation steps
 
-1.  Build docker image on your local machine.
+1.  Build docker images on your local machine.
 1.  Deploy services on the cloud or local machine.
 
-### Build Docker image
+### Build Docker images for cleanapp backend
 
-1.  Modify the Docker image version if necessary. Open the file `docker/.version` and set the desired value of the `BUILD_VERSION`.
-1.  Run the `docker/build_server_image.sh` from the `docker` directory.
+1.  Modify the Docker image version if necessary. Open the file `docker_backend/.version` and set the desired value of the `BUILD_VERSION`.
+1.  Run the `docker_backend/build_server_image.sh` from the `docker_backens` directory.
     ```
-    cd docker &&
-    ./build_server_image.sh
+    cd docker_backend &&
+    ./build_image.sh
+    ```
+
+### Build Docker images for cleanapp referrals processing
+
+1.  Modify the Docker image version if necessary. Open the file `docker_referrals/.version` and set the desired value of the `BUILD_VERSION`.
+1.  Run the `docker_backend/build_server_image.sh` from the `docker_referrals` directory.
+    ```
+    cd docker_referrals &&
+    ./build_image.sh
     ```
 
 ### Deploying in Google Cloud
@@ -108,28 +123,9 @@ From outside try:
 
 Both times you will get a plain short welcome message with CleanApp API/APP version. Remove ```dev.``` prefix for prod instance.
 
-# Docker & DockerHub
-
-Docker image:
-```
-<DOCKER_PREFIX>/cleanappapp:<DOCKER_LABEL>
-```
-e.g.
-```
-ibnazer/cleanappapp:1.6
-```
-*(1.6 is 2.0.alpha)*
-
-When building an image update the script to build it ./dockerapp/build_server_image.sh: at the top there are two environment
-variables: DOCKER_LABEL and DOCKER_PREFIX.
-
-> **IMPORTANT:** When you build your new image your Docker client must run.
-
-> **IMPORTANT:** When you push your new image to DockerHub, you must own the prefix.
-
 # Google Cloud VM Instances
 
-## Configuration
+## Machine Configuration
 We picked
 
 * E2 Low cost, day-to-day computing
@@ -140,10 +136,17 @@ We picked
   *Canonical, Ubuntu, 20.04 LTS, amd64 focal image built on 2023-11-01
 * HTTP/HTTPS allowed.
 
-## Our VM instances
+## Secrets Setup
+Currently we have three secrets per environment:
+*   MYSQL_APP_PASSWORD_&lt;env&gt;
+*   MYSQL_READER_PASSWORD_&lt;env&gt;
+*   MYSQL_ROOT_PASSWORD_&lt;env&gt;
+where &lt;env&gt; is `LOCAL`, `DEV` or `PROD`.
+
+## Domains and Machines
 
 * **cleanapp-1** Dev instance, http://dev.api.cleanapp.io / http://dev.app.cleanapp.io point to this instance (external IP 34.132.121.53).
-* **cleanapp-prod** Prod instance, http://api.cleanapp.io / http://app.cleanapp.io point to this instance (external IP 35.184.156.86)
+* **cleanapp-prod** Prod instance, http://api.cleanapp.io / http://app.cleanapp.io point to this instance (TODO: Create the machine and edit DNS)
 
 ## More
 

@@ -4,11 +4,33 @@
 # 1. Linux machine: Debian/Ubuntu/...
 # 2. setup.sh file from our setup folder locally in a local folder
 #    (pulled from Github or otherwise).
-#
-# Give any arg to skip the installation, e.g. "./setup.sh local"
+
+# Choose the environment
+PS3="Please choose the environment: "
+options=("local" "dev" "prod" "quit")
+select OPT in "${options[@]}"
+do
+  case ${OPT} in
+    "local")
+        echo "Using local environment"
+        break
+        ;;
+    "dev")
+        echo "Using dev environment"
+        break
+        ;;
+    "prod")
+        echo "Using prod environment"
+        break
+        ;;
+    "quit")
+        exit
+        ;;
+    *) echo "invalid option $REPLY";;
+  esac
+done
 
 # Create necessary files.
-
 cat >up.sh << UP
 # Turn up CleanApp service.
 # Assumes dependencies are in place (docker)
@@ -39,9 +61,10 @@ sudo chmod a+x down.sh
 
 # Docker images
 DOCKER_PREFIX="us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo"
-SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-service-image:live"
+SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-service-image:${OPT}"
+REFERRALS_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-referrals-image:${OPT}"
+WEB_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-web-image:${OPT}"
 DB_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-db-image:live"
-WEB_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-web-image:live"
 
 # Cleanapp Web env variables
 REACT_APP_REF_API_ENDPOINT="http://dev.api.cleanapp.io:8080/write_referral/"
@@ -61,6 +84,15 @@ services:
       - MYSQL_APP_PASSWORD=\${MYSQL_APP_PASSWORD}
     ports:
       - 8080:8080
+
+  cleanapp_referrals:
+    container_name: cleanapp_referrals
+    image: ${REFERRALS_DOCKER_IMAGE}
+    environment:
+      - MYSQL_ROOT_PASSWORD=\${MYSQL_ROOT_PASSWORD}
+      - MYSQL_APP_PASSWORD=\${MYSQL_APP_PASSWORD}
+    ports:
+      - 8090:8090
 
   cleanapp_db:
     container_name: cleanapp_db
@@ -88,15 +120,6 @@ volumes:
   mysql:
 
 COMPOSE
-
-# Docker install
-read -p "Do you wish to install this program? [y/N]" yn
-
-if [[ "$yn" != "y" && "$yn" != "Y" ]]
-then 
-    echo "Not installing. Bye."
-    exit
-fi
 
 # Install dependencies:
 installDocker() {
@@ -135,6 +158,7 @@ installDocker
 
 # Pull images:
 docker pull ${SERVICE_DOCKER_IMAGE}
+docker pull ${REFERRALS_DOCKER_IMAGE}
 docker pull ${DB_DOCKER_IMAGE}
 docker pull ${WEB_DOCKER_IMAGE}
 
