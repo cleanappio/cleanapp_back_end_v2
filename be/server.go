@@ -22,7 +22,6 @@ const (
 	EndPointReadReferral     = "/read_referral"
 	EndPointWriteReferral    = "/write_referral"
 	EndPointGenerateReferral = "/generate_referral"
-	EndPointReferralsRedeem  = "/referrals_redeem"
 )
 
 var (
@@ -67,8 +66,7 @@ func StartService() {
 	router.POST(EndPointReadReferral, ReadReferral)
 	router.POST(EndPointWriteReferral, WriteReferral)
 	router.POST(EndPointGenerateReferral, GenerateReferral)
-	router.POST(EndPointReferralsRedeem, ReferralsRedeem)
-
+	
 	router.Run(fmt.Sprintf(":%d", *serverPort))
 	log.Println("Finished the service. Should not ever being seen.")
 }

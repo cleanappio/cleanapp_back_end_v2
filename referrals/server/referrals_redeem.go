@@ -1,7 +1,7 @@
-package be
+package server
 
 import (
-	"cleanapp/be/redeem"
+	refdb "cleanapp/referrals/db"
 	"cleanapp/common"
 	"net/http"
 
@@ -28,14 +28,14 @@ func ReferralsRedeem(c *gin.Context) {
 		return
 	}
 
-	db, err := common.DBConnect(mysqlAddress())
+	db, err := common.DBConnect()
 	if err != nil {
 		log.Errorf("Error connecting to the database, %w", err)
 		return
 	}
 	defer db.Close()
 
-	succeeded, failed, err := redeem.Redeem(db)
+	succeeded, failed, err := refdb.Redeem(db)
 	if err != nil {
 		log.Errorf("Redeem failed, %w", err)
 		return

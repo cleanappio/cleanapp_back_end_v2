@@ -1,4 +1,4 @@
-package redeem
+package db
 
 import (
 	"database/sql"

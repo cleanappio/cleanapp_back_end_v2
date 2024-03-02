@@ -3,7 +3,6 @@ package be
 import (
 	"context"
 	"database/sql"
-	"flag"
 	"fmt"
 	"log"
 	"time"
@@ -12,18 +11,6 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 )
-
-var (
-	mysqlPassword = flag.String("mysql_password", "secret", "MySQL password.")
-	mysqlHost     = flag.String("mysql_host", "localhost", "MySQL host.")
-	mysqlPort     = flag.String("mysql_port", "3306", "MySQL port.")
-	mysqlDb       = flag.String("mysql_db", "cleanapp", "MySQL database to use.")
-)
-
-func mysqlAddress() string {
-	db := fmt.Sprintf("server:%s@tcp(%s:%s)/%s", *mysqlPassword, *mysqlHost, *mysqlPort, *mysqlDb)
-	return db
-}
 
 func logResult(r sql.Result, e error) {
 	if e != nil {
@@ -138,7 +125,7 @@ func saveReport(db *sql.DB, r ReportArgs) error {
 
 func getMap(userId string, m ViewPort, retention time.Duration) ([]MapResult, error) {
 	log.Printf("Write: Trying to map/coordinates from db in %f,%f:%f,%f with retention %v", m.LatMin, m.LonMin, m.LatMax, m.LonMax, retention)
-	db, err := common.DBConnect(mysqlAddress())
+	db, err := common.DBConnect()
 	if err != nil {
 		return nil, err
 	}
@@ -221,7 +208,7 @@ func getStats(db *sql.DB, id string) (*StatsResponse, error) {
 
 func getTeams() (TeamsResponse, error) {
 	log.Printf("Write: Trying to get teams results")
-	db, err := common.DBConnect(mysqlAddress())
+	db, err := common.DBConnect()
 	if err != nil {
 		return TeamsResponse{}, err
 	}

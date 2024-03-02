@@ -36,7 +36,7 @@ func GetTopScores(c *gin.Context) {
 		return
 	}
 
-	db, err := common.DBConnect(mysqlAddress())
+	db, err := common.DBConnect()
 	if err != nil {
 		log.Printf("%v", err)
 		return
