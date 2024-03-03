@@ -128,6 +128,7 @@ You are ready to deploy on this VM.
 
 From outside try:
 - http://dev.api.cleanapp.io:8080/help
+- http://dev.api.cleanapp.io:8090/help
 - http://dev.app.cleanapp.io:3000/help
 
 Both times you will get a plain short welcome message with CleanApp API/APP version. Remove ```dev.``` prefix for prod instance.
