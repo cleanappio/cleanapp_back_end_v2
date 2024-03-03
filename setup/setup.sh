@@ -176,15 +176,12 @@ SCHEDULER_HOST=""
 case ${OPT} in
   "local")
     SCHEDULER_HOST="localhost"
-    break
     ;;
   "dev")
     SCHEDULER_HOST="dev.api.cleanapp.io"
-    break
     ;;
   "prod")
     SCHEDULER_HOST="api.cleanapp.io"
-    break
     ;;
 esac
 
