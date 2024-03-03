@@ -43,6 +43,15 @@ There are three environments:
 
 ### Deploying in Google Cloud
 
+The deploying process includes:
+*   pulling docker images and running four services:
+    *   cleanapp backend service;
+    *   cleanapp referral service;
+    *   mysql database;
+    *   cleanapp web service;
+*   adding Google cloud scheduler for following processes:
+    *   referrals redeem;
+
 Pre-requisites
 
 *   Linux (Debian/Ubuntu/...), this is tested on Google Cloud Ubuntu VPS instance.

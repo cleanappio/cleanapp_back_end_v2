@@ -30,6 +30,8 @@ do
   esac
 done
 
+SECRET_SUFFIX=$(echo ${OPT} | tr '[a-z]' '[A-Z]')
+
 # Create necessary files.
 cat >up.sh << UP
 # Turn up CleanApp service.
@@ -37,9 +39,9 @@ cat >up.sh << UP
 
 # Secrets
 cat >.env << ENV
-MYSQL_ROOT_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_ROOT_PASSWORD")
-MYSQL_APP_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_APP_PASSWORD")
-MYSQL_READER_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_READER_PASSWORD")
+MYSQL_ROOT_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_ROOT_PASSWORD_${SECRET_SUFFIX}")
+MYSQL_APP_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_APP_PASSWORD_${SECRET_SUFFIX}")
+MYSQL_READER_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_READER_PASSWORD_${SECRET_SUFFIX}")
 
 ENV
 
@@ -165,4 +167,39 @@ docker pull ${WEB_DOCKER_IMAGE}
 # Start our docker images.
 ./up.sh
 
-echo "*** We are running, done."
+if [[ "${OPT}" == "local" ]]; then
+  exit 0
+fi
+
+# Create or update schedulers.
+SCHEDULER_HOST=""
+case ${OPT} in
+  "local")
+    SCHEDULER_HOST="localhost"
+    break
+    ;;
+  "dev")
+    SCHEDULER_HOST="dev.api.cleanapp.io"
+    break
+    ;;
+  "prod")
+    SCHEDULER_HOST="api.cleanapp.io"
+    break
+    ;;
+esac
+
+SCHEDULER_NAME="referral-redeem-${OPT}"
+EXISTING_SCHEDULER=$(gcloud scheduler jobs list --location=us-central1 | grep ${SCHEDULER_NAME} | awk '{print $1}')
+
+if [[ "${SCHEDULER_NAME}" == "${EXISTING_SCHEDULER}" ]]; then
+  gcloud scheduler jobs delete ${SCHEDULER_NAME} \
+    --location=us-central1 \
+    --quiet
+fi
+
+gcloud scheduler jobs create http ${SCHEDULER_NAME} \
+  --location=us-central1 \
+  --schedule="0 16 * * *" \
+  --uri="http://${SCHEDULER_HOST}:8090/referrals_redeem" \
+  --message-body="{\"version\": \"2.0\"}" \
+  --headers="Content-Type=application/json"
