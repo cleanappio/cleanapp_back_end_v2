@@ -32,12 +32,12 @@ There are three environments:
     ./build_image.sh
     ```
 
-### Build Docker images for cleanapp referrals processing
+### Build Docker images for cleanapp referrals and token disbursement processing
 
-1.  Modify the Docker image version if necessary. Open the file `docker_referrals/.version` and set the desired value of the `BUILD_VERSION`.
-1.  Run the `docker_backend/build_server_image.sh` from the `docker_referrals` directory.
+1.  Modify the Docker image version if necessary. Open the file `docker_pipelines/.version` and set the desired value of the `BUILD_VERSION`.
+1.  Run the `docker_backend/build_server_image.sh` from the `docker_pipelines` directory.
     ```
-    cd docker_referrals &&
+    cd docker_pipelines &&
     ./build_image.sh
     ```
 
