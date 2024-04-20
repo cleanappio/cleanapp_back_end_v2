@@ -12,22 +12,6 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
-func logResult(r sql.Result, e error) {
-	if e != nil {
-		log.Printf("Query failed: %v", e)
-		return
-	}
-	rows, err := r.RowsAffected()
-	if err != nil {
-		log.Printf("Failed to get status of db op: %s", err)
-		return
-	}
-	if rows != 1 {
-		m := fmt.Sprintf("Expected to affect 1 row, affected %d", rows)
-		log.Print(m)
-	}
-}
-
 func updateUser(db *sql.DB, u *UserArgs, teamGen func(string) TeamColor) (*UserResp, error) {
 	log.Printf("Write: Trying to create or update user %s / %s", u.Id, u.Avatar)
 	rows, err := db.Query("SELECT id FROM users WHERE avatar = ?", u.Avatar)
@@ -58,7 +42,7 @@ func updateUser(db *sql.DB, u *UserArgs, teamGen func(string) TeamColor) (*UserR
 	                        ON DUPLICATE KEY UPDATE avatar=?, referral=?, team=?`,
 		u.Id, u.Avatar, u.Referral, team, u.Avatar, u.Referral, team)
 
-	logResult(result, err)
+	common.LogResult("updateUser", result, err)
 
 	if err != nil {
 		return nil, err
@@ -75,19 +59,19 @@ func updatePrivacyAndTOC(db *sql.DB, args *PrivacyAndTOCArgs) error {
 		result, err := db.Exec(`UPDATE users
 			SET privacy = ?, agree_toc = ?
 			WHERE id = ?`, args.Privacy, args.AgreeTOC, args.Id)
-		logResult(result, err)
+			common.LogResult("updatePrivacyAndTOC", result, err)
 		return err
 	} else if args.Privacy != "" {
 		result, err := db.Exec(`UPDATE users
 			SET privacy = ?
 			WHERE id = ?`, args.Privacy, args.Id)
-		logResult(result, err)
+			common.LogResult("updatePrivacyAndTOC", result, err)
 		return err
 	} else if args.AgreeTOC != "" {
 		result, err := db.Exec(`UPDATE users
 			SET agree_toc = ?
 			WHERE id = ?`, args.AgreeTOC, args.Id)
-		logResult(result, err)
+			common.LogResult("updatePrivacyAndTOC", result, err)
 		return err
 	}
 	return fmt.Errorf("either privacy or agree_toc should be specified")
@@ -108,14 +92,14 @@ func saveReport(db *sql.DB, r ReportArgs) error {
 	  INTO reports (id, team, latitude, longitude, x, y, image)
 	  VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		r.Id, userIdToTeam(r.Id), r.Latitude, r.Longitue, r.X, r.Y, r.Image)
-	logResult(result, err)
+		common.LogResult("saveReport", result, err)
 	if err != nil {
 		log.Printf("Error inserting report: %v\n", err)
 		return err
 	}
 
 	result, err = tx.ExecContext(ctx, `UPDATE users SET kitns_daily = kitns_daily + 1 WHERE id = ?`, r.Id)
-	logResult(result, err)
+	common.LogResult("saveReport", result, err)
 	if err != nil {
 		log.Printf("Error update kitns: %v\n", err)
 		return err
@@ -417,7 +401,7 @@ func writeReferral(db *sql.DB, key, value string) error {
 	  VALUES (?, ?)`,
 		key, value)
 
-	logResult(result, err)
+	common.LogResult("writeReferral", result, err)
 
 	return err
 }
@@ -451,7 +435,7 @@ func generateReferral(db *sql.DB, req *GenRefRequest, codeGen func() string) (*G
 		INTO users_refcodes (id, referral)
 		VALUES (?, ?)`,
 		req.Id, refCode)
-	logResult(result, err)
+		common.LogResult("generteReferral", result, err)
 
 	if err != nil {
 		return nil, err
@@ -468,7 +452,7 @@ func cleanupReferral(db *sql.DB, ref string) error {
 	result, err := db.Exec(`DELETE
 		FROM referrals
 		WHERE refvalue = ?`, ref)
-	logResult(result, err)
+		common.LogResult("cleanupReferral", result, err)
 
 	if err != nil {
 		log.Printf("Error cleaning up referral, %v\n", err)
