@@ -6,10 +6,10 @@ RUN DEBIAN_FRONTEND=noninteractive \
    && rm -rf /var/lib/apt/lists/*
  
 USER root
-COPY ./referrals .
+COPY ./pipelines .
 
 # RUN useradd -ms /bin/bash cleanapper
 # USER cleanapper
 
 EXPOSE 8090/tcp
-CMD "./referrals" "--mysql_password=${MYSQL_APP_PASSWORD}" "--mysql_host=cleanapp_db" # shell form to get env substitution.
+CMD "./pipelines" "--mysql_password=${MYSQL_APP_PASSWORD}" "--mysql_host=cleanapp_db" # shell form to get env substitution.

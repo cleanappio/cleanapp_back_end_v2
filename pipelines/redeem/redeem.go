@@ -1,6 +1,7 @@
-package db
+package redeem
 
 import (
+	"cleanapp/common"
 	"context"
 	"database/sql"
 	"fmt"
@@ -65,7 +66,7 @@ func redeemOneUser(db *sql.DB, id, referral string, kitnsToRefer int) error {
 		SET kitns_ref_redeemed = kitns_ref_redeemed + ?
 		WHERE id = ?
 	`, kitnsToRefer, id)
-	logResult(fmt.Sprintf("Update %d redeemed kitns for %s", kitnsToRefer, id), res, err)
+	common.LogResult(fmt.Sprintf("Update %d redeemed kitns for %s", kitnsToRefer, id), res, err)
 	if err != nil {
 		return err
 	}
@@ -103,7 +104,7 @@ func redeemStep(db *sql.DB, referral string, kitnsToRefer int, refLevel int) err
 		SET kitns_ref_daily = kitns_ref_daily + ?
 		WHERE id = ?
 	`, awarded, nextId)
-	logResult(fmt.Sprintf("Award %f referral kitns for %s", awarded, nextId), res, err)
+	common.LogResult(fmt.Sprintf("Award %f referral kitns for %s", awarded, nextId), res, err)
 	if err != nil {
 		return err
 	}
@@ -141,19 +142,4 @@ func redeemStep(db *sql.DB, referral string, kitnsToRefer int, refLevel int) err
 
 func getRefCoeffForLevel(level int) float32 {
 	return 0.1 / float32(level)
-}
-
-func logResult(msgPrefix string, r sql.Result, e error) {
-	if e != nil {
-		log.Errorf("Query failed: %w", e)
-		return
-	}
-	rows, err := r.RowsAffected()
-	if err != nil {
-		log.Errorf("Failed to get status of db op: %w", err)
-		return
-	}
-	if rows != 1 {
-		log.Warnf("%s: Expected to affect 1 row, affected %d", msgPrefix, rows)
-	}
 }

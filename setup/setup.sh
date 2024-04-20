@@ -42,6 +42,7 @@ cat >.env << ENV
 MYSQL_ROOT_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_ROOT_PASSWORD_${SECRET_SUFFIX}")
 MYSQL_APP_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_APP_PASSWORD_${SECRET_SUFFIX}")
 MYSQL_READER_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_READER_PASSWORD_${SECRET_SUFFIX}")
+KITN_PRIVATE_KEY=\$(gcloud secrets versions access 1 --secret="KITN_PRIVATE_KEY_${SECRET_SUFFIX}")
 
 ENV
 
@@ -64,7 +65,7 @@ sudo chmod a+x down.sh
 # Docker images
 DOCKER_PREFIX="us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo"
 SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-service-image:${OPT}"
-REFERRALS_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-referrals-image:${OPT}"
+PIPELINES_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-pipelines-image:${OPT}"
 WEB_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-web-image:${OPT}"
 DB_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-db-image:live"
 
@@ -87,12 +88,13 @@ services:
     ports:
       - 8080:8080
 
-  cleanapp_referrals:
-    container_name: cleanapp_referrals
-    image: ${REFERRALS_DOCKER_IMAGE}
+  cleanapp_pipelines:
+    container_name: cleanapp_pipelines
+    image: ${PIPELINES_DOCKER_IMAGE}
     environment:
       - MYSQL_ROOT_PASSWORD=\${MYSQL_ROOT_PASSWORD}
       - MYSQL_APP_PASSWORD=\${MYSQL_APP_PASSWORD}
+      - KITN_PRIVATE_KEY=\${KITN_PRIVATE_KEY}
     ports:
       - 8090:8090
 
@@ -160,7 +162,7 @@ installDocker
 
 # Pull images:
 docker pull ${SERVICE_DOCKER_IMAGE}
-docker pull ${REFERRALS_DOCKER_IMAGE}
+docker pull ${PIPELINES_DOCKER_IMAGE}
 docker pull ${DB_DOCKER_IMAGE}
 docker pull ${WEB_DOCKER_IMAGE}
 
@@ -185,18 +187,36 @@ case ${OPT} in
     ;;
 esac
 
-SCHEDULER_NAME="referral-redeem-${OPT}"
-EXISTING_SCHEDULER=$(gcloud scheduler jobs list --location=us-central1 | grep ${SCHEDULER_NAME} | awk '{print $1}')
+# Referrals redeem schedule
+REFERRAL_SCHEDULER_NAME="referral-redeem-${OPT}"
+EXISTING_REFERRAL_SCHEDULER=$(gcloud scheduler jobs list --location=us-central1 | grep ${REFERRAL_SCHEDULER_NAME} | awk '{print $1}')
 
-if [[ "${SCHEDULER_NAME}" == "${EXISTING_SCHEDULER}" ]]; then
-  gcloud scheduler jobs delete ${SCHEDULER_NAME} \
+if [[ "${REFERRAL_SCHEDULER_NAME}" == "${EXISTING_REFERRAL_SCHEDULER}" ]]; then
+  gcloud scheduler jobs delete ${REFERRAL_SCHEDULER_NAME} \
     --location=us-central1 \
     --quiet
 fi
 
-gcloud scheduler jobs create http ${SCHEDULER_NAME} \
+gcloud scheduler jobs create http ${REFERRAL_SCHEDULER_NAME} \
   --location=us-central1 \
   --schedule="0 16 * * *" \
   --uri="http://${SCHEDULER_HOST}:8090/referrals_redeem" \
+  --message-body="{\"version\": \"2.0\"}" \
+  --headers="Content-Type=application/json"
+
+# Tokens disbursement schedule
+DISBURSEMENT_SCHEDULER_NAME="referral-redeem-${OPT}"
+EXISTING_DISBURSEMENT_SCHEDULER=$(gcloud scheduler jobs list --location=us-central1 | grep ${DISBURSEMENT_SCHEDULER_NAME} | awk '{print $1}')
+
+if [[ "${DISBURSEMENT_SCHEDULER_NAME}" == "${EXISTING_DISBURSEMENT_SCHEDULER}" ]]; then
+  gcloud scheduler jobs delete ${DISBURSEMENT_SCHEDULER_NAME} \
+    --location=us-central1 \
+    --quiet
+fi
+
+gcloud scheduler jobs create http ${DISBURSEMENT_SCHEDULER_NAME} \
+  --location=us-central1 \
+  --schedule="0 20 * * *" \
+  --uri="http://${SCHEDULER_HOST}:8090/tokens_disburse" \
   --message-body="{\"version\": \"2.0\"}" \
   --headers="Content-Type=application/json"

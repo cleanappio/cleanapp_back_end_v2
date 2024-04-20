@@ -1,7 +1,7 @@
-echo "Buiding referrals docker image..."
+echo "Buiding pipelines docker image..."
 
-if [ "$(basename $(pwd))" != "docker_referrals" ]; then
-  echo "The build image should be run from \"docker_referrals\" directory."
+if [ "$(basename $(pwd))" != "docker_pipelines" ]; then
+  echo "The build image should be run from \"docker_pipelines\" directory."
   exit 1
 fi
 
@@ -34,15 +34,15 @@ done
 echo "Running docker build for version ${BUILD_VERSION}"
 
 echo "Building binary..."
-test -f referrals && rm -f referrals
+test -f pipelines && rm -f pipelines
 
 pushd ../
-GOARCH="amd64" GOOS="linux" go build -o docker_referrals/referrals referrals/main.go
+GOARCH="amd64" GOOS="linux" go build -o docker_pipelines/pipelines pipelines/main.go
 popd
 
 CLOUD_REGION="us-central1"
 PROJECT_NAME="cleanup-mysql-v2"
-DOCKER_IMAGE="cleanapp-docker-repo/cleanapp-referrals-image"
+DOCKER_IMAGE="cleanapp-docker-repo/cleanapp-pipelines-image"
 DOCKER_TAG="${CLOUD_REGION}-docker.pkg.dev/${PROJECT_NAME}/${DOCKER_IMAGE}"
 
 echo "Building and pushing docker image..."
@@ -53,4 +53,4 @@ gcloud builds submit \
 echo "Tagging Docker image as current ${OPT}..."
 gcloud artifacts docker tags add ${DOCKER_TAG}:${BUILD_VERSION} ${DOCKER_TAG}:${OPT}
 
-rm -f referrals
+rm -f pipelines
