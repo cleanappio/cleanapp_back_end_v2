@@ -1,7 +1,7 @@
 package server
 
 import (
-	refdb "cleanapp/referrals/db"
+	"cleanapp/pipelines/redeem"
 	"cleanapp/common"
 	"net/http"
 
@@ -35,7 +35,7 @@ func ReferralsRedeem(c *gin.Context) {
 	}
 	defer db.Close()
 
-	succeeded, failed, err := refdb.Redeem(db)
+	succeeded, failed, err := redeem.Redeem(db)
 	if err != nil {
 		log.Errorf("Redeem failed, %w", err)
 		return

@@ -4,7 +4,7 @@ import (
 	"flag"
 	"log"
 
-	"cleanapp/referrals/server"
+	"cleanapp/pipelines/server"
 )
 
 func main() {
