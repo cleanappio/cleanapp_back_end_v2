@@ -1,8 +1,8 @@
-package disbursement
+package disburse
 
 import (
 	"cleanapp/common"
-	"cleanapp/pipelines/disbursement/contract"
+	"cleanapp/pipelines/disburse/contract"
 	"context"
 	"crypto/ecdsa"
 	"database/sql"
