@@ -5,6 +5,11 @@
 # 2. setup.sh file from our setup folder locally in a local folder
 #    (pulled from Github or otherwise).
 
+# Vars init
+SCHEDULER_HOST=""
+ETH_NETWORK_URL=""
+CONTRACT_ADDRESS=""
+
 # Choose the environment
 PS3="Please choose the environment: "
 options=("local" "dev" "prod" "quit")
@@ -13,14 +18,23 @@ do
   case ${OPT} in
     "local")
         echo "Using local environment"
+        SCHEDULER_HOST="localhost"
+        ETH_NETWORK_URL="http://localhost:8545"
+        CONTRACT_ADDRESS=""  # TODO: Add contract address when we start using local contract
         break
         ;;
     "dev")
         echo "Using dev environment"
+        SCHEDULER_HOST="dev.api.cleanapp.io"
+        ETH_NETWORK_URL="https://sepolia.base.org"
+        CONTRACT_ADDRESS="0x0f8d274E349Cc7e82d32027D7cF7f634f5D1f239"
         break
         ;;
     "prod")
         echo "Using prod environment"
+        SCHEDULER_HOST="api.cleanapp.io"
+        ETH_NETWORK_URL="https://sepolia.base.org"  # TODO: Change to the mainnet URL after we run on the base mainnet
+        CONTRACT_ADDRESS="0x0f8d274E349Cc7e82d32027D7cF7f634f5D1f239"  # TODO: Change the contract address to the main when we run on the base mainnet
         break
         ;;
     "quit")
@@ -95,6 +109,8 @@ services:
       - MYSQL_ROOT_PASSWORD=\${MYSQL_ROOT_PASSWORD}
       - MYSQL_APP_PASSWORD=\${MYSQL_APP_PASSWORD}
       - KITN_PRIVATE_KEY=\${KITN_PRIVATE_KEY}
+      - ETH_NETWORK_URL=${ETH_NETWORL_URL}
+      - CONTRACT_ADDRESS=${CONTRACT_ADDRESS}
     ports:
       - 8090:8090
 
@@ -172,20 +188,6 @@ docker pull ${WEB_DOCKER_IMAGE}
 if [[ "${OPT}" == "local" ]]; then
   exit 0
 fi
-
-# Create or update schedulers.
-SCHEDULER_HOST=""
-case ${OPT} in
-  "local")
-    SCHEDULER_HOST="localhost"
-    ;;
-  "dev")
-    SCHEDULER_HOST="dev.api.cleanapp.io"
-    ;;
-  "prod")
-    SCHEDULER_HOST="api.cleanapp.io"
-    ;;
-esac
 
 # Referrals redeem schedule
 REFERRAL_SCHEDULER_NAME="referral-redeem-${OPT}"

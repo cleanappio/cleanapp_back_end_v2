@@ -1,8 +1,8 @@
-package disbursement
+package disburse
 
 import (
 	"cleanapp/common"
-	"cleanapp/pipelines/disbursement/contract"
+	"cleanapp/pipelines/disburse/contract"
 	"context"
 	"crypto/ecdsa"
 	"database/sql"
@@ -23,9 +23,9 @@ const (
 )
 
 var (
-	ethNetworkAddress = flag.String("eth_network_address", "", "Ethereum network address.")
-	privateKey        = flag.String("eth_private_key", "", "The private key for connecting to the smart contract.")
-	contractAddress   = flag.String("contract_address", "", "The contract address in HEX")
+	ethNetworkUrl   = flag.String("eth_network_url", "", "Ethereum network address.")
+	privateKey      = flag.String("eth_private_key", "", "The private key for connecting to the smart contract.")
+	contractAddress = flag.String("contract_address", "", "The contract address in HEX")
 )
 
 type Disburser struct {
@@ -40,7 +40,7 @@ type Disburser struct {
 func NewDisburser(db *sql.DB) (*Disburser, error) {
 	d := &Disburser{}
 
-	client, err := ethclient.Dial(*ethNetworkAddress)
+	client, err := ethclient.Dial(*ethNetworkUrl)
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +139,7 @@ func (d *Disburser) disburseOneUser(toAddress string, dailyKitns int) error {
 	auth.GasPrice = gasPrice
 
 	amount := big.NewInt(int64(dailyKitns))
-	_, err = d.contract.RenewAllowance(auth, d.fromAddress, amount, big.NewInt(validity))
+	_, err = d.contract.RenewAllowance(auth, amount, big.NewInt(validity))
 	if err != nil {
 		return err
 	}
