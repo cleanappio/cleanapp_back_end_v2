@@ -12,4 +12,4 @@ COPY ./pipelines .
 # USER cleanapper
 
 EXPOSE 8090/tcp
-CMD "./pipelines" "--mysql_password=${MYSQL_APP_PASSWORD}" "--mysql_host=cleanapp_db" # shell form to get env substitution.
+CMD "./pipelines" "--mysql_password=${MYSQL_APP_PASSWORD}" "--mysql_host=cleanapp_db" "--eth_network_url=${ETH_NETWORK_URL}" "eth_private_key=${KITN_PRIVATE_KEY}" "contract_address=${CONTRACT_ADDRESS}"

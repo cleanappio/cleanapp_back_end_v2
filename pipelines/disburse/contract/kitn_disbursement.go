@@ -31,7 +31,7 @@ var (
 
 // KitnDisbursementMetaData contains all meta data concerning the KitnDisbursement contract.
 var KitnDisbursementMetaData = &bind.MetaData{
-	ABI: "[{\"inputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"constructor\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"address\",\"name\":\"user\",\"type\":\"address\"},{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"allowance\",\"type\":\"uint256\"},{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"timeLimit\",\"type\":\"uint256\"}],\"name\":\"AllowanceRenewed\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"address\",\"name\":\"receiver\",\"type\":\"address\"},{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"amount\",\"type\":\"uint256\"}],\"name\":\"CoinsSpent\",\"type\":\"event\"},{\"inputs\":[],\"name\":\"KITN_ADDRESS\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"getWalletBalance\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"kitnToken\",\"outputs\":[{\"internalType\":\"contractIERC20\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"myAllowance\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"owner\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_user\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"_allowance\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"_timeLimit\",\"type\":\"uint256\"}],\"name\":\"renewAllowance\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_receiver\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"_amount\",\"type\":\"uint256\"}],\"name\":\"spendCoins\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"name\":\"users\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"userAddress\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"allowance\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"validity\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"stateMutability\":\"payable\",\"type\":\"receive\"}]",
+	ABI: "[{\"inputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"constructor\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"address\",\"name\":\"user\",\"type\":\"address\"},{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"allowance\",\"type\":\"uint256\"},{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"timeLimit\",\"type\":\"uint256\"}],\"name\":\"AllowanceRenewed\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"address\",\"name\":\"receiver\",\"type\":\"address\"},{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"amount\",\"type\":\"uint256\"}],\"name\":\"CoinsSpent\",\"type\":\"event\"},{\"inputs\":[],\"name\":\"KITN_ADDRESS\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"getWalletBalance\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"kitnToken\",\"outputs\":[{\"internalType\":\"contractIERC20\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"myAllowance\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"owner\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"_allowance\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"_timeLimit\",\"type\":\"uint256\"}],\"name\":\"renewAllowance\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_receiver\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"_amount\",\"type\":\"uint256\"}],\"name\":\"spendCoins\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"user\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"userAddress\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"allowance\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"validity\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"stateMutability\":\"payable\",\"type\":\"receive\"}]",
 }
 
 // KitnDisbursementABI is the input ABI used to generate the binding from.
@@ -335,16 +335,16 @@ func (_KitnDisbursement *KitnDisbursementCallerSession) Owner() (common.Address,
 	return _KitnDisbursement.Contract.Owner(&_KitnDisbursement.CallOpts)
 }
 
-// Users is a free data retrieval call binding the contract method 0xa87430ba.
+// User is a free data retrieval call binding the contract method 0x4f8632ba.
 //
-// Solidity: function users(address ) view returns(address userAddress, uint256 allowance, uint256 validity)
-func (_KitnDisbursement *KitnDisbursementCaller) Users(opts *bind.CallOpts, arg0 common.Address) (struct {
+// Solidity: function user() view returns(address userAddress, uint256 allowance, uint256 validity)
+func (_KitnDisbursement *KitnDisbursementCaller) User(opts *bind.CallOpts) (struct {
 	UserAddress common.Address
 	Allowance   *big.Int
 	Validity    *big.Int
 }, error) {
 	var out []interface{}
-	err := _KitnDisbursement.contract.Call(opts, &out, "users", arg0)
+	err := _KitnDisbursement.contract.Call(opts, &out, "user")
 
 	outstruct := new(struct {
 		UserAddress common.Address
@@ -363,47 +363,47 @@ func (_KitnDisbursement *KitnDisbursementCaller) Users(opts *bind.CallOpts, arg0
 
 }
 
-// Users is a free data retrieval call binding the contract method 0xa87430ba.
+// User is a free data retrieval call binding the contract method 0x4f8632ba.
 //
-// Solidity: function users(address ) view returns(address userAddress, uint256 allowance, uint256 validity)
-func (_KitnDisbursement *KitnDisbursementSession) Users(arg0 common.Address) (struct {
+// Solidity: function user() view returns(address userAddress, uint256 allowance, uint256 validity)
+func (_KitnDisbursement *KitnDisbursementSession) User() (struct {
 	UserAddress common.Address
 	Allowance   *big.Int
 	Validity    *big.Int
 }, error) {
-	return _KitnDisbursement.Contract.Users(&_KitnDisbursement.CallOpts, arg0)
+	return _KitnDisbursement.Contract.User(&_KitnDisbursement.CallOpts)
 }
 
-// Users is a free data retrieval call binding the contract method 0xa87430ba.
+// User is a free data retrieval call binding the contract method 0x4f8632ba.
 //
-// Solidity: function users(address ) view returns(address userAddress, uint256 allowance, uint256 validity)
-func (_KitnDisbursement *KitnDisbursementCallerSession) Users(arg0 common.Address) (struct {
+// Solidity: function user() view returns(address userAddress, uint256 allowance, uint256 validity)
+func (_KitnDisbursement *KitnDisbursementCallerSession) User() (struct {
 	UserAddress common.Address
 	Allowance   *big.Int
 	Validity    *big.Int
 }, error) {
-	return _KitnDisbursement.Contract.Users(&_KitnDisbursement.CallOpts, arg0)
+	return _KitnDisbursement.Contract.User(&_KitnDisbursement.CallOpts)
 }
 
-// RenewAllowance is a paid mutator transaction binding the contract method 0x260e67a7.
+// RenewAllowance is a paid mutator transaction binding the contract method 0x793eae8d.
 //
-// Solidity: function renewAllowance(address _user, uint256 _allowance, uint256 _timeLimit) returns()
-func (_KitnDisbursement *KitnDisbursementTransactor) RenewAllowance(opts *bind.TransactOpts, _user common.Address, _allowance *big.Int, _timeLimit *big.Int) (*types.Transaction, error) {
-	return _KitnDisbursement.contract.Transact(opts, "renewAllowance", _user, _allowance, _timeLimit)
+// Solidity: function renewAllowance(uint256 _allowance, uint256 _timeLimit) returns()
+func (_KitnDisbursement *KitnDisbursementTransactor) RenewAllowance(opts *bind.TransactOpts, _allowance *big.Int, _timeLimit *big.Int) (*types.Transaction, error) {
+	return _KitnDisbursement.contract.Transact(opts, "renewAllowance", _allowance, _timeLimit)
 }
 
-// RenewAllowance is a paid mutator transaction binding the contract method 0x260e67a7.
+// RenewAllowance is a paid mutator transaction binding the contract method 0x793eae8d.
 //
-// Solidity: function renewAllowance(address _user, uint256 _allowance, uint256 _timeLimit) returns()
-func (_KitnDisbursement *KitnDisbursementSession) RenewAllowance(_user common.Address, _allowance *big.Int, _timeLimit *big.Int) (*types.Transaction, error) {
-	return _KitnDisbursement.Contract.RenewAllowance(&_KitnDisbursement.TransactOpts, _user, _allowance, _timeLimit)
+// Solidity: function renewAllowance(uint256 _allowance, uint256 _timeLimit) returns()
+func (_KitnDisbursement *KitnDisbursementSession) RenewAllowance(_allowance *big.Int, _timeLimit *big.Int) (*types.Transaction, error) {
+	return _KitnDisbursement.Contract.RenewAllowance(&_KitnDisbursement.TransactOpts, _allowance, _timeLimit)
 }
 
-// RenewAllowance is a paid mutator transaction binding the contract method 0x260e67a7.
+// RenewAllowance is a paid mutator transaction binding the contract method 0x793eae8d.
 //
-// Solidity: function renewAllowance(address _user, uint256 _allowance, uint256 _timeLimit) returns()
-func (_KitnDisbursement *KitnDisbursementTransactorSession) RenewAllowance(_user common.Address, _allowance *big.Int, _timeLimit *big.Int) (*types.Transaction, error) {
-	return _KitnDisbursement.Contract.RenewAllowance(&_KitnDisbursement.TransactOpts, _user, _allowance, _timeLimit)
+// Solidity: function renewAllowance(uint256 _allowance, uint256 _timeLimit) returns()
+func (_KitnDisbursement *KitnDisbursementTransactorSession) RenewAllowance(_allowance *big.Int, _timeLimit *big.Int) (*types.Transaction, error) {
+	return _KitnDisbursement.Contract.RenewAllowance(&_KitnDisbursement.TransactOpts, _allowance, _timeLimit)
 }
 
 // SpendCoins is a paid mutator transaction binding the contract method 0x978d4e7e.
