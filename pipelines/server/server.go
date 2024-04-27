@@ -23,6 +23,7 @@ func StartService() {
 	router := gin.Default()
 	router.GET(EndPointHelp, Help)
 	router.POST(EndPointReferralsRedeem, ReferralsRedeem)
+	router.POST(EndPointTokensDisburse, DisburseTokens)
 
 	router.Run(fmt.Sprintf(":%d", *serverPort))
 	log.Warn("Finished the service. Should not ever being seen.")
