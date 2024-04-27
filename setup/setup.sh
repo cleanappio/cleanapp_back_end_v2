@@ -27,14 +27,14 @@ do
         echo "Using dev environment"
         SCHEDULER_HOST="dev.api.cleanapp.io"
         ETH_NETWORK_URL="https://sepolia.base.org"
-        CONTRACT_ADDRESS="0x0f8d274E349Cc7e82d32027D7cF7f634f5D1f239"
+        CONTRACT_ADDRESS="0xDc41655b749E8F2922A6E5e525Fc04a915aEaFAA"
         break
         ;;
     "prod")
         echo "Using prod environment"
         SCHEDULER_HOST="api.cleanapp.io"
         ETH_NETWORK_URL="https://sepolia.base.org"  # TODO: Change to the mainnet URL after we run on the base mainnet
-        CONTRACT_ADDRESS="0x0f8d274E349Cc7e82d32027D7cF7f634f5D1f239"  # TODO: Change the contract address to the main when we run on the base mainnet
+        CONTRACT_ADDRESS="0xDc41655b749E8F2922A6E5e525Fc04a915aEaFAA"  # TODO: Change the contract address to the main when we run on the base mainnet
         break
         ;;
     "quit")

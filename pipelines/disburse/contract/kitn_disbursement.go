@@ -29,9 +29,16 @@ var (
 	_ = abi.ConvertType
 )
 
+// KitnDisbursementCoinsSpendResult is an auto generated low-level Go binding around an user-defined struct.
+type KitnDisbursementCoinsSpendResult struct {
+	Receiver common.Address
+	Amount   *big.Int
+	Result   bool
+}
+
 // KitnDisbursementMetaData contains all meta data concerning the KitnDisbursement contract.
 var KitnDisbursementMetaData = &bind.MetaData{
-	ABI: "[{\"inputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"constructor\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"address\",\"name\":\"user\",\"type\":\"address\"},{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"allowance\",\"type\":\"uint256\"},{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"timeLimit\",\"type\":\"uint256\"}],\"name\":\"AllowanceRenewed\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"address\",\"name\":\"receiver\",\"type\":\"address\"},{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"amount\",\"type\":\"uint256\"}],\"name\":\"CoinsSpent\",\"type\":\"event\"},{\"inputs\":[],\"name\":\"KITN_ADDRESS\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"getWalletBalance\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"kitnToken\",\"outputs\":[{\"internalType\":\"contractIERC20\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"myAllowance\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"owner\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"_allowance\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"_timeLimit\",\"type\":\"uint256\"}],\"name\":\"renewAllowance\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_receiver\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"_amount\",\"type\":\"uint256\"}],\"name\":\"spendCoins\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"user\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"userAddress\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"allowance\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"validity\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"stateMutability\":\"payable\",\"type\":\"receive\"}]",
+	ABI: "[{\"inputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"constructor\"},{\"anonymous\":false,\"inputs\":[{\"components\":[{\"internalType\":\"address\",\"name\":\"receiver\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"amount\",\"type\":\"uint256\"},{\"internalType\":\"bool\",\"name\":\"result\",\"type\":\"bool\"}],\"indexed\":false,\"internalType\":\"structKitnDisbursement.CoinsSpendResult[]\",\"name\":\"results\",\"type\":\"tuple[]\"}],\"name\":\"CoinsSpent\",\"type\":\"event\"},{\"inputs\":[],\"name\":\"KITN_ADDRESS\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"getKitnBalance\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"getWalletBalance\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"kitnToken\",\"outputs\":[{\"internalType\":\"contractIERC20\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"owner\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address[]\",\"name\":\"_receivers\",\"type\":\"address[]\"},{\"internalType\":\"uint256[]\",\"name\":\"_amounts\",\"type\":\"uint256[]\"}],\"name\":\"spendCoins\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"_amount\",\"type\":\"uint256\"}],\"name\":\"transferKitnToMe\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"stateMutability\":\"payable\",\"type\":\"receive\"}]",
 }
 
 // KitnDisbursementABI is the input ABI used to generate the binding from.
@@ -211,6 +218,37 @@ func (_KitnDisbursement *KitnDisbursementCallerSession) KITNADDRESS() (common.Ad
 	return _KitnDisbursement.Contract.KITNADDRESS(&_KitnDisbursement.CallOpts)
 }
 
+// GetKitnBalance is a free data retrieval call binding the contract method 0x32ac6a09.
+//
+// Solidity: function getKitnBalance() view returns(uint256)
+func (_KitnDisbursement *KitnDisbursementCaller) GetKitnBalance(opts *bind.CallOpts) (*big.Int, error) {
+	var out []interface{}
+	err := _KitnDisbursement.contract.Call(opts, &out, "getKitnBalance")
+
+	if err != nil {
+		return *new(*big.Int), err
+	}
+
+	out0 := *abi.ConvertType(out[0], new(*big.Int)).(**big.Int)
+
+	return out0, err
+
+}
+
+// GetKitnBalance is a free data retrieval call binding the contract method 0x32ac6a09.
+//
+// Solidity: function getKitnBalance() view returns(uint256)
+func (_KitnDisbursement *KitnDisbursementSession) GetKitnBalance() (*big.Int, error) {
+	return _KitnDisbursement.Contract.GetKitnBalance(&_KitnDisbursement.CallOpts)
+}
+
+// GetKitnBalance is a free data retrieval call binding the contract method 0x32ac6a09.
+//
+// Solidity: function getKitnBalance() view returns(uint256)
+func (_KitnDisbursement *KitnDisbursementCallerSession) GetKitnBalance() (*big.Int, error) {
+	return _KitnDisbursement.Contract.GetKitnBalance(&_KitnDisbursement.CallOpts)
+}
+
 // GetWalletBalance is a free data retrieval call binding the contract method 0x329a27e7.
 //
 // Solidity: function getWalletBalance() view returns(uint256)
@@ -273,37 +311,6 @@ func (_KitnDisbursement *KitnDisbursementCallerSession) KitnToken() (common.Addr
 	return _KitnDisbursement.Contract.KitnToken(&_KitnDisbursement.CallOpts)
 }
 
-// MyAllowance is a free data retrieval call binding the contract method 0x69376af8.
-//
-// Solidity: function myAllowance() view returns(uint256)
-func (_KitnDisbursement *KitnDisbursementCaller) MyAllowance(opts *bind.CallOpts) (*big.Int, error) {
-	var out []interface{}
-	err := _KitnDisbursement.contract.Call(opts, &out, "myAllowance")
-
-	if err != nil {
-		return *new(*big.Int), err
-	}
-
-	out0 := *abi.ConvertType(out[0], new(*big.Int)).(**big.Int)
-
-	return out0, err
-
-}
-
-// MyAllowance is a free data retrieval call binding the contract method 0x69376af8.
-//
-// Solidity: function myAllowance() view returns(uint256)
-func (_KitnDisbursement *KitnDisbursementSession) MyAllowance() (*big.Int, error) {
-	return _KitnDisbursement.Contract.MyAllowance(&_KitnDisbursement.CallOpts)
-}
-
-// MyAllowance is a free data retrieval call binding the contract method 0x69376af8.
-//
-// Solidity: function myAllowance() view returns(uint256)
-func (_KitnDisbursement *KitnDisbursementCallerSession) MyAllowance() (*big.Int, error) {
-	return _KitnDisbursement.Contract.MyAllowance(&_KitnDisbursement.CallOpts)
-}
-
 // Owner is a free data retrieval call binding the contract method 0x8da5cb5b.
 //
 // Solidity: function owner() view returns(address)
@@ -335,96 +342,46 @@ func (_KitnDisbursement *KitnDisbursementCallerSession) Owner() (common.Address,
 	return _KitnDisbursement.Contract.Owner(&_KitnDisbursement.CallOpts)
 }
 
-// User is a free data retrieval call binding the contract method 0x4f8632ba.
+// SpendCoins is a paid mutator transaction binding the contract method 0x2130d89c.
 //
-// Solidity: function user() view returns(address userAddress, uint256 allowance, uint256 validity)
-func (_KitnDisbursement *KitnDisbursementCaller) User(opts *bind.CallOpts) (struct {
-	UserAddress common.Address
-	Allowance   *big.Int
-	Validity    *big.Int
-}, error) {
-	var out []interface{}
-	err := _KitnDisbursement.contract.Call(opts, &out, "user")
-
-	outstruct := new(struct {
-		UserAddress common.Address
-		Allowance   *big.Int
-		Validity    *big.Int
-	})
-	if err != nil {
-		return *outstruct, err
-	}
-
-	outstruct.UserAddress = *abi.ConvertType(out[0], new(common.Address)).(*common.Address)
-	outstruct.Allowance = *abi.ConvertType(out[1], new(*big.Int)).(**big.Int)
-	outstruct.Validity = *abi.ConvertType(out[2], new(*big.Int)).(**big.Int)
-
-	return *outstruct, err
-
+// Solidity: function spendCoins(address[] _receivers, uint256[] _amounts) returns()
+func (_KitnDisbursement *KitnDisbursementTransactor) SpendCoins(opts *bind.TransactOpts, _receivers []common.Address, _amounts []*big.Int) (*types.Transaction, error) {
+	return _KitnDisbursement.contract.Transact(opts, "spendCoins", _receivers, _amounts)
 }
 
-// User is a free data retrieval call binding the contract method 0x4f8632ba.
+// SpendCoins is a paid mutator transaction binding the contract method 0x2130d89c.
 //
-// Solidity: function user() view returns(address userAddress, uint256 allowance, uint256 validity)
-func (_KitnDisbursement *KitnDisbursementSession) User() (struct {
-	UserAddress common.Address
-	Allowance   *big.Int
-	Validity    *big.Int
-}, error) {
-	return _KitnDisbursement.Contract.User(&_KitnDisbursement.CallOpts)
+// Solidity: function spendCoins(address[] _receivers, uint256[] _amounts) returns()
+func (_KitnDisbursement *KitnDisbursementSession) SpendCoins(_receivers []common.Address, _amounts []*big.Int) (*types.Transaction, error) {
+	return _KitnDisbursement.Contract.SpendCoins(&_KitnDisbursement.TransactOpts, _receivers, _amounts)
 }
 
-// User is a free data retrieval call binding the contract method 0x4f8632ba.
+// SpendCoins is a paid mutator transaction binding the contract method 0x2130d89c.
 //
-// Solidity: function user() view returns(address userAddress, uint256 allowance, uint256 validity)
-func (_KitnDisbursement *KitnDisbursementCallerSession) User() (struct {
-	UserAddress common.Address
-	Allowance   *big.Int
-	Validity    *big.Int
-}, error) {
-	return _KitnDisbursement.Contract.User(&_KitnDisbursement.CallOpts)
+// Solidity: function spendCoins(address[] _receivers, uint256[] _amounts) returns()
+func (_KitnDisbursement *KitnDisbursementTransactorSession) SpendCoins(_receivers []common.Address, _amounts []*big.Int) (*types.Transaction, error) {
+	return _KitnDisbursement.Contract.SpendCoins(&_KitnDisbursement.TransactOpts, _receivers, _amounts)
 }
 
-// RenewAllowance is a paid mutator transaction binding the contract method 0x793eae8d.
+// TransferKitnToMe is a paid mutator transaction binding the contract method 0xde5d801b.
 //
-// Solidity: function renewAllowance(uint256 _allowance, uint256 _timeLimit) returns()
-func (_KitnDisbursement *KitnDisbursementTransactor) RenewAllowance(opts *bind.TransactOpts, _allowance *big.Int, _timeLimit *big.Int) (*types.Transaction, error) {
-	return _KitnDisbursement.contract.Transact(opts, "renewAllowance", _allowance, _timeLimit)
+// Solidity: function transferKitnToMe(uint256 _amount) returns()
+func (_KitnDisbursement *KitnDisbursementTransactor) TransferKitnToMe(opts *bind.TransactOpts, _amount *big.Int) (*types.Transaction, error) {
+	return _KitnDisbursement.contract.Transact(opts, "transferKitnToMe", _amount)
 }
 
-// RenewAllowance is a paid mutator transaction binding the contract method 0x793eae8d.
+// TransferKitnToMe is a paid mutator transaction binding the contract method 0xde5d801b.
 //
-// Solidity: function renewAllowance(uint256 _allowance, uint256 _timeLimit) returns()
-func (_KitnDisbursement *KitnDisbursementSession) RenewAllowance(_allowance *big.Int, _timeLimit *big.Int) (*types.Transaction, error) {
-	return _KitnDisbursement.Contract.RenewAllowance(&_KitnDisbursement.TransactOpts, _allowance, _timeLimit)
+// Solidity: function transferKitnToMe(uint256 _amount) returns()
+func (_KitnDisbursement *KitnDisbursementSession) TransferKitnToMe(_amount *big.Int) (*types.Transaction, error) {
+	return _KitnDisbursement.Contract.TransferKitnToMe(&_KitnDisbursement.TransactOpts, _amount)
 }
 
-// RenewAllowance is a paid mutator transaction binding the contract method 0x793eae8d.
+// TransferKitnToMe is a paid mutator transaction binding the contract method 0xde5d801b.
 //
-// Solidity: function renewAllowance(uint256 _allowance, uint256 _timeLimit) returns()
-func (_KitnDisbursement *KitnDisbursementTransactorSession) RenewAllowance(_allowance *big.Int, _timeLimit *big.Int) (*types.Transaction, error) {
-	return _KitnDisbursement.Contract.RenewAllowance(&_KitnDisbursement.TransactOpts, _allowance, _timeLimit)
-}
-
-// SpendCoins is a paid mutator transaction binding the contract method 0x978d4e7e.
-//
-// Solidity: function spendCoins(address _receiver, uint256 _amount) returns()
-func (_KitnDisbursement *KitnDisbursementTransactor) SpendCoins(opts *bind.TransactOpts, _receiver common.Address, _amount *big.Int) (*types.Transaction, error) {
-	return _KitnDisbursement.contract.Transact(opts, "spendCoins", _receiver, _amount)
-}
-
-// SpendCoins is a paid mutator transaction binding the contract method 0x978d4e7e.
-//
-// Solidity: function spendCoins(address _receiver, uint256 _amount) returns()
-func (_KitnDisbursement *KitnDisbursementSession) SpendCoins(_receiver common.Address, _amount *big.Int) (*types.Transaction, error) {
-	return _KitnDisbursement.Contract.SpendCoins(&_KitnDisbursement.TransactOpts, _receiver, _amount)
-}
-
-// SpendCoins is a paid mutator transaction binding the contract method 0x978d4e7e.
-//
-// Solidity: function spendCoins(address _receiver, uint256 _amount) returns()
-func (_KitnDisbursement *KitnDisbursementTransactorSession) SpendCoins(_receiver common.Address, _amount *big.Int) (*types.Transaction, error) {
-	return _KitnDisbursement.Contract.SpendCoins(&_KitnDisbursement.TransactOpts, _receiver, _amount)
+// Solidity: function transferKitnToMe(uint256 _amount) returns()
+func (_KitnDisbursement *KitnDisbursementTransactorSession) TransferKitnToMe(_amount *big.Int) (*types.Transaction, error) {
+	return _KitnDisbursement.Contract.TransferKitnToMe(&_KitnDisbursement.TransactOpts, _amount)
 }
 
 // Receive is a paid mutator transaction binding the contract receive function.
@@ -446,152 +403,6 @@ func (_KitnDisbursement *KitnDisbursementSession) Receive() (*types.Transaction,
 // Solidity: receive() payable returns()
 func (_KitnDisbursement *KitnDisbursementTransactorSession) Receive() (*types.Transaction, error) {
 	return _KitnDisbursement.Contract.Receive(&_KitnDisbursement.TransactOpts)
-}
-
-// KitnDisbursementAllowanceRenewedIterator is returned from FilterAllowanceRenewed and is used to iterate over the raw logs and unpacked data for AllowanceRenewed events raised by the KitnDisbursement contract.
-type KitnDisbursementAllowanceRenewedIterator struct {
-	Event *KitnDisbursementAllowanceRenewed // Event containing the contract specifics and raw log
-
-	contract *bind.BoundContract // Generic contract to use for unpacking event data
-	event    string              // Event name to use for unpacking event data
-
-	logs chan types.Log        // Log channel receiving the found contract events
-	sub  ethereum.Subscription // Subscription for errors, completion and termination
-	done bool                  // Whether the subscription completed delivering logs
-	fail error                 // Occurred error to stop iteration
-}
-
-// Next advances the iterator to the subsequent event, returning whether there
-// are any more events found. In case of a retrieval or parsing error, false is
-// returned and Error() can be queried for the exact failure.
-func (it *KitnDisbursementAllowanceRenewedIterator) Next() bool {
-	// If the iterator failed, stop iterating
-	if it.fail != nil {
-		return false
-	}
-	// If the iterator completed, deliver directly whatever's available
-	if it.done {
-		select {
-		case log := <-it.logs:
-			it.Event = new(KitnDisbursementAllowanceRenewed)
-			if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
-				it.fail = err
-				return false
-			}
-			it.Event.Raw = log
-			return true
-
-		default:
-			return false
-		}
-	}
-	// Iterator still in progress, wait for either a data or an error event
-	select {
-	case log := <-it.logs:
-		it.Event = new(KitnDisbursementAllowanceRenewed)
-		if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
-			it.fail = err
-			return false
-		}
-		it.Event.Raw = log
-		return true
-
-	case err := <-it.sub.Err():
-		it.done = true
-		it.fail = err
-		return it.Next()
-	}
-}
-
-// Error returns any retrieval or parsing error occurred during filtering.
-func (it *KitnDisbursementAllowanceRenewedIterator) Error() error {
-	return it.fail
-}
-
-// Close terminates the iteration process, releasing any pending underlying
-// resources.
-func (it *KitnDisbursementAllowanceRenewedIterator) Close() error {
-	it.sub.Unsubscribe()
-	return nil
-}
-
-// KitnDisbursementAllowanceRenewed represents a AllowanceRenewed event raised by the KitnDisbursement contract.
-type KitnDisbursementAllowanceRenewed struct {
-	User      common.Address
-	Allowance *big.Int
-	TimeLimit *big.Int
-	Raw       types.Log // Blockchain specific contextual infos
-}
-
-// FilterAllowanceRenewed is a free log retrieval operation binding the contract event 0x7b5d8b8c4a48ab3c4f698feadf9ec108f89b430c109781190da11151c6b66067.
-//
-// Solidity: event AllowanceRenewed(address indexed user, uint256 allowance, uint256 timeLimit)
-func (_KitnDisbursement *KitnDisbursementFilterer) FilterAllowanceRenewed(opts *bind.FilterOpts, user []common.Address) (*KitnDisbursementAllowanceRenewedIterator, error) {
-
-	var userRule []interface{}
-	for _, userItem := range user {
-		userRule = append(userRule, userItem)
-	}
-
-	logs, sub, err := _KitnDisbursement.contract.FilterLogs(opts, "AllowanceRenewed", userRule)
-	if err != nil {
-		return nil, err
-	}
-	return &KitnDisbursementAllowanceRenewedIterator{contract: _KitnDisbursement.contract, event: "AllowanceRenewed", logs: logs, sub: sub}, nil
-}
-
-// WatchAllowanceRenewed is a free log subscription operation binding the contract event 0x7b5d8b8c4a48ab3c4f698feadf9ec108f89b430c109781190da11151c6b66067.
-//
-// Solidity: event AllowanceRenewed(address indexed user, uint256 allowance, uint256 timeLimit)
-func (_KitnDisbursement *KitnDisbursementFilterer) WatchAllowanceRenewed(opts *bind.WatchOpts, sink chan<- *KitnDisbursementAllowanceRenewed, user []common.Address) (event.Subscription, error) {
-
-	var userRule []interface{}
-	for _, userItem := range user {
-		userRule = append(userRule, userItem)
-	}
-
-	logs, sub, err := _KitnDisbursement.contract.WatchLogs(opts, "AllowanceRenewed", userRule)
-	if err != nil {
-		return nil, err
-	}
-	return event.NewSubscription(func(quit <-chan struct{}) error {
-		defer sub.Unsubscribe()
-		for {
-			select {
-			case log := <-logs:
-				// New log arrived, parse the event and forward to the user
-				event := new(KitnDisbursementAllowanceRenewed)
-				if err := _KitnDisbursement.contract.UnpackLog(event, "AllowanceRenewed", log); err != nil {
-					return err
-				}
-				event.Raw = log
-
-				select {
-				case sink <- event:
-				case err := <-sub.Err():
-					return err
-				case <-quit:
-					return nil
-				}
-			case err := <-sub.Err():
-				return err
-			case <-quit:
-				return nil
-			}
-		}
-	}), nil
-}
-
-// ParseAllowanceRenewed is a log parse operation binding the contract event 0x7b5d8b8c4a48ab3c4f698feadf9ec108f89b430c109781190da11151c6b66067.
-//
-// Solidity: event AllowanceRenewed(address indexed user, uint256 allowance, uint256 timeLimit)
-func (_KitnDisbursement *KitnDisbursementFilterer) ParseAllowanceRenewed(log types.Log) (*KitnDisbursementAllowanceRenewed, error) {
-	event := new(KitnDisbursementAllowanceRenewed)
-	if err := _KitnDisbursement.contract.UnpackLog(event, "AllowanceRenewed", log); err != nil {
-		return nil, err
-	}
-	event.Raw = log
-	return event, nil
 }
 
 // KitnDisbursementCoinsSpentIterator is returned from FilterCoinsSpent and is used to iterate over the raw logs and unpacked data for CoinsSpent events raised by the KitnDisbursement contract.
@@ -663,39 +474,28 @@ func (it *KitnDisbursementCoinsSpentIterator) Close() error {
 
 // KitnDisbursementCoinsSpent represents a CoinsSpent event raised by the KitnDisbursement contract.
 type KitnDisbursementCoinsSpent struct {
-	Receiver common.Address
-	Amount   *big.Int
-	Raw      types.Log // Blockchain specific contextual infos
+	Results []KitnDisbursementCoinsSpendResult
+	Raw     types.Log // Blockchain specific contextual infos
 }
 
-// FilterCoinsSpent is a free log retrieval operation binding the contract event 0x92c3d05f8ba31385c55d3263a9c7de7c1e17e7da9dba4b20246c3c0cf8df88c2.
+// FilterCoinsSpent is a free log retrieval operation binding the contract event 0x1eb24303909b1ded9e9db3acc7cbaf2ee89f6169ec0b0853fe0f4c0052e601b2.
 //
-// Solidity: event CoinsSpent(address indexed receiver, uint256 amount)
-func (_KitnDisbursement *KitnDisbursementFilterer) FilterCoinsSpent(opts *bind.FilterOpts, receiver []common.Address) (*KitnDisbursementCoinsSpentIterator, error) {
+// Solidity: event CoinsSpent((address,uint256,bool)[] results)
+func (_KitnDisbursement *KitnDisbursementFilterer) FilterCoinsSpent(opts *bind.FilterOpts) (*KitnDisbursementCoinsSpentIterator, error) {
 
-	var receiverRule []interface{}
-	for _, receiverItem := range receiver {
-		receiverRule = append(receiverRule, receiverItem)
-	}
-
-	logs, sub, err := _KitnDisbursement.contract.FilterLogs(opts, "CoinsSpent", receiverRule)
+	logs, sub, err := _KitnDisbursement.contract.FilterLogs(opts, "CoinsSpent")
 	if err != nil {
 		return nil, err
 	}
 	return &KitnDisbursementCoinsSpentIterator{contract: _KitnDisbursement.contract, event: "CoinsSpent", logs: logs, sub: sub}, nil
 }
 
-// WatchCoinsSpent is a free log subscription operation binding the contract event 0x92c3d05f8ba31385c55d3263a9c7de7c1e17e7da9dba4b20246c3c0cf8df88c2.
+// WatchCoinsSpent is a free log subscription operation binding the contract event 0x1eb24303909b1ded9e9db3acc7cbaf2ee89f6169ec0b0853fe0f4c0052e601b2.
 //
-// Solidity: event CoinsSpent(address indexed receiver, uint256 amount)
-func (_KitnDisbursement *KitnDisbursementFilterer) WatchCoinsSpent(opts *bind.WatchOpts, sink chan<- *KitnDisbursementCoinsSpent, receiver []common.Address) (event.Subscription, error) {
+// Solidity: event CoinsSpent((address,uint256,bool)[] results)
+func (_KitnDisbursement *KitnDisbursementFilterer) WatchCoinsSpent(opts *bind.WatchOpts, sink chan<- *KitnDisbursementCoinsSpent) (event.Subscription, error) {
 
-	var receiverRule []interface{}
-	for _, receiverItem := range receiver {
-		receiverRule = append(receiverRule, receiverItem)
-	}
-
-	logs, sub, err := _KitnDisbursement.contract.WatchLogs(opts, "CoinsSpent", receiverRule)
+	logs, sub, err := _KitnDisbursement.contract.WatchLogs(opts, "CoinsSpent")
 	if err != nil {
 		return nil, err
 	}
@@ -727,9 +527,9 @@ func (_KitnDisbursement *KitnDisbursementFilterer) WatchCoinsSpent(opts *bind.Wa
 	}), nil
 }
 
-// ParseCoinsSpent is a log parse operation binding the contract event 0x92c3d05f8ba31385c55d3263a9c7de7c1e17e7da9dba4b20246c3c0cf8df88c2.
+// ParseCoinsSpent is a log parse operation binding the contract event 0x1eb24303909b1ded9e9db3acc7cbaf2ee89f6169ec0b0853fe0f4c0052e601b2.
 //
-// Solidity: event CoinsSpent(address indexed receiver, uint256 amount)
+// Solidity: event CoinsSpent((address,uint256,bool)[] results)
 func (_KitnDisbursement *KitnDisbursementFilterer) ParseCoinsSpent(log types.Log) (*KitnDisbursementCoinsSpent, error) {
 	event := new(KitnDisbursementCoinsSpent)
 	if err := _KitnDisbursement.contract.UnpackLog(event, "CoinsSpent", log); err != nil {
