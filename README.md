@@ -51,6 +51,7 @@ The deploying process includes:
     *   cleanapp web service;
 *   adding Google cloud scheduler for following processes:
     *   referrals redeem;
+    *   tokens disbursement;
 
 Pre-requisites
 

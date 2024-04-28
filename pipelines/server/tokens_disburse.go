@@ -3,18 +3,10 @@ package server
 import (
 	"cleanapp/common"
 	"cleanapp/pipelines/disburse"
-	"flag"
 	"net/http"
 
 	"github.com/apex/log"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/gin-gonic/gin"
-)
-
-var (
-	ethNetworkUrl   = flag.String("eth_network_url", "", "Ethereum network address.")
-	privateKey      = flag.String("eth_private_key", "", "The private key for connecting to the smart contract.")
-	contractAddress = flag.String("contract_address", "", "The contract address in HEX")
 )
 
 type DisbusrseArgs struct {
@@ -39,22 +31,21 @@ func DisburseTokens(c *gin.Context) {
 	db, err := common.DBConnect()
 	if err != nil {
 		log.Errorf("Error connecting to the database, %w", err)
+		c.String(http.StatusInternalServerError, "Database connection error.") // 500
 		return
 	}
 	defer db.Close()
 
-	client, err := ethclient.Dial(*ethNetworkUrl)
-	if err != nil {
-		log.Errorf("Error creating the Ethereum client, %w", err)
-	}
-
-	d, err := disburse.NewDisburser(db, client, *privateKey, *contractAddress)
+	d, err := disburse.NewDisburser(db)
 	if err != nil {
 		log.Errorf("Disburser creation failed, %w", err)
+		c.String(http.StatusInternalServerError, "Disburser creation error.") // 500
+		return
 	}
 	err = d.Disburse()
 	if err != nil {
 		log.Errorf("Disburse failed, %w", err)
+		c.String(http.StatusInternalServerError, "Token disbursement failure.") // 500
 		return
 	}
 	log.Infof("Tokens disburse finished successfully.")

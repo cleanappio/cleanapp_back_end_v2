@@ -19,8 +19,8 @@ do
     "local")
         echo "Using local environment"
         SCHEDULER_HOST="localhost"
-        ETH_NETWORK_URL="http://localhost:8545"
-        CONTRACT_ADDRESS=""  # TODO: Add contract address when we start using local contract
+        ETH_NETWORK_URL="https://sepolia.base.org"
+        CONTRACT_ADDRESS="0xDc41655b749E8F2922A6E5e525Fc04a915aEaFAA"
         break
         ;;
     "dev")
@@ -109,7 +109,7 @@ services:
       - MYSQL_ROOT_PASSWORD=\${MYSQL_ROOT_PASSWORD}
       - MYSQL_APP_PASSWORD=\${MYSQL_APP_PASSWORD}
       - KITN_PRIVATE_KEY=\${KITN_PRIVATE_KEY}
-      - ETH_NETWORK_URL=${ETH_NETWORL_URL}
+      - ETH_NETWORK_URL=${ETH_NETWORK_URL}
       - CONTRACT_ADDRESS=${CONTRACT_ADDRESS}
     ports:
       - 8090:8090
@@ -185,6 +185,7 @@ docker pull ${WEB_DOCKER_IMAGE}
 # Start our docker images.
 ./up.sh
 
+# Skip scheduling for a local environment.
 if [[ "${OPT}" == "local" ]]; then
   exit 0
 fi
