@@ -208,7 +208,7 @@ gcloud scheduler jobs create http ${REFERRAL_SCHEDULER_NAME} \
   --headers="Content-Type=application/json"
 
 # Tokens disbursement schedule
-DISBURSEMENT_SCHEDULER_NAME="referral-redeem-${OPT}"
+DISBURSEMENT_SCHEDULER_NAME="tokens-disburse-${OPT}"
 EXISTING_DISBURSEMENT_SCHEDULER=$(gcloud scheduler jobs list --location=us-central1 | grep ${DISBURSEMENT_SCHEDULER_NAME} | awk '{print $1}')
 
 if [[ "${DISBURSEMENT_SCHEDULER_NAME}" == "${EXISTING_DISBURSEMENT_SCHEDULER}" ]]; then
