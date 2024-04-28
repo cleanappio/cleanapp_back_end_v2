@@ -11,7 +11,7 @@ func Help(c *gin.Context) {
 	log.Print("Call to /help")
 
 	c.String(http.StatusOK, `
-	CleanApp Referrals Redeem:
-	Cleanapp referrals redeem server, version 2.0, 2024.
+	CleanApp Pipelines:
+	Cleanapp pipelines server, version 2.0, 2024.
 	`)
 }

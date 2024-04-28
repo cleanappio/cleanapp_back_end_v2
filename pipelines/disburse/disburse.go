@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"database/sql"
+	"flag"
 	"fmt"
 	"math/big"
 	"time"
@@ -21,8 +22,14 @@ import (
 )
 
 const (
-	gasLimit  = uint64(300000)
+	gasLimit  = uint64(0)
 	batchSize = 100
+)
+
+var (
+	ethNetworkUrl   = flag.String("eth_network_url", "", "Ethereum network address.")
+	privateKey      = flag.String("eth_private_key", "", "The private key for connecting to the smart contract.")
+	contractAddress = flag.String("contract_address", "", "The contract address in HEX")
 )
 
 type Disburser struct {
@@ -36,19 +43,27 @@ type Disburser struct {
 	header          *types.Header
 }
 
-func NewDisburser(db *sql.DB, client *ethclient.Client, privateKey, contractAddress string) (*Disburser, error) {
+func NewDisburser(db *sql.DB) (*Disburser, error) {
 	d := &Disburser{db: db}
+
+	client, err := ethclient.Dial(*ethNetworkUrl)
+	if err != nil {
+		return nil, fmt.Errorf("error creating ethclient with the network url %s: %w", *ethNetworkUrl, err)
+	}
 
 	d.client = client
 	chainID, err := client.NetworkID(context.Background())
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error getting network ID: %w", err)
 	}
 	d.chainID = chainID
 
-	d.privateKey, err = crypto.HexToECDSA(privateKey)
+	if (len(*privateKey) == 0) {
+		return nil, fmt.Errorf("the eth_private_key key param isn't specified")
+	}
+	d.privateKey, err = crypto.HexToECDSA(*privateKey)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error converting private key: %w", err)
 	}
 
 	publicKey := d.privateKey.Public()
@@ -58,11 +73,19 @@ func NewDisburser(db *sql.DB, client *ethclient.Client, privateKey, contractAddr
 	}
 
 	d.fromAddress = crypto.PubkeyToAddress(*publicKeyECDSA)
-	d.contractAddress = ethcommon.HexToAddress(contractAddress)
+	d.contractAddress = ethcommon.HexToAddress(*contractAddress)
 	d.contract, err = contract.NewKitnDisbursement(d.contractAddress, client)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error creating the contract interface: %w", err)
 	}
+
+	h, err := client.HeaderByNumber(context.Background(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("error getting header block: %w", err)
+	}
+	d.header = h
+
+	log.Infof("Disburser initialized, chain ID: %v, contract address: %v, contract owner: %v", d.chainID, d.contractAddress, d.fromAddress)
 
 	return d, nil
 }
@@ -96,7 +119,6 @@ func (d *Disburser) Disburse() error {
 			log.Errorf("Cannot scan a row: %w", err)
 			continue
 		}
-
 		batchKitns[ethcommon.HexToAddress(id)] = Kitns{toWei(float32(dailyKitns)), toWei(dailyRefKitns)}
 
 		currIdx += 1
@@ -108,7 +130,9 @@ func (d *Disburser) Disburse() error {
 		}
 	}
 	if currIdx > 0 {
-		d.disburseBatch(batchKitns)
+		if err := d.disburseBatch(batchKitns); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -146,8 +170,8 @@ func (d *Disburser) disburseBatch(kitns map[ethcommon.Address]Kitns) error {
 	auth.GasPrice = gasPrice
 
 	// Prepare a list of addresses and amounts to send to the disbursement contract
-	addresses := make([]ethcommon.Address, len(kitns))
-	amounts := make([]*big.Int, len(kitns))
+	addresses := []ethcommon.Address{}
+	amounts := []*big.Int{}
 	totalAmount := big.NewInt(0)
 	for k, v := range kitns {
 		addresses = append(addresses, k)
@@ -199,7 +223,9 @@ func (d *Disburser) disburseBatch(kitns map[ethcommon.Address]Kitns) error {
 				for _, r := range f.Event.Results {
 					if r.Result {
 						if k, ok := kitns[r.Receiver]; ok {
-							d.updateDisbursed(r.Receiver, k.daily, k.dailyRef)
+							if err := d.updateDisbursed(r.Receiver, k.daily, k.dailyRef); err != nil {
+								return fmt.Errorf("error updating disbursed KITNs: %w", err)
+							}
 						}
 					}
 				}
@@ -218,9 +244,9 @@ func (d *Disburser) updateDisbursed(address ethcommon.Address, daily, dailyRef *
 		UPDATE users
 		SET
 			kitns_daily = kitns_daily - ?,
-			kitns_daily_ref = kitns_daily_ref - ?,
+			kitns_ref_daily = kitns_ref_daily - ?,
 			kitns_disbursed = kitns_disbursed + ?,
-			kitns_disbursed_ref = kitns_disbursed_ref + ?
+			kitns_ref_disbursed = kitns_ref_disbursed + ?
 		WHERE id = ?`,
 		kitnsDaily,
 		kitnsDailyRef,
