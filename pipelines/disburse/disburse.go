@@ -100,7 +100,7 @@ func (d *Disburser) Disburse() error {
 	rows, err := d.db.Query(`
 	  SELECT id, kitns_daily, kitns_ref_daily
 	  FROM users
-	  WHERE kitns_daily > 0
+	  WHERE kitns_daily > 0 OR kitns_ref_daily > 0.0
 	`)
 	if err != nil {
 		return err
