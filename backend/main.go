@@ -2,14 +2,14 @@ package main
 
 import (
 	"flag"
-	"log"
 
 	"cleanapp/backend/server"
+	"github.com/apex/log"
 )
 
 func main() {
 	flag.Parse()
-	log.Println("Hello!")
+	log.Info("Hello!")
 	server.StartService()
-	log.Println("Bye!")
+	log.Info("Bye!")
 }

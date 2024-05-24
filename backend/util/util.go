@@ -2,7 +2,8 @@ package util
 
 import (
 	"crypto/md5"
-	"log"
+
+	"github.com/apex/log"
 )
 
 type TeamColor int
@@ -15,7 +16,7 @@ const (
 
 func UserIdToTeam(id string) TeamColor {
 	if id == "" {
-		log.Printf("Empty user ID %q, this must not happen.", id)
+		log.Errorf("Empty user ID %q, this must not happen.", id)
 		return 1
 	}
 	md5 := md5.Sum([]byte(id))

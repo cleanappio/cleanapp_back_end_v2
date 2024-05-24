@@ -3,8 +3,8 @@ package server
 import (
 	"flag"
 	"fmt"
-	"log"
 
+	"github.com/apex/log"
 	"github.com/gin-gonic/gin"
 )
 
@@ -28,7 +28,7 @@ var (
 )
 
 func StartService() {
-	log.Println("Starting the service...")
+	log.Info("Starting the service...")
 	router := gin.Default()
 	router.GET(EndPointHelp, Help)
 	router.POST(EndPointUser, UpdateUser)
@@ -44,5 +44,5 @@ func StartService() {
 	router.POST(EndPointGenerateReferral, GenerateReferral)
 
 	router.Run(fmt.Sprintf(":%d", *serverPort))
-	log.Println("Finished the service. Should not ever being seen.")
+	log.Info("Finished the service. Should not ever being seen.")
 }
