@@ -1,37 +1,18 @@
-package be
+package server
 
 import (
-	"cleanapp/common"
 	"net/http"
+
+	"cleanapp/backend/db"
+	"cleanapp/backend/server/api"
+	"cleanapp/common"
 
 	"github.com/apex/log"
 	"github.com/gin-gonic/gin"
 )
 
-type ReferralQuery struct {
-	RefKey string `form:"refkey"` // A key in format <IPAddress>:<screenwidth>:<screenheight>
-}
-
-type ReferralResult struct {
-	RefValue string `json:"refvalue"` // A referral code, example: aSvd3B6fEhJ
-}
-
-type ReferralData struct {
-	RefKey   string `json:"refkey"`   // A key in format <IPAddress>:<screenwidth>:<screenheight>
-	RefValue string `json:"refvalue"` // A referral code, example: aSvd3B6fEhJ
-}
-
-type GenRefRequest struct {
-	Version string `json:"version"` // Must be "2.0"
-	Id      string `json:"id"`      // public key.
-}
-
-type GenRefResponse struct {
-	RefValue string `json:"refvalue"` // A referral code, example: aSvd3B6fEhJ
-}
-
 func ReadReferral(c *gin.Context) {
-	refQuery := &ReferralQuery{}
+	refQuery := &api.ReferralQuery{}
 	if err := c.BindJSON(refQuery); err != nil {
 		log.Errorf("JSON binding, %v", err)
 		c.Error(err)
@@ -39,14 +20,14 @@ func ReadReferral(c *gin.Context) {
 		return
 	}
 
-	db, err := common.DBConnect()
+	dbc, err := common.DBConnect()
 	if err != nil {
 		log.Errorf("%v", err)
 		return
 	}
-	defer db.Close()
+	defer dbc.Close()
 
-	refValue, err := readReferral(db, refQuery.RefKey)
+	refValue, err := db.ReadReferral(dbc, refQuery.RefKey)
 	if err != nil {
 		log.Errorf("referral reading, %v", err)
 		c.Error(err)
@@ -54,13 +35,13 @@ func ReadReferral(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, ReferralResult{
+	c.JSON(http.StatusOK, api.ReferralResult{
 		RefValue: refValue,
 	})
 }
 
 func WriteReferral(c *gin.Context) {
-	refData := &ReferralData{}
+	refData := &api.ReferralData{}
 	if err := c.BindJSON(refData); err != nil {
 		log.Errorf("JSON binding, %v", err)
 		c.Status(http.StatusBadRequest)
@@ -68,14 +49,14 @@ func WriteReferral(c *gin.Context) {
 		return
 	}
 
-	db, err := common.DBConnect()
+	dbc, err := common.DBConnect()
 	if err != nil {
 		log.Errorf("%v", err)
 		return
 	}
-	defer db.Close()
+	defer dbc.Close()
 
-	if err := writeReferral(db, refData.RefKey, refData.RefValue); err != nil {
+	if err := db.WriteReferral(dbc, refData.RefKey, refData.RefValue); err != nil {
 		c.Error(err)
 		log.Errorf("referral writing, %v", err)
 		c.Status(http.StatusInternalServerError)
@@ -86,7 +67,7 @@ func WriteReferral(c *gin.Context) {
 }
 
 func GenerateReferral(c *gin.Context) {
-	req := &GenRefRequest{}
+	req := &api.GenRefRequest{}
 	if err := c.BindJSON(req); err != nil {
 		log.Errorf("JSON binding, %v", err)
 		c.Status(http.StatusBadRequest)
@@ -100,14 +81,14 @@ func GenerateReferral(c *gin.Context) {
 		return
 	}
 
-	db, err := common.DBConnect()
+	dbc, err := common.DBConnect()
 	if err != nil {
 		log.Errorf("%v", err)
 		return
 	}
-	defer db.Close()
+	defer dbc.Close()
 
-	ref, err := generateReferral(db, req, randRefGen)
+	ref, err := db.GenerateReferral(dbc, req, randRefGen)
 	if err != nil {
 		log.Errorf("referral generating, %v", err)
 		c.Status(http.StatusInternalServerError)

@@ -1,28 +1,20 @@
-package be
+package server
 
 import (
 	"cleanapp/common"
 	"log"
 	"net/http"
 
+	"cleanapp/backend/db"
+	"cleanapp/backend/server/api"
+	"cleanapp/backend/util"
+
 	"github.com/gin-gonic/gin"
 )
 
-type UserArgs struct {
-	Version  string `json:"version"` // Must be "2.0"
-	Id       string `json:"id"`      // public key.
-	Avatar   string `json:"avatar"`
-	Referral string `json:"referral"`
-}
-
-type UserResp struct {
-	Team TeamColor `json:"team"` // Blue or Green
-	DupAvatar bool `json:"dup_avatar"`
-}
-
 func UpdateUser(c *gin.Context) {
 	log.Print("Call to /update_or_create_user")
-	var user UserArgs
+	var user api.UserArgs
 
 	/* Troubleshooting code:
 	b, _ := c.GetRawData()
@@ -45,14 +37,14 @@ func UpdateUser(c *gin.Context) {
 	// Add user to the database.
 	log.Printf("/update_or_create_user got %v", user)
 
-	db, err := common.DBConnect()
+	dbc, err := common.DBConnect()
 	if err != nil {
 		log.Printf("%v", err)
 		return
 	}
-	defer db.Close()
+	defer dbc.Close()
 
-	resp, err := updateUser(db, &user, userIdToTeam)
+	resp, err := db.UpdateUser(dbc, &user, util.UserIdToTeam)
 	if err != nil {
 		if resp != nil && resp.DupAvatar {
 			// Printing error and returning success, the duplicate info is in response
@@ -66,7 +58,7 @@ func UpdateUser(c *gin.Context) {
 
 	if user.Referral != "" {
 		// TODO: Make the call async after the db connection is handled by the db controller
-		cleanupReferral(db, user.Referral)
+		db.CleanupReferral(dbc, user.Referral)
 	}
 	c.IndentedJSON(http.StatusOK, resp) // 200
 }

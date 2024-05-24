@@ -1,30 +1,19 @@
-package be
+package server
 
 import (
 	"cleanapp/common"
 	"log"
 	"net/http"
 
+	"cleanapp/backend/db"
+	"cleanapp/backend/server/api"
+
 	"github.com/gin-gonic/gin"
 )
 
-type StatsArgs struct {
-	Version string `json:"version"` // Must be "2.0"
-	Id      string `json:"id"`      // public key.
-}
-
-type StatsResponse struct {
-	Version           string  `json:"version"` // Must be "2.0"
-	Id                string  `json:"id"`      // public key.
-	KitnsDaily        int     `json:"kitns_daily"`
-	KitnsDisbursed    int     `json:"kitns_disbursed"`
-	KitnsRefDaily     float64 `json:"kitns_ref_daily"`
-	KitnsRefDisbusded float64 `json:"kitns_ref_disbursed"`
-}
-
 func GetStats(c *gin.Context) {
 	log.Print("Call to /get_stats")
-	var sa StatsArgs
+	var sa api.StatsArgs
 
 	// Get the arguments.
 	if err := c.BindJSON(&sa); err != nil {
@@ -39,16 +28,16 @@ func GetStats(c *gin.Context) {
 		return
 	}
 
-	db, err := common.DBConnect()
+	dbc, err := common.DBConnect()
 	if err != nil {
 		log.Printf("%v", err)
 		return
 	}
-	defer db.Close()
+	defer dbc.Close()
 
 	// Add user to the database.
 	log.Printf("/get_stats got %v", sa)
-	r, err := getStats(db, sa.Id)
+	r, err := db.GetStats(dbc, sa.Id)
 	if err != nil {
 		log.Printf("Failed to update user with %v", err)
 		c.Status(http.StatusInternalServerError) // 500

@@ -1,23 +1,19 @@
-package be
+package server
 
 import (
 	"cleanapp/common"
 	"log"
 	"net/http"
 
+	"cleanapp/backend/db"
+	"cleanapp/backend/server/api"
+
 	"github.com/gin-gonic/gin"
 )
 
-type PrivacyAndTOCArgs struct {
-	Version  string `json:"version"` // Must be "2.0"
-	Id       string `json:"id"`      // public key.
-	Privacy  string `json:"privacy"`
-	AgreeTOC string `json:"agree_toc"`
-}
-
 func UpdatePrivacyAndTOC(c *gin.Context) {
 	log.Print("Call to /update_privacy_and_toc")
-	var args PrivacyAndTOCArgs
+	var args api.PrivacyAndTOCArgs
 
 	if err := c.BindJSON(&args); err != nil {
 		log.Printf("Failed to get arguments: %v", err)
@@ -34,14 +30,14 @@ func UpdatePrivacyAndTOC(c *gin.Context) {
 	// Add user to the database.
 	log.Printf("/update_privacy_and_toc got %v", args)
 
-	db, err := common.DBConnect()
+	dbc, err := common.DBConnect()
 	if err != nil {
 		log.Printf("%v", err)
 		return
 	}
-	defer db.Close()
+	defer dbc.Close()
 
-	err = updatePrivacyAndTOC(db, &args)
+	err = db.UpdatePrivacyAndTOC(dbc, &args)
 	if err != nil {
 		log.Printf("Failed to update privacy and TOC %v", err)
 		c.Status(http.StatusInternalServerError) // 500

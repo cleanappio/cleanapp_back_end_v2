@@ -1,6 +1,8 @@
-package be
+package map_aggr
 
 import (
+	"cleanapp/backend/server/api"
+
 	"github.com/golang/geo/r1"
 	"github.com/golang/geo/s1"
 	"github.com/golang/geo/s2"
@@ -8,7 +10,7 @@ import (
 
 type aggrUnit struct {
 	cnt     int64
-	origRes []MapResult
+	origRes []api.MapResult
 }
 
 type mapAggregatorS2 struct {
@@ -24,7 +26,7 @@ const (
 	minRepToAggr  = 10
 )
 
-func cellBaseLevel(vp *ViewPort, center *Point) int {
+func cellBaseLevel(vp *api.ViewPort, center *api.Point) int {
 	minLL := s2.LatLngFromDegrees(vp.LatMin, vp.LonMin)
 	maxLL := s2.LatLngFromDegrees(vp.LatMax, vp.LonMax)
 
@@ -57,7 +59,7 @@ func cellBaseLevel(vp *ViewPort, center *Point) int {
 	return minLevel
 }
 
-func NewMapAggregatorS2(vp *ViewPort, center *Point) mapAggregatorS2 {
+func NewMapAggregatorS2(vp *api.ViewPort, center *api.Point) mapAggregatorS2 {
 	lv := cellBaseLevel(vp, center)
 	return mapAggregatorS2{
 		level: lv,
@@ -65,7 +67,7 @@ func NewMapAggregatorS2(vp *ViewPort, center *Point) mapAggregatorS2 {
 	}
 }
 
-func (a *mapAggregatorS2) AddPoint(mapRes MapResult) {
+func (a *mapAggregatorS2) AddPoint(mapRes api.MapResult) {
 	pc := s2.CellIDFromLatLng(s2.LatLngFromDegrees(mapRes.Latitude, mapRes.Longitude))
 	parent := pc.Parent(a.level)
 	if _, ok := a.aggrs[parent]; !ok {
@@ -84,14 +86,14 @@ func (a *mapAggregatorS2) AddPoint(mapRes MapResult) {
 	}
 }
 
-func (a *mapAggregatorS2) ToArray() []MapResult {
-	r := make([]MapResult, 0, len(a.aggrs))
+func (a *mapAggregatorS2) ToArray() []api.MapResult {
+	r := make([]api.MapResult, 0, len(a.aggrs))
 	for c, unit := range a.aggrs {
 		ll := c.LatLng()
 		if unit.origRes != nil {
 			r = append(r, unit.origRes...)
 		} else {
-			r = append(r, MapResult{
+			r = append(r, api.MapResult{
 				Latitude:  ll.Lat.Degrees(),
 				Longitude: ll.Lng.Degrees(),
 				Count:     unit.cnt,

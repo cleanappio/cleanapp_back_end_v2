@@ -1,7 +1,6 @@
-package be
+package server
 
 import (
-	"crypto/md5"
 	"flag"
 	"fmt"
 	"log"
@@ -28,29 +27,6 @@ var (
 	serverPort = flag.Int("port", 8080, "The port used by the service.")
 )
 
-type BaseArgs struct {
-	Version string `json:"version"` // Must be "2.0"
-	Id      string `json:"id"`      // public key.
-}
-
-type TeamColor int
-
-const (
-	Unknown = 0
-	Blue    = 1
-	Green   = 2
-)
-
-// This function is internal to the BE and anywhere else the DB field should be used.
-func userIdToTeam(id string) TeamColor {
-	if id == "" {
-		log.Printf("Empty user ID %q, this must not happen.", id)
-		return 1
-	}
-	md5 := md5.Sum([]byte(id))
-	return TeamColor(md5[len(md5)-1]%2 + 1)
-}
-
 func StartService() {
 	log.Println("Starting the service...")
 	router := gin.Default()
@@ -66,7 +42,7 @@ func StartService() {
 	router.POST(EndPointReadReferral, ReadReferral)
 	router.POST(EndPointWriteReferral, WriteReferral)
 	router.POST(EndPointGenerateReferral, GenerateReferral)
-	
+
 	router.Run(fmt.Sprintf(":%d", *serverPort))
 	log.Println("Finished the service. Should not ever being seen.")
 }

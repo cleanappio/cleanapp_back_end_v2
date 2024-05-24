@@ -12,7 +12,7 @@ RUN apt-get install -y ca-certificates
 
 COPY ./pipelines .
 
-# Copy certificates to connect to the etereum network
+# Copy certificates to connect to the ethereum network
 COPY certificates/* /usr/local/share/ca-certificates/
 RUN update-ca-certificates
 

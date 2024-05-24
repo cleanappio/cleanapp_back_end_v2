@@ -1,26 +1,19 @@
-package be
+package server
 
 import (
 	"cleanapp/common"
 	"log"
 	"net/http"
 
+	"cleanapp/backend/db"
+	"cleanapp/backend/server/api"
+
 	"github.com/gin-gonic/gin"
 )
 
-type ReportArgs struct {
-	Version  string  `json:"version"` // Must be "2.0"
-	Id       string  `json:"id"`      // public key.
-	Latitude float64 `json:"latitude"`
-	Longitue float64 `json:"longitude"`
-	X        float64 `json:"x"` // 0.0..1.0
-	Y        float64 `json:"y"` // 0.0..1.0
-	Image    []byte  `json:"image"`
-}
-
 func Report(c *gin.Context) {
 	log.Print("Call to /report")
-	var report ReportArgs
+	var report api.ReportArgs
 
 	// Get the arguments.
 	if err := c.BindJSON(&report); err != nil {
@@ -35,16 +28,16 @@ func Report(c *gin.Context) {
 		return
 	}
 
-	db, err := common.DBConnect()
+	dbc, err := common.DBConnect()
 	if err != nil {
 		log.Printf("%v", err)
 		return
 	}
-	defer db.Close()
+	defer dbc.Close()
 
 	// Add report to the database.
 	logReport(report)
-	err = saveReport(db, report)
+	err = db.SaveReport(dbc, report)
 	if err != nil {
 		log.Printf("Failed to write report with %v", err)
 		c.String(http.StatusInternalServerError, "Failed to save the report.") // 500
@@ -53,7 +46,7 @@ func Report(c *gin.Context) {
 	c.Status(http.StatusOK) // 200
 }
 
-func logReport(r ReportArgs) {
+func logReport(r api.ReportArgs) {
 	r.Image = nil
 	log.Printf("/report got %v", r)
 }

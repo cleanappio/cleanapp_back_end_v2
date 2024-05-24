@@ -1,29 +1,19 @@
-package be
+package server
 
 import (
 	"cleanapp/common"
 	"log"
 	"net/http"
 
+	"cleanapp/backend/db"
+	"cleanapp/backend/server/api"
+
 	"github.com/gin-gonic/gin"
 )
 
-type ReadReportArgs struct {
-	Version string `json:"version"` // Must be "2.0"
-	Id      string `json:"id"`      // User public address
-	Seq     int    `json:"seq"`     // Report ID.
-}
-
-type ReadReportResponse struct {
-	Id     string `json:"id"`
-	Avatar string `json:"avatar"`
-	Own    bool   `json:"own"`
-	Image  []byte `json:"image"`
-}
-
 func ReadReport(c *gin.Context) {
 	log.Print("Call to /read_report")
-	args := &ReadReportArgs{}
+	args := &api.ReadReportArgs{}
 
 	if err := c.BindJSON(args); err != nil {
 		log.Printf("Failed to get the argument in /read_report call: %v", err)
@@ -40,14 +30,14 @@ func ReadReport(c *gin.Context) {
 	// Add user to the database.
 	log.Printf("/update_privacy_and_toc got %v", args)
 
-	db, err := common.DBConnect()
+	dbc, err := common.DBConnect()
 	if err != nil {
 		log.Printf("%v", err)
 		return
 	}
-	defer db.Close()
+	defer dbc.Close()
 
-	result, err := readReport(db, args)
+	result, err := db.ReadReport(dbc, args)
 	if err != nil {
 		log.Printf("Referral writing, %v", err)
 		c.Status(http.StatusInternalServerError)
