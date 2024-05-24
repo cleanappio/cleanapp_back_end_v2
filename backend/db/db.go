@@ -1,4 +1,4 @@
-package be
+package db
 
 import (
 	"context"
@@ -7,12 +7,14 @@ import (
 	"log"
 	"time"
 
+	"cleanapp/backend/server/api"
+	"cleanapp/backend/util"
 	"cleanapp/common"
 
 	_ "github.com/go-sql-driver/mysql"
 )
 
-func updateUser(db *sql.DB, u *UserArgs, teamGen func(string) TeamColor) (*UserResp, error) {
+func UpdateUser(db *sql.DB, u *api.UserArgs, teamGen func(string) util.TeamColor) (*api.UserResp, error) {
 	log.Printf("Write: Trying to create or update user %s / %s", u.Id, u.Avatar)
 	rows, err := db.Query("SELECT id FROM users WHERE avatar = ?", u.Avatar)
 	if err != nil {
@@ -27,7 +29,7 @@ func updateUser(db *sql.DB, u *UserArgs, teamGen func(string) TeamColor) (*UserR
 			return nil, err
 		}
 		if id != u.Id {
-			return &UserResp{
+			return &api.UserResp{
 					DupAvatar: true,
 				}, fmt.Errorf("duplicated avatar %s for the user %s: avatar already exists for the user %s",
 					u.Avatar,
@@ -47,37 +49,37 @@ func updateUser(db *sql.DB, u *UserArgs, teamGen func(string) TeamColor) (*UserR
 	if err != nil {
 		return nil, err
 	}
-	return &UserResp{
+	return &api.UserResp{
 		Team: team,
 	}, nil
 }
 
-func updatePrivacyAndTOC(db *sql.DB, args *PrivacyAndTOCArgs) error {
+func UpdatePrivacyAndTOC(db *sql.DB, args *api.PrivacyAndTOCArgs) error {
 	log.Printf("Writing privacy and TOC %v", args)
 
 	if args.Privacy != "" && args.AgreeTOC != "" {
 		result, err := db.Exec(`UPDATE users
 			SET privacy = ?, agree_toc = ?
 			WHERE id = ?`, args.Privacy, args.AgreeTOC, args.Id)
-			common.LogResult("updatePrivacyAndTOC", result, err)
+		common.LogResult("updatePrivacyAndTOC", result, err)
 		return err
 	} else if args.Privacy != "" {
 		result, err := db.Exec(`UPDATE users
 			SET privacy = ?
 			WHERE id = ?`, args.Privacy, args.Id)
-			common.LogResult("updatePrivacyAndTOC", result, err)
+		common.LogResult("updatePrivacyAndTOC", result, err)
 		return err
 	} else if args.AgreeTOC != "" {
 		result, err := db.Exec(`UPDATE users
 			SET agree_toc = ?
 			WHERE id = ?`, args.AgreeTOC, args.Id)
-			common.LogResult("updatePrivacyAndTOC", result, err)
+		common.LogResult("updatePrivacyAndTOC", result, err)
 		return err
 	}
 	return fmt.Errorf("either privacy or agree_toc should be specified")
 }
 
-func saveReport(db *sql.DB, r ReportArgs) error {
+func SaveReport(db *sql.DB, r api.ReportArgs) error {
 	log.Printf("Write: Trying to save report from user %s to db located at %f,%f", r.Id, r.Latitude, r.Longitue)
 
 	ctx := context.Background()
@@ -91,8 +93,8 @@ func saveReport(db *sql.DB, r ReportArgs) error {
 	result, err := tx.ExecContext(ctx, `INSERT
 	  INTO reports (id, team, latitude, longitude, x, y, image)
 	  VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		r.Id, userIdToTeam(r.Id), r.Latitude, r.Longitue, r.X, r.Y, r.Image)
-		common.LogResult("saveReport", result, err)
+		r.Id, util.UserIdToTeam(r.Id), r.Latitude, r.Longitue, r.X, r.Y, r.Image)
+	common.LogResult("saveReport", result, err)
 	if err != nil {
 		log.Printf("Error inserting report: %v\n", err)
 		return err
@@ -107,7 +109,7 @@ func saveReport(db *sql.DB, r ReportArgs) error {
 	return tx.Commit()
 }
 
-func getMap(userId string, m ViewPort, retention time.Duration) ([]MapResult, error) {
+func GetMap(userId string, m api.ViewPort, retention time.Duration) ([]api.MapResult, error) {
 	log.Printf("Write: Trying to map/coordinates from db in %f,%f:%f,%f with retention %v", m.LatMin, m.LonMin, m.LatMax, m.LonMax, retention)
 	db, err := common.DBConnect()
 	if err != nil {
@@ -133,26 +135,26 @@ func getMap(userId string, m ViewPort, retention time.Duration) ([]MapResult, er
 	}
 	defer rows.Close()
 
-	r := make([]MapResult, 0, 100)
+	r := make([]api.MapResult, 0, 100)
 
 	for rows.Next() {
 		var (
 			lat  float64
 			lon  float64
 			seq  int64
-			team TeamColor
-			id string
+			team util.TeamColor
+			id   string
 		)
 		if err := rows.Scan(&seq, &lat, &lon, &team, &id); err != nil {
 			log.Printf("Cannot scan a row: %v", err)
 			continue
 		}
-		r = append(r, MapResult{Latitude: lat, Longitude: lon, Count: 1, ReportID: seq, Team: team, Own: id == userId})
+		r = append(r, api.MapResult{Latitude: lat, Longitude: lon, Count: 1, ReportID: seq, Team: team, Own: id == userId})
 	}
 	return r, nil
 }
 
-func getStats(db *sql.DB, id string) (*StatsResponse, error) {
+func GetStats(db *sql.DB, id string) (*api.StatsResponse, error) {
 	log.Printf("Write: Trying to get stats for user %s", id)
 
 	rows, err := db.Query(`
@@ -180,7 +182,7 @@ func getStats(db *sql.DB, id string) (*StatsResponse, error) {
 		err = fmt.Errorf("zero rows counting kittens for user %q, returning 0", id)
 	}
 
-	return &StatsResponse{
+	return &api.StatsResponse{
 		Version:           "2.0",
 		Id:                id,
 		KitnsDaily:        kitnsDaily,
@@ -190,11 +192,11 @@ func getStats(db *sql.DB, id string) (*StatsResponse, error) {
 	}, err
 }
 
-func getTeams() (TeamsResponse, error) {
+func GetTeams() (api.TeamsResponse, error) {
 	log.Printf("Write: Trying to get teams results")
 	db, err := common.DBConnect()
 	if err != nil {
-		return TeamsResponse{}, err
+		return api.TeamsResponse{}, err
 	}
 	defer db.Close()
 
@@ -206,7 +208,7 @@ func getTeams() (TeamsResponse, error) {
 	 `) // TODO: Limit the timeline.
 	if err != nil {
 		log.Printf("Could not calculate teams stats: %v", err)
-		return TeamsResponse{}, err
+		return api.TeamsResponse{}, err
 	}
 	defer rows.Close()
 
@@ -221,13 +223,13 @@ func getTeams() (TeamsResponse, error) {
 		err = fmt.Errorf("zero rows counting team stats returning 0s")
 	}
 
-	return TeamsResponse{
+	return api.TeamsResponse{
 		Blue:  blue,
 		Green: green,
 	}, err
 }
 
-func getTopScores(db *sql.DB, args *BaseArgs, topCount int) (*TopScoresResponse, error) {
+func GetTopScores(db *sql.DB, args *api.BaseArgs, topCount int) (*api.TopScoresResponse, error) {
 	rows, err := db.Query(`
 		SELECT id, avatar, kitns_daily + kitns_disbursed + kitns_ref_daily + kitns_ref_disbursed AS cnt
 		FROM users
@@ -238,8 +240,8 @@ func getTopScores(db *sql.DB, args *BaseArgs, topCount int) (*TopScoresResponse,
 	}
 	defer rows.Close()
 
-	ret := &TopScoresResponse{
-		Records: []TopScoresRecord{},
+	ret := &api.TopScoresResponse{
+		Records: []api.TopScoresRecord{},
 	}
 	i := 1
 	hasYou := false
@@ -250,7 +252,7 @@ func getTopScores(db *sql.DB, args *BaseArgs, topCount int) (*TopScoresResponse,
 		if err := rows.Scan(&id, &avatar, &cnt); err != nil {
 			return nil, err
 		}
-		ret.Records = append(ret.Records, TopScoresRecord{
+		ret.Records = append(ret.Records, api.TopScoresRecord{
 			Place: i,
 			Title: avatar,
 			Kitn:  cnt,
@@ -282,7 +284,7 @@ func getTopScores(db *sql.DB, args *BaseArgs, topCount int) (*TopScoresResponse,
 		if err := rows.Scan(&id, &avatar, &cnt); err != nil {
 			return nil, err
 		}
-		you := TopScoresRecord{
+		you := api.TopScoresRecord{
 			Title: avatar,
 			Kitn:  cnt,
 			IsYou: true,
@@ -311,7 +313,7 @@ func getTopScores(db *sql.DB, args *BaseArgs, topCount int) (*TopScoresResponse,
 	return ret, nil
 }
 
-func readReport(db *sql.DB, args *ReadReportArgs) (*ReadReportResponse, error) {
+func ReadReport(db *sql.DB, args *api.ReadReportArgs) (*api.ReadReportResponse, error) {
 	log.Printf("Read: Getting the report %d\n", args.Seq)
 
 	rows, err := db.Query(`SELECT
@@ -337,14 +339,14 @@ func readReport(db *sql.DB, args *ReadReportArgs) (*ReadReportResponse, error) {
 
 	// Take only the first row. Ignore others as duplicates are not expected.
 	if !rows.Next() {
-		return nil, fmt.Errorf("Report %d wasn't found", args.Seq)
+		return nil, fmt.Errorf("report %d wasn't found", args.Seq)
 	}
 
 	if err := rows.Scan(&id, &image, &avatar, &privacy); err != nil {
 		return nil, err
 	}
 
-	ret := &ReadReportResponse{
+	ret := &api.ReadReportResponse{
 		Id:    id,
 		Image: image,
 	}
@@ -360,7 +362,7 @@ func readReport(db *sql.DB, args *ReadReportArgs) (*ReadReportResponse, error) {
 	return ret, nil
 }
 
-func readReferral(db *sql.DB, key string) (string, error) {
+func ReadReferral(db *sql.DB, key string) (string, error) {
 	log.Printf("Read: retrieving the referral code for the device %s\n", key)
 
 	rows, err := db.Query(`SELECT refvalue
@@ -383,10 +385,10 @@ func readReferral(db *sql.DB, key string) (string, error) {
 	return value, nil
 }
 
-func writeReferral(db *sql.DB, key, value string) error {
+func WriteReferral(db *sql.DB, key, value string) error {
 	log.Printf("Write: Trying to save the referral from device %s with value %s\n", key, value)
 
-	existing, err := readReferral(db, key)
+	existing, err := ReadReferral(db, key)
 	if err != nil {
 		return err
 	}
@@ -406,7 +408,7 @@ func writeReferral(db *sql.DB, key, value string) error {
 	return err
 }
 
-func generateReferral(db *sql.DB, req *GenRefRequest, codeGen func() string) (*GenRefResponse, error) {
+func GenerateReferral(db *sql.DB, req *api.GenRefRequest, codeGen func() string) (*api.GenRefResponse, error) {
 	log.Printf("Generate and store referral code for the user %s", req.Id)
 
 	rows, err := db.Query(`SELECT referral
@@ -424,7 +426,7 @@ func generateReferral(db *sql.DB, req *GenRefRequest, codeGen func() string) (*G
 		if err := rows.Scan(&refCode); err != nil {
 			return nil, err
 		}
-		return &GenRefResponse{
+		return &api.GenRefResponse{
 			RefValue: refCode,
 		}, nil
 	}
@@ -435,24 +437,24 @@ func generateReferral(db *sql.DB, req *GenRefRequest, codeGen func() string) (*G
 		INTO users_refcodes (id, referral)
 		VALUES (?, ?)`,
 		req.Id, refCode)
-		common.LogResult("generteReferral", result, err)
+	common.LogResult("generteReferral", result, err)
 
 	if err != nil {
 		return nil, err
 	}
 
-	return &GenRefResponse{
+	return &api.GenRefResponse{
 		RefValue: refCode,
 	}, nil
 }
 
-func cleanupReferral(db *sql.DB, ref string) error {
+func CleanupReferral(db *sql.DB, ref string) error {
 	log.Printf("Cleaning up referral %s\n", ref)
 
 	result, err := db.Exec(`DELETE
 		FROM referrals
 		WHERE refvalue = ?`, ref)
-		common.LogResult("cleanupReferral", result, err)
+	common.LogResult("cleanupReferral", result, err)
 
 	if err != nil {
 		log.Printf("Error cleaning up referral, %v\n", err)

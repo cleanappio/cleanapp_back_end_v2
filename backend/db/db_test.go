@@ -1,4 +1,4 @@
-package be
+package db
 
 import (
 	"database/sql"
@@ -6,6 +6,9 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"cleanapp/backend/server/api"
+	"cleanapp/backend/util"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
 	"github.com/jknair0/beforeeach"
@@ -30,8 +33,8 @@ func testRefGen() string {
 
 var it = beforeeach.Create(setUp, tearDown)
 
-func testTeamGen(string) TeamColor {
-	return Blue
+func testTeamGen(string) util.TeamColor {
+	return util.Blue
 }
 
 func TestUpdateOrCreateUser(t *testing.T) {
@@ -47,7 +50,7 @@ func TestUpdateOrCreateUser(t *testing.T) {
 			retList      []string
 			execExpected bool
 
-			expectResponse *UserResp
+			expectResponse *api.UserResp
 			expectError    bool
 		}{
 			{
@@ -56,13 +59,13 @@ func TestUpdateOrCreateUser(t *testing.T) {
 				id:       "0x12345678",
 				avatar:   "user1",
 				referral: "abcdef",
-				team:     Blue,
+				team:     util.Blue,
 
 				retList:      []string{},
 				execExpected: true,
 
-				expectResponse: &UserResp{
-					Team:      Blue,
+				expectResponse: &api.UserResp{
+					Team:      util.Blue,
 					DupAvatar: false,
 				},
 				expectError: false,
@@ -72,14 +75,14 @@ func TestUpdateOrCreateUser(t *testing.T) {
 				id:       "0x123456768",
 				avatar:   "user1",
 				referral: "abcdef",
-				team:     Blue,
+				team:     util.Blue,
 
 				retList:      []string{"0x123456768"},
 				execExpected: true,
 
 				expectError: false,
-				expectResponse: &UserResp{
-					Team:      Blue,
+				expectResponse: &api.UserResp{
+					Team:      util.Blue,
 					DupAvatar: false,
 				},
 			}, {
@@ -88,13 +91,13 @@ func TestUpdateOrCreateUser(t *testing.T) {
 				id:       "0x123456768",
 				avatar:   "user1",
 				referral: "abcdef",
-				team:     Blue,
+				team:     util.Blue,
 
 				retList:      []string{"0x87654321"},
 				execExpected: false,
 
 				expectError: true,
-				expectResponse: &UserResp{
+				expectResponse: &api.UserResp{
 					Team:      0,
 					DupAvatar: true,
 				},
@@ -115,7 +118,7 @@ func TestUpdateOrCreateUser(t *testing.T) {
 					WithArgs(testCase.id, testCase.avatar, testCase.referral, testCase.team, testCase.avatar, testCase.referral, testCase.team).
 					WillReturnResult(sqlmock.NewResult(1, 1))
 			}
-			resp, err := updateUser(db, &UserArgs{
+			resp, err := UpdateUser(db, &api.UserArgs{
 				Version:  testCase.version,
 				Id:       testCase.id,
 				Avatar:   testCase.avatar,
@@ -207,7 +210,7 @@ func TestUpdatePrivacyAndAgreeTOC(t *testing.T) {
 						WillReturnResult(sqlmock.NewResult(1, testCase.rowsAffected))
 				}
 			}
-			if err := updatePrivacyAndTOC(db, &PrivacyAndTOCArgs{
+			if err := UpdatePrivacyAndTOC(db, &api.PrivacyAndTOCArgs{
 				Version:  testCase.version,
 				Id:       testCase.id,
 				Privacy:  testCase.privacy,
@@ -230,13 +233,13 @@ func TestSaveReport(t *testing.T) {
 	it(func() {
 		testCases := []struct {
 			name string
-			r    ReportArgs
+			r    api.ReportArgs
 
 			expectError int
 		}{
 			{
 				name: "Add report success",
-				r: ReportArgs{
+				r: api.ReportArgs{
 					Version:  "2.0",
 					Id:       "0x1234",
 					Latitude: 40.12345,
@@ -249,7 +252,7 @@ func TestSaveReport(t *testing.T) {
 			},
 			{
 				name: "Add report begin transaction error",
-				r: ReportArgs{
+				r: api.ReportArgs{
 					Version:  "2.0",
 					Id:       "0x5678",
 					Latitude: 40.67890,
@@ -262,7 +265,7 @@ func TestSaveReport(t *testing.T) {
 			},
 			{
 				name: "Add report insert error",
-				r: ReportArgs{
+				r: api.ReportArgs{
 					Version:  "2.0",
 					Id:       "0x9012",
 					Latitude: 41.67890,
@@ -275,7 +278,7 @@ func TestSaveReport(t *testing.T) {
 			},
 			{
 				name: "Add report user update error",
-				r: ReportArgs{
+				r: api.ReportArgs{
 					Version:  "2.0",
 					Id:       "0x3456",
 					Latitude: 42.67890,
@@ -288,7 +291,7 @@ func TestSaveReport(t *testing.T) {
 			},
 			{
 				name: "Add report commit transaction error",
-				r: ReportArgs{
+				r: api.ReportArgs{
 					Version:  "2.0",
 					Id:       "0x7890",
 					Latitude: 43.67890,
@@ -346,7 +349,7 @@ func TestSaveReport(t *testing.T) {
 			} else if testCase.expectError < ERROR_COMMIT_TRAN {
 				mock.ExpectCommit()
 			}
-			if err := saveReport(db, testCase.r); (testCase.expectError == ERROR_NONE) != (err == nil) {
+			if err := SaveReport(db, testCase.r); (testCase.expectError == ERROR_NONE) != (err == nil) {
 				t.Errorf("%s, saveReport: expected %v, got %v", testCase.name, testCase.expectError, err)
 			}
 		}
@@ -357,19 +360,19 @@ func TestGetTopScores(t *testing.T) {
 	it(func() {
 		testCases := []struct {
 			name         string
-			base         *BaseArgs
+			base         *api.BaseArgs
 			topN         int
 			retList      []string
 			youRet       string
 			yourCnt      float64
 			cntBeforeYou string
 
-			expectResponse *TopScoresResponse
+			expectResponse *api.TopScoresResponse
 			expectError    bool
 		}{
 			{
 				name: "You're in top",
-				base: &BaseArgs{
+				base: &api.BaseArgs{
 					Version: "2.0",
 					Id:      "0x1234",
 				},
@@ -380,8 +383,8 @@ func TestGetTopScores(t *testing.T) {
 					"0x9012,Ava3, 988",
 				},
 
-				expectResponse: &TopScoresResponse{
-					Records: []TopScoresRecord{
+				expectResponse: &api.TopScoresResponse{
+					Records: []api.TopScoresRecord{
 						{
 							Place: 1,
 							Title: "Ava1",
@@ -400,7 +403,7 @@ func TestGetTopScores(t *testing.T) {
 				},
 			}, {
 				name: "You're not in top",
-				base: &BaseArgs{
+				base: &api.BaseArgs{
 					Version: "2.0",
 					Id:      "0x1234",
 				},
@@ -414,8 +417,8 @@ func TestGetTopScores(t *testing.T) {
 				yourCnt:      99,
 				cntBeforeYou: "49",
 
-				expectResponse: &TopScoresResponse{
-					Records: []TopScoresRecord{
+				expectResponse: &api.TopScoresResponse{
+					Records: []api.TopScoresRecord{
 						{
 							Place: 1,
 							Title: "Ava1",
@@ -438,7 +441,7 @@ func TestGetTopScores(t *testing.T) {
 				},
 			}, {
 				name: "Error in query",
-				base: &BaseArgs{
+				base: &api.BaseArgs{
 					Version: "2.0",
 					Id:      "0x1234",
 				},
@@ -485,7 +488,7 @@ func TestGetTopScores(t *testing.T) {
 							FromCSVString(testCase.cntBeforeYou))
 			}
 
-			response, err := getTopScores(db, testCase.base, testCase.topN)
+			response, err := GetTopScores(db, testCase.base, testCase.topN)
 			if testCase.expectError != (err != nil) {
 				t.Errorf("%s, getTopScores: expected error: %v, got error: %v", testCase.name, testCase.expectError, err)
 			}
@@ -503,14 +506,14 @@ func TestGetStats(t *testing.T) {
 			name string
 			id   string
 
-			expectResponse *StatsResponse
+			expectResponse *api.StatsResponse
 			expectError    bool
 		}{
 			{
 				name: "Get stats success",
 				id:   "0x1234",
 
-				expectResponse: &StatsResponse{
+				expectResponse: &api.StatsResponse{
 					Version:           "2.0",
 					Id:                "0x1234",
 					KitnsDaily:        10,
@@ -546,7 +549,7 @@ func TestGetStats(t *testing.T) {
 					WillReturnRows(sqlmock.NewRows(recordColumns).FromCSVString("10,1000,0.25,5.5"))
 			}
 
-			response, err := getStats(db, testCase.id)
+			response, err := GetStats(db, testCase.id)
 			if testCase.expectError != (err != nil) {
 				t.Errorf("%s, getStats: expected error: %v, got error: %v", testCase.name, testCase.expectError, err)
 			}
@@ -567,7 +570,7 @@ func TestReadReport(t *testing.T) {
 			seqExists bool
 			sharing   string
 
-			expectResponse *ReadReportResponse
+			expectResponse *api.ReadReportResponse
 			expectError    bool
 		}{
 			{
@@ -576,7 +579,7 @@ func TestReadReport(t *testing.T) {
 				seq:       123,
 				seqExists: true,
 				sharing:   "share_data_live",
-				expectResponse: &ReadReportResponse{
+				expectResponse: &api.ReadReportResponse{
 					Id:     "0x1234",
 					Image:  []byte{97, 98, 99, 100, 101, 102, 103, 104},
 					Avatar: "testuser",
@@ -590,7 +593,7 @@ func TestReadReport(t *testing.T) {
 				seq:       123,
 				seqExists: true,
 				sharing:   "not_sharing_data_live",
-				expectResponse: &ReadReportResponse{
+				expectResponse: &api.ReadReportResponse{
 					Id:     "0x1234",
 					Image:  []byte{97, 98, 99, 100, 101, 102, 103, 104},
 					Avatar: "",
@@ -604,7 +607,7 @@ func TestReadReport(t *testing.T) {
 				seq:       123,
 				seqExists: true,
 				sharing:   "not_sharing_data_live",
-				expectResponse: &ReadReportResponse{
+				expectResponse: &api.ReadReportResponse{
 					Id:     "0x1234",
 					Image:  []byte{97, 98, 99, 100, 101, 102, 103, 104},
 					Avatar: "testuser",
@@ -638,7 +641,7 @@ func TestReadReport(t *testing.T) {
 				WillReturnRows(sqlmock.NewRows(columns).
 					FromCSVString(values))
 
-			response, err := readReport(db, &ReadReportArgs{
+			response, err := ReadReport(db, &api.ReadReportArgs{
 				Id:  testCase.id,
 				Seq: testCase.seq,
 			})
@@ -703,7 +706,7 @@ func TestReadReferral(t *testing.T) {
 						FromCSVString(strings.Join(testCase.refValues, "\n")))
 			}
 
-			refvalue, err := readReferral(db, testCase.refKey)
+			refvalue, err := ReadReferral(db, testCase.refKey)
 			if testCase.errorExpected != (err != nil) {
 				t.Errorf("%s, refDB.ReadReferral: expected error: %v, got error: %e", testCase.name, testCase.errorExpected, err)
 			}
@@ -777,7 +780,7 @@ func TestWriteReferral(t *testing.T) {
 				}
 			}
 
-			if err := writeReferral(db, testCase.refKey, testCase.refValue); testCase.errorExpected != (err != nil) {
+			if err := WriteReferral(db, testCase.refKey, testCase.refValue); testCase.errorExpected != (err != nil) {
 				t.Errorf("%s, refDB.WriteReferral: expected error: %v, got error: %e", testCase.name, testCase.errorExpected, err)
 			}
 		}
@@ -795,7 +798,7 @@ func TestGenerateReferral(t *testing.T) {
 			refExists     bool
 			errorExpected bool
 
-			expectedResponse *GenRefResponse
+			expectedResponse *api.GenRefResponse
 		}{
 			{
 				name:    "Success referral generation",
@@ -806,7 +809,7 @@ func TestGenerateReferral(t *testing.T) {
 				refExists:     false,
 				errorExpected: false,
 
-				expectedResponse: &GenRefResponse{
+				expectedResponse: &api.GenRefResponse{
 					RefValue: "testrefid",
 				},
 			}, {
@@ -818,7 +821,7 @@ func TestGenerateReferral(t *testing.T) {
 				refExists:     true,
 				errorExpected: false,
 
-				expectedResponse: &GenRefResponse{
+				expectedResponse: &api.GenRefResponse{
 					RefValue: "testrefid",
 				},
 			}, {
@@ -858,7 +861,7 @@ func TestGenerateReferral(t *testing.T) {
 				}
 			}
 
-			response, err := generateReferral(db, &GenRefRequest{
+			response, err := GenerateReferral(db, &api.GenRefRequest{
 				Version: testCase.version,
 				Id:      testCase.id,
 			}, testRefGen)
@@ -906,7 +909,7 @@ func TestCleanupReferral(t *testing.T) {
 					WillReturnResult(sqlmock.NewResult(1, 1))
 			}
 
-			if err := cleanupReferral(db, testCase.ref); testCase.errorExpected != (err != nil) {
+			if err := CleanupReferral(db, testCase.ref); testCase.errorExpected != (err != nil) {
 				t.Errorf("%s, cleanupReferral: expected error: %v, got error: %v", testCase.name, testCase.errorExpected, err)
 			}
 		}

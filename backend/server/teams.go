@@ -1,21 +1,18 @@
-package be
+package server
 
 import (
 	"log"
 	"net/http"
 
+	"cleanapp/backend/db"
+	"cleanapp/backend/server/api"
+
 	"github.com/gin-gonic/gin"
 )
 
-type TeamsResponse struct {
-	Base  BaseArgs `json:"base"`
-	Blue  int      `json:"blue"`
-	Green int      `json:"green"`
-}
-
 func GetTeams(c *gin.Context) {
 	log.Print("Call to " + EndPointGetTeams)
-	var ba BaseArgs
+	var ba api.BaseArgs
 
 	// Troubleshooting code:
 	// b, _ := c.GetRawData()
@@ -36,7 +33,7 @@ func GetTeams(c *gin.Context) {
 
 	// Get teams stats.
 	log.Printf("%s got %v", EndPointGetTeams, ba)
-	r, err := getTeams()
+	r, err := db.GetTeams()
 	if err != nil {
 		log.Printf("Failed to report stats for user with %v", err)
 		c.Status(http.StatusInternalServerError) // 500

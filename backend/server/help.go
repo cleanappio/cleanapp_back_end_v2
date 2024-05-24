@@ -1,4 +1,4 @@
-package be
+package server
 
 import (
 	"log"

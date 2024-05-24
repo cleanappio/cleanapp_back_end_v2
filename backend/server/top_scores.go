@@ -1,28 +1,20 @@
-package be
+package server
 
 import (
 	"cleanapp/common"
 	"log"
 	"net/http"
 
+	"cleanapp/backend/db"
+	"cleanapp/backend/server/api"
+
 	"github.com/gin-gonic/gin"
 )
-
-type TopScoresRecord struct {
-	Place int     `json:"place"`
-	Title string  `json:"title"`
-	Kitn  float64 `json:"kitn"`
-	IsYou bool    `json:"is_you"`
-}
-
-type TopScoresResponse struct {
-	Records []TopScoresRecord `json:"records"`
-}
 
 func GetTopScores(c *gin.Context) {
 	log.Print("Call to " + EndPointGetTopScores)
 
-	var ba BaseArgs
+	var ba api.BaseArgs
 
 	if err := c.BindJSON(&ba); err != nil {
 		log.Printf("Failed to get the argument in %q call: %v", EndPointGetTopScores, err)
@@ -36,14 +28,14 @@ func GetTopScores(c *gin.Context) {
 		return
 	}
 
-	db, err := common.DBConnect()
+	dbc, err := common.DBConnect()
 	if err != nil {
 		log.Printf("%v", err)
 		return
 	}
-	defer db.Close()
+	defer dbc.Close()
 
-	r, err := getTopScores(db, &ba, 7)
+	r, err := db.GetTopScores(dbc, &ba, 7)
 	if err != nil {
 		log.Printf("Failed to get top scores %v", err)
 		c.Status(http.StatusInternalServerError) // 500
