@@ -20,7 +20,6 @@ func GetMap(c *gin.Context) {
 	// Get the arguments.
 	if err := c.BindJSON(&ma); err != nil {
 		log.Errorf("Failed to get the argument in /get_map call: %w", err)
-		c.String(http.StatusInternalServerError, "Could not read JSON input.") // 500
 		return
 	}
 

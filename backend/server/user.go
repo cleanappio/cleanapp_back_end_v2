@@ -18,7 +18,6 @@ func UpdateUser(c *gin.Context) {
 	// Get the arguments.
 	if err := c.BindJSON(&user); err != nil {
 		log.Errorf("Failed to get the argument in /user call: %w", err)
-		c.String(http.StatusInternalServerError, "Could not read JSON input.") // 500
 		return
 	}
 

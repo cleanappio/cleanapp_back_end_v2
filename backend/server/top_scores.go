@@ -17,7 +17,6 @@ func GetTopScores(c *gin.Context) {
 
 	if err := c.BindJSON(&ba); err != nil {
 		log.Errorf("Failed to get the argument in %q call: %w", EndPointGetTopScores, err)
-		c.String(http.StatusBadRequest, "Could not read JSON input.")
 		return
 	}
 
