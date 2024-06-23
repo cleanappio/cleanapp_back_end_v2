@@ -17,7 +17,6 @@ func GetStats(c *gin.Context) {
 	// Get the arguments.
 	if err := c.BindJSON(&sa); err != nil {
 		log.Errorf("Failed to get the argument in /get_stats call: %w", err)
-		c.String(http.StatusInternalServerError, "Could not read JSON input.") // 500
 		return
 	}
 

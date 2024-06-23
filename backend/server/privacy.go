@@ -16,7 +16,6 @@ func UpdatePrivacyAndTOC(c *gin.Context) {
 
 	if err := c.BindJSON(&args); err != nil {
 		log.Errorf("Failed to get arguments: %w", err)
-		c.String(http.StatusBadRequest, "Could not read JSON input.") // 400
 		return
 	}
 

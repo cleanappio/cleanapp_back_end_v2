@@ -16,7 +16,6 @@ func ReadReport(c *gin.Context) {
 
 	if err := c.BindJSON(args); err != nil {
 		log.Errorf("Failed to get the argument in /read_report call: %w", err)
-		c.String(http.StatusInternalServerError, "Could not read JSON input.") // 500
 		return
 	}
 

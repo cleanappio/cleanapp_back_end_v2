@@ -15,8 +15,6 @@ func ReadReferral(c *gin.Context) {
 	refQuery := &api.ReferralQuery{}
 	if err := c.BindJSON(refQuery); err != nil {
 		log.Errorf("JSON binding, %v", err)
-		c.Error(err)
-		c.Status(http.StatusBadRequest)
 		return
 	}
 
