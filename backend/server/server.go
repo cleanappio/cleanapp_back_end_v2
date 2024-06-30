@@ -9,18 +9,18 @@ import (
 )
 
 const (
-	EndPointHelp             = "/help"
-	EndPointUser             = "/update_or_create_user"
-	EndPointReport           = "/report"
-	EndPointReadReport       = "/read_report"
-	EndPointGetMap           = "/get_map"
-	EndPointGetStats         = "/get_stats"
-	EndPointGetTeams         = "/get_teams"
-	EndPointGetTopScores     = "/get_top_scores"
-	EndPointPrivacyAndTOC    = "/update_privacy_and_toc"
-	EndPointReadReferral     = "/read_referral"
-	EndPointWriteReferral    = "/write_referral"
-	EndPointGenerateReferral = "/generate_referral"
+	EndPointHelp              = "/help"
+	EndPointUser              = "/update_or_create_user"
+	EndPointReport            = "/report"
+	EndPointReadReport        = "/read_report"
+	EndPointGetMap            = "/get_map"
+	EndPointGetStats          = "/get_stats"
+	EndPointGetTeams          = "/get_teams"
+	EndPointGetTopScores      = "/get_top_scores"
+	EndPointPrivacyAndTOC     = "/update_privacy_and_toc"
+	EndPointReadReferral      = "/read_referral"
+	EndPointWriteReferral     = "/write_referral"
+	EndPointGenerateReferral  = "/generate_referral"
 	EndPointGetBlockChainLink = "/get_blockchain_link"
 )
 
