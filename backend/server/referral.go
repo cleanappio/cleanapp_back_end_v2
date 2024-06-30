@@ -94,5 +94,5 @@ func GenerateReferral(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, ref)
+	c.IndentedJSON(http.StatusOK, ref)
 }

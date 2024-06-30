@@ -37,7 +37,7 @@ echo "Building binary..."
 test -f service && rm -f service
 
 pushd ../
-GOARCH="amd64" GOOS="linux" go build -o docker_backend/service main/service.go
+GOARCH="amd64" GOOS="linux" go build -o docker_backend/service backend/main.go
 popd
 
 CLOUD_REGION="us-central1"
