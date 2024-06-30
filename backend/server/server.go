@@ -21,6 +21,7 @@ const (
 	EndPointReadReferral     = "/read_referral"
 	EndPointWriteReferral    = "/write_referral"
 	EndPointGenerateReferral = "/generate_referral"
+	EndPointGetBlockChainLink = "/get_blockchain_link"
 )
 
 var (
@@ -42,6 +43,7 @@ func StartService() {
 	router.POST(EndPointReadReferral, ReadReferral)
 	router.POST(EndPointWriteReferral, WriteReferral)
 	router.POST(EndPointGenerateReferral, GenerateReferral)
+	router.POST(EndPointGetBlockChainLink, GetBlockchainLink)
 
 	router.Run(fmt.Sprintf(":%d", *serverPort))
 	log.Info("Finished the service. Should not ever being seen.")

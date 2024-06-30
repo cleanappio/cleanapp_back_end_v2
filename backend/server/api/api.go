@@ -131,3 +131,7 @@ type UserResp struct {
 	Team      util.TeamColor `json:"team"` // Blue or Green
 	DupAvatar bool           `json:"dup_avatar"`
 }
+
+type BlockchainLinkResponse struct {
+	BlockchainLink string `json:"blockchain_link"`
+}
