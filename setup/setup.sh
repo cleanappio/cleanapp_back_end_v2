@@ -77,7 +77,8 @@ DOWN
 sudo chmod a+x down.sh
 
 # Docker images
-DOCKER_PREFIX="us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo"
+DOCKER_LOCATION="us-central1-docker.pkg.dev"
+DOCKER_PREFIX="${DOCKER_LOCATION}/cleanup-mysql-v2/cleanapp-docker-repo"
 SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-service-image:${OPT}"
 PIPELINES_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-pipelines-image:${OPT}"
 WEB_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-web-image:${OPT}"
@@ -175,6 +176,9 @@ installDocker() {
     # Configure the current user for docker usage
     sudo groupadd docker
     sudo usermod -aG docker $USER
+
+    # Configure gcloud fir docker usage
+    gcloud auth configure-docker ${DOCKER_LOCATION}
 }
 
 # Install docker.
