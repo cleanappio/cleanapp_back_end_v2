@@ -176,6 +176,8 @@ installDocker() {
 # Install docker.
 installDocker
 
+set -e
+
 # Pull images:
 docker pull ${SERVICE_DOCKER_IMAGE}
 docker pull ${PIPELINES_DOCKER_IMAGE}
