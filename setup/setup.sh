@@ -174,8 +174,7 @@ installDocker() {
     sudo docker run hello-world
 
     # Configure the current user for docker usage
-    sudo groupadd docker
-    sudo usermod -aG docker $USER
+    sudo chmod a+rw /var/run/docker.sock
 
     # Configure gcloud fir docker usage
     gcloud auth configure-docker ${DOCKER_LOCATION}
