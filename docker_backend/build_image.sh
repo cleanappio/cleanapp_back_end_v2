@@ -33,6 +33,8 @@ done
 . .version
 echo "Running docker build for version ${BUILD_VERSION}"
 
+set -e
+
 echo "Building binary..."
 test -f service && rm -f service
 
