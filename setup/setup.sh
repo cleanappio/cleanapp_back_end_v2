@@ -171,10 +171,16 @@ installDocker() {
 
     # Check that it all works:
     sudo docker run hello-world
+
+    # Configure the current user for docker usage
+    sudo groupadd docker
+    sudo usermod -aG docker $USER
 }
 
 # Install docker.
-installDocker
+if [[ "$1" == "dockerinstall" ]]; then
+  installDocker
+fi
 
 set -e
 
