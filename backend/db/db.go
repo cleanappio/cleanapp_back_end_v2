@@ -112,11 +112,19 @@ func GetMap(userId string, m api.ViewPort, retention time.Duration) ([]api.MapRe
 	}
 	defer db.Close()
 
+	// Extend the selection rectangle
+	latSize := m.LatMax - m.LatMin
+	lonSize := m.LonMax - m.LonMin
+	m.LatMin -= latSize / 2
+	m.LatMax += latSize / 2
+	m.LonMin -= lonSize / 2
+	m.LonMax += lonSize / 2
+
 	// TODO: Handle 180 meridian inside.
 	// Exmaples of rectangles:
 	// Zurich 47.3677679,8.5554069 => 47.3602948,8.5766434 top > bottom, left<right
 	// Memphis, TN 35.5293051,-90.4510656 => 34.770288,-89.4742701 top > bottom, left < right
-	// Madagascra -14.489877, 44.066256 => -26.459353, 52.375980 top > bottom, left < right
+	// Madagascar -14.489877, 44.066256 => -26.459353, 52.375980 top > bottom, left < right
 	rows, err := db.Query(`
 	  SELECT seq, latitude, longitude, team, id
 	  FROM reports
