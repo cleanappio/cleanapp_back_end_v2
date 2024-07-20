@@ -9,20 +9,22 @@ import (
 )
 
 type aggrUnit struct {
-	cnt     int64
-	origRes []api.MapResult
+	cnt         int64
+	containment [4]bool // 4 elements, one per child cell
+	pin         s2.Point
+	origRes     []*api.MapResult
 }
 
 type mapAggregatorS2 struct {
-	level int
-	aggrs map[s2.CellID]*aggrUnit
+	level  int
+	points map[s2.CellID][]*api.MapResult
+	aggrs  map[s2.CellID]*aggrUnit
 }
 
 const (
 	expectedCells = 16
 	minLevel      = 2
 	maxLevel      = 18
-	levelStep     = 2
 	minRepToAggr  = 10
 )
 
@@ -49,49 +51,38 @@ func cellBaseLevel(vp *api.ViewPort, center *api.Point) int {
 		// approx. covered by a number expectedCells s2cells.
 		if vpArea/cc.ApproxArea() < expectedCells {
 			// Applying s2cells with a step levelStep
-			alignedLv := lv / levelStep * levelStep
-			if alignedLv == lv {
-				return alignedLv
-			}
-			return alignedLv + levelStep
+			return lv
 		}
 	}
 	return minLevel
 }
 
 func NewMapAggregatorS2(vp *api.ViewPort, center *api.Point) mapAggregatorS2 {
-	lv := cellBaseLevel(vp, center)
 	return mapAggregatorS2{
-		level: lv,
-		aggrs: make(map[s2.CellID]*aggrUnit),
+		level:  cellBaseLevel(vp, center),
+		points: make(map[s2.CellID][]*api.MapResult),
+		aggrs:  make(map[s2.CellID]*aggrUnit),
 	}
 }
 
 func (a *mapAggregatorS2) AddPoint(mapRes api.MapResult) {
 	pc := s2.CellIDFromLatLng(s2.LatLngFromDegrees(mapRes.Latitude, mapRes.Longitude))
-	parent := pc.Parent(a.level)
-	if _, ok := a.aggrs[parent]; !ok {
-		a.aggrs[parent] = &aggrUnit{}
+	parent := pc.Parent(maxLevel)
+	if a.points[parent] == nil {
+		a.points[parent] = make([]*api.MapResult, 0)
 	}
-	a.aggrs[parent].cnt += 1
-
-	// Seeing how many cells are aggregated in the parent cell.
-	// If <= minRepToAggr then add the report to origin report results.
-	// Otherwise clear report results which is a signal to use aggregated
-	// result.
-	if a.aggrs[parent].cnt < minRepToAggr {
-		a.aggrs[parent].origRes = append(a.aggrs[parent].origRes, mapRes)
-	} else {
-		a.aggrs[parent].origRes = nil
-	}
+	a.points[parent] = append(a.points[parent], &mapRes)
 }
 
 func (a *mapAggregatorS2) ToArray() []api.MapResult {
+	a.aggregate()
 	r := make([]api.MapResult, 0, len(a.aggrs))
-	for c, unit := range a.aggrs {
-		ll := c.LatLng()
-		if unit.origRes != nil {
-			r = append(r, unit.origRes...)
+	for _, unit := range a.aggrs {
+		ll := s2.LatLngFromPoint(unit.pin)
+		if unit.cnt <= minRepToAggr {
+			for _, res := range unit.origRes {
+				r = append(r, *res)
+			}
 		} else {
 			r = append(r, api.MapResult{
 				Latitude:  ll.Lat.Degrees(),
@@ -101,4 +92,70 @@ func (a *mapAggregatorS2) ToArray() []api.MapResult {
 		}
 	}
 	return r
+}
+
+func (a *mapAggregatorS2) aggrStep(level int) {
+	if level < a.level {
+		return
+	}
+	nextAggrs := make(map[s2.CellID]*aggrUnit)
+	for cell, unit := range a.aggrs {
+		p := cell.Parent(level)
+		eu, ok := nextAggrs[p]
+		if !ok {
+			nextAggrs[p] = &aggrUnit{
+				cnt:         unit.cnt,
+				containment: [4]bool{},
+				origRes:     unit.origRes,
+			}
+		} else {
+			nextAggrs[p] = &aggrUnit{
+				cnt:         eu.cnt + unit.cnt,
+				containment: eu.containment,
+			}
+			if eu.cnt+unit.cnt <= minRepToAggr {
+				nextAggrs[p].origRes = append(eu.origRes, unit.origRes...)
+			}
+		}
+		nextAggrs[p].containment[cell.ChildPosition(level+1)] = true
+	}
+	for pCell, pUnit := range nextAggrs {
+		chPins := make([]s2.Point, 0)
+		for i, v := range pUnit.containment {
+			if v {
+				chCell := pCell.Children()[i]
+				if chAggr, ok := a.aggrs[chCell]; ok {
+					chPins = append(chPins, chAggr.pin)
+				}
+			}
+		}
+		var newPin s2.Point
+		switch len(chPins) {
+		case 1:
+			newPin = chPins[0]
+		case 2:
+			newPin = s2.PlanarCentroid(chPins[0], chPins[0], chPins[1])
+		case 3:
+			newPin = s2.PlanarCentroid(chPins[0], chPins[1], chPins[2])
+		case 4:
+			newPin = s2.PointFromLatLng(pCell.LatLng())
+		}
+		pUnit.pin = newPin
+	}
+	a.aggrs = nextAggrs
+	a.aggrStep(level - 1)
+}
+
+func (a *mapAggregatorS2) aggregate() {
+	for cell, pts := range a.points {
+		a.aggrs[cell] = &aggrUnit{
+			cnt:         int64(len(pts)),
+			containment: [4]bool{true, true, true, true},
+			pin:         s2.PointFromLatLng(cell.LatLng()),
+		}
+		if len(pts) <= minRepToAggr {
+			a.aggrs[cell].origRes = pts
+		}
+	}
+	a.aggrStep(maxLevel - 1)
 }
