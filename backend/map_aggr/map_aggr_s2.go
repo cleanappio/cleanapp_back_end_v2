@@ -26,6 +26,7 @@ const (
 	minLevel      = 2
 	maxLevel      = 18
 	minRepToAggr  = 10
+	weightDiffThreshold = 8
 )
 
 func cellBaseLevel(vp *api.ViewPort, center *api.Point) int {
@@ -94,6 +95,32 @@ func (a *mapAggregatorS2) ToArray() []api.MapResult {
 	return r
 }
 
+func (a *mapAggregatorS2) computeCentroid(pCell s2.CellID, chAggrs []*aggrUnit) s2.Point {
+	fChPins := make([]s2.Point, 0)
+	maxWeight := int64(0)
+	for _, aggr := range chAggrs {
+		if maxWeight < aggr.cnt {
+			maxWeight = aggr.cnt
+		}
+	}
+	for _, aggr := range chAggrs {
+		if maxWeight / aggr.cnt < weightDiffThreshold {
+			fChPins = append(fChPins, aggr.pin)
+		}
+	}
+	switch len(fChPins) {
+	case 1:
+		return fChPins[0]
+	case 2:
+		return s2.PlanarCentroid(fChPins[0], fChPins[0], fChPins[1])
+	case 3:
+		return s2.PlanarCentroid(fChPins[0], fChPins[1], fChPins[2])
+	case 4:
+		return s2.PointFromLatLng(pCell.LatLng())
+	}
+	return s2.PointFromLatLng(pCell.LatLng())
+}
+
 func (a *mapAggregatorS2) aggrStep(level int) {
 	if level < a.level {
 		return
@@ -120,27 +147,16 @@ func (a *mapAggregatorS2) aggrStep(level int) {
 		nextAggrs[p].containment[cell.ChildPosition(level+1)] = true
 	}
 	for pCell, pUnit := range nextAggrs {
-		chPins := make([]s2.Point, 0)
+		chAggrs := make([]*aggrUnit, 0)
 		for i, v := range pUnit.containment {
 			if v {
 				chCell := pCell.Children()[i]
 				if chAggr, ok := a.aggrs[chCell]; ok {
-					chPins = append(chPins, chAggr.pin)
+					chAggrs = append(chAggrs, chAggr)
 				}
 			}
 		}
-		var newPin s2.Point
-		switch len(chPins) {
-		case 1:
-			newPin = chPins[0]
-		case 2:
-			newPin = s2.PlanarCentroid(chPins[0], chPins[0], chPins[1])
-		case 3:
-			newPin = s2.PlanarCentroid(chPins[0], chPins[1], chPins[2])
-		case 4:
-			newPin = s2.PointFromLatLng(pCell.LatLng())
-		}
-		pUnit.pin = newPin
+		pUnit.pin = a.computeCentroid(pCell, chAggrs)
 	}
 	a.aggrs = nextAggrs
 	a.aggrStep(level - 1)
