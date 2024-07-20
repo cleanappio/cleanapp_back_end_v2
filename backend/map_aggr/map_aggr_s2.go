@@ -22,11 +22,12 @@ type mapAggregatorS2 struct {
 }
 
 const (
-	expectedCells = 16
-	minLevel      = 2
-	maxLevel      = 18
-	minRepToAggr  = 10
-	weightDiffThreshold = 8
+	expectedCells             = 16
+	minLevel                  = 2
+	maxLevel                  = 18
+	minRepToAggr              = 10
+	weightDiffThreshold       = 8
+	aggregationLevelThreshold = 14
 )
 
 func cellBaseLevel(vp *api.ViewPort, center *api.Point) int {
@@ -80,7 +81,7 @@ func (a *mapAggregatorS2) ToArray() []api.MapResult {
 	r := make([]api.MapResult, 0, len(a.aggrs))
 	for _, unit := range a.aggrs {
 		ll := s2.LatLngFromPoint(unit.pin)
-		if unit.cnt <= minRepToAggr {
+		if a.level > aggregationLevelThreshold || unit.cnt <= minRepToAggr {
 			for _, res := range unit.origRes {
 				r = append(r, *res)
 			}
@@ -104,7 +105,7 @@ func (a *mapAggregatorS2) computeCentroid(pCell s2.CellID, chAggrs []*aggrUnit) 
 		}
 	}
 	for _, aggr := range chAggrs {
-		if maxWeight / aggr.cnt < weightDiffThreshold {
+		if maxWeight/aggr.cnt < weightDiffThreshold {
 			fChPins = append(fChPins, aggr.pin)
 		}
 	}
@@ -140,7 +141,7 @@ func (a *mapAggregatorS2) aggrStep(level int) {
 				cnt:         eu.cnt + unit.cnt,
 				containment: eu.containment,
 			}
-			if eu.cnt+unit.cnt <= minRepToAggr {
+			if level > aggregationLevelThreshold || eu.cnt+unit.cnt <= minRepToAggr {
 				nextAggrs[p].origRes = append(eu.origRes, unit.origRes...)
 			}
 		}
