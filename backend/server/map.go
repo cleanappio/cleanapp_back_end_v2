@@ -12,7 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const retention = 24 * 30 * time.Hour // For initial run it's one month. To be reduced after we get more users.
+const retention = 24 * 365 * time.Hour // For initial run it's one year. To be reduced after we get more users.
 
 func GetMap(c *gin.Context) {
 	var ma api.MapArgs
