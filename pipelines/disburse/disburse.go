@@ -164,7 +164,7 @@ func (d *Disburser) disburseBatch(kitns map[ethcommon.Address]Kitns) error {
 	if err != nil {
 		return err
 	}
-	auth.Nonce = big.NewInt(int64(nonce))
+	auth.Nonce = big.NewInt(int64(nonce + 1))
 	auth.Value = big.NewInt(0) // in wei
 	auth.GasLimit = gasLimit   // in units
 	auth.GasPrice = gasPrice

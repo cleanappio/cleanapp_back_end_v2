@@ -126,17 +126,21 @@ func (a *mapAggregatorS2) aggrStep(level int) {
 	if level < a.level {
 		return
 	}
+	// Aggregate existing aggregation units on one S2 cell level up
 	nextAggrs := make(map[s2.CellID]*aggrUnit)
 	for cell, unit := range a.aggrs {
 		p := cell.Parent(level)
 		eu, ok := nextAggrs[p]
 		if !ok {
+			// First cell on the level, copy aggregation from the previous level
+			// but w/o containment info
 			nextAggrs[p] = &aggrUnit{
 				cnt:         unit.cnt,
 				containment: [4]bool{},
 				origRes:     unit.origRes,
 			}
 		} else {
+			// Sum the existing aggregation with the current one
 			nextAggrs[p] = &aggrUnit{
 				cnt:         eu.cnt + unit.cnt,
 				containment: eu.containment,
@@ -145,8 +149,13 @@ func (a *mapAggregatorS2) aggrStep(level int) {
 				nextAggrs[p].origRes = append(eu.origRes, unit.origRes...)
 			}
 		}
+		// Mark the containment of the child aggregation
+		// The unit is an aggregation on level+1, so it's a child for the nextAggs[p]
+		// which is an aggregation on level
 		nextAggrs[p].containment[cell.ChildPosition(level+1)] = true
 	}
+	// Computing a pin point position for the new aggregation.
+	// It's to be a centroid of children aggregations pins
 	for pCell, pUnit := range nextAggrs {
 		chAggrs := make([]*aggrUnit, 0)
 		for i, v := range pUnit.containment {
@@ -159,7 +168,9 @@ func (a *mapAggregatorS2) aggrStep(level int) {
 		}
 		pUnit.pin = a.computeCentroid(pCell, chAggrs)
 	}
+	// Replace the aggregations with newly computed ones
 	a.aggrs = nextAggrs
+	// Call the next level recursively
 	a.aggrStep(level - 1)
 }
 
