@@ -9,6 +9,7 @@
 SCHEDULER_HOST=""
 ETH_NETWORK_URL=""
 CONTRACT_ADDRESS=""
+DISBURSEMENT_SCHEDULE=""
 
 # Choose the environment
 PS3="Please choose the environment: "
@@ -21,6 +22,7 @@ do
         SCHEDULER_HOST="localhost"
         ETH_NETWORK_URL="https://sepolia.base.org"
         CONTRACT_ADDRESS="0xDc41655b749E8F2922A6E5e525Fc04a915aEaFAA"
+        DISBURSEMENT_SCHEDULE="0 20 * * *"
         break
         ;;
     "dev")
@@ -28,6 +30,7 @@ do
         SCHEDULER_HOST="dev.api.cleanapp.io"
         ETH_NETWORK_URL="https://sepolia.base.org"
         CONTRACT_ADDRESS="0xDc41655b749E8F2922A6E5e525Fc04a915aEaFAA"
+        DISBURSEMENT_SCHEDULE="30 19 * * *"
         break
         ;;
     "prod")
@@ -35,6 +38,7 @@ do
         SCHEDULER_HOST="api.cleanapp.io"
         ETH_NETWORK_URL="https://sepolia.base.org"  # TODO: Change to the mainnet URL after we run on the base mainnet
         CONTRACT_ADDRESS="0xDc41655b749E8F2922A6E5e525Fc04a915aEaFAA"  # TODO: Change the contract address to the main when we run on the base mainnet
+        DISBURSEMENT_SCHEDULE="0 20 * * *"
         break
         ;;
     "quit")
@@ -230,7 +234,7 @@ fi
 
 gcloud scheduler jobs create http ${DISBURSEMENT_SCHEDULER_NAME} \
   --location=us-central1 \
-  --schedule="0 20 * * *" \
+  --schedule="${DISBURSEMENT_SCHEDULE}" \
   --uri="http://${SCHEDULER_HOST}:8090/tokens_disburse" \
   --message-body="{\"version\": \"2.0\"}" \
   --headers="Content-Type=application/json"
