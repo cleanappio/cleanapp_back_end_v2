@@ -150,6 +150,7 @@ func toWei(src float32) *big.Int {
 }
 
 func (d *Disburser) disburseBatch(kitns map[ethcommon.Address]Kitns) error {
+	log.Infof("=== Disbursing tokens:\n%v", kitns)
 	nonce, err := d.client.PendingNonceAt(context.Background(), d.fromAddress)
 	if err != nil {
 		return err
@@ -220,15 +221,28 @@ func (d *Disburser) disburseBatch(kitns map[ethcommon.Address]Kitns) error {
 		for f.Next() {
 			if f.Event.Raw.TxHash == tx.Hash() {
 				incomplete = false
+				succeedCnt, failCnt := 0, 0
+				succeedKitns, failKitns := float32(0.0), float32(0.0)
 				for _, r := range f.Event.Results {
 					if r.Result {
 						if k, ok := kitns[r.Receiver]; ok {
 							if err := d.updateDisbursed(r.Receiver, k.daily, k.dailyRef); err != nil {
 								return fmt.Errorf("error updating disbursed KITNs: %w", err)
 							}
+							succeedCnt += 1
+							succeedKitns += fromWei(r.Amount)
+						} else {
+							return fmt.Errorf("inconsistent data structure, amount for %v not found", r.Receiver)
 						}
+					} else {
+						log.Errorf("Failed disbursing %f tokens to %v", fromWei(r.Amount), r.Receiver)
+						failCnt += 1
+						failKitns += fromWei(r.Amount)
 					}
 				}
+				log.Infof(
+					"=== Dusbursement completed. Succeeded: %d addresses, %f KITNs; failed: %d addresses, %f KITNs",
+					succeedCnt, succeedKitns, failCnt, failKitns)
 			}
 		}
 		time.Sleep(500 * time.Millisecond)
