@@ -150,7 +150,6 @@ func toWei(src float32) *big.Int {
 }
 
 func (d *Disburser) disburseBatch(kitns map[ethcommon.Address]Kitns) error {
-	log.Infof("=== Disbursing tokens:\n%v", kitns)
 	nonce, err := d.client.PendingNonceAt(context.Background(), d.fromAddress)
 	if err != nil {
 		return err
@@ -174,7 +173,9 @@ func (d *Disburser) disburseBatch(kitns map[ethcommon.Address]Kitns) error {
 	addresses := []ethcommon.Address{}
 	amounts := []*big.Int{}
 	totalAmount := big.NewInt(0)
+	log.Info("=== Disbursing tokens:")
 	for k, v := range kitns {
+		log.Infof("%v: %f + %f", k, fromWei(v.daily), fromWei(v.dailyRef))
 		addresses = append(addresses, k)
 		amounts = append(amounts, big.NewInt(0).Add(v.daily, v.dailyRef))
 		totalAmount.Add(totalAmount, v.daily)
