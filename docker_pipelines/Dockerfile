@@ -19,5 +19,5 @@ RUN update-ca-certificates
 # RUN useradd -ms /bin/bash cleanapper
 # USER cleanapper
 
-EXPOSE 8090/tcp
-CMD "./pipelines" "--mysql_password=${MYSQL_APP_PASSWORD}" "--mysql_host=cleanapp_db" "--eth_network_url=${ETH_NETWORK_URL}" "--eth_private_key=${KITN_PRIVATE_KEY}" "--contract_address=${CONTRACT_ADDRESS}"
+EXPOSE ${PIPELINES_PORT}/tcp
+CMD "./pipelines" "--mysql_password=${MYSQL_APP_PASSWORD}" "--mysql_host=cleanapp_db" "--eth_network_url=${ETH_NETWORK_URL}" "--eth_private_key=${KITN_PRIVATE_KEY}" "--contract_address=${CONTRACT_ADDRESS}" "--users_table=${USERS_TABLE}"
