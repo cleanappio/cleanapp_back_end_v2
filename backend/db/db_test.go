@@ -47,7 +47,7 @@ func TestUpdateOrCreateUser(t *testing.T) {
 			avatar   string
 			referral string
 			team     int
-			initialKitn float32
+			initialKitn int
 
 			retList      []string
 			execExpected bool
@@ -62,7 +62,7 @@ func TestUpdateOrCreateUser(t *testing.T) {
 				avatar:   "user1",
 				referral: "abcdef",
 				team:     util.Blue,
-				initialKitn: 0.1,
+				initialKitn: 1,
 
 				retList:      []string{},
 				execExpected: true,
@@ -79,7 +79,7 @@ func TestUpdateOrCreateUser(t *testing.T) {
 				avatar:   "user1",
 				referral: "abcdef",
 				team:     util.Blue,
-				initialKitn: 0.0,
+				initialKitn: 0,
 
 				retList:      []string{"0x123456768"},
 				execExpected: true,
