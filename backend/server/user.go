@@ -20,9 +20,9 @@ var (
 	privateKeyMain      = flag.String("eth_private_key_main", "", "The private key for connecting to the smart contract for main chain.")
 	contractAddressMain = flag.String("contract_address_main", "", "The contract address in HEX for main chain.")
 
-	ethNetworkUrlShadow   = flag.String("eth_network_url_main", "", "Ethereum network address for shadow chain.")
-	privateKeyShadow      = flag.String("eth_private_key_main", "", "The private key for connecting to the smart contract for shadow chain.")
-	contractAddressShadow = flag.String("contract_address_main", "", "The contract address in HEX for shadow chain.")
+	ethNetworkUrlShadow   = flag.String("eth_network_url_shadow", "", "Ethereum network address for shadow chain.")
+	privateKeyShadow      = flag.String("eth_private_key_shadow", "", "The private key for connecting to the smart contract for shadow chain.")
+	contractAddressShadow = flag.String("contract_address_shadow", "", "The contract address in HEX for shadow chain.")
 )
 
 func UpdateUser(c *gin.Context) {
