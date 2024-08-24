@@ -73,7 +73,7 @@ func UpdateUser(db *sql.DB, u *api.UserArgs, teamGen func(string) util.TeamColor
 		return nil, err
 	}
 	// Save a copy of counters in a shadow table.
-	result, err = db.Exec(`INSERT INTO users_shadow (id, avatar, referral, team, kitns_disbursed) VALUES (?, ?, ?, ?)
+	result, err = db.Exec(`INSERT INTO users_shadow (id, avatar, referral, team, kitns_disbursed) VALUES (?, ?, ?, ?, ?)
 	         ON DUPLICATE KEY UPDATE avatar=?, referral=?, team=?`,
 		u.Id, u.Avatar, u.Referral, team, initialKitn, u.Avatar, u.Referral, team)
 	common.LogResult("update shadow user", result, err)
