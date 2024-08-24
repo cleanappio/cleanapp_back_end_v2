@@ -47,6 +47,7 @@ func TestUpdateOrCreateUser(t *testing.T) {
 			avatar   string
 			referral string
 			team     int
+			initialKitn float32
 
 			retList      []string
 			execExpected bool
@@ -61,6 +62,7 @@ func TestUpdateOrCreateUser(t *testing.T) {
 				avatar:   "user1",
 				referral: "abcdef",
 				team:     util.Blue,
+				initialKitn: 0.1,
 
 				retList:      []string{},
 				execExpected: true,
@@ -77,6 +79,7 @@ func TestUpdateOrCreateUser(t *testing.T) {
 				avatar:   "user1",
 				referral: "abcdef",
 				team:     util.Blue,
+				initialKitn: 0.0,
 
 				retList:      []string{"0x123456768"},
 				execExpected: true,
@@ -120,12 +123,12 @@ func TestUpdateOrCreateUser(t *testing.T) {
 						FromCSVString(strings.Join(testCase.retList, "\n")))
 			if testCase.execExpected {
 				mock.ExpectExec(
-					"INSERT INTO users \\(id, avatar, referral, team\\) VALUES \\((.+), (.+), (.+), (.+)\\) ON DUPLICATE KEY UPDATE avatar=(.+), referral=(.+), team=(.+)").
-					WithArgs(testCase.id, testCase.avatar, testCase.referral, testCase.team, testCase.avatar, testCase.referral, testCase.team).
+					"INSERT INTO users \\(id, avatar, referral, team, kitns_disbursed\\) VALUES \\((.+), (.+), (.+), (.+), (.+)\\) ON DUPLICATE KEY UPDATE avatar=(.+), referral=(.+), team=(.+)").
+					WithArgs(testCase.id, testCase.avatar, testCase.referral, testCase.team, testCase.initialKitn, testCase.avatar, testCase.referral, testCase.team).
 					WillReturnResult(sqlmock.NewResult(1, 1))
 				mock.ExpectExec(
-					"INSERT INTO users_shadow \\(id, avatar, referral, team\\) VALUES \\((.+), (.+), (.+), (.+)\\) ON DUPLICATE KEY UPDATE avatar=(.+), referral=(.+), team=(.+)").
-					WithArgs(testCase.id, testCase.avatar, testCase.referral, testCase.team, testCase.avatar, testCase.referral, testCase.team).
+					"INSERT INTO users_shadow \\(id, avatar, referral, team, kitns_disbursed\\) VALUES \\((.+), (.+), (.+), (.+), (.+)\\) ON DUPLICATE KEY UPDATE avatar=(.+), referral=(.+), team=(.+)").
+					WithArgs(testCase.id, testCase.avatar, testCase.referral, testCase.team, testCase.initialKitn, testCase.avatar, testCase.referral, testCase.team).
 					WillReturnResult(sqlmock.NewResult(1, 1))
 				}
 			resp, err := UpdateUser(db, &api.UserArgs{
