@@ -4,40 +4,61 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math/big"
 	"time"
 
 	"cleanapp/backend/server/api"
 	"cleanapp/backend/util"
 	"cleanapp/common"
+	"cleanapp/common/disburse"
 
 	"github.com/apex/log"
+	ethcommon "github.com/ethereum/go-ethereum/common"
 	_ "github.com/go-sql-driver/mysql"
 )
 
-func UpdateUser(db *sql.DB, u *api.UserArgs, teamGen func(string) util.TeamColor) (*api.UserResp, error) {
-	log.Errorf("Write: Trying to create or update user %s / %s", u.Id, u.Avatar)
-	rows, err := db.Query("SELECT id FROM users WHERE avatar = ?", u.Avatar)
-	if err != nil {
-		log.Errorf("Couldn't get user with avatar %s, %w", u.Avatar, err)
-		return nil, err
-	}
-	defer rows.Close()
-
-	if rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
+func UpdateUser(db *sql.DB, u *api.UserArgs, teamGen func(string) util.TeamColor, disbursers []*disburse.Disburser) (*api.UserResp, error) {
+	{
+		avRows, err := db.Query("SELECT id FROM users WHERE avatar = ?", u.Avatar)
+		if err != nil {
+			log.Errorf("Error getting user with avatar %s, %w", u.Avatar, err)
 			return nil, err
 		}
-		if id != u.Id {
-			return &api.UserResp{
-					DupAvatar: true,
-				}, fmt.Errorf("duplicated avatar %s for the user %s: avatar already exists for the user %s",
-					u.Avatar,
-					u.Id,
-					id)
+		defer avRows.Close()
+
+		if avRows.Next() {
+			// Check for duplication.
+			var id string
+			if err := avRows.Scan(&id); err != nil {
+				return nil, err
+			}
+			if id != u.Id {
+				return &api.UserResp{
+						DupAvatar: true,
+					}, fmt.Errorf("duplicated avatar %s for the user %s: avatar already exists for the user %s",
+						u.Avatar,
+						u.Id,
+						id)
+			}
 		}
 	}
+	{
+		idRows, err := db.Query("SELECT id FROM users WHERE id = ?", u.Id)
+		if err != nil {
+			log.Errorf("Error getting user with id %s, %w", u.Id, err)
+			return nil, err
+		}
+		defer idRows.Close()
 
+		if !idRows.Next() {
+			// No existing user yet, it's a user creation. Sending 0.1 KITN to the user.
+			for _, disburser := range disbursers {
+				disburser.DisburseBatch(map[ethcommon.Address]*big.Int{
+					ethcommon.HexToAddress(u.Id): disburse.ToWei(0.1),
+				})
+			}
+		}
+	}
 	team := teamGen(u.Id)
 
 	result, err := db.Exec(`INSERT INTO users (id, avatar, referral, team) VALUES (?, ?, ?, ?)
@@ -49,6 +70,10 @@ func UpdateUser(db *sql.DB, u *api.UserArgs, teamGen func(string) util.TeamColor
 	if err != nil {
 		return nil, err
 	}
+	// Save a copy of counters in a shadow table.
+	db.Exec(`INSERT INTO users_shadow (id, avatar, referral, team) VALUES (?, ?, ?, ?)
+	         ON DUPLICATE KEY UPDATE avatar=?, referral=?, team=?`,
+		u.Id, u.Avatar, u.Referral, team, u.Avatar, u.Referral, team)
 	return &api.UserResp{
 		Team: team,
 	}, nil
@@ -102,6 +127,8 @@ func SaveReport(db *sql.DB, r api.ReportArgs) error {
 		log.Errorf("Error update kitns: %w\n", err)
 		return err
 	}
+	// Save a copy of counters in a shadow table.
+	tx.ExecContext(ctx, `UPDATE users_shadow SET kitns_daily = kitns_daily + 1 WHERE id = ?`, r.Id)
 	return tx.Commit()
 }
 

@@ -31,56 +31,6 @@ func makeWei(arg string) *big.Int {
 
 var it = beforeeach.Create(setUp, tearDown)
 
-func TestFromWei(t *testing.T) {
-	it(func() {
-		tests := []struct {
-			src      *big.Int
-			expected float32
-		}{
-			{
-				src:      makeWei("120000000000000000000"),
-				expected: 120.0,
-			}, {
-				src:      makeWei("7250000000000000000"),
-				expected: 7.25,
-			}, {
-				src:      makeWei("0"),
-				expected: 0.0,
-			},
-		}
-		for _, test := range tests {
-			if res := fromWei(test.src); res != test.expected {
-				t.Errorf("fromWei(%v): want %v, got %v", test.src, test.expected, res)
-			}
-		}
-	})
-}
-
-func TestToWei(t *testing.T) {
-	it(func() {
-		tests := []struct {
-			src      float32
-			expected *big.Int
-		}{
-			{
-				src:      10000.0,
-				expected: big.NewInt(0).Mul(big.NewInt(10000), big.NewInt(1e18)),
-			}, {
-				src:      12.345,
-				expected: big.NewInt(0).Mul(big.NewInt(12345), big.NewInt(1e15)),
-			}, {
-				src:      0.0,
-				expected: big.NewInt(0),
-			},
-		}
-		for _, test := range tests {
-			if res := toWei(test.src); res.Cmp(test.expected) != 0 {
-				t.Errorf("toWei(%v): want %v, got %v", test.src, test.expected, res)
-			}
-		}
-	})
-}
-
 func TestUpdateDisbursed(t *testing.T) {
 	it(func() {
 		tests := []struct {
@@ -100,11 +50,11 @@ func TestUpdateDisbursed(t *testing.T) {
 		}
 		for _, test := range tests {
 			mock.ExpectExec(
-				"UPDATE users	SET kitns_daily = kitns_daily - (.+), kitns_daily_ref = kitns_daily_ref - (.+), kitns_disbursed = kitns_disbursed \\+ (.+), kitns_disbursed_ref = kitns_disbursed_ref \\+ (.+) WHERE id = ?").
+				"UPDATE users	SET kitns_daily = kitns_daily - (.+), kitns_ref_daily = kitns_ref_daily - (.+), kitns_disbursed = kitns_disbursed \\+ (.+), kitns_ref_disbursed = kitns_ref_disbursed \\+ (.+) WHERE id = (.+)").
 				WithArgs(test.expectedDaily, test.expectedDailyRef, test.expectedDaily, test.expectedDailyRef, test.address.String()).
 				WillReturnResult(sqlmock.NewResult(1, 1))
 
-			d := Disburser{
+			d := DailyDisburser{
 				db: db,
 			}
 			if err := d.updateDisbursed(test.address, test.daily, test.dailyRef); err != nil {

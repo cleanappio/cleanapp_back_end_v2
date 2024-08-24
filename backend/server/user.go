@@ -1,15 +1,28 @@
 package server
 
 import (
+	"flag"
+
 	"cleanapp/common"
 	"net/http"
 
 	"cleanapp/backend/db"
 	"cleanapp/backend/server/api"
 	"cleanapp/backend/util"
+	"cleanapp/common/disburse"
 
 	"github.com/apex/log"
 	"github.com/gin-gonic/gin"
+)
+
+var (
+	ethNetworkUrlMain   = flag.String("eth_network_url_main", "", "Ethereum network address for main chain.")
+	privateKeyMain      = flag.String("eth_private_key_main", "", "The private key for connecting to the smart contract for main chain.")
+	contractAddressMain = flag.String("contract_address_main", "", "The contract address in HEX for main chain.")
+
+	ethNetworkUrlShadow   = flag.String("eth_network_url_main", "", "Ethereum network address for shadow chain.")
+	privateKeyShadow      = flag.String("eth_private_key_main", "", "The private key for connecting to the smart contract for shadow chain.")
+	contractAddressShadow = flag.String("contract_address_main", "", "The contract address in HEX for shadow chain.")
 )
 
 func UpdateUser(c *gin.Context) {
@@ -34,7 +47,26 @@ func UpdateUser(c *gin.Context) {
 	}
 	defer dbc.Close()
 
-	resp, err := db.UpdateUser(dbc, &user, util.UserIdToTeam)
+	mainDisburser, err := disburse.NewDisburser(*ethNetworkUrlMain, *privateKeyMain, *contractAddressMain)
+	if err != nil {
+		log.Errorf("Error creating main tokens disburser: %w", err)
+		c.Status(http.StatusInternalServerError) // 500
+		return
+	}
+
+	disbursers := []*disburse.Disburser{mainDisburser}
+
+	if *ethNetworkUrlShadow != "" {
+		shadowDisburser, err := disburse.NewDisburser(*ethNetworkUrlShadow, *privateKeyShadow, *contractAddressShadow)
+		if err != nil {
+			log.Errorf("Error creating main tokens disburser: %w", err)
+			c.Status(http.StatusInternalServerError) // 500
+			return
+		}
+		disbursers = append(disbursers, shadowDisburser)
+	}
+
+	resp, err := db.UpdateUser(dbc, &user, util.UserIdToTeam, disbursers)
 	if err != nil {
 		if resp != nil && resp.DupAvatar {
 			// Printing error and returning success, the duplicate info is in response
