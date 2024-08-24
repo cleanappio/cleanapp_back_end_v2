@@ -8,8 +8,13 @@
 # Vars init
 SCHEDULER_HOST=""
 ETH_NETWORK_URL_MAIN=""
+ETH_NETWORK_URL_SHADOW=""
 CONTRACT_ADDRESS_MAIN=""
-DISBURSEMENT_SCHEDULE=""
+CONTRACT_ADDRESS_SHADOW=""
+DISBURSEMENT_MAIN_SCHEDULE=""
+DISBURSEMENT_SHADOW_SCHEDULE=""
+PIPELINES_MAIN_PORT=""
+PIPELINES_SHADOW_PORT=""
 
 # Choose the environment
 PS3="Please choose the environment: "
@@ -21,24 +26,35 @@ do
         echo "Using local environment"
         SCHEDULER_HOST="localhost"
         ETH_NETWORK_URL_MAIN="https://sepolia.base.org"
+        ETH_NETWORK_URL_SHADOW="https://service.lestnet.org"
         CONTRACT_ADDRESS_MAIN="0xDc41655b749E8F2922A6E5e525Fc04a915aEaFAA"
-        DISBURSEMENT_SCHEDULE="0 20 * * *"
+        CONTRACT_ADDRESS_SHADOW=""
+        PIPELINES_MAIN_PORT="8090"
+        PIPELINES_SHADOW_PORT="8091"
         break
         ;;
     "dev")
         echo "Using dev environment"
         SCHEDULER_HOST="dev.api.cleanapp.io"
         ETH_NETWORK_URL_MAIN="https://sepolia.base.org"
+        ETH_NETWORK_URL_SHADOW="https://service.lestnet.org"
         CONTRACT_ADDRESS_MAIN="0xDc41655b749E8F2922A6E5e525Fc04a915aEaFAA"
-        DISBURSEMENT_SCHEDULE="30 19 * * *"
+        CONTRACT_ADDRESS_SHADOW=""
+        PIPELINES_MAIN_PORT="8090"
+        PIPELINES_SHADOW_PORT="8091"
         break
         ;;
     "prod")
         echo "Using prod environment"
         SCHEDULER_HOST="api.cleanapp.io"
         ETH_NETWORK_URL_MAIN="https://sepolia.base.org"  # TODO: Change to the mainnet URL after we run on the base mainnet
+        ETH_NETWORK_URL_SHADOW="https://service.lestnet.org"
         CONTRACT_ADDRESS_MAIN="0xDc41655b749E8F2922A6E5e525Fc04a915aEaFAA"  # TODO: Change the contract address to the main when we run on the base mainnet
-        DISBURSEMENT_SCHEDULE="0 20 * * *"
+        CONTRACT_ADDRESS_SHADOW=""
+        DISBURSEMENT_MAIN_SCHEDULE="0 20 * * *"
+        DISBURSEMENT_SHADOW_SCHEDULE="*/5 * * * *"
+        PIPELINES_MAIN_PORT="8090"
+        PIPELINES_SHADOW_PORT="8091"
         break
         ;;
     "quit")
@@ -61,6 +77,7 @@ MYSQL_ROOT_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_ROOT_PAS
 MYSQL_APP_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_APP_PASSWORD_${SECRET_SUFFIX}")
 MYSQL_READER_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_READER_PASSWORD_${SECRET_SUFFIX}")
 KITN_PRIVATE_KEY_MAIN=\$(gcloud secrets versions access 1 --secret="KITN_PRIVATE_KEY_${SECRET_SUFFIX}")
+KITN_PRIVATE_KEY_SHADOW=\$(gcloud secrets versions access 1 --secret="KITN_PRIVATE_KEY_${SECRET_SUFFIX}")
 
 ENV
 
@@ -105,6 +122,7 @@ services:
       - MYSQL_ROOT_PASSWORD=\${MYSQL_ROOT_PASSWORD}
       - MYSQL_APP_PASSWORD=\${MYSQL_APP_PASSWORD}
       - KITN_PRIVATE_KEY_MAIN=\${KITN_PRIVATE_KEY_MAIN}
+      - KITN_PRIVATE_KEY_SHADOW=\${KITN_PRIVATE_KEY_SHADOW}
       - ETH_NETWORK_URL_MAIN=${ETH_NETWORK_URL_MAIN}
       - CONTRACT_ADDRESS_MAIN=${CONTRACT_ADDRESS_MAIN}
     ports:
@@ -114,13 +132,29 @@ services:
     container_name: cleanapp_pipelines
     image: ${PIPELINES_DOCKER_IMAGE}
     environment:
+      - PIPELINES_PORT=${PIPELINES_MAIN_PORT}
       - MYSQL_ROOT_PASSWORD=\${MYSQL_ROOT_PASSWORD}
       - MYSQL_APP_PASSWORD=\${MYSQL_APP_PASSWORD}
       - KITN_PRIVATE_KEY=\${KITN_PRIVATE_KEY_MAIN}
       - ETH_NETWORK_URL=${ETH_NETWORK_URL_MAIN}
       - CONTRACT_ADDRESS=${CONTRACT_ADDRESS_MAIN}
+      - USERS_TABLE=users
     ports:
-      - 8090:8090
+      - ${PIPELINES_MAIN_PORT}:${PIPELINES_MAIN_PORT}
+
+  cleanapp_pipelines_shadow:
+    container_name: cleanapp_pipelines_shadow
+    image: ${PIPELINES_DOCKER_IMAGE}
+    environment:
+      - PIPELINES_PORT=${PIPELINES_SHADOW_PORT}
+      - MYSQL_ROOT_PASSWORD=\${MYSQL_ROOT_PASSWORD}
+      - MYSQL_APP_PASSWORD=\${MYSQL_APP_PASSWORD}
+      - KITN_PRIVATE_KEY=\${KITN_PRIVATE_KEY_SHADOW}
+      - ETH_NETWORK_URL=${ETH_NETWORK_URL_SHADOW}
+      - CONTRACT_ADDRESS=${CONTRACT_ADDRESS_SHADOW}
+      - USERS_TABLE=users_shadow
+    ports:
+      - ${PIPELINES_SHADOW_PORT}:${PIPELINES_SHADOW_PORT}
 
   cleanapp_db:
     container_name: cleanapp_db
@@ -203,8 +237,8 @@ docker pull ${WEB_DOCKER_IMAGE}
 # Start our docker images.
 ./up.sh
 
-# Skip scheduling for a local environment.
-if [[ "${OPT}" == "local" ]]; then
+# Skip scheduling for a local and dev environment.
+if [[ "${OPT}" != "prod" ]]; then
   exit 0
 fi
 
@@ -221,23 +255,40 @@ fi
 gcloud scheduler jobs create http ${REFERRAL_SCHEDULER_NAME} \
   --location=us-central1 \
   --schedule="0 16 * * *" \
-  --uri="http://${SCHEDULER_HOST}:8090/referrals_redeem" \
+  --uri="http://${SCHEDULER_HOST}:${PIPELINES_MAIN_PORT}/referrals_redeem" \
   --message-body="{\"version\": \"2.0\"}" \
   --headers="Content-Type=application/json"
 
 # Tokens disbursement schedule
-DISBURSEMENT_SCHEDULER_NAME="tokens-disburse-${OPT}"
-EXISTING_DISBURSEMENT_SCHEDULER=$(gcloud scheduler jobs list --location=us-central1 | grep ${DISBURSEMENT_SCHEDULER_NAME} | awk '{print $1}')
+DISBURSEMENT_MAIN_SCHEDULER_NAME="tokens-disburse-${OPT}"
+EXISTING_DISBURSEMENT_MAIN_SCHEDULER=$(gcloud scheduler jobs list --location=us-central1 | grep ${DISBURSEMENT_MAIN_SCHEDULER_NAME} | awk '{print $1}')
 
-if [[ "${DISBURSEMENT_SCHEDULER_NAME}" == "${EXISTING_DISBURSEMENT_SCHEDULER}" ]]; then
-  gcloud scheduler jobs delete ${DISBURSEMENT_SCHEDULER_NAME} \
+if [[ "${DISBURSEMENT_MAIN_SCHEDULER_NAME}" == "${EXISTING_DISBURSEMENT_MAIN_SCHEDULER}" ]]; then
+  gcloud scheduler jobs delete ${DISBURSEMENT_MAIN_SCHEDULER_NAME} \
     --location=us-central1 \
     --quiet
 fi
 
-gcloud scheduler jobs create http ${DISBURSEMENT_SCHEDULER_NAME} \
+gcloud scheduler jobs create http ${DISBURSEMENT_MAIN_SCHEDULER_NAME} \
   --location=us-central1 \
-  --schedule="${DISBURSEMENT_SCHEDULE}" \
-  --uri="http://${SCHEDULER_HOST}:8090/tokens_disburse" \
+  --schedule="${DISBURSEMENT_MAIN_SCHEDULE}" \
+  --uri="http://${SCHEDULER_HOST}:${PIPELINES_MAIN_PORT}/tokens_disburse" \
+  --message-body="{\"version\": \"2.0\"}" \
+  --headers="Content-Type=application/json"
+
+# Shadow tokens disbursement schedule
+DISBURSEMENT_SHADOW_SCHEDULER_NAME="tokens-disburse-shadow-${OPT}"
+EXISTING_DISBURSEMENT_SHADOW_SCHEDULER=$(gcloud scheduler jobs list --location=us-central1 | grep ${DISBURSEMENT_SHADOW_SCHEDULER_NAME} | awk '{print $1}')
+
+if [[ "${DISBURSEMENT_SHADOW_SCHEDULER_NAME}" == "${EXISTING_DISBURSEMENT_SHADOW_SCHEDULER}" ]]; then
+  gcloud scheduler jobs delete ${DISBURSEMENT_SHADOW_SCHEDULER_NAME} \
+    --location=us-central1 \
+    --quiet
+fi
+
+gcloud scheduler jobs create http ${DISBURSEMENT_SHADOW_SCHEDULER_NAME} \
+  --location=us-central1 \
+  --schedule="${DISBURSEMENT_SHADOW_SCHEDULE}" \
+  --uri="http://${SCHEDULER_HOST}:${PIPELINES_SHADOW_PORT}/tokens_disburse" \
   --message-body="{\"version\": \"2.0\"}" \
   --headers="Content-Type=application/json"

@@ -9,9 +9,9 @@ import (
 )
 
 const (
-	EndPointHelp             = "/help"
-	EndPointReferralsRedeem  = "/referrals_redeem"
-	EndPointTokensDisburse = "/tokens_disburse"
+	EndPointHelp            = "/help"
+	EndPointReferralsRedeem = "/referrals_redeem"
+	EndPointTokensDisburse  = "/tokens_disburse"
 )
 
 var (
