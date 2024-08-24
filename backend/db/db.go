@@ -42,7 +42,7 @@ func UpdateUser(db *sql.DB, u *api.UserArgs, teamGen func(string) util.TeamColor
 			}
 		}
 	}
-	var initialKitn float32 = 0.0
+	var initialKitn = 0
 	{
 		idRows, err := db.Query("SELECT id FROM users WHERE id = ?", u.Id)
 		if err != nil {
@@ -52,11 +52,11 @@ func UpdateUser(db *sql.DB, u *api.UserArgs, teamGen func(string) util.TeamColor
 		defer idRows.Close()
 
 		if !idRows.Next() {
-			initialKitn = 0.1
-			// No existing user yet, it's a user creation. Sending 0.1 KITN to the user.
+			initialKitn = 1
+			// No existing user yet, it's a user creation. Sending 1 KITN to the user.
 			for _, disburser := range disbursers {
 				disburser.DisburseBatch(map[ethcommon.Address]*big.Int{
-					ethcommon.HexToAddress(u.Id): disburse.ToWei(initialKitn),
+					ethcommon.HexToAddress(u.Id): disburse.ToWei(float32(initialKitn)),
 				})
 			}
 		}
@@ -73,9 +73,10 @@ func UpdateUser(db *sql.DB, u *api.UserArgs, teamGen func(string) util.TeamColor
 		return nil, err
 	}
 	// Save a copy of counters in a shadow table.
-	db.Exec(`INSERT INTO users_shadow (id, avatar, referral, team, kitns_disbursed) VALUES (?, ?, ?, ?)
+	result, err = db.Exec(`INSERT INTO users_shadow (id, avatar, referral, team, kitns_disbursed) VALUES (?, ?, ?, ?)
 	         ON DUPLICATE KEY UPDATE avatar=?, referral=?, team=?`,
 		u.Id, u.Avatar, u.Referral, team, initialKitn, u.Avatar, u.Referral, team)
+	common.LogResult("update shadow user", result, err)
 	return &api.UserResp{
 		Team: team,
 	}, nil
