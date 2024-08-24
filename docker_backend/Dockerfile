@@ -6,7 +6,15 @@ RUN DEBIAN_FRONTEND=noninteractive \
    && rm -rf /var/lib/apt/lists/*
  
 USER root
+
+RUN apt-get update
+RUN apt-get install -y ca-certificates
+
 COPY ./service .
+
+# Copy certificates to connect to the ethereum network
+COPY certificates/* /usr/local/share/ca-certificates/
+RUN update-ca-certificates
 
 # RUN useradd -ms /bin/bash cleanapper
 # USER cleanapper
