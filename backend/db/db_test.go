@@ -9,6 +9,7 @@ import (
 
 	"cleanapp/backend/server/api"
 	"cleanapp/backend/util"
+	"cleanapp/common/disburse"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
 	"github.com/jknair0/beforeeach"
@@ -112,18 +113,27 @@ func TestUpdateOrCreateUser(t *testing.T) {
 				WillReturnRows(
 					sqlmock.NewRows(recordColumns).
 						FromCSVString(strings.Join(testCase.retList, "\n")))
+			mock.ExpectQuery("SELECT id FROM users WHERE id = (.+)").
+				WithArgs(testCase.id).
+				WillReturnRows(
+					sqlmock.NewRows(recordColumns).
+						FromCSVString(strings.Join(testCase.retList, "\n")))
 			if testCase.execExpected {
 				mock.ExpectExec(
 					"INSERT INTO users \\(id, avatar, referral, team\\) VALUES \\((.+), (.+), (.+), (.+)\\) ON DUPLICATE KEY UPDATE avatar=(.+), referral=(.+), team=(.+)").
 					WithArgs(testCase.id, testCase.avatar, testCase.referral, testCase.team, testCase.avatar, testCase.referral, testCase.team).
 					WillReturnResult(sqlmock.NewResult(1, 1))
-			}
+				mock.ExpectExec(
+					"INSERT INTO users_shadow \\(id, avatar, referral, team\\) VALUES \\((.+), (.+), (.+), (.+)\\) ON DUPLICATE KEY UPDATE avatar=(.+), referral=(.+), team=(.+)").
+					WithArgs(testCase.id, testCase.avatar, testCase.referral, testCase.team, testCase.avatar, testCase.referral, testCase.team).
+					WillReturnResult(sqlmock.NewResult(1, 1))
+				}
 			resp, err := UpdateUser(db, &api.UserArgs{
 				Version:  testCase.version,
 				Id:       testCase.id,
 				Avatar:   testCase.avatar,
 				Referral: testCase.referral,
-			}, testTeamGen)
+			}, testTeamGen, []*disburse.Disburser{})
 			if testCase.expectError != (err != nil) {
 				t.Errorf("%s, updateUser: expected error: %v, got error: %v", testCase.name, testCase.expectError, err)
 			}
@@ -340,6 +350,9 @@ func TestSaveReport(t *testing.T) {
 					WillReturnError(fmt.Errorf("update user error"))
 			} else if testCase.expectError < ERROR_UPDATE_USER {
 				mock.ExpectExec("UPDATE users SET kitns_daily \\= kitns_daily \\+ 1 WHERE id = (.+)").
+					WithArgs(testCase.r.Id).
+					WillReturnResult(sqlmock.NewResult(1, 1))
+				mock.ExpectExec("UPDATE users_shadow SET kitns_daily \\= kitns_daily \\+ 1 WHERE id = (.+)").
 					WithArgs(testCase.r.Id).
 					WillReturnResult(sqlmock.NewResult(1, 1))
 				mock.ExpectCommit()

@@ -5,7 +5,7 @@ CREATE DATABASE IF NOT EXISTS cleanapp;
 USE cleanapp;
 SHOW DATABASES;
 
--- Create the report table.
+-- Create the users table.
 CREATE TABLE IF NOT EXISTS users (
   id VARCHAR(255),
   avatar VARCHAR(255),
@@ -25,6 +25,27 @@ CREATE TABLE IF NOT EXISTS users (
 SHOW TABLES;
 DESCRIBE TABLE users;
 SHOW COLUMNS FROM users;
+
+-- Create the users shadow table.
+CREATE TABLE IF NOT EXISTS users_shadow (
+  id VARCHAR(255),
+  avatar VARCHAR(255),
+  team INT, -- 0 UNKNOWN, 1 BLUE, 2 GREEN, see map.go
+  privacy varchar(255),
+  agree_toc varchar(255),
+  referral VARCHAR(32),
+  kitns_daily INT DEFAULT 0,
+  kitns_disbursed INT DEFAULT 0,
+  kitns_ref_daily DECIMAL(18, 6) DEFAULT 0.0,
+  kitns_ref_disbursed DECIMAL(18, 6) DEFAULT 0.0,
+  kitns_ref_redeemed INT DEFAULT 0,
+  ts TIMESTAMP default current_timestamp,
+  PRIMARY KEY (id),
+  UNIQUE INDEX avatar_idx (avatar)
+);
+SHOW TABLES;
+DESCRIBE TABLE users_shadow;
+SHOW COLUMNS FROM users_shadow;
 
 -- Create the report table.
 CREATE TABLE IF NOT EXISTS reports(

@@ -7,8 +7,8 @@
 
 # Vars init
 SCHEDULER_HOST=""
-ETH_NETWORK_URL=""
-CONTRACT_ADDRESS=""
+ETH_NETWORK_URL_MAIN=""
+CONTRACT_ADDRESS_MAIN=""
 DISBURSEMENT_SCHEDULE=""
 
 # Choose the environment
@@ -20,24 +20,24 @@ do
     "local")
         echo "Using local environment"
         SCHEDULER_HOST="localhost"
-        ETH_NETWORK_URL="https://sepolia.base.org"
-        CONTRACT_ADDRESS="0xDc41655b749E8F2922A6E5e525Fc04a915aEaFAA"
+        ETH_NETWORK_URL_MAIN="https://sepolia.base.org"
+        CONTRACT_ADDRESS_MAIN="0xDc41655b749E8F2922A6E5e525Fc04a915aEaFAA"
         DISBURSEMENT_SCHEDULE="0 20 * * *"
         break
         ;;
     "dev")
         echo "Using dev environment"
         SCHEDULER_HOST="dev.api.cleanapp.io"
-        ETH_NETWORK_URL="https://sepolia.base.org"
-        CONTRACT_ADDRESS="0xDc41655b749E8F2922A6E5e525Fc04a915aEaFAA"
+        ETH_NETWORK_URL_MAIN="https://sepolia.base.org"
+        CONTRACT_ADDRESS_MAIN="0xDc41655b749E8F2922A6E5e525Fc04a915aEaFAA"
         DISBURSEMENT_SCHEDULE="30 19 * * *"
         break
         ;;
     "prod")
         echo "Using prod environment"
         SCHEDULER_HOST="api.cleanapp.io"
-        ETH_NETWORK_URL="https://sepolia.base.org"  # TODO: Change to the mainnet URL after we run on the base mainnet
-        CONTRACT_ADDRESS="0xDc41655b749E8F2922A6E5e525Fc04a915aEaFAA"  # TODO: Change the contract address to the main when we run on the base mainnet
+        ETH_NETWORK_URL_MAIN="https://sepolia.base.org"  # TODO: Change to the mainnet URL after we run on the base mainnet
+        CONTRACT_ADDRESS_MAIN="0xDc41655b749E8F2922A6E5e525Fc04a915aEaFAA"  # TODO: Change the contract address to the main when we run on the base mainnet
         DISBURSEMENT_SCHEDULE="0 20 * * *"
         break
         ;;
@@ -60,7 +60,7 @@ cat >.env << ENV
 MYSQL_ROOT_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_ROOT_PASSWORD_${SECRET_SUFFIX}")
 MYSQL_APP_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_APP_PASSWORD_${SECRET_SUFFIX}")
 MYSQL_READER_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_READER_PASSWORD_${SECRET_SUFFIX}")
-KITN_PRIVATE_KEY=\$(gcloud secrets versions access 1 --secret="KITN_PRIVATE_KEY_${SECRET_SUFFIX}")
+KITN_PRIVATE_KEY_MAIN=\$(gcloud secrets versions access 1 --secret="KITN_PRIVATE_KEY_${SECRET_SUFFIX}")
 
 ENV
 
@@ -104,6 +104,9 @@ services:
     environment:
       - MYSQL_ROOT_PASSWORD=\${MYSQL_ROOT_PASSWORD}
       - MYSQL_APP_PASSWORD=\${MYSQL_APP_PASSWORD}
+      - KITN_PRIVATE_KEY_MAIN=\${KITN_PRIVATE_KEY_MAIN}
+      - ETH_NETWORK_URL_MAIN=${ETH_NETWORK_URL_MAIN}
+      - CONTRACT_ADDRESS_MAIN=${CONTRACT_ADDRESS_MAIN}
     ports:
       - 8080:8080
 
@@ -113,9 +116,9 @@ services:
     environment:
       - MYSQL_ROOT_PASSWORD=\${MYSQL_ROOT_PASSWORD}
       - MYSQL_APP_PASSWORD=\${MYSQL_APP_PASSWORD}
-      - KITN_PRIVATE_KEY=\${KITN_PRIVATE_KEY}
-      - ETH_NETWORK_URL=${ETH_NETWORK_URL}
-      - CONTRACT_ADDRESS=${CONTRACT_ADDRESS}
+      - KITN_PRIVATE_KEY=\${KITN_PRIVATE_KEY_MAIN}
+      - ETH_NETWORK_URL=${ETH_NETWORK_URL_MAIN}
+      - CONTRACT_ADDRESS=${CONTRACT_ADDRESS_MAIN}
     ports:
       - 8090:8090
 
