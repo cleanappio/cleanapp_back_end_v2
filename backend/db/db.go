@@ -55,9 +55,12 @@ func UpdateUser(db *sql.DB, u *api.UserArgs, teamGen func(string) util.TeamColor
 			initialKitn = 1
 			// No existing user yet, it's a user creation. Sending 1 KITN to the user.
 			for _, disburser := range disbursers {
-				disburser.DisburseBatch(map[ethcommon.Address]*big.Int{
+				_, err := disburser.DisburseBatch(map[ethcommon.Address]*big.Int{
 					ethcommon.HexToAddress(u.Id): disburse.ToWei(float32(initialKitn)),
 				})
+				if err != nil {
+					log.Errorf("Initial token disbursement failed, %w", err)
+				}
 			}
 		}
 	}
