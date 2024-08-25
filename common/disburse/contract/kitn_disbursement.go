@@ -38,7 +38,7 @@ type KitnDisbursementCoinsSpendResult struct {
 
 // KitnDisbursementMetaData contains all meta data concerning the KitnDisbursement contract.
 var KitnDisbursementMetaData = &bind.MetaData{
-	ABI: "[{\"inputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"constructor\"},{\"anonymous\":false,\"inputs\":[{\"components\":[{\"internalType\":\"address\",\"name\":\"receiver\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"amount\",\"type\":\"uint256\"},{\"internalType\":\"bool\",\"name\":\"result\",\"type\":\"bool\"}],\"indexed\":false,\"internalType\":\"structKitnDisbursement.CoinsSpendResult[]\",\"name\":\"results\",\"type\":\"tuple[]\"}],\"name\":\"CoinsSpent\",\"type\":\"event\"},{\"inputs\":[],\"name\":\"KITN_ADDRESS\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"getKitnBalance\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"getWalletBalance\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"kitnToken\",\"outputs\":[{\"internalType\":\"contractIERC20\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"owner\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address[]\",\"name\":\"_receivers\",\"type\":\"address[]\"},{\"internalType\":\"uint256[]\",\"name\":\"_amounts\",\"type\":\"uint256[]\"}],\"name\":\"spendCoins\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"_amount\",\"type\":\"uint256\"}],\"name\":\"transferKitnToMe\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"stateMutability\":\"payable\",\"type\":\"receive\"}]",
+	ABI: "[{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_kitnAddress\",\"type\":\"address\"}],\"stateMutability\":\"nonpayable\",\"type\":\"constructor\"},{\"anonymous\":false,\"inputs\":[{\"components\":[{\"internalType\":\"address\",\"name\":\"receiver\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"amount\",\"type\":\"uint256\"},{\"internalType\":\"bool\",\"name\":\"result\",\"type\":\"bool\"}],\"indexed\":false,\"internalType\":\"structKitnDisbursement.CoinsSpendResult[]\",\"name\":\"results\",\"type\":\"tuple[]\"}],\"name\":\"CoinsSpent\",\"type\":\"event\"},{\"inputs\":[],\"name\":\"getKitnBalance\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"getWalletBalance\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"kitnToken\",\"outputs\":[{\"internalType\":\"contractIERC20\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"owner\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address[]\",\"name\":\"_receivers\",\"type\":\"address[]\"},{\"internalType\":\"uint256[]\",\"name\":\"_amounts\",\"type\":\"uint256[]\"}],\"name\":\"spendCoins\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"_amount\",\"type\":\"uint256\"}],\"name\":\"transferKitnToMe\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"stateMutability\":\"payable\",\"type\":\"receive\"}]",
 }
 
 // KitnDisbursementABI is the input ABI used to generate the binding from.
@@ -185,37 +185,6 @@ func (_KitnDisbursement *KitnDisbursementTransactorRaw) Transfer(opts *bind.Tran
 // Transact invokes the (paid) contract method with params as input values.
 func (_KitnDisbursement *KitnDisbursementTransactorRaw) Transact(opts *bind.TransactOpts, method string, params ...interface{}) (*types.Transaction, error) {
 	return _KitnDisbursement.Contract.contract.Transact(opts, method, params...)
-}
-
-// KITNADDRESS is a free data retrieval call binding the contract method 0x4328ec1d.
-//
-// Solidity: function KITN_ADDRESS() view returns(address)
-func (_KitnDisbursement *KitnDisbursementCaller) KITNADDRESS(opts *bind.CallOpts) (common.Address, error) {
-	var out []interface{}
-	err := _KitnDisbursement.contract.Call(opts, &out, "KITN_ADDRESS")
-
-	if err != nil {
-		return *new(common.Address), err
-	}
-
-	out0 := *abi.ConvertType(out[0], new(common.Address)).(*common.Address)
-
-	return out0, err
-
-}
-
-// KITNADDRESS is a free data retrieval call binding the contract method 0x4328ec1d.
-//
-// Solidity: function KITN_ADDRESS() view returns(address)
-func (_KitnDisbursement *KitnDisbursementSession) KITNADDRESS() (common.Address, error) {
-	return _KitnDisbursement.Contract.KITNADDRESS(&_KitnDisbursement.CallOpts)
-}
-
-// KITNADDRESS is a free data retrieval call binding the contract method 0x4328ec1d.
-//
-// Solidity: function KITN_ADDRESS() view returns(address)
-func (_KitnDisbursement *KitnDisbursementCallerSession) KITNADDRESS() (common.Address, error) {
-	return _KitnDisbursement.Contract.KITNADDRESS(&_KitnDisbursement.CallOpts)
 }
 
 // GetKitnBalance is a free data retrieval call binding the contract method 0x32ac6a09.
