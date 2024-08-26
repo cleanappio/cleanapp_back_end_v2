@@ -134,7 +134,6 @@ services:
     container_name: cleanapp_pipelines
     image: ${PIPELINES_DOCKER_IMAGE}
     environment:
-      - PIPELINES_PORT=${PIPELINES_MAIN_PORT}
       - MYSQL_ROOT_PASSWORD=\${MYSQL_ROOT_PASSWORD}
       - MYSQL_APP_PASSWORD=\${MYSQL_APP_PASSWORD}
       - KITN_PRIVATE_KEY=\${KITN_PRIVATE_KEY_MAIN}
@@ -148,7 +147,6 @@ services:
     container_name: cleanapp_pipelines_shadow
     image: ${PIPELINES_DOCKER_IMAGE}
     environment:
-      - PIPELINES_PORT=${PIPELINES_SHADOW_PORT}
       - MYSQL_ROOT_PASSWORD=\${MYSQL_ROOT_PASSWORD}
       - MYSQL_APP_PASSWORD=\${MYSQL_APP_PASSWORD}
       - KITN_PRIVATE_KEY=\${KITN_PRIVATE_KEY_SHADOW}
