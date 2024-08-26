@@ -21,4 +21,4 @@ RUN update-ca-certificates
 
 EXPOSE 8090/tcp
 EXPOSE 8091/tcp
-CMD "./pipelines" "--mysql_password=${MYSQL_APP_PASSWORD}" "--mysql_host=cleanapp_db" "--eth_network_url=${ETH_NETWORK_URL}" "--eth_private_key=${KITN_PRIVATE_KEY}" "--contract_address=${CONTRACT_ADDRESS}" "--users_table=${USERS_TABLE}"
+CMD "./pipelines" "--port=${PIPELINES_PORT}" "--mysql_password=${MYSQL_APP_PASSWORD}" "--mysql_host=cleanapp_db" "--eth_network_url=${ETH_NETWORK_URL}" "--eth_private_key=${KITN_PRIVATE_KEY}" "--contract_address=${CONTRACT_ADDRESS}" "--users_table=${USERS_TABLE}"
