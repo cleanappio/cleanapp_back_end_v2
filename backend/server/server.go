@@ -22,6 +22,11 @@ const (
 	EndPointWriteReferral     = "/write_referral"
 	EndPointGenerateReferral  = "/generate_referral"
 	EndPointGetBlockChainLink = "/get_blockchain_link"
+	EndPointGetActions        = "/get_actions"
+	EndPointCreateAction      = "/create_action"
+	EndPointUpdateAction      = "/update_action"
+	EndPointDeleteAction      = "/delete_action"
+	EndPointUpdateUserAction  = "/update_user_action"
 )
 
 var (
@@ -32,7 +37,7 @@ func StartService() {
 	log.Info("Starting the service...")
 	router := gin.Default()
 	router.GET(EndPointHelp, Help)
-	router.POST(EndPointUser, UpdateUser)
+	router.POST(EndPointUser, CreateOrUpdateUser)
 	router.POST(EndPointPrivacyAndTOC, UpdatePrivacyAndTOC)
 	router.POST(EndPointReport, Report)
 	router.POST(EndPointReadReport, ReadReport)
@@ -44,6 +49,11 @@ func StartService() {
 	router.POST(EndPointWriteReferral, WriteReferral)
 	router.POST(EndPointGenerateReferral, GenerateReferral)
 	router.POST(EndPointGetBlockChainLink, GetBlockchainLink)
+	router.POST(EndPointCreateAction, CreateAction)
+	router.POST(EndPointUpdateAction, UpdateAction)
+	router.POST(EndPointDeleteAction, DeleteAction)
+	router.GET(EndPointGetActions, GetActions)
+	router.POST(EndPointUpdateUserAction, UpdateUserAction)
 
 	router.Run(fmt.Sprintf(":%d", *serverPort))
 	log.Info("Finished the service. Should not ever being seen.")

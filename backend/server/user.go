@@ -25,7 +25,7 @@ var (
 	contractAddressShadow = flag.String("contract_address_shadow", "", "The contract address in HEX for shadow chain.")
 )
 
-func UpdateUser(c *gin.Context) {
+func CreateOrUpdateUser(c *gin.Context) {
 	var user api.UserArgs
 
 	// Get the arguments.
@@ -66,7 +66,7 @@ func UpdateUser(c *gin.Context) {
 		disbursers = append(disbursers, shadowDisburser)
 	}
 
-	resp, err := db.UpdateUser(dbc, &user, util.UserIdToTeam, disbursers)
+	resp, err := db.CreateOrUpdateUser(dbc, &user, util.UserIdToTeam, disbursers)
 	if err != nil {
 		if resp != nil && resp.DupAvatar {
 			// Printing error and returning success, the duplicate info is in response

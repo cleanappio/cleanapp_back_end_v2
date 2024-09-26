@@ -17,7 +17,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
-func UpdateUser(db *sql.DB, u *api.UserArgs, teamGen func(string) util.TeamColor, disbursers []*disburse.Disburser) (*api.UserResp, error) {
+func CreateOrUpdateUser(db *sql.DB, u *api.UserArgs, teamGen func(string) util.TeamColor, disbursers []*disburse.Disburser) (*api.UserResp, error) {
 	{
 		avRows, err := db.Query("SELECT id FROM users WHERE avatar = ?", u.Avatar)
 		if err != nil {
@@ -108,6 +108,14 @@ func UpdatePrivacyAndTOC(db *sql.DB, args *api.PrivacyAndTOCArgs) error {
 	return fmt.Errorf("either privacy or agree_toc should be specified")
 }
 
+func UpdateUserAction(db *sql.DB, args *api.UserActionArgs) error {
+	result, err := db.Exec(`UPDATE users
+		SET action_id = ?
+		WHERE id = ?`, args.ActionId, args.Id)
+	common.LogResult("UpdateUserAction", result, err)
+	return err
+}
+
 func SaveReport(db *sql.DB, r api.ReportArgs) error {
 	ctx := context.Background()
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
@@ -118,9 +126,9 @@ func SaveReport(db *sql.DB, r api.ReportArgs) error {
 	defer tx.Rollback()
 
 	result, err := tx.ExecContext(ctx, `INSERT
-	  INTO reports (id, team, latitude, longitude, x, y, image)
-	  VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		r.Id, util.UserIdToTeam(r.Id), r.Latitude, r.Longitue, r.X, r.Y, r.Image)
+	  INTO reports (id, team, action_id, latitude, longitude, x, y, image)
+	  VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.Id, util.UserIdToTeam(r.Id), r.ActionId, r.Latitude, r.Longitue, r.X, r.Y, r.Image)
 	common.LogResult("saveReport", result, err)
 	if err != nil {
 		log.Errorf("Error inserting report: %w", err)
@@ -348,7 +356,7 @@ func GetTopScores(db *sql.DB, args *api.BaseArgs, topCount int) (*api.TopScoresR
 
 func ReadReport(db *sql.DB, args *api.ReadReportArgs) (*api.ReadReportResponse, error) {
 	rows, err := db.Query(`SELECT
-		r.id, r.image, u.avatar, u.privacy
+		r.id, r.action_id, r.image, u.avatar, u.privacy
 		FROM reports AS r
 		JOIN users AS u
 		ON r.id = u.id
@@ -362,10 +370,11 @@ func ReadReport(db *sql.DB, args *api.ReadReportArgs) (*api.ReadReportResponse, 
 	const shareData = "share_data_live"
 
 	var (
-		id      string
-		image   []byte
-		avatar  string
-		privacy string
+		id       string
+		actionId sql.NullString
+		image    []byte
+		avatar   string
+		privacy  string
 	)
 
 	// Take only the first row. Ignore others as duplicates are not expected.
@@ -373,13 +382,14 @@ func ReadReport(db *sql.DB, args *api.ReadReportArgs) (*api.ReadReportResponse, 
 		return nil, fmt.Errorf("report %d wasn't found", args.Seq)
 	}
 
-	if err := rows.Scan(&id, &image, &avatar, &privacy); err != nil {
+	if err := rows.Scan(&id, &actionId, &image, &avatar, &privacy); err != nil {
 		return nil, err
 	}
 
 	ret := &api.ReadReportResponse{
-		Id:    id,
-		Image: image,
+		Id:       id,
+		ActionId: actionId.String,
+		Image:    image,
 	}
 
 	if privacy == shareData || id == args.Id {
@@ -483,5 +493,100 @@ func CleanupReferral(db *sql.DB, ref string) error {
 		log.Errorf("Error cleaning up referral, %w", err)
 		return err
 	}
+	return nil
+}
+
+func GetActions(db *sql.DB) (*api.ActionsResponse, error) {
+	rows, err := db.Query(`SELECT id, name, is_active, expiration_date
+		FROM actions
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	r := &api.ActionsResponse{
+		Records: make([]api.ActionRecord, 0),
+	}
+	for rows.Next() {
+		var (
+			id        string
+			name      string
+			is_active int32
+			expdate   string
+		)
+		if err := rows.Scan(&id, &name, &is_active, &expdate); err != nil {
+			log.Errorf("Cannot scan a row: %w", err)
+			continue
+		}
+		r.Records = append(r.Records, api.ActionRecord{
+			Id:             id,
+			Name:           name,
+			IsActive:       is_active != 0,
+			ExpirationDate: expdate,
+		})
+	}
+	return r, nil
+}
+
+func CreateAction(db *sql.DB, req *api.ActionModifyArgs) (*api.ActionModifyResponse, error) {
+	isActiveInt := 0
+	if req.Record.IsActive {
+		isActiveInt = 1
+	}
+
+	result, err := db.Exec(`INSERT INTO actions(id, name, is_active, expiration_date)
+		VALUES(?, ?, ?, ?)
+	`, req.Record.Id, req.Record.Name, isActiveInt, req.Record.ExpirationDate)
+	common.LogResult("Create Action", result, err)
+
+	if err != nil {
+		log.Errorf("Error creating action with args %v: %w", req, err)
+		return nil, err
+	}
+	return &api.ActionModifyResponse{
+		Record: req.Record,
+	}, nil
+}
+
+func UpdateAction(db *sql.DB, req *api.ActionModifyArgs) (*api.ActionModifyResponse, error) {
+	isActiveInt := 0
+	if req.Record.IsActive {
+		isActiveInt = 1
+	}
+
+	result, err := db.Exec(`UPDATE actions
+		SET name = ?, is_active = ?, expiration_date = ?
+		WHERE id = ?
+	`, req.Record.Name, isActiveInt, req.Record.ExpirationDate, req.Record.Id)
+	common.LogResult("Update Action", result, err)
+
+	if err != nil {
+		log.Errorf("Error updating action with args %v: %w", req, err)
+		return nil, err
+	}
+
+	if rows, _ := result.RowsAffected(); rows != 1 {
+		return nil, fmt.Errorf("expected to update one action, %d were updated", rows)
+	}
+
+	return &api.ActionModifyResponse{
+		Record: req.Record,
+	}, nil
+}
+
+func DeleteAction(db *sql.DB, req *api.ActionModifyArgs) error {
+	result, err := db.Exec("DELETE FROM actions WHERE id = ?", req.Record.Id)
+	common.LogResult("Delete Action", result, err)
+
+	if err != nil {
+		log.Errorf("Error deleting action, %w", err)
+		return err
+	}
+
+	if rows, _ := result.RowsAffected(); rows != 1 {
+		log.Errorf("Expected to delete one action, %d were deleted", rows)
+	}
+
 	return nil
 }

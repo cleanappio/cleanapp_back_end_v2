@@ -18,9 +18,11 @@ CREATE TABLE IF NOT EXISTS users (
   kitns_ref_daily DECIMAL(18, 6) DEFAULT 0.0,
   kitns_ref_disbursed DECIMAL(18, 6) DEFAULT 0.0,
   kitns_ref_redeemed INT DEFAULT 0,
+  action_id VARCHAR(32),
   ts TIMESTAMP default current_timestamp,
   PRIMARY KEY (id),
-  UNIQUE INDEX avatar_idx (avatar)
+  UNIQUE INDEX avatar_idx (avatar),
+  INDEX action_idx (action_id)
 );
 SHOW TABLES;
 DESCRIBE TABLE users;
@@ -39,9 +41,11 @@ CREATE TABLE IF NOT EXISTS users_shadow (
   kitns_ref_daily DECIMAL(18, 6) DEFAULT 0.0,
   kitns_ref_disbursed DECIMAL(18, 6) DEFAULT 0.0,
   kitns_ref_redeemed INT DEFAULT 0,
+  action_id VARCHAR(32),
   ts TIMESTAMP default current_timestamp,
   PRIMARY KEY (id),
-  UNIQUE INDEX avatar_idx (avatar)
+  UNIQUE INDEX avatar_idx (avatar),
+  INDEX action_idx (action_id)
 );
 SHOW TABLES;
 DESCRIBE TABLE users_shadow;
@@ -58,7 +62,9 @@ CREATE TABLE IF NOT EXISTS reports(
   x FLOAT, # 0.0..1.0
   y FLOAT, # 0.0..1.0
   image LONGBLOB NOT NULL,
-  PRIMARY KEY (seq)
+  action_id VARCHAR(32),
+  PRIMARY KEY (seq),
+  INDEX action_idx (action_id)
 );
 SHOW TABLES;
 DESCRIBE TABLE reports;
@@ -82,6 +88,17 @@ CREATE TABLE IF NOT EXISTS users_refcodes(
 SHOW TABLES;
 DESCRIBE TABLE users_refcodes;
 SHOW COLUMNS FROM users_refcodes;
+
+CREATE TABLE IF NOT EXISTS actions(
+  id CHAR(32) NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  is_active INT NOT NULL DEFAULT 0,
+  expiration_date DATE,
+  PRIMARY KEY (id)
+);
+SHOW TABLES;
+DESCRIBE TABLE actions;
+SHOW COLUMNS FROM actions;
 
 -- Create the user.
 -- 1. Remove '%' user

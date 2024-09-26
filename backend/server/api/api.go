@@ -4,9 +4,33 @@ import (
 	"cleanapp/backend/util"
 )
 
+type ActionModifyArgs struct {
+	Version string       `json:"version"` // Must be 2.0
+	Record  ActionRecord `json:"record"`
+}
+
+type ActionModifyResponse struct {
+	Record ActionRecord `json:"record"`
+}
+
+type ActionRecord struct {
+	Id             string `json:"id"`
+	Name           string `json:"name"`
+	IsActive       bool   `json:"is_active"`
+	ExpirationDate string `json:"expiration_date"`
+}
+
+type ActionsResponse struct {
+	Records []ActionRecord `json:"records"`
+}
+
 type BaseArgs struct {
 	Version string `json:"version"` // Must be "2.0"
 	Id      string `json:"id"`      // public key.
+}
+
+type BlockchainLinkResponse struct {
+	BlockchainLink string `json:"blockchain_link"`
 }
 
 type MapArgs struct {
@@ -57,10 +81,11 @@ type ReadReportArgs struct {
 }
 
 type ReadReportResponse struct {
-	Id     string `json:"id"`
-	Avatar string `json:"avatar"`
-	Own    bool   `json:"own"`
-	Image  []byte `json:"image"`
+	Id       string `json:"id"`
+	Avatar   string `json:"avatar"`
+	Own      bool   `json:"own"`
+	ActionId string `json:"action_id"`
+	Image    []byte `json:"image"`
 }
 
 type ReferralQuery struct {
@@ -93,6 +118,7 @@ type ReportArgs struct {
 	X        float64 `json:"x"` // 0.0..1.0
 	Y        float64 `json:"y"` // 0.0..1.0
 	Image    []byte  `json:"image"`
+	ActionId string  `json:"action_id"`
 }
 
 type StatsArgs struct {
@@ -120,6 +146,12 @@ type TopScoresResponse struct {
 	Records []TopScoresRecord `json:"records"`
 }
 
+type UserActionArgs struct {
+	Version  string `json:"version"` // Must be "2.0"
+	Id       string `json:"id"`      // public key.
+	ActionId string `json:"action_id"`
+}
+
 type UserArgs struct {
 	Version  string `json:"version"` // Must be "2.0"
 	Id       string `json:"id"`      // public key.
@@ -130,8 +162,4 @@ type UserArgs struct {
 type UserResp struct {
 	Team      util.TeamColor `json:"team"` // Blue or Green
 	DupAvatar bool           `json:"dup_avatar"`
-}
-
-type BlockchainLinkResponse struct {
-	BlockchainLink string `json:"blockchain_link"`
 }

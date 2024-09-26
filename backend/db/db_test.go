@@ -41,12 +41,12 @@ func testTeamGen(string) util.TeamColor {
 func TestUpdateOrCreateUser(t *testing.T) {
 	it(func() {
 		testCases := []struct {
-			name     string
-			version  string
-			id       string
-			avatar   string
-			referral string
-			team     int
+			name        string
+			version     string
+			id          string
+			avatar      string
+			referral    string
+			team        int
 			initialKitn int
 
 			retList      []string
@@ -56,12 +56,12 @@ func TestUpdateOrCreateUser(t *testing.T) {
 			expectError    bool
 		}{
 			{
-				name:     "New user",
-				version:  "2.0",
-				id:       "0x12345678",
-				avatar:   "user1",
-				referral: "abcdef",
-				team:     util.Blue,
+				name:        "New user",
+				version:     "2.0",
+				id:          "0x12345678",
+				avatar:      "user1",
+				referral:    "abcdef",
+				team:        util.Blue,
 				initialKitn: 1,
 
 				retList:      []string{},
@@ -73,12 +73,12 @@ func TestUpdateOrCreateUser(t *testing.T) {
 				},
 				expectError: false,
 			}, {
-				name:     "Existing user",
-				version:  "2.0",
-				id:       "0x123456768",
-				avatar:   "user1",
-				referral: "abcdef",
-				team:     util.Blue,
+				name:        "Existing user",
+				version:     "2.0",
+				id:          "0x123456768",
+				avatar:      "user1",
+				referral:    "abcdef",
+				team:        util.Blue,
 				initialKitn: 0,
 
 				retList:      []string{"0x123456768"},
@@ -130,8 +130,8 @@ func TestUpdateOrCreateUser(t *testing.T) {
 					"INSERT INTO users_shadow \\(id, avatar, referral, team, kitns_disbursed\\) VALUES \\((.+), (.+), (.+), (.+), (.+)\\) ON DUPLICATE KEY UPDATE avatar=(.+), referral=(.+), team=(.+)").
 					WithArgs(testCase.id, testCase.avatar, testCase.referral, testCase.team, testCase.initialKitn, testCase.avatar, testCase.referral, testCase.team).
 					WillReturnResult(sqlmock.NewResult(1, 1))
-				}
-			resp, err := UpdateUser(db, &api.UserArgs{
+			}
+			resp, err := CreateOrUpdateUser(db, &api.UserArgs{
 				Version:  testCase.version,
 				Id:       testCase.id,
 				Avatar:   testCase.avatar,
@@ -147,60 +147,33 @@ func TestUpdateOrCreateUser(t *testing.T) {
 	})
 }
 
-func TestUpdatePrivacyAndAgreeTOC(t *testing.T) {
+func TestUpdateUserAction(t *testing.T) {
 	it(func() {
 		testCases := []struct {
 			name     string
 			version  string
 			id       string
-			privacy  string
-			agreeTOC string
+			actionId string
 
-			execExpected bool
 			rowsAffected int64
 
 			errorExpected bool
 		}{
 			{
-				name:     "Privacy and agreeTOC",
+				name:     "Update user action success",
 				version:  "2.0",
 				id:       "0x123456768",
-				privacy:  "privacyVal",
-				agreeTOC: "agreeTOCVal",
+				actionId: "abcdef",
 
-				execExpected: true,
 				rowsAffected: 1,
 
 				errorExpected: false,
 			},
 			{
-				name:    "Privacy only",
-				version: "2.0",
-				id:      "0x123456768",
-				privacy: "privacyVal",
-
-				execExpected: true,
-				rowsAffected: 1,
-
-				errorExpected: false,
-			},
-			{
-				name:     "Agree TOC only",
+				name:     "Update user action error",
 				version:  "2.0",
 				id:       "0x123456768",
-				agreeTOC: "agreeTOCVal",
-
-				execExpected: true,
-				rowsAffected: 1,
-
-				errorExpected: false,
-			},
-			{
-				name:    "No values to update",
-				version: "2.0",
-				id:      "0x123456768",
-
-				execExpected: false,
+				actionId: "absdef",
 
 				errorExpected: true,
 			},
@@ -208,28 +181,21 @@ func TestUpdatePrivacyAndAgreeTOC(t *testing.T) {
 
 		for _, testCase := range testCases {
 			setUp()
-			if testCase.execExpected {
-				if testCase.privacy != "" && testCase.agreeTOC != "" {
-					mock.ExpectExec("UPDATE users SET privacy = (.+), agree_toc = (.+) WHERE id = (.+)").
-						WithArgs(testCase.privacy, testCase.agreeTOC, testCase.id).
-						WillReturnResult(sqlmock.NewResult(1, testCase.rowsAffected))
-				} else if testCase.privacy != "" {
-					mock.ExpectExec("UPDATE users SET privacy = (.+) WHERE id = (.+)").
-						WithArgs(testCase.privacy, testCase.id).
-						WillReturnResult(sqlmock.NewResult(1, testCase.rowsAffected))
-				} else if testCase.agreeTOC != "" {
-					mock.ExpectExec("UPDATE users SET agree_toc = (.+) WHERE id = (.+)").
-						WithArgs(testCase.agreeTOC, testCase.id).
-						WillReturnResult(sqlmock.NewResult(1, testCase.rowsAffected))
-				}
+			if !testCase.errorExpected {
+				mock.ExpectExec("UPDATE users SET action_id = (.+) WHERE id = (.+)").
+					WithArgs(testCase.actionId, testCase.id).
+					WillReturnResult(sqlmock.NewResult(1, testCase.rowsAffected))
+			} else {
+				mock.ExpectExec("UPDATE users SET action_id = (.+) WHERE id = (.+)").
+					WithArgs(testCase.actionId, testCase.id).
+					WillReturnError(fmt.Errorf("Error updating user action"))
 			}
-			if err := UpdatePrivacyAndTOC(db, &api.PrivacyAndTOCArgs{
+			if err := UpdateUserAction(db, &api.UserActionArgs{
 				Version:  testCase.version,
 				Id:       testCase.id,
-				Privacy:  testCase.privacy,
-				AgreeTOC: testCase.agreeTOC,
+				ActionId: testCase.actionId,
 			}); testCase.errorExpected != (err != nil) {
-				t.Errorf("%s, updatePrivacyAndTOC: expected error: %v, got error: %v", testCase.name, testCase.errorExpected, err)
+				t.Errorf("%s, UpdateUserAction: expected error: %v, got error: %v", testCase.name, testCase.errorExpected, err)
 			}
 		}
 	})
@@ -255,6 +221,7 @@ func TestSaveReport(t *testing.T) {
 				r: api.ReportArgs{
 					Version:  "2.0",
 					Id:       "0x1234",
+					ActionId: "abcdef",
 					Latitude: 40.12345,
 					Longitue: 8.12345,
 					X:        0.5,
@@ -268,6 +235,7 @@ func TestSaveReport(t *testing.T) {
 				r: api.ReportArgs{
 					Version:  "2.0",
 					Id:       "0x5678",
+					ActionId: "abcdef",
 					Latitude: 40.67890,
 					Longitue: 8.67890,
 					X:        0.1,
@@ -281,6 +249,7 @@ func TestSaveReport(t *testing.T) {
 				r: api.ReportArgs{
 					Version:  "2.0",
 					Id:       "0x9012",
+					ActionId: "abcdef",
 					Latitude: 41.67890,
 					Longitue: 9.67890,
 					X:        0.2,
@@ -294,6 +263,7 @@ func TestSaveReport(t *testing.T) {
 				r: api.ReportArgs{
 					Version:  "2.0",
 					Id:       "0x3456",
+					ActionId: "abcdef",
 					Latitude: 42.67890,
 					Longitue: 10.67890,
 					X:        0.3,
@@ -307,6 +277,7 @@ func TestSaveReport(t *testing.T) {
 				r: api.ReportArgs{
 					Version:  "2.0",
 					Id:       "0x7890",
+					ActionId: "abcdef",
 					Latitude: 43.67890,
 					Longitue: 11.67890,
 					X:        0.4,
@@ -325,10 +296,11 @@ func TestSaveReport(t *testing.T) {
 				mock.ExpectBegin()
 			}
 			if testCase.expectError == ERROR_INSERT_REPORT {
-				mock.ExpectExec("INSERT	INTO reports \\(id, team, latitude, longitude, x, y, image\\)	VALUES \\((.+), (.+), (.+), (.+), (.+), (.+), (.+)\\)").
+				mock.ExpectExec("INSERT	INTO reports \\(id, team, action_id, latitude, longitude, x, y, image\\)	VALUES \\((.+), (.+), (.+), (.+), (.+), (.+), (.+), (.+)\\)").
 					WithArgs(
 						testCase.r.Id,
 						1,
+						testCase.r.ActionId,
 						testCase.r.Latitude,
 						testCase.r.Longitue,
 						testCase.r.X,
@@ -336,10 +308,11 @@ func TestSaveReport(t *testing.T) {
 						testCase.r.Image).
 					WillReturnError(fmt.Errorf("insert report error"))
 			} else if testCase.expectError < ERROR_INSERT_REPORT {
-				mock.ExpectExec("INSERT	INTO reports \\(id, team, latitude, longitude, x, y, image\\)	VALUES \\((.+), (.+), (.+), (.+), (.+), (.+), (.+)\\)").
+				mock.ExpectExec("INSERT	INTO reports \\(id, team, action_id,  latitude, longitude, x, y, image\\)	VALUES \\((.+), (.+), (.+), (.+), (.+), (.+), (.+), (.+)\\)").
 					WithArgs(
 						testCase.r.Id,
 						1,
+						testCase.r.ActionId,
 						testCase.r.Latitude,
 						testCase.r.Longitue,
 						testCase.r.X,
@@ -597,6 +570,7 @@ func TestReadReport(t *testing.T) {
 				sharing:   "share_data_live",
 				expectResponse: &api.ReadReportResponse{
 					Id:     "0x1234",
+					ActionId:  "abcdef",
 					Image:  []byte{97, 98, 99, 100, 101, 102, 103, 104},
 					Avatar: "testuser",
 					Own:    false,
@@ -611,6 +585,7 @@ func TestReadReport(t *testing.T) {
 				sharing:   "not_sharing_data_live",
 				expectResponse: &api.ReadReportResponse{
 					Id:     "0x1234",
+					ActionId:  "abcdef",
 					Image:  []byte{97, 98, 99, 100, 101, 102, 103, 104},
 					Avatar: "",
 					Own:    false,
@@ -625,6 +600,7 @@ func TestReadReport(t *testing.T) {
 				sharing:   "not_sharing_data_live",
 				expectResponse: &api.ReadReportResponse{
 					Id:     "0x1234",
+					ActionId:  "abcdef",
 					Image:  []byte{97, 98, 99, 100, 101, 102, 103, 104},
 					Avatar: "testuser",
 					Own:    true,
@@ -643,6 +619,7 @@ func TestReadReport(t *testing.T) {
 
 		columns := []string{
 			"id",
+			"action_id",
 			"image",
 			"avatar",
 			"privacy",
@@ -651,9 +628,9 @@ func TestReadReport(t *testing.T) {
 			setUp()
 			values := ""
 			if testCase.seqExists {
-				values = fmt.Sprintf("0x1234,abcdefgh,testuser,%s", testCase.sharing)
+				values = fmt.Sprintf("0x1234,abcdef,abcdefgh,testuser,%s", testCase.sharing)
 			}
-			mock.ExpectQuery("SELECT r.id, r.image, u.avatar, u.privacy FROM reports AS r JOIN users AS u	ON r.id = u.id WHERE r.seq = ?").WithArgs(testCase.seq).
+			mock.ExpectQuery("SELECT r.id, r.action_id, r.image, u.avatar, u.privacy FROM reports AS r JOIN users AS u	ON r.id = u.id WHERE r.seq = ?").WithArgs(testCase.seq).
 				WillReturnRows(sqlmock.NewRows(columns).
 					FromCSVString(values))
 
@@ -927,6 +904,272 @@ func TestCleanupReferral(t *testing.T) {
 
 			if err := CleanupReferral(db, testCase.ref); testCase.errorExpected != (err != nil) {
 				t.Errorf("%s, cleanupReferral: expected error: %v, got error: %v", testCase.name, testCase.errorExpected, err)
+			}
+		}
+	})
+}
+
+func TestCreateAction(t *testing.T) {
+	it(func() {
+		testCases := []struct {
+			name           string
+			actionId       string
+			actionName     string
+			isActive       bool
+			isActiveInt    int
+			expirationDate string
+
+			execSuccess bool
+			err         error
+		}{
+			{
+				name:           "Create action, success",
+				actionId:       "abcdef",
+				actionName:     "Name1",
+				isActive:       true,
+				isActiveInt:    1,
+				expirationDate: "2024-09-09",
+
+				execSuccess: true,
+			}, {
+				name:           "Create action, error",
+				actionId:       "abcdef",
+				isActive:       true,
+				isActiveInt:    1,
+				expirationDate: "2024-09-09",
+
+				execSuccess: false,
+				err:         fmt.Errorf("Error inserting into actions"),
+			},
+		}
+
+		for _, testCase := range testCases {
+			setUp()
+			if testCase.execSuccess {
+				mock.ExpectExec("INSERT INTO actions\\(id, name, is_active, expiration_date\\) VALUES\\((.+), (.+), (.+), (.+)\\)").
+					WithArgs(testCase.actionId, testCase.actionName, testCase.isActiveInt, testCase.expirationDate).
+					WillReturnResult(sqlmock.NewResult(1, 1))
+			} else {
+				mock.ExpectExec("INSERT INTO actions\\(id, name, is_active, expiration_date\\) VALUES\\((.+), (.+), (.+), (.+)\\)").
+					WithArgs(testCase.actionId, testCase.actionName, testCase.isActiveInt, testCase.expirationDate).
+					WillReturnError(testCase.err)
+			}
+
+			request := &api.ActionModifyArgs{
+				Record: api.ActionRecord{
+					Id:             testCase.actionId,
+					Name:           testCase.actionName,
+					IsActive:       testCase.isActive,
+					ExpirationDate: testCase.expirationDate,
+				},
+			}
+
+			resp, err := CreateAction(db, request)
+			if testCase.execSuccess != (err == nil) {
+				t.Errorf("%s: expected return error: %v, got error: %v", testCase.name, testCase.err != nil, err)
+			}
+			if err == nil && !reflect.DeepEqual(resp.Record, request.Record) {
+				t.Errorf("%s, expected result: %v, got result: %v", testCase.name, request.Record, resp.Record)
+			}
+		}
+	})
+}
+
+func TestUpdateAction(t *testing.T) {
+	it(func() {
+		testCases := []struct {
+			name           string
+			actionId       string
+			actionName     string
+			isActive       bool
+			isActiveInt    int
+			expirationDate string
+
+			rowsAffected int
+			execSuccess  bool
+			err          error
+		}{
+			{
+				name:           "Update action, success",
+				actionId:       "abcdef",
+				actionName:     "Name1",
+				isActive:       true,
+				isActiveInt:    1,
+				expirationDate: "2024-09-09",
+
+				rowsAffected: 1,
+				execSuccess:  true,
+			}, {
+				name:           "Update action, error",
+				actionId:       "abcdef",
+				isActive:       true,
+				isActiveInt:    1,
+				expirationDate: "2024-09-09",
+
+				execSuccess: false,
+				err:         fmt.Errorf("Error inserting into actions"),
+			}, {
+				name:           "Update action, zero rows",
+				actionId:       "abcdef",
+				isActive:       true,
+				isActiveInt:    1,
+				expirationDate: "2024-09-09",
+
+				rowsAffected: 0,
+				execSuccess:  false,
+			},
+		}
+
+		for _, testCase := range testCases {
+			setUp()
+			if testCase.execSuccess {
+				mock.ExpectExec("UPDATE actions	SET name = (.+), is_active = (.+), expiration_date = (.+) WHERE id = (.+)").
+					WithArgs(testCase.actionName, testCase.isActiveInt, testCase.expirationDate, testCase.actionId).
+					WillReturnResult(sqlmock.NewResult(1, int64(testCase.rowsAffected)))
+			} else {
+				mock.ExpectExec("UPDATE actions	SET name = (.+), is_active = (.+), expiration_date = (.+) WHERE id = (.+)").
+					WithArgs(testCase.actionName, testCase.isActiveInt, testCase.expirationDate, testCase.actionId).
+					WillReturnError(testCase.err)
+			}
+
+			request := &api.ActionModifyArgs{
+				Record: api.ActionRecord{
+					Id:             testCase.actionId,
+					Name:           testCase.actionName,
+					IsActive:       testCase.isActive,
+					ExpirationDate: testCase.expirationDate,
+				},
+			}
+
+			resp, err := UpdateAction(db, request)
+			if testCase.execSuccess != (err == nil) {
+				t.Errorf("%s: expected return error: %v, got error: %v", testCase.name, testCase.err != nil, err)
+			}
+			expError := (testCase.rowsAffected == 1) != (err == nil)
+			if expError {
+				t.Errorf("%s: expected rows: %d, got error: %v", testCase.name, testCase.rowsAffected, err)
+			}
+			if err == nil && testCase.rowsAffected == 1 && !reflect.DeepEqual(resp.Record, request.Record) {
+				t.Errorf("%s, expected result: %v, got result: %v", testCase.name, request.Record, resp.Record)
+			}
+		}
+	})
+}
+
+func TestDeleteAction(t *testing.T) {
+	it(func() {
+		testCases := []struct {
+			name     string
+			actionId string
+
+			rowsAffected int
+			execSuccess  bool
+			err          error
+		}{
+			{
+				name:     "Delete action, success",
+				actionId: "abcdef",
+
+				rowsAffected: 1,
+				execSuccess:  true,
+			}, {
+				name:     "Delete action, error",
+				actionId: "abcdef",
+
+				execSuccess: false,
+				err:         fmt.Errorf("Error inserting into actions"),
+			}, {
+				name:     "Delete action, zero rows",
+				actionId: "abcdef",
+
+				rowsAffected: 0,
+				execSuccess:  false,
+			},
+		}
+
+		for _, testCase := range testCases {
+			setUp()
+			if testCase.execSuccess {
+				mock.ExpectExec("DELETE FROM actions	WHERE id = (.+)").
+					WithArgs(testCase.actionId).
+					WillReturnResult(sqlmock.NewResult(1, int64(testCase.rowsAffected)))
+			} else {
+				mock.ExpectExec("DELETE FROM actions	WHERE id = (.+)").
+					WithArgs(testCase.actionId).
+					WillReturnError(testCase.err)
+			}
+
+			err := DeleteAction(db, &api.ActionModifyArgs{
+				Record: api.ActionRecord{
+					Id: testCase.actionId,
+				},
+			})
+			if testCase.execSuccess != (err == nil) {
+				t.Errorf("%s: expected return error: %v, got error: %v", testCase.name, testCase.err != nil, err)
+			}
+			expError := (testCase.rowsAffected == 1) != (err == nil)
+			if expError {
+				t.Errorf("%s: expected rows: %d, got error: %v", testCase.name, testCase.rowsAffected, err)
+			}
+		}
+	})
+}
+
+func TestGetActions(t *testing.T) {
+	it(func() {
+		testCases := []struct {
+			name          string
+			expectSuccess bool
+			expectReturn  *api.ActionsResponse
+		}{
+			{
+				name:          "Get actions, success",
+				expectSuccess: true,
+				expectReturn: &api.ActionsResponse{
+					Records: []api.ActionRecord{
+						{
+							Id:             "abcdef",
+							Name:           "action1",
+							IsActive:       true,
+							ExpirationDate: "2024-12-12",
+						}, {
+							Id:             "123456",
+							Name:           "action2",
+							IsActive:       true,
+							ExpirationDate: "2024-12-13",
+						},
+					},
+				},
+			}, {
+				name:          "Get actions, error",
+				expectSuccess: false,
+			},
+		}
+
+		cols := []string{
+			"id",
+			"name",
+			"is_active",
+			"expiration_date",
+		}
+
+		for _, testCase := range testCases {
+			setUp()
+
+			if testCase.expectSuccess {
+				mock.ExpectQuery("SELECT id, name, is_active, expiration_date FROM actions").
+					WillReturnRows(sqlmock.NewRows(cols).FromCSVString("abcdef,action1,1,2024-12-12\n123456,action2,1,2024-12-13"))
+			} else {
+				mock.ExpectQuery("SELECT id, name, is_active, expiration_date FROM actions").
+					WillReturnError(fmt.Errorf("error selecting from actions"))
+			}
+
+			result, err := GetActions(db)
+			if testCase.expectSuccess == (err != nil) {
+				t.Errorf("%s, expected error: %v, got error: %v", testCase.name, testCase.expectSuccess, err)
+			}
+			if !reflect.DeepEqual(result, testCase.expectReturn) {
+				t.Errorf("%s, expected result: %v, got result: %v", testCase.name, testCase.expectReturn, result)
 			}
 		}
 	})
