@@ -106,6 +106,32 @@ func DeleteAction(c *gin.Context) {
 	c.Status(http.StatusOK) // 200
 }
 
+func GetAction(c *gin.Context) {
+	id, exists := c.GetQuery("id")
+
+	if !exists {
+		log.Errorf("The param id should not be empty")
+		c.String(http.StatusBadRequest, "The param id should not be empty")
+		return
+	}
+
+	dbc, err := common.DBConnect()
+	if err != nil {
+		log.Errorf("DB connection error: %w", err)
+		return
+	}
+	defer dbc.Close()
+
+	response, err := db.GetActions(dbc, id)
+	if err != nil {
+		log.Errorf("Failed to get action %s with %w", id, err)
+		c.Status(http.StatusInternalServerError) // 500
+		return
+	}
+
+	c.IndentedJSON(http.StatusOK, response) // 200
+}
+
 func GetActions(c *gin.Context) {
 	dbc, err := common.DBConnect()
 	if err != nil {
@@ -114,7 +140,7 @@ func GetActions(c *gin.Context) {
 	}
 	defer dbc.Close()
 
-	response, err := db.GetActions(dbc)
+	response, err := db.GetActions(dbc, "")
 	if err != nil {
 		log.Errorf("Failed to get actions with %w", err)
 		c.Status(http.StatusInternalServerError) // 500

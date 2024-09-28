@@ -23,6 +23,7 @@ const (
 	EndPointGenerateReferral  = "/generate_referral"
 	EndPointGetBlockChainLink = "/get_blockchain_link"
 	EndPointGetActions        = "/get_actions"
+	EndPointGetAction         = "/get_action"
 	EndPointCreateAction      = "/create_action"
 	EndPointUpdateAction      = "/update_action"
 	EndPointDeleteAction      = "/delete_action"
@@ -53,6 +54,7 @@ func StartService() {
 	router.POST(EndPointUpdateAction, UpdateAction)
 	router.POST(EndPointDeleteAction, DeleteAction)
 	router.GET(EndPointGetActions, GetActions)
+	router.GET(EndPointGetAction, GetAction)
 	router.POST(EndPointUpdateUserAction, UpdateUserAction)
 
 	router.Run(fmt.Sprintf(":%d", *serverPort))

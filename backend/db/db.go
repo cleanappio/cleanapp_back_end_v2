@@ -496,10 +496,21 @@ func CleanupReferral(db *sql.DB, ref string) error {
 	return nil
 }
 
-func GetActions(db *sql.DB) (*api.ActionsResponse, error) {
-	rows, err := db.Query(`SELECT id, name, is_active, expiration_date
-		FROM actions
-	`)
+func GetActions(db *sql.DB, id string) (*api.ActionsResponse, error) {
+	var (
+		rows *sql.Rows
+		err error
+	)
+	if id == "" {
+		rows, err = db.Query(`SELECT id, name, is_active, expiration_date
+			FROM actions
+		`)
+	} else {
+		rows, err = db.Query(`SELECT id, name, is_active, expiration_date
+			FROM actions
+			WHERE id = ?
+		`, id)
+	}
 	if err != nil {
 		return nil, err
 	}

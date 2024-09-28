@@ -1118,12 +1118,15 @@ func TestDeleteAction(t *testing.T) {
 func TestGetActions(t *testing.T) {
 	it(func() {
 		testCases := []struct {
-			name          string
+			name     string
+			actionId string
+
 			expectSuccess bool
 			expectReturn  *api.ActionsResponse
 		}{
 			{
-				name:          "Get actions, success",
+				name: "Get all actions, success",
+
 				expectSuccess: true,
 				expectReturn: &api.ActionsResponse{
 					Records: []api.ActionRecord{
@@ -1140,8 +1143,26 @@ func TestGetActions(t *testing.T) {
 						},
 					},
 				},
-			}, {
-				name:          "Get actions, error",
+			},
+			{
+				name:     "Get one action, success",
+				actionId: "123456",
+
+				expectSuccess: true,
+				expectReturn: &api.ActionsResponse{
+					Records: []api.ActionRecord{
+						{
+							Id:             "123456",
+							Name:           "action2",
+							IsActive:       true,
+							ExpirationDate: "2024-12-13",
+						},
+					},
+				},
+			},
+			{
+				name: "Get actions, error",
+
 				expectSuccess: false,
 			},
 		}
@@ -1157,14 +1178,20 @@ func TestGetActions(t *testing.T) {
 			setUp()
 
 			if testCase.expectSuccess {
-				mock.ExpectQuery("SELECT id, name, is_active, expiration_date FROM actions").
-					WillReturnRows(sqlmock.NewRows(cols).FromCSVString("abcdef,action1,1,2024-12-12\n123456,action2,1,2024-12-13"))
+				if testCase.actionId == "" {
+					mock.ExpectQuery("SELECT id, name, is_active, expiration_date FROM actions").
+						WillReturnRows(sqlmock.NewRows(cols).FromCSVString("abcdef,action1,1,2024-12-12\n123456,action2,1,2024-12-13"))
+				} else {
+					mock.ExpectQuery("SELECT id, name, is_active, expiration_date FROM actions WHERE id = (.+)").
+					WithArgs(testCase.actionId).
+					WillReturnRows(sqlmock.NewRows(cols).FromCSVString("123456,action2,1,2024-12-13"))
+				}
 			} else {
 				mock.ExpectQuery("SELECT id, name, is_active, expiration_date FROM actions").
 					WillReturnError(fmt.Errorf("error selecting from actions"))
 			}
 
-			result, err := GetActions(db)
+			result, err := GetActions(db, testCase.actionId)
 			if testCase.expectSuccess == (err != nil) {
 				t.Errorf("%s, expected error: %v, got error: %v", testCase.name, testCase.expectSuccess, err)
 			}
