@@ -15,6 +15,7 @@ DISBURSEMENT_MAIN_SCHEDULE=""
 DISBURSEMENT_SHADOW_SCHEDULE=""
 PIPELINES_MAIN_PORT=""
 PIPELINES_SHADOW_PORT=""
+REACT_APP_REF_API_ENDPOINT="http://dev.api.cleanapp.io:8080/write_referral/"
 
 # Choose the environment
 PS3="Please choose the environment: "
@@ -31,6 +32,7 @@ do
         CONTRACT_ADDRESS_SHADOW="0x36791eD1D402ffF19b4CFBE6985d584066473E7D"
         PIPELINES_MAIN_PORT="8090"
         PIPELINES_SHADOW_PORT="8091"
+        REACT_APP_REF_API_ENDPOINT="http://localhost:8080/write_referral/"
         break
         ;;
     "dev")
@@ -42,6 +44,7 @@ do
         CONTRACT_ADDRESS_SHADOW="0x36791eD1D402ffF19b4CFBE6985d584066473E7D"
         PIPELINES_MAIN_PORT="8090"
         PIPELINES_SHADOW_PORT="8091"
+        REACT_APP_REF_API_ENDPOINT="http://dev.api.cleanapp.io:8080/write_referral/"
         break
         ;;
     "prod")
@@ -55,6 +58,7 @@ do
         DISBURSEMENT_SHADOW_SCHEDULE="*/5 * * * *"
         PIPELINES_MAIN_PORT="8090"
         PIPELINES_SHADOW_PORT="8091"
+        REACT_APP_REF_API_ENDPOINT="http://api.cleanapp.io:8080/write_referral/"
         break
         ;;
     "quit")
@@ -106,7 +110,6 @@ WEB_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-web-image:${OPT}"
 DB_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-db-image:live"
 
 # Cleanapp Web env variables
-REACT_APP_REF_API_ENDPOINT="http://dev.api.cleanapp.io:8080/write_referral/"
 REACT_APP_PLAYSTORE_URL="https://play.google.com/store/apps/details?id=com.cleanapp"
 REACT_APP_APPSTORE_URL="https://apps.apple.com/us/app/cleanapp/id6466403301"
 
