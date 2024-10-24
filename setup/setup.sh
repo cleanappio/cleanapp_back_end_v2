@@ -29,7 +29,7 @@ do
         ETH_NETWORK_URL_MAIN="https://sepolia.base.org"
         ETH_NETWORK_URL_SHADOW="https://service.lestnet.org"
         CONTRACT_ADDRESS_MAIN="0xDc41655b749E8F2922A6E5e525Fc04a915aEaFAA"
-        CONTRACT_ADDRESS_SHADOW="0x7374714f89e56b765ECBf7A9e02Cb3382Ceba9ae"
+        CONTRACT_ADDRESS_SHADOW="0x581A05626F96a990D306E9005A2e3bCBD150F522"
         PIPELINES_MAIN_PORT="8090"
         PIPELINES_SHADOW_PORT="8091"
         REACT_APP_REF_API_ENDPOINT="http://localhost:8080/write_referral/"
@@ -41,7 +41,7 @@ do
         ETH_NETWORK_URL_MAIN="https://sepolia.base.org"
         ETH_NETWORK_URL_SHADOW="https://service.lestnet.org"
         CONTRACT_ADDRESS_MAIN="0xDc41655b749E8F2922A6E5e525Fc04a915aEaFAA"
-        CONTRACT_ADDRESS_SHADOW="0x7374714f89e56b765ECBf7A9e02Cb3382Ceba9ae"
+        CONTRACT_ADDRESS_SHADOW="0x581A05626F96a990D306E9005A2e3bCBD150F522"
         PIPELINES_MAIN_PORT="8090"
         PIPELINES_SHADOW_PORT="8091"
         REACT_APP_REF_API_ENDPOINT="http://dev.api.cleanapp.io:8080/write_referral/"
@@ -53,7 +53,7 @@ do
         ETH_NETWORK_URL_MAIN="https://sepolia.base.org"  # TODO: Change to the mainnet URL after we run on the base mainnet
         ETH_NETWORK_URL_SHADOW="https://service.lestnet.org"
         CONTRACT_ADDRESS_MAIN="0xDc41655b749E8F2922A6E5e525Fc04a915aEaFAA"  # TODO: Change the contract address to the main when we run on the base mainnet
-        CONTRACT_ADDRESS_SHADOW="0x7374714f89e56b765ECBf7A9e02Cb3382Ceba9ae"
+        CONTRACT_ADDRESS_SHADOW="0x581A05626F96a990D306E9005A2e3bCBD150F522"
         DISBURSEMENT_MAIN_SCHEDULE="0 20 * * *"
         DISBURSEMENT_SHADOW_SCHEDULE="*/5 * * * *"
         PIPELINES_MAIN_PORT="8090"
