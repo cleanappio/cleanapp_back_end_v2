@@ -8,14 +8,18 @@
 # Vars init
 SCHEDULER_HOST=""
 ETH_NETWORK_URL_MAIN=""
-ETH_NETWORK_URL_SHADOW=""
 CONTRACT_ADDRESS_MAIN=""
-CONTRACT_ADDRESS_SHADOW=""
 DISBURSEMENT_MAIN_SCHEDULE=""
-DISBURSEMENT_SHADOW_SCHEDULE=""
 PIPELINES_MAIN_PORT=""
-PIPELINES_SHADOW_PORT=""
 REACT_APP_REF_API_ENDPOINT="http://dev.api.cleanapp.io:8080/write_referral/"
+SOLVER_URL=
+
+# STXN Kickoff Vars
+CHAIN_ID=""
+WS_CHAIN_URL=""
+LAMINATOR_ADDRESS=""
+CALL_BREAKER_ADDRESS=""
+KITN_DISBURSEMENT_SCHEDULER_ADDRESS=""
 
 # Choose the environment
 PS3="Please choose the environment: "
@@ -27,38 +31,46 @@ do
         echo "Using local environment"
         SCHEDULER_HOST="localhost"
         ETH_NETWORK_URL_MAIN="https://sepolia.base.org"
-        ETH_NETWORK_URL_SHADOW="https://service.lestnet.org"
         CONTRACT_ADDRESS_MAIN="0xDc41655b749E8F2922A6E5e525Fc04a915aEaFAA"
-        CONTRACT_ADDRESS_SHADOW="0x581A05626F96a990D306E9005A2e3bCBD150F522"
         PIPELINES_MAIN_PORT="8090"
-        PIPELINES_SHADOW_PORT="8091"
         REACT_APP_REF_API_ENDPOINT="http://localhost:8080/write_referral/"
+        SOLVER_URL="http://localhost:8888/report"
+        CHAIN_ID="21363"
+        WS_CHAIN_URL="wss://service.lestnet.org:8888/"
+        LAMINATOR_ADDRESS="0x36aB7A6ad656BC19Da2D5Af5b46f3cf3fc47274D"
+        CALL_BREAKER_ADDRESS="0x23912387357621473Ff6514a2DC20Df14cd72E7f"
+        KITN_DISBURSEMENT_SCHEDULER_ADDRESS="0x7E485Fd55CEdb1C303b2f91DFE7695e72A537399"
         break
         ;;
     "dev")
         echo "Using dev environment"
         SCHEDULER_HOST="dev.api.cleanapp.io"
         ETH_NETWORK_URL_MAIN="https://sepolia.base.org"
-        ETH_NETWORK_URL_SHADOW="https://service.lestnet.org"
         CONTRACT_ADDRESS_MAIN="0xDc41655b749E8F2922A6E5e525Fc04a915aEaFAA"
-        CONTRACT_ADDRESS_SHADOW="0x581A05626F96a990D306E9005A2e3bCBD150F522"
         PIPELINES_MAIN_PORT="8090"
-        PIPELINES_SHADOW_PORT="8091"
         REACT_APP_REF_API_ENDPOINT="http://dev.api.cleanapp.io:8080/write_referral/"
+        SOLVER_URL="http://104.154.119.169:8888/report"
+        CHAIN_ID="21363"
+        WS_CHAIN_URL="wss://service.lestnet.org:8888/"
+        LAMINATOR_ADDRESS="0x36aB7A6ad656BC19Da2D5Af5b46f3cf3fc47274D"
+        CALL_BREAKER_ADDRESS="0x23912387357621473Ff6514a2DC20Df14cd72E7f"
+        KITN_DISBURSEMENT_SCHEDULER_ADDRESS="0x7E485Fd55CEdb1C303b2f91DFE7695e72A537399"
         break
         ;;
     "prod")
         echo "Using prod environment"
         SCHEDULER_HOST="api.cleanapp.io"
         ETH_NETWORK_URL_MAIN="https://sepolia.base.org"  # TODO: Change to the mainnet URL after we run on the base mainnet
-        ETH_NETWORK_URL_SHADOW="https://service.lestnet.org"
         CONTRACT_ADDRESS_MAIN="0xDc41655b749E8F2922A6E5e525Fc04a915aEaFAA"  # TODO: Change the contract address to the main when we run on the base mainnet
-        CONTRACT_ADDRESS_SHADOW="0x581A05626F96a990D306E9005A2e3bCBD150F522"
         DISBURSEMENT_MAIN_SCHEDULE="0 20 * * *"
-        DISBURSEMENT_SHADOW_SCHEDULE="*/5 * * * *"
         PIPELINES_MAIN_PORT="8090"
-        PIPELINES_SHADOW_PORT="8091"
         REACT_APP_REF_API_ENDPOINT="http://api.cleanapp.io:8080/write_referral/"
+        SOLVER_URL="http://104.154.119.169:8888/report"
+        CHAIN_ID="21363"
+        WS_CHAIN_URL="wss://service.lestnet.org:8888/"
+        LAMINATOR_ADDRESS="0x36aB7A6ad656BC19Da2D5Af5b46f3cf3fc47274D"
+        CALL_BREAKER_ADDRESS="0x23912387357621473Ff6514a2DC20Df14cd72E7f"
+        KITN_DISBURSEMENT_SCHEDULER_ADDRESS="0x7E485Fd55CEdb1C303b2f91DFE7695e72A537399"
         break
         ;;
     "quit")
@@ -108,6 +120,7 @@ SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-service-image:${OPT}"
 PIPELINES_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-pipelines-image:${OPT}"
 WEB_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-web-image:${OPT}"
 DB_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-db-image:live"
+STXN_KICKOFF_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-stxn-kickoff-image:${OPT}"
 
 # Cleanapp Web env variables
 REACT_APP_PLAYSTORE_URL="https://play.google.com/store/apps/details?id=com.cleanapp"
@@ -125,11 +138,9 @@ services:
       - MYSQL_ROOT_PASSWORD=\${MYSQL_ROOT_PASSWORD}
       - MYSQL_APP_PASSWORD=\${MYSQL_APP_PASSWORD}
       - KITN_PRIVATE_KEY_MAIN=\${KITN_PRIVATE_KEY_MAIN}
-      - KITN_PRIVATE_KEY_SHADOW=\${KITN_PRIVATE_KEY_SHADOW}
       - ETH_NETWORK_URL_MAIN=${ETH_NETWORK_URL_MAIN}
-      - ETH_NETWORK_URL_SHADOW=${ETH_NETWORK_URL_SHADOW}
       - CONTRACT_ADDRESS_MAIN=${CONTRACT_ADDRESS_MAIN}
-      - CONTRACT_ADDRESS_SHADOW=${CONTRACT_ADDRESS_SHADOW}
+      - SOLVER_URL=${SOLVER_URL}
     ports:
       - 8080:8080
 
@@ -146,20 +157,6 @@ services:
       - USERS_TABLE=users
     ports:
       - ${PIPELINES_MAIN_PORT}:${PIPELINES_MAIN_PORT}
-
-  cleanapp_pipelines_shadow:
-    container_name: cleanapp_pipelines_shadow
-    image: ${PIPELINES_DOCKER_IMAGE}
-    environment:
-      - PIPELINES_PORT=${PIPELINES_SHADOW_PORT}
-      - MYSQL_ROOT_PASSWORD=\${MYSQL_ROOT_PASSWORD}
-      - MYSQL_APP_PASSWORD=\${MYSQL_APP_PASSWORD}
-      - KITN_PRIVATE_KEY=\${KITN_PRIVATE_KEY_SHADOW}
-      - ETH_NETWORK_URL=${ETH_NETWORK_URL_SHADOW}
-      - CONTRACT_ADDRESS=${CONTRACT_ADDRESS_SHADOW}
-      - USERS_TABLE=users_shadow
-    ports:
-      - ${PIPELINES_SHADOW_PORT}:${PIPELINES_SHADOW_PORT}
 
   cleanapp_db:
     container_name: cleanapp_db
@@ -182,6 +179,17 @@ services:
       - REACT_APP_APPSTORE_URL=${REACT_APP_APPSTORE_URL}
     ports:
       - 3000:3000
+
+  cleanapp_stxn_kickoff:
+    container_name: stxn_kickoff
+    image: ${STXN_KICKOFF_DOCKER_IMAGE}
+    environment:
+      - CHAIN_ID=${CHAIN_ID}
+      - WS_CHAIN_URL=${WS_CHAIN_URL}
+      - LAMINATOR_ADDRESS=${LAMINATOR_ADDRESS}
+      - CALL_BREAKER_ADDRESS=${CALL_BREAKER_ADDRESS}
+      - KITN_DISBURSEMENT_SCHEDULER_ADDRESS=${KITN_DISBURSEMENT_SCHEDULER_ADDRESS}
+      - CLEANAPP_WALLET_PRIVATE_KEY=\${KITN_PRIVATE_KEY_SHADOW}
 
 volumes:
   mysql:
@@ -238,6 +246,7 @@ docker pull ${SERVICE_DOCKER_IMAGE}
 docker pull ${PIPELINES_DOCKER_IMAGE}
 docker pull ${DB_DOCKER_IMAGE}
 docker pull ${WEB_DOCKER_IMAGE}
+docker pull ${STXN_KICKOFF_DOCKER_IMAGE}
 
 # Start our docker images.
 ./up.sh
@@ -278,22 +287,5 @@ gcloud scheduler jobs create http ${DISBURSEMENT_MAIN_SCHEDULER_NAME} \
   --location=us-central1 \
   --schedule="${DISBURSEMENT_MAIN_SCHEDULE}" \
   --uri="http://${SCHEDULER_HOST}:${PIPELINES_MAIN_PORT}/tokens_disburse" \
-  --message-body="{\"version\": \"2.0\"}" \
-  --headers="Content-Type=application/json"
-
-# Shadow tokens disbursement schedule
-DISBURSEMENT_SHADOW_SCHEDULER_NAME="tokens-disburse-shadow-${OPT}"
-EXISTING_DISBURSEMENT_SHADOW_SCHEDULER=$(gcloud scheduler jobs list --location=us-central1 | grep ${DISBURSEMENT_SHADOW_SCHEDULER_NAME} | awk '{print $1}')
-
-if [[ "${DISBURSEMENT_SHADOW_SCHEDULER_NAME}" == "${EXISTING_DISBURSEMENT_SHADOW_SCHEDULER}" ]]; then
-  gcloud scheduler jobs delete ${DISBURSEMENT_SHADOW_SCHEDULER_NAME} \
-    --location=us-central1 \
-    --quiet
-fi
-
-gcloud scheduler jobs create http ${DISBURSEMENT_SHADOW_SCHEDULER_NAME} \
-  --location=us-central1 \
-  --schedule="${DISBURSEMENT_SHADOW_SCHEDULE}" \
-  --uri="http://${SCHEDULER_HOST}:${PIPELINES_SHADOW_PORT}/tokens_disburse" \
   --message-body="{\"version\": \"2.0\"}" \
   --headers="Content-Type=application/json"

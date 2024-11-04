@@ -47,6 +47,13 @@ PROJECT_NAME="cleanup-mysql-v2"
 DOCKER_IMAGE="cleanapp-docker-repo/cleanapp-service-image"
 DOCKER_TAG="${CLOUD_REGION}-docker.pkg.dev/${PROJECT_NAME}/${DOCKER_IMAGE}"
 
+CURRENT_PROJECT=$(gcloud config get project)
+echo ${CURRENT_PROJECT}
+if [ "${PROJECT_NAME}" != "${CURRENT_PROJECT}" ]; then
+  gcloud auth login
+  gcloud config set project ${PROJECT_NAME}
+fi
+
 echo "Building and pushing docker image..."
 gcloud builds submit \
   --region=${CLOUD_REGION} \

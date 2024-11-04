@@ -1,0 +1,791 @@
+[
+  {
+    "type": "constructor",
+    "inputs": [
+      {
+        "name": "_laminator",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "_callBreaker",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "_owner",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "receive",
+    "stateMutability": "payable"
+  },
+  {
+    "type": "function",
+    "name": "callBreaker",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "_callBreaker",
+        "type": "address",
+        "internalType": "contract ICallBreaker"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "cancelAllPending",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "cancelPending",
+    "inputs": [
+      {
+        "name": "callSequenceNumber",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "cleanupLaminatorStorage",
+    "inputs": [
+      {
+        "name": "seqNumbers",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "copyCurrentJob",
+    "inputs": [
+      {
+        "name": "delay",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "shouldCopy",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "deferredCalls",
+    "inputs": [
+      {
+        "name": "index",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "holder",
+        "type": "tuple",
+        "internalType": "struct CallObjectHolder",
+        "components": [
+          {
+            "name": "initialized",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "executed",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "nonce",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "firstCallableBlock",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "callObjs",
+            "type": "tuple[]",
+            "internalType": "struct CallObject[]",
+            "components": [
+              {
+                "name": "amount",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "gas",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "addr",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "callvalue",
+                "type": "bytes",
+                "internalType": "bytes"
+              }
+            ]
+          },
+          {
+            "name": "data",
+            "type": "tuple[]",
+            "internalType": "struct SolverData[]",
+            "components": [
+              {
+                "name": "name",
+                "type": "string",
+                "internalType": "string"
+              },
+              {
+                "name": "datatype",
+                "type": "uint8",
+                "internalType": "enum DATATYPE"
+              },
+              {
+                "name": "value",
+                "type": "string",
+                "internalType": "string"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "execute",
+    "inputs": [
+      {
+        "name": "input",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "executingCallIndex",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "_execCallIndex",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "executingNonce",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "executingSequenceNumber",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "_execSeqNum",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getExecutingCallObject",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct CallObject",
+        "components": [
+          {
+            "name": "amount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "gas",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "addr",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "callvalue",
+            "type": "bytes",
+            "internalType": "bytes"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getExecutingCallObjectHolder",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct CallObjectHolder",
+        "components": [
+          {
+            "name": "initialized",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "executed",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "nonce",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "firstCallableBlock",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "callObjs",
+            "type": "tuple[]",
+            "internalType": "struct CallObject[]",
+            "components": [
+              {
+                "name": "amount",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "gas",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "addr",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "callvalue",
+                "type": "bytes",
+                "internalType": "bytes"
+              }
+            ]
+          },
+          {
+            "name": "data",
+            "type": "tuple[]",
+            "internalType": "struct SolverData[]",
+            "components": [
+              {
+                "name": "name",
+                "type": "string",
+                "internalType": "string"
+              },
+              {
+                "name": "datatype",
+                "type": "uint8",
+                "internalType": "enum DATATYPE"
+              },
+              {
+                "name": "value",
+                "type": "string",
+                "internalType": "string"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "isCallExecuting",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "_isExec",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "laminator",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "_laminator",
+        "type": "address",
+        "internalType": "contract ILaminator"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "nextSequenceNumber",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "_sequenceNumber",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "owner",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "_owner",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "pull",
+    "inputs": [
+      {
+        "name": "seqNumber",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "returnValue",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "push",
+    "inputs": [
+      {
+        "name": "input",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "delay",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "data",
+        "type": "tuple[]",
+        "internalType": "struct SolverData[]",
+        "components": [
+          {
+            "name": "name",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "datatype",
+            "type": "uint8",
+            "internalType": "enum DATATYPE"
+          },
+          {
+            "name": "value",
+            "type": "string",
+            "internalType": "string"
+          }
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "callSequenceNumber",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "viewDeferredCall",
+    "inputs": [
+      {
+        "name": "seqNumber",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "",
+        "type": "tuple[]",
+        "internalType": "struct CallObject[]",
+        "components": [
+          {
+            "name": "amount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "gas",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "addr",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "callvalue",
+            "type": "bytes",
+            "internalType": "bytes"
+          }
+        ]
+      },
+      {
+        "name": "",
+        "type": "tuple[]",
+        "internalType": "struct SolverData[]",
+        "components": [
+          {
+            "name": "name",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "datatype",
+            "type": "uint8",
+            "internalType": "enum DATATYPE"
+          },
+          {
+            "name": "value",
+            "type": "string",
+            "internalType": "string"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "event",
+    "name": "CallExecuted",
+    "inputs": [
+      {
+        "name": "callObj",
+        "type": "tuple",
+        "indexed": false,
+        "internalType": "struct CallObject",
+        "components": [
+          {
+            "name": "amount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "gas",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "addr",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "callvalue",
+            "type": "bytes",
+            "internalType": "bytes"
+          }
+        ]
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "CallPulled",
+    "inputs": [
+      {
+        "name": "callObjs",
+        "type": "tuple[]",
+        "indexed": false,
+        "internalType": "struct CallObject[]",
+        "components": [
+          {
+            "name": "amount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "gas",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "addr",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "callvalue",
+            "type": "bytes",
+            "internalType": "bytes"
+          }
+        ]
+      },
+      {
+        "name": "sequenceNumber",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "CallPushed",
+    "inputs": [
+      {
+        "name": "callObjs",
+        "type": "tuple[]",
+        "indexed": false,
+        "internalType": "struct CallObject[]",
+        "components": [
+          {
+            "name": "amount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "gas",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "addr",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "callvalue",
+            "type": "bytes",
+            "internalType": "bytes"
+          }
+        ]
+      },
+      {
+        "name": "sequenceNumber",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "data",
+        "type": "tuple[]",
+        "indexed": false,
+        "internalType": "struct SolverData[]",
+        "components": [
+          {
+            "name": "name",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "datatype",
+            "type": "uint8",
+            "internalType": "enum DATATYPE"
+          },
+          {
+            "name": "value",
+            "type": "string",
+            "internalType": "string"
+          }
+        ]
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "CallableBlock",
+    "inputs": [
+      {
+        "name": "callableBlock",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "currentBlock",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "CancelledAllPendingCalls",
+    "inputs": [
+      {
+        "name": "cancelledNonce",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "AlreadyExecuted",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "CallFailed",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "CancelledCall",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidGas",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotCallBreaker",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotExecuting",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotLaminator",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotLaminatorOrProxy",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotOwner",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotProxy",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "PortalOpenInCallBreaker",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "TooEarly",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "Uninitialized",
+    "inputs": []
+  }
+]

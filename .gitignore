@@ -6,3 +6,4 @@ setup/up.sh
 setup/down.sh
 setup/docker-compose.yml
 transactiontest
+**/target

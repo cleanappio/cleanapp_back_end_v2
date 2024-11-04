@@ -1,20 +1,11 @@
-echo "Buiding pipelines docker image..."
-
-if [ "$(basename $(pwd))" != "docker_pipelines" ]; then
-  echo "The build image should be run from \"docker_pipelines\" directory."
-  exit 1
-fi
+echo "Buiding stxn_kickoff docker image..."
 
 # Choose the environment
 PS3="Please choose the environment: "
-options=("local" "dev" "prod" "quit")
+options=("dev" "prod" "quit")
 select OPT in "${options[@]}"
 do
   case ${OPT} in
-    "local")
-        echo "Using local environment"
-        break
-        ;;
     "dev")
         echo "Using dev environment"
         break
@@ -35,23 +26,16 @@ echo "Running docker build for version ${BUILD_VERSION}"
 
 set -e
 
-echo "Building binary..."
-test -f pipelines && rm -f pipelines
-
-pushd ../
-GOARCH="amd64" GOOS="linux" go build -o docker_pipelines/pipelines pipelines/main.go
-popd
-
 CLOUD_REGION="us-central1"
 PROJECT_NAME="cleanup-mysql-v2"
-DOCKER_IMAGE="cleanapp-docker-repo/cleanapp-pipelines-image"
+DOCKER_IMAGE="cleanapp-docker-repo/cleanapp-stxn-kickoff-image"
 DOCKER_TAG="${CLOUD_REGION}-docker.pkg.dev/${PROJECT_NAME}/${DOCKER_IMAGE}"
 
 CURRENT_PROJECT=$(gcloud config get project)
 echo ${CURRENT_PROJECT}
-if [ "${PROJECT_NAME}" != "${CURRENT_PROJECT}" ]; then
+if [ "cleanup-mysql-v2" != "${CURRENT_PROJECT}" ]; then
   gcloud auth login
-  gcloud config set project ${PROJECT_NAME}
+  gcloud config set project cleanup-mysql-v2
 fi
 
 echo "Building and pushing docker image..."
@@ -61,5 +45,3 @@ gcloud builds submit \
 
 echo "Tagging Docker image as current ${OPT}..."
 gcloud artifacts docker tags add ${DOCKER_TAG}:${BUILD_VERSION} ${DOCKER_TAG}:${OPT}
-
-rm -f pipelines

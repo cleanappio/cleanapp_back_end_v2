@@ -91,6 +91,31 @@ func NewDisburser(ethNetworkUrl, privateKey, contractAddress string) (*Disburser
 	return d, nil
 }
 
+func (d *Disburser) InitStxn() error {
+	nonce, err := d.client.PendingNonceAt(context.Background(), d.fromAddress)
+	if err != nil {
+		return err
+	}
+
+	gasPrice, err := d.client.SuggestGasPrice(context.Background())
+	if err != nil {
+		return err
+	}
+
+	auth, err := bind.NewKeyedTransactorWithChainID(d.privateKey, d.chainID)
+	if err != nil {
+		return err
+	}
+	auth.Nonce = big.NewInt(int64(nonce))
+	auth.Value = big.NewInt(0) // in wei
+	auth.GasLimit = gasLimit   // in units
+	auth.GasPrice = gasPrice
+
+	// Prepare the CallObject
+
+	return nil
+}
+
 func (d *Disburser) DisburseBatch(kitns map[ethcommon.Address]*big.Int) ([]ethcommon.Address, error) {
 	nonce, err := d.client.PendingNonceAt(context.Background(), d.fromAddress)
 	if err != nil {

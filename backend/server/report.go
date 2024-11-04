@@ -2,12 +2,15 @@ package server
 
 import (
 	"cleanapp/common"
+	"cleanapp/common/disburse"
 	"net/http"
 
 	"cleanapp/backend/db"
 	"cleanapp/backend/server/api"
+	"cleanapp/backend/stxn"
 
 	"github.com/apex/log"
+	ethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/gin-gonic/gin"
 )
 
@@ -40,5 +43,8 @@ func Report(c *gin.Context) {
 		c.String(http.StatusInternalServerError, "Failed to save the report.") // 500
 		return
 	}
+
+	go stxn.SendReport(ethcommon.HexToAddress(report.Id), disburse.ToWei(1.0))
+
 	c.Status(http.StatusOK) // 200
 }
