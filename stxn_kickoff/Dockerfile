@@ -30,5 +30,6 @@ CMD \
   "--laminator-address=${LAMINATOR_ADDRESS}" \
   "--call-breaker-address=${CALL_BREAKER_ADDRESS}" \
   "--kitn-disbursement-scheduler-address=${KITN_DISBURSEMENT_SCHEDULER_ADDRESS}" \
-  "--cleanapp-wallet-private-key=${CLEANAPP_WALLET_PRIVATE_KEY}"
+  "--cleanapp-wallet-private-key=${CLEANAPP_WALLET_PRIVATE_KEY}" \
+  "--cron-schedule=${CRON_SCHEDULE}"
 

@@ -39,6 +39,7 @@ if [ "cleanup-mysql-v2" != "${CURRENT_PROJECT}" ]; then
 fi
 
 echo "Building and pushing docker image..."
+test -d target && rm -rf target
 gcloud builds submit \
   --region=${CLOUD_REGION} \
   --tag ${DOCKER_TAG}:${BUILD_VERSION}

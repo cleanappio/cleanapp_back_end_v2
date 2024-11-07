@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{str::FromStr, sync::Arc};
 
 use clap::{arg, Parser};
 use ethers::{
@@ -7,7 +7,7 @@ use ethers::{
     prelude::abigen,
     providers::{Provider, Ws},
     signers::{LocalWallet, Signer},
-    types::{Address, Bytes},
+    types::{Address, Bytes}, utils::parse_units,
 };
 use fatal::fatal;
 use keccak_hash::keccak;
@@ -42,6 +42,9 @@ pub struct Args {
 
     #[arg(long)]
     pub cleanapp_wallet_private_key: LocalWallet,
+
+    #[arg(long)]
+    pub cron_schedule: String,
 }
 
 #[tokio::main]
@@ -80,15 +83,20 @@ async fn main() {
         laminated_proxy_address
     );
 
-    let should_continue_object = CallObject {
-        amount: 0.into(),
-        addr: args.kitn_disbursement_scheduler_address,
-        gas: 10000000.into(),
-        callvalue: KITNDisbursementSchedulerCalls::ShouldContinue(ShouldContinueCall)
-            .encode()
-            .into(),
-    };
-    let call_objects = vec![
+    let call_breaker_amount_wei = parse_units("0.01", "ether").ok().unwrap();
+
+    // let should_continue_object = CallObject {
+    //     amount: 0.into(),
+    //     addr: args.kitn_disbursement_scheduler_address,
+    //     gas: 10000000.into(),
+    //     callvalue: KITNDisbursementSchedulerCalls::ShouldContinue(ShouldContinueCall)
+    //         .encode()
+    //         .into(),
+    // };
+
+    let should_continue_hardcoded = Bytes::from_str("0x0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000009896800000000000000000000000007e485fd55cedb1c303b2f91dfe7695e72a53739900000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000004aeec050100000000000000000000000000000000000000000000000000000000").unwrap();
+
+    let call_objects: Bytes = vec![
         CallObject {
             amount: 0.into(),
             addr: args.kitn_disbursement_scheduler_address,
@@ -103,27 +111,27 @@ async fn main() {
             gas: 10000000.into(),
             callvalue: LaminatedProxyCalls::CopyCurrentJob(CopyCurrentJobCall {
                 delay: 0.into(),
-                should_copy: should_continue_object.encode().into(),
+                should_copy: should_continue_hardcoded,
             })
             .encode()
             .into(),
         },
         CallObject {
-            amount: 33.into(),
+            amount: call_breaker_amount_wei.into(),
             addr: args.call_breaker_address,
             gas: 10000000.into(),
             callvalue: Bytes::new(),
         },
-    ];
+    ].encode().into();
 
     let solver_data = vec![SolverData {
         name: "CRON".to_string(),
         datatype: 2,
-        value: "0 */5 * * * *".to_string(),
+        value: args.cron_schedule,
     }];
 
     match laminator_contract.push_to_proxy(
-        call_objects.encode().into(),
+        call_objects,
         1,
         *keccak("CLEANAPP.SCHEDULER".encode()).as_fixed_bytes(),
         solver_data,
