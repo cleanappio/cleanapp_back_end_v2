@@ -85,15 +85,6 @@ async fn main() {
 
     let call_breaker_amount_wei = parse_units("0.01", "ether").ok().unwrap();
 
-    // let should_continue_object = CallObject {
-    //     amount: 0.into(),
-    //     addr: args.kitn_disbursement_scheduler_address,
-    //     gas: 10000000.into(),
-    //     callvalue: KITNDisbursementSchedulerCalls::ShouldContinue(ShouldContinueCall)
-    //         .encode()
-    //         .into(),
-    // };
-
     let should_continue_hardcoded = Bytes::from_str("0x0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000009896800000000000000000000000007e485fd55cedb1c303b2f91dfe7695e72a53739900000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000004aeec050100000000000000000000000000000000000000000000000000000000").unwrap();
 
     let call_objects: Bytes = vec![
