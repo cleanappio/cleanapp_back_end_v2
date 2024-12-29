@@ -3,8 +3,10 @@ package server
 import (
 	"flag"
 	"fmt"
+	"time"
 
 	"github.com/apex/log"
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
 
@@ -37,6 +39,14 @@ var (
 func StartService() {
 	log.Info("Starting the service...")
 	router := gin.Default()
+	router.Use(cors.New(cors.Config{
+		AllowOrigins:     []string{"*"},
+		AllowMethods:     []string{"GET", "POST"},
+		AllowHeaders:     []string{"Origin"},
+		ExposeHeaders:    []string{"Content-Length"},
+		MaxAge: 12 * time.Hour,
+	}))
+
 	router.GET(EndPointHelp, Help)
 	router.POST(EndPointUser, CreateOrUpdateUser)
 	router.POST(EndPointPrivacyAndTOC, UpdatePrivacyAndTOC)
