@@ -40,11 +40,11 @@ func StartService() {
 	log.Info("Starting the service...")
 	router := gin.Default()
 	router.Use(cors.New(cors.Config{
+		AllowMethods:     []string{"GET", "POST", "OPTIONS"},
+		AllowHeaders:     []string{"Content-Type"},
 		AllowOrigins:     []string{"*"},
-		AllowMethods:     []string{"GET", "POST"},
-		AllowHeaders:     []string{"Origin"},
-		ExposeHeaders:    []string{"Content-Length"},
-		MaxAge: 12 * time.Hour,
+		AllowCredentials: true,
+		MaxAge:           12 * time.Hour,
 	}))
 
 	router.GET(EndPointHelp, Help)
