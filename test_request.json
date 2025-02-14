@@ -1,0 +1,60 @@
+{
+	"version": "2.0",
+	"area": {
+		"id": 9022,
+		"name": "Martinborough Top 10 Holiday Park",
+		"description": "",
+		"contact_name": "cname",
+		"contact_email": "test@testmail.com",
+		"coordinates": {
+			"id": "way/217462115",
+			"type": "Feature",
+			"geometry": {
+				"type": "Polygon",
+				"Polygon": [
+					[
+						[ 175.4527356, -41.2149372 ],
+						[ 175.4525347, -41.2147901 ],
+						[ 175.4523615, -41.2146843 ],
+						[ 175.450895, -41.2154755 ],
+						[ 175.4517529, -41.2163586 ],
+						[ 175.4519603, -41.2162412 ],
+						[ 175.4522375, -41.2160895 ],
+						[ 175.4522983, -41.2160563 ],
+						[ 175.4524341, -41.2159776 ],
+						[ 175.4518662, -41.2154027 ],
+						[ 175.4527356, -41.2149372 ]
+					]
+				]
+			},
+			"properties": {
+				"@id": "way/217462115",
+				"name": "Martinborough Top 10 Holiday Park",
+				"dryer": "yes",
+				"email": "camp@martinboroughholidaypark.com",
+				"phone": "+64 6 306 8946",
+				"tents": "yes",
+				"cabins": "yes",
+				"kitchen": "yes",
+				"leisure": "park",
+				"tourism": "camp_site",
+				"caravans": "yes",
+				"addr:city": "Martinborough",
+				"wheelchair": "no",
+				"addr:street": "Vintners Lane",
+				"payment:cash": "yes",
+				"payment:visa": "yes",
+				"power_supply": "yes",
+				"internet_access": "yes",
+				"washing_machine": "yes",
+				"addr:housenumber": "10",
+				"payment:mastercard": "yes",
+				"internet_access:fee": "yes",
+				"sanitary_dump_station": "yes",
+				"wheelchair:description": "Kitchen has ramp access but bathroom has approx 10cm step. Female bathrooms easier to access than male bathrooms."
+			}
+  	},
+  	"created_at": "2025-02-11T13:06:32.724Z",
+  	"updated_at": "2025-02-11T13:06:32.763Z"
+	}
+}

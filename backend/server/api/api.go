@@ -2,6 +2,8 @@ package api
 
 import (
 	"cleanapp/backend/util"
+
+	geojson "github.com/paulmach/go.geojson"
 )
 
 type ActionModifyArgs struct {
@@ -162,4 +164,26 @@ type UserArgs struct {
 type UserResp struct {
 	Team      util.TeamColor `json:"team"` // Blue or Green
 	DupAvatar bool           `json:"dup_avatar"`
+}
+
+// Responsibility Areas API
+
+type Area struct {
+	Id            uint64           `json:"id"`
+	Name          string           `json:"name"`
+	Description   string           `json:"description"`
+	ContactName   string           `json:"contact_name"`
+	ContractEmail string           `json:"contact_email"`
+	Coordinates   *geojson.Feature `json:"coordinates"`
+	CreatedAt     string           `json:"created_at"`
+	UpdatedAt     string           `json:"updated_at"`
+}
+
+type CreateAreaRequest struct {
+	Version string `json:"version"` // Must be "2.0"
+	Area    *Area  `json:"area"`
+}
+
+type AreasResponse struct {
+	Areas []Area `json:"areas"`
 }
