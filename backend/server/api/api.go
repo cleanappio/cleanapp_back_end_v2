@@ -168,15 +168,21 @@ type UserResp struct {
 
 // Responsibility Areas API
 
+type ContactEmail struct {
+	Email         string `json:"email"`
+	ConsentReport bool   `json:"consent_report"`
+}
+
 type Area struct {
-	Id            uint64           `json:"id"`
-	Name          string           `json:"name"`
-	Description   string           `json:"description"`
-	ContactName   string           `json:"contact_name"`
-	ContractEmail string           `json:"contact_email"`
-	Coordinates   *geojson.Feature `json:"coordinates"`
-	CreatedAt     string           `json:"created_at"`
-	UpdatedAt     string           `json:"updated_at"`
+	Id             uint64           `json:"id"`
+	Name           string           `json:"name"`
+	Description    string           `json:"description"`
+	IsCustom       bool             `json:"is_custom"`
+	ContactName    string           `json:"contact_name"`
+	ContractEmails []*ContactEmail  `json:"contact_emails"`
+	Coordinates    *geojson.Feature `json:"coordinates"`
+	CreatedAt      string           `json:"created_at"`
+	UpdatedAt      string           `json:"updated_at"`
 }
 
 type CreateAreaRequest struct {

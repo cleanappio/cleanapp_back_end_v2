@@ -30,8 +30,8 @@ const (
 	EndPointUpdateAction      = "/update_action"
 	EndPointDeleteAction      = "/delete_action"
 	EndPointUpdateUserAction  = "/update_user_action"
-	EndPointCreateArea        = "/create_area"
-	EndPointGetAreas = "/get_areas"
+	EndPointCreateArea        = "/create_or_update_area"
+	EndPointGetAreas          = "/get_areas"
 )
 
 var (

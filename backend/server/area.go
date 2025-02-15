@@ -31,11 +31,10 @@ func CreateArea(c *gin.Context) {
 
 func GetAreas(c *gin.Context) {
 	res := &api.Area{
-		Id:            42,
-		Name:          "Test Area",
-		Description:   "This is a test area",
-		ContactName:   "Test",
-		ContractEmail: "test@testmail.com",
+		Id:          42,
+		Name:        "Test Area",
+		Description: "This is a test area",
+		ContactName: "Test",
 		Coordinates: &geojson.Feature{
 			ID:   "way/217462115",
 			Type: "Feature",
@@ -57,9 +56,9 @@ func GetAreas(c *gin.Context) {
 					},
 				},
 			},
-			Properties: map[string]interface{} {
-				"@id": "way/217462115",
-				"name": "Martinborough Top 10 Holiday Park",
+			Properties: map[string]interface{}{
+				"@id":   "way/217462115",
+				"name":  "Martinborough Top 10 Holiday Park",
 				"email": "camp@martinboroughholidaypark.com",
 				"phone": "+64 6 306 8946",
 			},
@@ -68,5 +67,5 @@ func GetAreas(c *gin.Context) {
 		UpdatedAt: "2025-02-11T13:06:32.763Z",
 	}
 
-	c.IndentedJSON(http.StatusOK, []*api.Area {res})
+	c.IndentedJSON(http.StatusOK, []*api.Area{res})
 }
