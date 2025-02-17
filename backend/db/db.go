@@ -3,10 +3,12 @@ package db
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"math/big"
 	"time"
 
+	"cleanapp/backend/area_index"
 	"cleanapp/backend/server/api"
 	"cleanapp/backend/util"
 	"cleanapp/common"
@@ -15,6 +17,7 @@ import (
 	"github.com/apex/log"
 	ethcommon "github.com/ethereum/go-ethereum/common"
 	_ "github.com/go-sql-driver/mysql"
+	geojson "github.com/paulmach/go.geojson"
 )
 
 func CreateOrUpdateUser(db *sql.DB, u *api.UserArgs, teamGen func(string) util.TeamColor, disbursers []*disburse.Disburser) (*api.UserResp, error) {
@@ -70,7 +73,7 @@ func CreateOrUpdateUser(db *sql.DB, u *api.UserArgs, teamGen func(string) util.T
 	                        ON DUPLICATE KEY UPDATE avatar=?, referral=?, team=?`,
 		u.Id, u.Avatar, u.Referral, team, initialKitn, u.Avatar, u.Referral, team)
 
-	common.LogResult("updateUser", result, err)
+	common.LogResult("updateUser", result, err, true)
 
 	if err != nil {
 		return nil, err
@@ -79,7 +82,7 @@ func CreateOrUpdateUser(db *sql.DB, u *api.UserArgs, teamGen func(string) util.T
 	result, err = db.Exec(`INSERT INTO users_shadow (id, avatar, referral, team, kitns_disbursed) VALUES (?, ?, ?, ?, ?)
 	         ON DUPLICATE KEY UPDATE avatar=?, referral=?, team=?`,
 		u.Id, u.Avatar, u.Referral, team, initialKitn, u.Avatar, u.Referral, team)
-	common.LogResult("update shadow user", result, err)
+	common.LogResult("update shadow user", result, err, true)
 	return &api.UserResp{
 		Team: team,
 	}, nil
@@ -90,19 +93,19 @@ func UpdatePrivacyAndTOC(db *sql.DB, args *api.PrivacyAndTOCArgs) error {
 		result, err := db.Exec(`UPDATE users
 			SET privacy = ?, agree_toc = ?
 			WHERE id = ?`, args.Privacy, args.AgreeTOC, args.Id)
-		common.LogResult("updatePrivacyAndTOC", result, err)
+		common.LogResult("updatePrivacyAndTOC", result, err, true)
 		return err
 	} else if args.Privacy != "" {
 		result, err := db.Exec(`UPDATE users
 			SET privacy = ?
 			WHERE id = ?`, args.Privacy, args.Id)
-		common.LogResult("updatePrivacyAndTOC", result, err)
+		common.LogResult("updatePrivacyAndTOC", result, err, true)
 		return err
 	} else if args.AgreeTOC != "" {
 		result, err := db.Exec(`UPDATE users
 			SET agree_toc = ?
 			WHERE id = ?`, args.AgreeTOC, args.Id)
-		common.LogResult("updatePrivacyAndTOC", result, err)
+		common.LogResult("updatePrivacyAndTOC", result, err, true)
 		return err
 	}
 	return fmt.Errorf("either privacy or agree_toc should be specified")
@@ -112,7 +115,7 @@ func UpdateUserAction(db *sql.DB, args *api.UserActionArgs) error {
 	result, err := db.Exec(`UPDATE users
 		SET action_id = ?
 		WHERE id = ?`, args.ActionId, args.Id)
-	common.LogResult("UpdateUserAction", result, err)
+	common.LogResult("UpdateUserAction", result, err, true)
 	return err
 }
 
@@ -129,14 +132,14 @@ func SaveReport(db *sql.DB, r api.ReportArgs) error {
 	  INTO reports (id, team, action_id, latitude, longitude, x, y, image)
 	  VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		r.Id, util.UserIdToTeam(r.Id), r.ActionId, r.Latitude, r.Longitue, r.X, r.Y, r.Image)
-	common.LogResult("saveReport", result, err)
+	common.LogResult("saveReport", result, err, true)
 	if err != nil {
 		log.Errorf("Error inserting report: %w", err)
 		return err
 	}
 
 	result, err = tx.ExecContext(ctx, `UPDATE users SET kitns_daily = kitns_daily + 1 WHERE id = ?`, r.Id)
-	common.LogResult("saveReport", result, err)
+	common.LogResult("saveReport", result, err, true)
 	if err != nil {
 		log.Errorf("Error update kitns: %w\n", err)
 		return err
@@ -440,7 +443,7 @@ func WriteReferral(db *sql.DB, key, value string) error {
 	  VALUES (?, ?)`,
 		key, value)
 
-	common.LogResult("writeReferral", result, err)
+	common.LogResult("writeReferral", result, err, true)
 
 	return err
 }
@@ -472,7 +475,7 @@ func GenerateReferral(db *sql.DB, req *api.GenRefRequest, codeGen func() string)
 		INTO users_refcodes (id, referral)
 		VALUES (?, ?)`,
 		req.Id, refCode)
-	common.LogResult("generteReferral", result, err)
+	common.LogResult("generteReferral", result, err, true)
 
 	if err != nil {
 		return nil, err
@@ -487,7 +490,7 @@ func CleanupReferral(db *sql.DB, ref string) error {
 	result, err := db.Exec(`DELETE
 		FROM referrals
 		WHERE refvalue = ?`, ref)
-	common.LogResult("cleanupReferral", result, err)
+	common.LogResult("cleanupReferral", result, err, true)
 
 	if err != nil {
 		log.Errorf("Error cleaning up referral, %w", err)
@@ -499,7 +502,7 @@ func CleanupReferral(db *sql.DB, ref string) error {
 func GetActions(db *sql.DB, id string) (*api.ActionsResponse, error) {
 	var (
 		rows *sql.Rows
-		err error
+		err  error
 	)
 	if id == "" {
 		rows, err = db.Query(`SELECT id, name, is_active, expiration_date
@@ -549,7 +552,7 @@ func CreateAction(db *sql.DB, req *api.ActionModifyArgs) (*api.ActionModifyRespo
 	result, err := db.Exec(`INSERT INTO actions(id, name, is_active, expiration_date)
 		VALUES(?, ?, ?, ?)
 	`, req.Record.Id, req.Record.Name, isActiveInt, req.Record.ExpirationDate)
-	common.LogResult("Create Action", result, err)
+	common.LogResult("Create Action", result, err, true)
 
 	if err != nil {
 		log.Errorf("Error creating action with args %v: %w", req, err)
@@ -570,7 +573,7 @@ func UpdateAction(db *sql.DB, req *api.ActionModifyArgs) (*api.ActionModifyRespo
 		SET name = ?, is_active = ?, expiration_date = ?
 		WHERE id = ?
 	`, req.Record.Name, isActiveInt, req.Record.ExpirationDate, req.Record.Id)
-	common.LogResult("Update Action", result, err)
+	common.LogResult("Update Action", result, err, true)
 
 	if err != nil {
 		log.Errorf("Error updating action with args %v: %w", req, err)
@@ -588,7 +591,7 @@ func UpdateAction(db *sql.DB, req *api.ActionModifyArgs) (*api.ActionModifyRespo
 
 func DeleteAction(db *sql.DB, req *api.ActionModifyArgs) error {
 	result, err := db.Exec("DELETE FROM actions WHERE id = ?", req.Record.Id)
-	common.LogResult("Delete Action", result, err)
+	common.LogResult("Delete Action", result, err, true)
 
 	if err != nil {
 		log.Errorf("Error deleting action, %w", err)
@@ -600,4 +603,151 @@ func DeleteAction(db *sql.DB, req *api.ActionModifyArgs) error {
 	}
 
 	return nil
+}
+
+func CreateOrUpdateArea(db *sql.DB, req *api.CreateAreaRequest) error {
+	// Start transaction
+	ctx := context.Background()
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	if err != nil {
+		log.Errorf("Error creating transaction: %w", err)
+		return err
+	}
+	defer tx.Rollback()
+
+	// Put the area into areas table
+	coords, err := json.MarshalIndent(req.Area.Coordinates, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmc, err := time.Parse(time.RFC3339, req.Area.CreatedAt)
+	if err != nil {
+		return err
+	}
+	create_ts :=	tmc.Format(time.DateTime)
+	tmu, err := time.Parse(time.RFC3339, req.Area.UpdatedAt)
+	if err != nil {
+		return err
+	}
+	update_ts := tmu.Format(time.DateTime)
+
+	rows, err := tx.Query(`SELECT id FROM areas WHERE id = ?`, req.Area.Id)
+	if err != nil {
+		return err
+	}
+	area_exists := rows.Next()
+	rows.Close()
+
+	if area_exists {
+		result, err := tx.Exec(`UPDATE areas
+			SET name = ?, description = ?, is_custom = ?, contact_name = ?, area_json = ?, created_at = ?, updated_at = ?
+			WHERE id = ?`,
+			req.Area.Name, req.Area.Description, req.Area.IsCustom, req.Area.ContactName, string(coords), create_ts, update_ts, req.Area.Id)
+		common.LogResult("updateArea", result, err, true)
+		if err != nil {
+			return err
+		}
+	} else {
+		result, err := tx.Exec(`INSERT
+			INTO areas (id, name, description, is_custom, contact_name, area_json, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			req.Area.Id, req.Area.Name, req.Area.Description, req.Area.IsCustom, req.Area.ContactName, string(coords), create_ts, update_ts)
+		common.LogResult("insertArea", result, err, true)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Put emails into emails table
+	for _, em := range req.Area.ContractEmails {
+		rows, err = tx.Query(`SELECT email FROM contact_emails WHERE email = ?`, em.Email)
+		if err != nil {
+			return err
+		}
+		email_exists := rows.Next()
+		rows.Close()
+		if email_exists {
+			result, err := tx.Exec(`UPDATE contact_emails
+				SET consent_report = ? WHERE email = ?`, em.ConsentReport, em.Email)
+			common.LogResult("updateContactEmails", result, err, true)
+			if err != nil {
+				return err
+			}
+		} else {
+			result, err := tx.Exec(`INSERT INTO contact_emails (email, consent_report)
+			  VALUES (?, ?)`, em.Email, em.ConsentReport)
+			common.LogResult("insertContactEmails", result, err, true)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	// Put a spatial index into areas index table
+	result, err := tx.Exec(`DELETE FROM area_index WHERE area_id = ?`, req.Area.Id)
+	common.LogResult("deletePreviousAreaIndex", result, err, false)
+	if err != nil {
+		return err
+	}
+	idx := area_index.AreaToIndex(req.Area)
+	for _, c := range idx {
+		result, err := tx.Exec(`INSERT INTO area_index VALUES(?, ?)`, req.Area.Id, int64(c))
+		common.LogResult("insertAreaIndex", result, err, true)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Commit transaction
+	return tx.Commit()
+}
+
+func GetAreas(db *sql.DB) ([]*api.Area, error) {
+	res := []*api.Area{}
+
+	rows, err := db.Query(`SELECT
+	 	id, name, description, is_custom, contact_name, area_json, created_at, updated_at
+		FROM areas`)
+	if err != nil {
+		return res, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			id uint64
+			name string
+			description string
+			isCustom bool
+			contactName string
+			areaJson string
+			createdAt string
+			updatedAt string
+		)
+		if err := rows.Scan(&id, &name, &description, &isCustom, &contactName, &areaJson, &createdAt, &updatedAt); err != nil {
+			return res, err
+		}
+
+		coords := &geojson.Feature{}
+		tc, _ := time.Parse(time.DateTime, createdAt)
+		cr := tc.Format(time.RFC3339)
+		tu, _ := time.Parse(time.DateTime, updatedAt)
+		upd := tu.Format(time.RFC3339)
+
+		err = json.Unmarshal([]byte(areaJson), coords)
+
+		ar := &api.Area{
+			Id: id,
+			Name: name,
+			Description: description,
+			IsCustom: isCustom,
+			ContactName: contactName,
+			Coordinates: coords,
+			CreatedAt: cr,
+			UpdatedAt: upd,
+		}
+		res = append(res, ar)
+	}
+
+	return res, nil
 }

@@ -6,7 +6,7 @@ import (
 	"github.com/apex/log"
 )
 
-func LogResult(msgPrefix string, r sql.Result, e error) {
+func LogResult(msgPrefix string, r sql.Result, e error, e1 bool) {
 	if e != nil {
 		log.Errorf("Query failed: %w", e)
 		return
@@ -16,7 +16,7 @@ func LogResult(msgPrefix string, r sql.Result, e error) {
 		log.Errorf("Failed to get status of db op: %w", err)
 		return
 	}
-	if rows != 1 {
+	if e1 && rows != 1 {
 		log.Warnf("%s: Expected to affect 1 row, affected %d", msgPrefix, rows)
 	}
 }

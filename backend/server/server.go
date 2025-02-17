@@ -30,8 +30,9 @@ const (
 	EndPointUpdateAction      = "/update_action"
 	EndPointDeleteAction      = "/delete_action"
 	EndPointUpdateUserAction  = "/update_user_action"
-	EndPointCreateArea        = "/create_or_update_area"
+	EndPointCreateOrUpdateArea        = "/create_or_update_area"
 	EndPointGetAreas          = "/get_areas"
+	EndPointUpdateConsent     = "/update_consent"
 )
 
 var (
@@ -68,8 +69,9 @@ func StartService() {
 	router.GET(EndPointGetActions, GetActions)
 	router.GET(EndPointGetAction, GetAction)
 	router.POST(EndPointUpdateUserAction, UpdateUserAction)
-	router.POST(EndPointCreateArea, CreateArea)
+	router.POST(EndPointCreateOrUpdateArea, CreateOrUpdateArea)
 	router.GET(EndPointGetAreas, GetAreas)
+	router.POST(EndPointUpdateConsent, UpdateConsent)
 
 	router.Run(fmt.Sprintf(":%d", *serverPort))
 	log.Info("Finished the service. Should not ever being seen.")
