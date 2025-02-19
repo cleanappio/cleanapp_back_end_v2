@@ -212,13 +212,13 @@ func TestSaveReport(t *testing.T) {
 	it(func() {
 		testCases := []struct {
 			name string
-			r    api.ReportArgs
+			r    *api.ReportArgs
 
 			expectError int
 		}{
 			{
 				name: "Add report success",
-				r: api.ReportArgs{
+				r: &api.ReportArgs{
 					Version:  "2.0",
 					Id:       "0x1234",
 					ActionId: "abcdef",
@@ -232,7 +232,7 @@ func TestSaveReport(t *testing.T) {
 			},
 			{
 				name: "Add report begin transaction error",
-				r: api.ReportArgs{
+				r: &api.ReportArgs{
 					Version:  "2.0",
 					Id:       "0x5678",
 					ActionId: "abcdef",
@@ -246,7 +246,7 @@ func TestSaveReport(t *testing.T) {
 			},
 			{
 				name: "Add report insert error",
-				r: api.ReportArgs{
+				r: &api.ReportArgs{
 					Version:  "2.0",
 					Id:       "0x9012",
 					ActionId: "abcdef",
@@ -260,7 +260,7 @@ func TestSaveReport(t *testing.T) {
 			},
 			{
 				name: "Add report user update error",
-				r: api.ReportArgs{
+				r: &api.ReportArgs{
 					Version:  "2.0",
 					Id:       "0x3456",
 					ActionId: "abcdef",
@@ -274,7 +274,7 @@ func TestSaveReport(t *testing.T) {
 			},
 			{
 				name: "Add report commit transaction error",
-				r: api.ReportArgs{
+				r: &api.ReportArgs{
 					Version:  "2.0",
 					Id:       "0x7890",
 					ActionId: "abcdef",

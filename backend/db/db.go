@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 
 	"cleanapp/backend/area_index"
+	"cleanapp/backend/email"
 	"cleanapp/backend/server/api"
 	"cleanapp/backend/util"
 	"cleanapp/common"
@@ -17,6 +19,7 @@ import (
 	"github.com/apex/log"
 	ethcommon "github.com/ethereum/go-ethereum/common"
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/golang/geo/s2"
 	geojson "github.com/paulmach/go.geojson"
 )
 
@@ -119,7 +122,7 @@ func UpdateUserAction(db *sql.DB, args *api.UserActionArgs) error {
 	return err
 }
 
-func SaveReport(db *sql.DB, r api.ReportArgs) error {
+func SaveReport(db *sql.DB, r *api.ReportArgs) error {
 	ctx := context.Background()
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
@@ -146,7 +149,15 @@ func SaveReport(db *sql.DB, r api.ReportArgs) error {
 	}
 	// Save a copy of counters in a shadow table.
 	tx.ExecContext(ctx, `UPDATE users_shadow SET kitns_daily = kitns_daily + 1 WHERE id = ?`, r.Id)
-	return tx.Commit()
+	err = tx.Commit()
+	if err != nil {
+		log.Errorf("Error committing the transaction: %w", err)
+		return err
+	}
+
+	// Send emails
+	go sendAffectedPolygonsEmails(r)
+	return nil
 }
 
 func GetMap(userId string, m api.ViewPort, retention time.Duration) ([]api.MapResult, error) {
@@ -669,13 +680,13 @@ func CreateOrUpdateArea(db *sql.DB, req *api.CreateAreaRequest) error {
 		if email_exists {
 			result, err := tx.Exec(`UPDATE contact_emails
 				SET consent_report = ? WHERE email = ?`, em.ConsentReport, em.Email)
-			common.LogResult("updateContactEmails", result, err, true)
+			common.LogResult("updateContactEmails", result, err, false)
 			if err != nil {
 				return err
 			}
 		} else {
-			result, err := tx.Exec(`INSERT INTO contact_emails (email, consent_report)
-			  VALUES (?, ?)`, em.Email, em.ConsentReport)
+			result, err := tx.Exec(`INSERT INTO contact_emails (area_id, email, consent_report)
+			  VALUES (?, ?, ?)`, req.Area.Id, em.Email, em.ConsentReport)
 			common.LogResult("insertContactEmails", result, err, true)
 			if err != nil {
 				return err
@@ -702,14 +713,33 @@ func CreateOrUpdateArea(db *sql.DB, req *api.CreateAreaRequest) error {
 	return tx.Commit()
 }
 
-func GetAreas(db *sql.DB) ([]*api.Area, error) {
+func GetAreas(db *sql.DB, areaIds []uint64) ([]*api.Area, error) {
 	res := []*api.Area{}
 
-	rows, err := db.Query(`SELECT
+	sqlStr := `SELECT
 	 	id, name, description, is_custom, contact_name, area_json, created_at, updated_at
-		FROM areas`)
+		FROM areas`
+	params := []any{}
+
+	if areaIds != nil {
+		qp := make([]string, len(areaIds))
+		for i := range areaIds {
+			qp[i] = "?"
+		}
+		ph := strings.Join(qp, ",")
+		sqlStr = fmt.Sprintf(`SELECT
+			id, name, description, is_custom, contact_name, area_json, created_at, updated_at
+			FROM areas
+			WHERE id IN(%s)`, ph)
+		params = make([]any, len(areaIds))
+		for i, areaId := range areaIds{ 
+			params[i] = areaId
+		}
+	}
+
+	rows, err := db.Query(sqlStr, params...)
 	if err != nil {
-		return res, err
+		return nil, err
 	}
 	defer rows.Close()
 
@@ -725,7 +755,7 @@ func GetAreas(db *sql.DB) ([]*api.Area, error) {
 			updatedAt string
 		)
 		if err := rows.Scan(&id, &name, &description, &isCustom, &contactName, &areaJson, &createdAt, &updatedAt); err != nil {
-			return res, err
+			return nil, err
 		}
 
 		coords := &geojson.Feature{}
@@ -735,6 +765,9 @@ func GetAreas(db *sql.DB) ([]*api.Area, error) {
 		upd := tu.Format(time.RFC3339)
 
 		err = json.Unmarshal([]byte(areaJson), coords)
+		if err != nil {
+			return nil, err
+		}
 
 		ar := &api.Area{
 			Id: id,
@@ -750,4 +783,86 @@ func GetAreas(db *sql.DB) ([]*api.Area, error) {
 	}
 
 	return res, nil
+}
+
+func sendAffectedPolygonsEmails(report *api.ReportArgs) {
+	dbc, err := common.DBConnect()
+	if err != nil {
+		log.Errorf("DB connection error: %w", err)
+		return
+	}
+	defer dbc.Close()
+
+	emails, err := findAreasForReport(dbc, report)
+	if err != nil {
+		log.Errorf("Error sending emails to affected areas: %w", err)
+		return
+	}
+
+	email.SendEmail(emails)
+}
+
+const (
+	maxCells = 32
+	minLevel = 12
+	maxLevel = 22
+)
+
+func findAreasForReport(db *sql.DB, report *api.ReportArgs) ([]string, error) {
+	rLatLng := s2.LatLngFromDegrees(report.Latitude, report.Longitue)
+	rBaseCell := s2.CellIDFromLatLng(rLatLng)
+	rCells := []any{}
+	qp := []string{}
+	for l := minLevel; l <= maxLevel; l++ {
+		rCells = append(rCells, int64(rBaseCell.Parent(l)))
+		qp = append(qp, "?")
+	}
+	ph := strings.Join(qp, ",")
+
+	sqlStr := fmt.Sprintf("SELECT area_id FROM area_index WHERE polygon_s2cell IN(%s)", ph)
+
+	rows, err := db.Query(sqlStr, rCells...)
+	if err != nil {
+		return nil, err
+	}
+	aMap := map[uint64]bool{}
+
+	for rows.Next() {
+		var areaId uint64
+		if err := rows.Scan(&areaId); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		aMap[areaId] = true;
+	}
+	rows.Close()
+
+	areaIds := make([]any, len(aMap))
+	ap := make([]string, len(aMap))
+	i := 0
+	for areaId := range aMap {
+		areaIds[i] = areaId
+		ap[i] = "?"
+		i++
+	}
+
+	sqlStr = fmt.Sprintf("SELECT email FROM contact_emails WHERE area_id IN(%s) AND consent_report = true", strings.Join(ap, ","))
+
+	rows, err = db.Query(sqlStr, areaIds...)
+	if err != nil {
+		return nil, err
+	}
+	
+	emails := []string{}
+	for rows.Next() {
+		var email string
+		if err := rows.Scan(&email); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		emails = append(emails, email)
+	}
+	rows.Close()
+
+	return emails, nil
 }

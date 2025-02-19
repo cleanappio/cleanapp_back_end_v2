@@ -66,7 +66,7 @@ func redeemOneUser(db *sql.DB, id, referral string, kitnsToRefer int) error {
 		SET kitns_ref_redeemed = kitns_ref_redeemed + ?
 		WHERE id = ?
 	`, kitnsToRefer, id)
-	common.LogResult(fmt.Sprintf("Update %d redeemed kitns for %s", kitnsToRefer, id), res, err)
+	common.LogResult(fmt.Sprintf("Update %d redeemed kitns for %s", kitnsToRefer, id), res, err, true)
 	if err != nil {
 		return err
 	}
@@ -104,7 +104,7 @@ func redeemStep(db *sql.DB, referral string, kitnsToRefer int, refLevel int) err
 		SET kitns_ref_daily = kitns_ref_daily + ?
 		WHERE id = ?
 	`, awarded, nextId)
-	common.LogResult(fmt.Sprintf("Award %f referral kitns for %s", awarded, nextId), res, err)
+	common.LogResult(fmt.Sprintf("Award %f referral kitns for %s", awarded, nextId), res, err, true)
 	if err != nil {
 		return err
 	}

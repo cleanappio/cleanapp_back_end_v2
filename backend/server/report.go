@@ -15,10 +15,10 @@ import (
 )
 
 func Report(c *gin.Context) {
-	var report api.ReportArgs
+	var report = &api.ReportArgs{}
 
 	// Get the arguments.
-	if err := c.BindJSON(&report); err != nil {
+	if err := c.BindJSON(report); err != nil {
 		log.Errorf("Failed to get the argument in /report call: %w", err)
 		return
 	}

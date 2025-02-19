@@ -50,7 +50,7 @@ func GetAreas(c *gin.Context) {
 	}
 	defer dbc.Close()
 
-	res, err := db.GetAreas(dbc)
+	res, err := db.GetAreas(dbc, nil)
 	if err != nil {
 		log.Errorf("Error getting areas: %w", err)
 		c.Status(http.StatusInternalServerError)

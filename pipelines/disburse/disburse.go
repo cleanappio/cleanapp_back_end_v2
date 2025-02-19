@@ -127,6 +127,6 @@ func (d *DailyDisburser) updateDisbursed(address ethcommon.Address, daily, daily
 	if err != nil {
 		return err
 	}
-	common.LogResult(fmt.Sprintf("Update %d + %f disbursed kitns for %s", kitnsDaily, kitnsDailyRef, address.String()), res, err)
+	common.LogResult(fmt.Sprintf("Update %d + %f disbursed kitns for %s", kitnsDaily, kitnsDailyRef, address.String()), res, err, true)
 	return nil
 }

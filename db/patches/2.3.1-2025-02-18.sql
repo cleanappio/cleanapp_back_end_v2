@@ -8,12 +8,14 @@ CREATE TABLE IF NOT EXISTS areas(
   created_at TIMESTAMP,
   updated_at TIMESTAMP,
   PRIMARY KEY (id)
- );
+);
 
 CREATE TABLE IF NOT EXISTS contact_emails(
+  area_id INT NOT NULL,
   email CHAR(64) NOT NULL,
   consent_report BOOL NOT NULL DEFAULT true,
-  PRIMARY KEY (email)
+  INDEX area_id_index (area_id),
+  INDEX email_index (email)
 );
 
 CREATE TABLE IF NOT EXISTS area_index(
