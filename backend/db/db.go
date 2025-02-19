@@ -635,7 +635,7 @@ func CreateOrUpdateArea(db *sql.DB, req *api.CreateAreaRequest) error {
 	if err != nil {
 		return err
 	}
-	create_ts :=	tmc.Format(time.DateTime)
+	create_ts := tmc.Format(time.DateTime)
 	tmu, err := time.Parse(time.RFC3339, req.Area.UpdatedAt)
 	if err != nil {
 		return err
@@ -732,7 +732,7 @@ func GetAreas(db *sql.DB, areaIds []uint64) ([]*api.Area, error) {
 			FROM areas
 			WHERE id IN(%s)`, ph)
 		params = make([]any, len(areaIds))
-		for i, areaId := range areaIds{ 
+		for i, areaId := range areaIds {
 			params[i] = areaId
 		}
 	}
@@ -745,14 +745,14 @@ func GetAreas(db *sql.DB, areaIds []uint64) ([]*api.Area, error) {
 
 	for rows.Next() {
 		var (
-			id uint64
-			name string
+			id          uint64
+			name        string
 			description string
-			isCustom bool
+			isCustom    bool
 			contactName string
-			areaJson string
-			createdAt string
-			updatedAt string
+			areaJson    string
+			createdAt   string
+			updatedAt   string
 		)
 		if err := rows.Scan(&id, &name, &description, &isCustom, &contactName, &areaJson, &createdAt, &updatedAt); err != nil {
 			return nil, err
@@ -770,14 +770,14 @@ func GetAreas(db *sql.DB, areaIds []uint64) ([]*api.Area, error) {
 		}
 
 		ar := &api.Area{
-			Id: id,
-			Name: name,
+			Id:          id,
+			Name:        name,
 			Description: description,
-			IsCustom: isCustom,
+			IsCustom:    isCustom,
 			ContactName: contactName,
 			Coordinates: coords,
-			CreatedAt: cr,
-			UpdatedAt: upd,
+			CreatedAt:   cr,
+			UpdatedAt:   upd,
 		}
 		res = append(res, ar)
 	}
@@ -833,7 +833,7 @@ func findAreasForReport(db *sql.DB, report *api.ReportArgs) ([]string, error) {
 			rows.Close()
 			return nil, err
 		}
-		aMap[areaId] = true;
+		aMap[areaId] = true
 	}
 	rows.Close()
 
@@ -852,7 +852,7 @@ func findAreasForReport(db *sql.DB, report *api.ReportArgs) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	emails := []string{}
 	for rows.Next() {
 		var email string

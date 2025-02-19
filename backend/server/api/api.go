@@ -191,7 +191,7 @@ type CreateAreaRequest struct {
 }
 
 type UpdateConsentRequest struct {
-	Version string `json:"version"` // Must be "2.0"
+	Version      string        `json:"version"` // Must be "2.0"
 	ContactEmail *ContactEmail `json:"contact_email"`
 }
 

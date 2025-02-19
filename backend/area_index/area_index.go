@@ -17,7 +17,7 @@ func AreaToIndex(area *api.Area) []s2.CellID {
 		loops = append(loops, s2.LoopFromPoints(pts))
 	}
 	p := s2.PolygonFromLoops(loops)
-	
+
 	rc := s2.NewRegionCoverer()
 	rc.MaxCells = 32
 	rc.MaxLevel = 22
