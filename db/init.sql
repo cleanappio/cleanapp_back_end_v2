@@ -101,7 +101,7 @@ DESCRIBE TABLE actions;
 SHOW COLUMNS FROM actions;
 
 CREATE TABLE IF NOT EXISTS areas(
-  id INT NOT NULL,
+  id INT NOT NULL AUTO_INCREMENT,
   name VARCHAR(255) NOT NULL,
   description VARCHAR(255),
   is_custom BOOL NOT NULL DEFAULT false,
@@ -113,15 +113,17 @@ CREATE TABLE IF NOT EXISTS areas(
  );
 
 CREATE TABLE IF NOT EXISTS contact_emails(
+  area_id INT NOT NULL,
   email CHAR(64) NOT NULL,
   consent_report BOOL NOT NULL DEFAULT true,
-  PRIMARY KEY (email)
+  INDEX area_id_index (area_id),
+  INDEX email_index (email)
 );
 
 CREATE TABLE IF NOT EXISTS area_index(
   area_id INT NOT NULL,
-  polygon_s2cell BIGINT,
-  INDEX polygon_idx (polygon_s2cell)
+  geom POLYGON NOT NULL SRID 4326,
+  SPATIAL INDEX(geom)
 );
 
 -- Create the user.

@@ -20,6 +20,6 @@ CREATE TABLE IF NOT EXISTS contact_emails(
 
 CREATE TABLE IF NOT EXISTS area_index(
   area_id INT NOT NULL,
-  polygon_s2cell BIGINT,
-  INDEX polygon_idx (polygon_s2cell)
+  geom POLYGON NOT NULL SRID 4326,
+  SPATIAL INDEX(geom)
 );

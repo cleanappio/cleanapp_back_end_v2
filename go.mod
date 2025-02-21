@@ -8,15 +8,17 @@ require (
 	github.com/ethereum/go-ethereum v1.15.1
 	github.com/gin-gonic/gin v1.10.0
 	github.com/go-sql-driver/mysql v1.8.1
-	github.com/golang/geo v0.0.0-20230421003525-6adc56603217
 	github.com/jknair0/beforeeach v0.0.1
 	github.com/shopspring/decimal v1.4.0
 )
+
+require github.com/uber/h3-go/v4 v4.2.1 // indirect
 
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/crate-crypto/go-ipa v0.0.0-20240724233137-53bbb0ceb27a // indirect
 	github.com/ethereum/go-verkle v0.2.2 // indirect
+	github.com/golang/geo v0.0.0-20230421003525-6adc56603217
 	github.com/paulmach/go.geojson v1.5.0 // indirect
 )
 

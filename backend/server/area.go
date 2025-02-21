@@ -4,6 +4,7 @@ import (
 	"cleanapp/backend/db"
 	"cleanapp/backend/server/api"
 	"cleanapp/common"
+	"fmt"
 	"net/http"
 
 	"github.com/apex/log"
@@ -35,7 +36,7 @@ func CreateOrUpdateArea(c *gin.Context) {
 	err = db.CreateOrUpdateArea(dbc, args)
 	if err != nil {
 		log.Errorf("Error creating or updating area: %w", err)
-		c.Status(http.StatusInternalServerError)
+		c.String(http.StatusInternalServerError, fmt.Sprint(err))
 		return
 	}
 	
@@ -53,7 +54,7 @@ func GetAreas(c *gin.Context) {
 	res, err := db.GetAreas(dbc, nil)
 	if err != nil {
 		log.Errorf("Error getting areas: %w", err)
-		c.Status(http.StatusInternalServerError)
+		c.String(http.StatusInternalServerError, fmt.Sprint(err))
 		return
 	}
 
@@ -72,6 +73,18 @@ func UpdateConsent(c *gin.Context) {
 		log.Errorf("Bad version in /update_consent, expected: 2.0, got: %v", args.Version)
 		c.String(http.StatusNotAcceptable, "Bad API version, expecting 2.0.") // 406
 		return
+	}
+
+	dbc, err := common.DBConnect()
+	if err != nil {
+		log.Errorf("DB connection error: %w", err)
+		return
+	}
+	defer dbc.Close()
+
+	if err = db.UpdateConsent(dbc, args); err != nil {
+		log.Errorf("Error updating email consent: %w", err)
+		c.String(http.StatusInternalServerError, fmt.Sprint(err))
 	}
 
 	c.Status(http.StatusOK)

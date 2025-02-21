@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	// "cleanapp/backend/area_index"
 	"cleanapp/backend/area_index"
 	"cleanapp/backend/email"
 	"cleanapp/backend/server/api"
@@ -19,7 +20,6 @@ import (
 	"github.com/apex/log"
 	ethcommon "github.com/ethereum/go-ethereum/common"
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/golang/geo/s2"
 	geojson "github.com/paulmach/go.geojson"
 )
 
@@ -646,10 +646,12 @@ func CreateOrUpdateArea(db *sql.DB, req *api.CreateAreaRequest) error {
 	if err != nil {
 		return err
 	}
-	area_exists := rows.Next()
+	areaExists := rows.Next()
 	rows.Close()
+	log.Infof("Fetch existing area for %d; area exists: %v", req.Area.Id, areaExists)
 
-	if area_exists {
+	var newId int
+	if areaExists {
 		result, err := tx.Exec(`UPDATE areas
 			SET name = ?, description = ?, is_custom = ?, contact_name = ?, area_json = ?, created_at = ?, updated_at = ?
 			WHERE id = ?`,
@@ -658,39 +660,54 @@ func CreateOrUpdateArea(db *sql.DB, req *api.CreateAreaRequest) error {
 		if err != nil {
 			return err
 		}
+		newId = int(req.Area.Id)
+		log.Infof("Updated area with ID %d", newId)
 	} else {
 		result, err := tx.Exec(`INSERT
-			INTO areas (id, name, description, is_custom, contact_name, area_json, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-			req.Area.Id, req.Area.Name, req.Area.Description, req.Area.IsCustom, req.Area.ContactName, string(coords), create_ts, update_ts)
+			INTO areas (name, description, is_custom, contact_name, area_json, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			req.Area.Name, req.Area.Description, req.Area.IsCustom, req.Area.ContactName, string(coords), create_ts, update_ts)
 		common.LogResult("insertArea", result, err, true)
 		if err != nil {
 			return err
 		}
+		rows, err := tx.Query("SELECT MAX(id) FROM areas");
+		if err != nil {
+			return err
+		}
+		rows.Next()
+		if err := rows.Scan(&newId); err != nil {
+			return err
+		}
+		rows.Close();
+		log.Infof("Inserted area with id %d", newId)
 	}
 
 	// Put emails into emails table
 	for _, em := range req.Area.ContractEmails {
-		rows, err = tx.Query(`SELECT email FROM contact_emails WHERE email = ?`, em.Email)
+		log.Infof("Updating email %v", em)
+		rows, err = tx.Query(`SELECT email FROM contact_emails WHERE area_id = ? AND email = ?`, newId, em.Email)
 		if err != nil {
 			return err
 		}
-		email_exists := rows.Next()
+		emailExists := rows.Next()
 		rows.Close()
-		if email_exists {
+		if emailExists {
 			result, err := tx.Exec(`UPDATE contact_emails
-				SET consent_report = ? WHERE email = ?`, em.ConsentReport, em.Email)
+				SET consent_report = ? WHERE area_id = ? AND email = ?`, em.ConsentReport, newId, em.Email)
 			common.LogResult("updateContactEmails", result, err, false)
 			if err != nil {
 				return err
 			}
+			log.Info("Email is updated")
 		} else {
 			result, err := tx.Exec(`INSERT INTO contact_emails (area_id, email, consent_report)
-			  VALUES (?, ?, ?)`, req.Area.Id, em.Email, em.ConsentReport)
+			  VALUES (?, ?, ?)`, newId, em.Email, em.ConsentReport)
 			common.LogResult("insertContactEmails", result, err, true)
 			if err != nil {
 				return err
 			}
+			log.Info("Email is inserted")
 		}
 	}
 
@@ -700,13 +717,15 @@ func CreateOrUpdateArea(db *sql.DB, req *api.CreateAreaRequest) error {
 	if err != nil {
 		return err
 	}
-	idx := area_index.AreaToIndex(req.Area)
-	for _, c := range idx {
-		result, err := tx.Exec(`INSERT INTO area_index VALUES(?, ?)`, req.Area.Id, int64(c))
-		common.LogResult("insertAreaIndex", result, err, true)
-		if err != nil {
-			return err
-		}
+	areaWKT, err := area_index.AreaToWKT(req.Area)
+	if err != nil {
+		return err
+	}
+	result, err = tx.Exec("INSERT INTO area_index (area_id, geom) VALUES (?, ST_GeomFromText(?, 4326))", newId, areaWKT)
+	common.LogResult("insertAreaIndex", result, err, true)
+	if err != nil {
+		log.Errorf("%s", areaWKT)
+		return err
 	}
 
 	// Commit transaction
@@ -785,6 +804,15 @@ func GetAreas(db *sql.DB, areaIds []uint64) ([]*api.Area, error) {
 	return res, nil
 }
 
+func UpdateConsent(db *sql.DB, req *api.UpdateConsentRequest) error {
+	res, err := db.Exec(
+		"UPDATE contact_emails SET consent_report = ? WHERE email = ?",
+		req.ContactEmail.ConsentReport, req.ContactEmail.Email,
+	)
+	common.LogResult("Error updating contact emails", res, err, false)
+	return err
+}
+
 func sendAffectedPolygonsEmails(report *api.ReportArgs) {
 	dbc, err := common.DBConnect()
 	if err != nil {
@@ -802,26 +830,10 @@ func sendAffectedPolygonsEmails(report *api.ReportArgs) {
 	email.SendEmail(emails)
 }
 
-const (
-	maxCells = 32
-	minLevel = 12
-	maxLevel = 22
-)
-
 func findAreasForReport(db *sql.DB, report *api.ReportArgs) ([]string, error) {
-	rLatLng := s2.LatLngFromDegrees(report.Latitude, report.Longitue)
-	rBaseCell := s2.CellIDFromLatLng(rLatLng)
-	rCells := []any{}
-	qp := []string{}
-	for l := minLevel; l <= maxLevel; l++ {
-		rCells = append(rCells, int64(rBaseCell.Parent(l)))
-		qp = append(qp, "?")
-	}
-	ph := strings.Join(qp, ",")
+	ptWKT := area_index.PointToWKT(report.Longitue, report.Latitude)
 
-	sqlStr := fmt.Sprintf("SELECT area_id FROM area_index WHERE polygon_s2cell IN(%s)", ph)
-
-	rows, err := db.Query(sqlStr, rCells...)
+	rows, err := db.Query("SELECT area_id FROM area_index WHERE MBRWithin(ST_GeomFromText(?, 4326), geom)", ptWKT)
 	if err != nil {
 		return nil, err
 	}
@@ -846,8 +858,8 @@ func findAreasForReport(db *sql.DB, report *api.ReportArgs) ([]string, error) {
 		i++
 	}
 
-	sqlStr = fmt.Sprintf("SELECT email FROM contact_emails WHERE area_id IN(%s) AND consent_report = true", strings.Join(ap, ","))
-
+	sqlStr := fmt.Sprintf("SELECT email FROM contact_emails WHERE area_id IN(%s) AND consent_report = true", strings.Join(ap, ","))
+	log.Info(sqlStr)
 	rows, err = db.Query(sqlStr, areaIds...)
 	if err != nil {
 		return nil, err
