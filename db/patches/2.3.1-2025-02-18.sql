@@ -1,5 +1,5 @@
 CREATE TABLE IF NOT EXISTS areas(
-  id INT NOT NULL,
+  id INT NOT NULL AUTO_INCREMENT,
   name VARCHAR(255) NOT NULL,
   description VARCHAR(255),
   is_custom BOOL NOT NULL DEFAULT false,
