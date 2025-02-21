@@ -26,4 +26,7 @@ CMD "./service" \
    "--eth_network_url_main=${ETH_NETWORK_URL_MAIN}" \
    "--eth_private_key_main=${KITN_PRIVATE_KEY_MAIN}" \
    "--contract_address_main=${CONTRACT_ADDRESS_MAIN}" \
-   "--solver_url=${SOLVER_URL}"
+   "--solver_url=${SOLVER_URL}" \
+   "--sendgrid_api_key=${SENDGRID_API_KEY}" \
+   "--sendgrid_from_name=${SENDGRID_FROM_NAME}" \
+   "--sendgrid_from_email=${SENDGRID_FROM_EMAIL}"

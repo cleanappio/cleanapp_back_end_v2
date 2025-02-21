@@ -12,7 +12,11 @@ require (
 	github.com/shopspring/decimal v1.4.0
 )
 
-require github.com/uber/h3-go/v4 v4.2.1 // indirect
+require (
+	github.com/sendgrid/rest v2.6.9+incompatible // indirect
+	github.com/sendgrid/sendgrid-go v3.16.0+incompatible // indirect
+	github.com/uber/h3-go/v4 v4.2.1 // indirect
+)
 
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect

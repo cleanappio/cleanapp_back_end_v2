@@ -22,6 +22,10 @@ LAMINATOR_ADDRESS=""
 CALL_BREAKER_ADDRESS=""
 KITN_DISBURSEMENT_SCHEDULER_ADDRESS=""
 
+# SendGrid Vars
+SENDGRID_FROM_NAME="CleanApp Info"
+SENDGRID_FROM_EMAIL="info@cleanapp.io"
+
 # Choose the environment
 PS3="Please choose the environment: "
 options=("local" "dev" "prod" "quit")
@@ -98,6 +102,7 @@ MYSQL_APP_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_APP_PASSW
 MYSQL_READER_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_READER_PASSWORD_${SECRET_SUFFIX}")
 KITN_PRIVATE_KEY_MAIN=\$(gcloud secrets versions access 1 --secret="KITN_PRIVATE_KEY_${SECRET_SUFFIX}")
 KITN_PRIVATE_KEY_SHADOW=\$(gcloud secrets versions access 1 --secret="KITN_PRIVATE_KEY_${SECRET_SUFFIX}")
+SENDGRID_API_KEY=\$(gcloud secrets versions access 1 --secret="SENDGRID_API_KEY_${SECRET_SUFFIX}")
 
 ENV
 
@@ -145,6 +150,9 @@ services:
       - ETH_NETWORK_URL_MAIN=${ETH_NETWORK_URL_MAIN}
       - CONTRACT_ADDRESS_MAIN=${CONTRACT_ADDRESS_MAIN}
       - SOLVER_URL=${SOLVER_URL}
+      - SENDGRID_API_KEY=\${SENDGRID_API_KEY}
+      - SENDGRID_FROM_NAME=${SENDGRID_FROM_NAME}
+      - SENDGRID_FROM_EMAIL=${SENDGRID_FROM_EMAIL}
     ports:
       - 8080:8080
 
