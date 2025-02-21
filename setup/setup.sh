@@ -30,7 +30,7 @@ REACT_APP_APPSTORE_URL="https://apps.apple.com/us/app/cleanapp/id6466403301"
 # SendGrid Email Vars
 SENDGRID_FROM_NAME="CleanApp Info"
 SENDGRID_FROM_EMAIL="info@cleanapp.io"
-EMAIL_OPT_OUT_URL="http://dev.app.cleanapp.io:3000"
+EMAIL_OPT_OUT_URL=
 CLEANAPP_MAP_URL="https://clean-app-map-4-b0150.replit.app/"
 
 
