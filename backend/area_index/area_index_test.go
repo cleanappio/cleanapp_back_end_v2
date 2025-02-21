@@ -26,7 +26,7 @@ func TestPointToWKT(t *testing.T) {
 				lng: 8.4367673,
 				lat: 40.8457999,
 			},
-			expected: "POINT(8.4367673 40.8457999)",
+			expected: "POINT(40.8457999 8.4367673)",
 		},
 	}
 
