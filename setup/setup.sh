@@ -6,14 +6,15 @@
 #    (pulled from Github or otherwise).
 
 # Vars init
-SCHEDULER_HOST=""
-ETH_NETWORK_URL_MAIN=""
-CONTRACT_ADDRESS_MAIN=""
-DISBURSEMENT_MAIN_SCHEDULE=""
-PIPELINES_MAIN_PORT=""
-REACT_APP_REF_API_ENDPOINT="http://dev.api.cleanapp.io:8080/write_referral/"
+SCHEDULER_HOST=
+ETH_NETWORK_URL_MAIN=
+CONTRACT_ADDRESS_MAIN=
+DISBURSEMENT_MAIN_SCHEDULE=
+PIPELINES_MAIN_PORT=
+REACT_APP_REF_API_ENDPOINT=
 SOLVER_URL=
 DISBURSEMENT_SHADOW_SCHEDULE=
+REACT_APP_EMAIL_CONSENT_API_ENDPOINT=
 
 # STXN Kickoff Vars
 CHAIN_ID=""
@@ -22,9 +23,16 @@ LAMINATOR_ADDRESS=""
 CALL_BREAKER_ADDRESS=""
 KITN_DISBURSEMENT_SCHEDULER_ADDRESS=""
 
-# SendGrid Vars
+# Cleanapp Web env variables
+REACT_APP_PLAYSTORE_URL="https://play.google.com/store/apps/details?id=com.cleanapp"
+REACT_APP_APPSTORE_URL="https://apps.apple.com/us/app/cleanapp/id6466403301"
+
+# SendGrid Email Vars
 SENDGRID_FROM_NAME="CleanApp Info"
 SENDGRID_FROM_EMAIL="info@cleanapp.io"
+EMAIL_OPT_OUT_URL="http://dev.app.cleanapp.io:3000"
+CLEANAPP_MAP_URL="https://clean-app-map-4-b0150.replit.app/"
+
 
 # Choose the environment
 PS3="Please choose the environment: "
@@ -46,6 +54,7 @@ do
         CALL_BREAKER_ADDRESS="0x23912387357621473Ff6514a2DC20Df14cd72E7f"
         KITN_DISBURSEMENT_SCHEDULER_ADDRESS="0x7E485Fd55CEdb1C303b2f91DFE7695e72A537399"
         DISBURSEMENT_SHADOW_SCHEDULE="0 */3 * * * *"
+        EMAIL_OPT_OUT_URL="http://localhost:3000"
         break
         ;;
     "dev")
@@ -55,6 +64,7 @@ do
         CONTRACT_ADDRESS_MAIN="0xDc41655b749E8F2922A6E5e525Fc04a915aEaFAA"
         PIPELINES_MAIN_PORT="8090"
         REACT_APP_REF_API_ENDPOINT="http://dev.api.cleanapp.io:8080/write_referral/"
+        REACT_APP_EMAIL_CONSENT_API_ENDPOINT="http://dev.api.cleanapp.io:8080/update_consent/"
         SOLVER_URL="http://104.154.119.169:8888/report"
         CHAIN_ID="21363"
         WS_CHAIN_URL="wss://service.lestnet.org:8888/"
@@ -62,6 +72,7 @@ do
         CALL_BREAKER_ADDRESS="0x23912387357621473Ff6514a2DC20Df14cd72E7f"
         KITN_DISBURSEMENT_SCHEDULER_ADDRESS="0x7E485Fd55CEdb1C303b2f91DFE7695e72A537399"
         DISBURSEMENT_SHADOW_SCHEDULE="0 */3 * * * *"
+        EMAIL_OPT_OUT_URL="http://dev.app.cleanapp.io:3000"
         break
         ;;
     "prod")
@@ -72,6 +83,7 @@ do
         DISBURSEMENT_MAIN_SCHEDULE="0 20 * * *"
         PIPELINES_MAIN_PORT="8090"
         REACT_APP_REF_API_ENDPOINT="http://api.cleanapp.io:8080/write_referral/"
+        REACT_APP_EMAIL_CONSENT_API_ENDPOINT="http://api.cleanapp.io:8080/update_consent/"
         SOLVER_URL="http://104.154.119.169:8888/report"
         CHAIN_ID="21363"
         WS_CHAIN_URL="wss://service.lestnet.org:8888/"
@@ -79,6 +91,7 @@ do
         CALL_BREAKER_ADDRESS="0x23912387357621473Ff6514a2DC20Df14cd72E7f"
         KITN_DISBURSEMENT_SCHEDULER_ADDRESS="0x7E485Fd55CEdb1C303b2f91DFE7695e72A537399"
         DISBURSEMENT_SHADOW_SCHEDULE="0 */3 * * * *"
+        EMAIL_OPT_OUT_URL="http://app.cleanapp.io:3000"
         break
         ;;
     "quit")
@@ -131,10 +144,6 @@ WEB_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-web-image:${OPT}"
 DB_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-db-image:live"
 STXN_KICKOFF_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-stxn-kickoff-image:${OPT}"
 
-# Cleanapp Web env variables
-REACT_APP_PLAYSTORE_URL="https://play.google.com/store/apps/details?id=com.cleanapp"
-REACT_APP_APPSTORE_URL="https://apps.apple.com/us/app/cleanapp/id6466403301"
-
 # Create docker-compose.yml file.
 cat >docker-compose.yml << COMPOSE
 version: '3'
@@ -153,6 +162,10 @@ services:
       - SENDGRID_API_KEY=\${SENDGRID_API_KEY}
       - SENDGRID_FROM_NAME=${SENDGRID_FROM_NAME}
       - SENDGRID_FROM_EMAIL=${SENDGRID_FROM_EMAIL}
+      - EMAIL_OPT_OUT_URL=${EMAIL_OPT_OUT_URL}
+      - CLEANAPP_MAP_URL=${CLEANAPP_MAP_URL}
+      - CLEANAPP_ANDROID_URL=${REACT_APP_PLAYSTORE_URL}
+      - CLEANAPP_IOS_URL=${REACT_APP_APPSTORE_URL}
     ports:
       - 8080:8080
 
@@ -187,6 +200,7 @@ services:
     image: ${WEB_DOCKER_IMAGE}
     environment:
       - REACT_APP_REF_API_ENDPOINT=${REACT_APP_REF_API_ENDPOINT}
+      - REACT_APP_EMAIL_CONSENT_API_ENDPOINT=${REACT_APP_EMAIL_CONSENT_API_ENDPOINT}
       - REACT_APP_PLAYSTORE_URL=${REACT_APP_PLAYSTORE_URL}
       - REACT_APP_APPSTORE_URL=${REACT_APP_APPSTORE_URL}
     ports:

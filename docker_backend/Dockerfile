@@ -29,4 +29,8 @@ CMD "./service" \
    "--solver_url=${SOLVER_URL}" \
    "--sendgrid_api_key=${SENDGRID_API_KEY}" \
    "--sendgrid_from_name=${SENDGRID_FROM_NAME}" \
-   "--sendgrid_from_email=${SENDGRID_FROM_EMAIL}"
+   "--sendgrid_from_email=${SENDGRID_FROM_EMAIL}" \
+   "--email_opt_out_url=${EMAIL_OPT_OUT_URL}" \
+   "--cleanapp_map_url=${CLEANAPP_MAP_URL}" \
+   "--cleanapp_android_url=${CLEANAPP_ANDROID_URL}" \
+   "--cleanapp_ios_url=${CLEANAPP_IOS_URL}"

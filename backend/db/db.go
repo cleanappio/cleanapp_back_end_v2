@@ -827,7 +827,7 @@ func sendAffectedPolygonsEmails(report *api.ReportArgs) {
 		return
 	}
 
-	email.SendEmails(emails)
+	email.SendEmails(emails, report.Image)
 }
 
 func findAreasForReport(db *sql.DB, report *api.ReportArgs) ([]string, error) {
