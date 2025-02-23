@@ -903,3 +903,20 @@ func findAreasForReport(db *sql.DB, report *api.ReportArgs) ([]string, error) {
 
 	return emails, nil
 }
+
+func GetAreasCount(db *sql.DB) (uint64, error) {
+	rows, err := db.Query("SELECT COUNT(*) FROM areas")
+	if err != nil {
+		return 0, err
+	}
+
+	var cnt uint64
+	for rows.Next() {
+		if err := rows.Scan(&cnt); err != nil {
+			return 0, err
+		}
+		break
+	}
+
+	return cnt, nil
+}

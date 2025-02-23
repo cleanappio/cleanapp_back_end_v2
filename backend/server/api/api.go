@@ -198,3 +198,7 @@ type UpdateConsentRequest struct {
 type AreasResponse struct {
 	Areas []Area `json:"areas"`
 }
+
+type AreasCountResponse struct {
+	Count uint64
+}

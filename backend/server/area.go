@@ -93,6 +93,7 @@ func GetAreas(c *gin.Context) {
 	if err != nil {
 		log.Errorf("Error getting area IDs for viewport %v: %w", vp, err)
 		c.String(http.StatusInternalServerError, fmt.Sprintf("Getting area IDs: %v", err))
+		return
 	}
 
 	res, err := db.GetAreas(dbc, areaIds)
@@ -129,7 +130,28 @@ func UpdateConsent(c *gin.Context) {
 	if err = db.UpdateConsent(dbc, args); err != nil {
 		log.Errorf("Error updating email consent: %w", err)
 		c.String(http.StatusInternalServerError, fmt.Sprint(err))
+		return
 	}
 
 	c.Status(http.StatusOK)
+}
+
+func GetAreasCount(c *gin.Context) {
+	dbc, err := common.DBConnect()
+	if err != nil {
+		log.Errorf("DB connection error: %w", err)
+		return
+	}
+	defer dbc.Close()
+
+	cnt, err := db.GetAreasCount(dbc)
+	if err != nil {
+		log.Errorf("Error getting areas.count: %w", err)
+		c.String(http.StatusInternalServerError, fmt.Sprint(err))
+		return
+	}
+
+	c.IndentedJSON(http.StatusOK, &api.AreasCountResponse{
+		Count: cnt,
+	})
 }
