@@ -915,7 +915,6 @@ func GetAreasCount(db *sql.DB) (uint64, error) {
 		if err := rows.Scan(&cnt); err != nil {
 			return 0, err
 		}
-		break
 	}
 
 	return cnt, nil
