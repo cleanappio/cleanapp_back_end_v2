@@ -10,10 +10,23 @@ func PointToWKT(longitude, latitude float64) string {
 	return fmt.Sprintf("POINT(%g %g)", latitude, longitude)
 }
 
+func ViewPortToWKT(vp *api.ViewPort) string {
+	poly := [][][]float64{
+		{
+			{vp.LonMin, vp.LatMin},
+			{vp.LonMax, vp.LatMin},
+			{vp.LonMax, vp.LatMax},
+			{vp.LonMin, vp.LatMax},
+			{vp.LonMin, vp.LatMin},
+		},
+	}
+	return fmt.Sprintf("POLYGON(%s)", innerWKT(poly))
+}
+
 func AreaToWKT(area *api.Area) (string, error) {
 	if area.Coordinates.Geometry.IsPolygon() {
 		return PolygonToWKT(area), nil
-	}	else if area.Coordinates.Geometry.IsMultiPolygon() {
+	} else if area.Coordinates.Geometry.IsMultiPolygon() {
 		return MultiPolygonToWKT(area), nil
 	} else {
 		return "", fmt.Errorf("unsupported geometry type: %s", area.Coordinates.Geometry.Type)
@@ -34,9 +47,9 @@ func MultiPolygonToWKT(area *api.Area) string {
 
 func innerWKT(poly [][][]float64) string {
 	wktList := make([][]string, len(poly))
- 	for i, loop := range poly {
+	for i, loop := range poly {
 		wktList[i] = make([]string, len(loop))
- 		for j, point := range loop {
+		for j, point := range loop {
 			wktList[i][j] = fmt.Sprintf("%g %g", point[1], point[0])
 		}
 	}

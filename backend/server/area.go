@@ -6,6 +6,7 @@ import (
 	"cleanapp/common"
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/apex/log"
 	"github.com/gin-gonic/gin"
@@ -39,11 +40,48 @@ func CreateOrUpdateArea(c *gin.Context) {
 		c.String(http.StatusInternalServerError, fmt.Sprint(err))
 		return
 	}
-	
+
 	c.Status(http.StatusOK)
 }
 
 func GetAreas(c *gin.Context) {
+	latMinStr, hasLatMin := c.GetQuery("sw_lat")
+	lonMinStr, hasLonMin := c.GetQuery("sw_lon")
+	latMaxStr, hasLatMax := c.GetQuery("ne_lat")
+	lonMaxStr, hasLonMax := c.GetQuery("ne_lon")
+
+	var latMin, lonMin, latMax, lonMax float64
+	var err error
+	var vp *api.ViewPort
+	if hasLatMin && hasLatMax && hasLonMin && hasLonMax {
+		if latMin, err = strconv.ParseFloat(latMinStr, 64); err != nil {
+			log.Errorf("Error in parsing sw_lat param: %w", err)
+			c.String(http.StatusBadRequest, fmt.Sprintf("Parsing sw_lat: %v", err))
+			return
+		}
+		if lonMin, err = strconv.ParseFloat(lonMinStr, 64); err != nil {
+			log.Errorf("Error in parsing sw_lon param: %w", err)
+			c.String(http.StatusBadRequest, fmt.Sprintf("Parsing sw_lon: %v", err))
+			return
+		}
+		if latMax, err = strconv.ParseFloat(latMaxStr, 64); err != nil {
+			log.Errorf("Error in parsing ne_lat param: %w", err)
+			c.String(http.StatusBadRequest, fmt.Sprintf("Parsing ne_lat: %v", err))
+			return
+		}
+		if lonMax, err = strconv.ParseFloat(lonMaxStr, 64); err != nil {
+			log.Errorf("Error in parsing ne_lon param: %w", err)
+			c.String(http.StatusBadRequest, fmt.Sprintf("Parsing ne_lon: %v", err))
+			return
+		}
+		vp = &api.ViewPort{
+			LatMin: latMin,
+			LonMin: lonMin,
+			LatMax: latMax,
+			LonMax: lonMax,
+		}
+	}
+
 	dbc, err := common.DBConnect()
 	if err != nil {
 		log.Errorf("DB connection error: %w", err)
@@ -51,10 +89,16 @@ func GetAreas(c *gin.Context) {
 	}
 	defer dbc.Close()
 
-	res, err := db.GetAreas(dbc, nil)
+	areaIds, err := db.GetAreaIdsForViewport(dbc, vp)
+	if err != nil {
+		log.Errorf("Error getting area IDs for viewport %v: %w", vp, err)
+		c.String(http.StatusInternalServerError, fmt.Sprintf("Getting area IDs: %v", err))
+	}
+
+	res, err := db.GetAreas(dbc, areaIds)
 	if err != nil {
 		log.Errorf("Error getting areas: %w", err)
-		c.String(http.StatusInternalServerError, fmt.Sprint(err))
+		c.String(http.StatusInternalServerError, fmt.Sprintf("Getting areas: %v", err))
 		return
 	}
 

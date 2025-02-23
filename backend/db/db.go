@@ -671,7 +671,7 @@ func CreateOrUpdateArea(db *sql.DB, req *api.CreateAreaRequest) error {
 		if err != nil {
 			return err
 		}
-		rows, err := tx.Query("SELECT MAX(id) FROM areas");
+		rows, err := tx.Query("SELECT MAX(id) FROM areas")
 		if err != nil {
 			return err
 		}
@@ -679,7 +679,7 @@ func CreateOrUpdateArea(db *sql.DB, req *api.CreateAreaRequest) error {
 		if err := rows.Scan(&newId); err != nil {
 			return err
 		}
-		rows.Close();
+		rows.Close()
 		log.Infof("Inserted area with id %d", newId)
 	}
 
@@ -741,6 +741,9 @@ func GetAreas(db *sql.DB, areaIds []uint64) ([]*api.Area, error) {
 	params := []any{}
 
 	if areaIds != nil {
+		if len(areaIds) == 0 {
+			return res, nil
+		}
 		qp := make([]string, len(areaIds))
 		for i := range areaIds {
 			qp[i] = "?"
@@ -802,6 +805,28 @@ func GetAreas(db *sql.DB, areaIds []uint64) ([]*api.Area, error) {
 	}
 
 	return res, nil
+}
+
+func GetAreaIdsForViewport(db *sql.DB, vp *api.ViewPort) ([]uint64, error) {
+	if vp == nil {
+		return nil, nil
+	}
+	rows, err := db.Query("SELECT area_id FROM area_index WHERE ST_Intersects(ST_GeomFromText(?, 4326), geom)", area_index.ViewPortToWKT(vp))
+	if err != nil {
+		return nil, err
+	}
+	ret := []uint64{}
+	for rows.Next() {
+		var areaId uint64
+		if err := rows.Scan(&areaId); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		ret = append(ret, areaId)
+	}
+	rows.Close()
+
+	return ret, nil
 }
 
 func UpdateConsent(db *sql.DB, req *api.UpdateConsentRequest) error {

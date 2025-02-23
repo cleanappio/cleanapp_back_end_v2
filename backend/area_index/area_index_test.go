@@ -38,6 +38,41 @@ func TestPointToWKT(t *testing.T) {
 	}
 }
 
+func TestViewPortToWKT(t *testing.T) {
+	testCases := []struct {
+		name     string
+		input    *api.ViewPort
+		expected string
+	}{
+		{
+			name: "Standard Viewport",
+			input: &api.ViewPort{
+				LatMin: 47.3561236,
+				LonMin: 8.4924316,
+				LatMax: 47.3735062,
+				LonMax: 8.5238456,
+			},
+			expected: "POLYGON((47.3561236 8.4924316,47.3561236 8.5238456,47.3735062 8.5238456,47.3735062 8.4924316,47.3561236 8.4924316))",
+		}, {
+			name: "Second Viewport",
+			input: &api.ViewPort{
+				LatMin: 47.32049780635907,
+				LonMin: 8.528003096580507,
+				LatMax: 47.32267240135444,
+				LonMax: 8.53192985057831,
+			},
+			expected: "POLYGON((47.32049780635907 8.528003096580507,47.32049780635907 8.53192985057831,47.32267240135444 8.53192985057831,47.32267240135444 8.528003096580507,47.32049780635907 8.528003096580507))",
+		},
+	}
+
+	for _, testCase := range testCases {
+		wkt := ViewPortToWKT(testCase.input)
+		if wkt != testCase.expected {
+			t.Errorf("%s: Failure in getting viewport WKT; got: %v, want: %v", testCase.name, wkt, testCase.expected)
+		}
+	}
+}
+
 func TestPolygonToWKT(t *testing.T) {
 	testCases := []struct {
 		name     string
