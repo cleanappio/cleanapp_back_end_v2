@@ -846,21 +846,28 @@ func sendAffectedPolygonsEmails(report *api.ReportArgs) {
 	}
 	defer dbc.Close()
 
-	emails, err := findAreasForReport(dbc, report)
+	features, emails, err := findAreasForReport(dbc, report)
 	if err != nil {
 		log.Errorf("Error sending emails to affected areas: %w", err)
 		return
 	}
 
-	email.SendEmails(emails, report.Image)
+	for areaId, emailAddrs := range emails{
+		polyImg, err := email.GeneratePolygonImg(features[areaId], report.Latitude, report.Longitue)
+		if err != nil {
+			log.Errorf("Error generating polygon image: %w", err)
+			return
+		}
+		email.SendEmails(emailAddrs, report.Image, polyImg)
+	}
 }
 
-func findAreasForReport(db *sql.DB, report *api.ReportArgs) ([]string, error) {
+func findAreasForReport(db *sql.DB, report *api.ReportArgs) (map[uint64]*geojson.Feature, map[uint64][]string, error) {
 	ptWKT := area_index.PointToWKT(report.Longitue, report.Latitude)
 
 	rows, err := db.Query("SELECT area_id FROM area_index WHERE MBRWithin(ST_GeomFromText(?, 4326), geom)", ptWKT)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	aMap := map[uint64]bool{}
 
@@ -868,7 +875,7 @@ func findAreasForReport(db *sql.DB, report *api.ReportArgs) ([]string, error) {
 		var areaId uint64
 		if err := rows.Scan(&areaId); err != nil {
 			rows.Close()
-			return nil, err
+			return nil, nil, err
 		}
 		aMap[areaId] = true
 	}
@@ -883,25 +890,54 @@ func findAreasForReport(db *sql.DB, report *api.ReportArgs) ([]string, error) {
 		i++
 	}
 
-	sqlStr := fmt.Sprintf("SELECT email FROM contact_emails WHERE area_id IN(%s) AND consent_report = true", strings.Join(ap, ","))
-	log.Info(sqlStr)
-	rows, err = db.Query(sqlStr, areaIds...)
+	areasSql := fmt.Sprintf("SELECT id, area_json FROM areas WHERE id in(%s)", strings.Join(ap, ","))
+	rows, err = db.Query(areasSql, areaIds...)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	emails := []string{}
+	areaFeatures := map[uint64]*geojson.Feature{}
 	for rows.Next() {
-		var email string
-		if err := rows.Scan(&email); err != nil {
+		var (
+			areaId uint64
+			areaJson string
+		)
+		if err := rows.Scan(&areaId, &areaJson); err != nil {
 			rows.Close()
-			return nil, err
+			return nil, nil, err
 		}
-		emails = append(emails, email)
+		feat := &geojson.Feature{}
+		if err := json.Unmarshal([]byte(areaJson), feat); err != nil {
+			rows.Close()
+			return nil, nil, err
+		}
+		areaFeatures[areaId] = feat
+	}
+
+	emailsSql := fmt.Sprintf("SELECT area_id, email FROM contact_emails WHERE area_id IN(%s) AND consent_report = true", strings.Join(ap, ","))
+	rows, err = db.Query(emailsSql, areaIds...)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	areasEmails := map[uint64][]string{}
+	for rows.Next() {
+		var (
+			areaId uint64
+			email string
+		)
+		if err := rows.Scan(&areaId, &email); err != nil {
+			rows.Close()
+			return nil, nil, err
+		}
+		if areasEmails[areaId] == nil {
+			areasEmails[areaId] = []string{}
+		}
+		areasEmails[areaId] = append(areasEmails[areaId], email)
 	}
 	rows.Close()
 
-	return emails, nil
+	return areaFeatures, areasEmails, nil
 }
 
 func GetAreasCount(db *sql.DB) (uint64, error) {

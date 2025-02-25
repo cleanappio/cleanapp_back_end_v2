@@ -202,3 +202,9 @@ type AreasResponse struct {
 type AreasCountResponse struct {
 	Count uint64
 }
+
+type TestPolyImageRequest struct {
+	Feature   geojson.Feature `json:"feature"`
+	ReportLat float64         `json:"report_lat"`
+	ReportLon float64         `json:"report_lon"`
+}

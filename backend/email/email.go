@@ -12,32 +12,40 @@ import (
 
 var (
 	apiKey    = flag.String("sendgrid_api_key", "secret", "SendGrid API Key.")
-	fromName  = flag.String("sendgrid_from_name", "CleanApp Info", "SendGrid From Name")
+	fromName  = flag.String("sendgrid_from_name", "CleanApp", "SendGrid From Name")
 	fromEmail = flag.String("sendgrid_from_email", "info@cleanapp.io", "SendGrid From email")
 )
 
-func SendEmails(recipients []string, reportImage []byte) {
+func SendEmails(recipients []string, reportImage, mapImage []byte) {
 	log.Infof("!!!Sending email to %d recipients!!!", len(recipients))
 	for _, r := range recipients {
-		if err := sendOneEmail(r, reportImage); err != nil {
+		if err := sendOneEmail(r, reportImage, mapImage); err != nil {
 			log.Warnf("Error sending email to %s: %w", err)
 		}
 	}
 }
 
-func sendOneEmail(recipient string, reportImage []byte) error {
+func sendOneEmail(recipient string, reportImage, mapImage []byte) error {
 	from := mail.NewEmail(*fromName, *fromEmail)
-	subject := "Report from CleanApp community member"
+	subject := "You got a CleanApp report"
 	to := mail.NewEmail(recipient, recipient)
 
-	encodedImage := base64.StdEncoding.EncodeToString(reportImage)
+	encodedReportImage := base64.StdEncoding.EncodeToString(reportImage)
+	encodedMapImage := base64.StdEncoding.EncodeToString(mapImage)
 
-	attachment := mail.NewAttachment()
-	attachment.SetContent(encodedImage)
-	attachment.SetType("image/jpg")
-	attachment.SetFilename("report.jpg")
-	attachment.SetDisposition("inline")
-	attachment.SetContentID(reportImgCid)
+	reportAttachment := mail.NewAttachment()
+	reportAttachment.SetContent(encodedReportImage)
+	reportAttachment.SetType("image/jpg")
+	reportAttachment.SetFilename("report.jpg")
+	reportAttachment.SetDisposition("inline")
+	reportAttachment.SetContentID(reportImgCid)
+
+	mapAttachment := mail.NewAttachment()
+	mapAttachment.SetContent(encodedMapImage)
+	mapAttachment.SetType("image/png")
+	mapAttachment.SetFilename("map.png")
+	mapAttachment.SetDisposition("inline")
+	mapAttachment.SetContentID(mapImgCid)
 
 	plainTextContent := getEmailText(recipient)
 	htmlContent := getEmailHtml(recipient)
@@ -52,7 +60,8 @@ func sendOneEmail(recipient string, reportImage []byte) error {
 
 	message.AddContent(mail.NewContent("text/plain", plainTextContent))
 	message.AddContent(mail.NewContent("text/html", htmlContent))
-	message.AddAttachment(attachment)
+	message.AddAttachment(reportAttachment)
+	message.AddAttachment(mapAttachment)
 
 	client := sendgrid.NewSendClient(*apiKey)
 

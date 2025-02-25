@@ -6,6 +6,7 @@ import (
 )
 
 const reportImgCid = "report-img"
+const mapImgCid = "map-img"
 
 var (
 	optOutUrl          = flag.String("email_opt_out_url", "", "The email unsubscribing URL")
@@ -20,8 +21,6 @@ func getOptOutURL(email string) string {
 
 func getEmailText(email string) string {
 	return fmt.Sprintf(`
-CleanAppMap Notes
-
 Hi,
 
 Your email address is tagged to an area that just received this live CleanApp report. See the report image in the attachment.
@@ -70,23 +69,29 @@ func getEmailHtml(email string) string {
         a:hover {
             text-decoration: underline;
         }
-				.report-image {
-						width: 200px;
-						height: auto;
-				}
+        .report-image {
+            padding: 20px;
+            width: 200px;
+            height: auto;
+        }
+        .map-image {
+            padding: 20px;
+            width: 200px;
+            height: auto;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>CleanAppMap Notes</h1>
         <p>Hi,</p>
         <p>Your email address is tagged to an area that just received this live CleanApp report:</p>
-				<img src="cid:%s" class="report-image" alt="CleanApp Report Image" />
+		<img src="cid:%s" class="report-image" alt="CleanApp Report Image" />
+		<img src="cid:%s" class="map-image" alt="CleanApp Report Image" />
         <p>Please take action as needed. If you received this in error, please <a href="%s">unsubscribe here</a>.</p>
         <p>💚 CleanApp</p>
         <p>P.S.S.T. Get CleanApp on <a href="%s">iOS</a> / <a href="%s">Android</a> and visit <a href="%s">CleanAppMap</a> for real-time updates.</p>
     </div>
 </body>
 </html>
-`, reportImgCid, getOptOutURL(email), *cleanAppIOsURL, *cleanAppAndroidURL, *cleanAppMapURL)
+`, reportImgCid, mapImgCid, getOptOutURL(email), *cleanAppIOsURL, *cleanAppAndroidURL, *cleanAppMapURL)
 }
