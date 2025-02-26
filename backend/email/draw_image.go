@@ -75,14 +75,14 @@ func generate(xMin, xMax, yMin, yMax, zoom int, feature *geojson.Feature, report
 	}
 
 	// Draw a report point
-	dc.SetRGBA255(147, 14, 14, 255)
 	dc.SetLineWidth(2)
 	ptX, ptY := convertPoint(reportLat, reportLon, tiles, zoom)
+	dc.SetRGBA255(255, 0, 0, 200)
 	dc.NewSubPath()
 	dc.DrawCircle(ptX, ptY, 15)
 	dc.ClosePath()
-	dc.SetRGBA255(255, 0, 0, 150)
 	dc.FillPreserve()
+	dc.SetRGBA255(233, 0, 0, 255)
 	dc.Stroke()
 
 	// Save image with polygon
@@ -236,15 +236,15 @@ func computeBoundingBoxMultiPolygon(coords [][][][]float64) *api.ViewPort {
 // drqwPolygon draws the polygon inside a given image.
 func drawPolygon(dc *gg.Context, poly [][][]float64) {
 	for _, loop := range poly {
-		dc.SetRGBA255(219, 33, 213, 255)
+		dc.SetRGBA255(219, 33, 213, 100)
 		dc.NewSubPath()
 		dc.MoveTo(loop[0][0], loop[0][1])
 		for _, point := range loop[1:] {
 			dc.LineTo(point[0], point[1])
 		}
 		dc.ClosePath()
-		dc.SetRGBA255(219, 33, 213, 100)
 		dc.FillPreserve()
+		dc.SetRGBA255(219, 33, 213, 255)
 		dc.Stroke()
 	}
 }
