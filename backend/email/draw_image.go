@@ -5,8 +5,6 @@ import (
 	"cleanapp/backend/server/api"
 	"fmt"
 	"image"
-	"image/color"
-	"image/draw"
 	"image/png"
 	"math"
 	"net/http"
@@ -55,19 +53,19 @@ func generate(xMin, xMax, yMin, yMax, zoom int, feature *geojson.Feature, report
 		},
 	}
 	dst := image.NewRGBA(bounds)
+
+	dc := gg.NewContextForRGBA(dst)
+	dc.SetLineWidth(3)
+	
+	// Draw image 
 	for j, col := range imgs {
 		for i, img := range col {
 			ic := getImageCoords(i, j)
-			draw.Draw(dst, image.Rectangle{Min: ic, Max: image.Point{X: ic.X + tileSize, Y: ic.Y + tileSize}}, img, image.Point{}, draw.Src)
+			dc.DrawImage(img, ic.X, ic.Y)
 		}
 	}
 
 	// Draw polygon
-	dc := gg.NewContextForRGBA(dst)
-	dc.SetColor(color.RGBA{219, 33, 213, 255})
-	dc.SetLineWidth(3)
-	dc.SetFillStyle(gg.NewSolidPattern(color.RGBA{36, 222, 42, 20}))
-
 	if feature.Geometry.IsPolygon() {
 		drawPolygon(dc, convertPoly(feature.Geometry.Polygon, tiles, zoom))
 	} else if feature.Geometry.IsMultiPolygon() {
@@ -77,13 +75,13 @@ func generate(xMin, xMax, yMin, yMax, zoom int, feature *geojson.Feature, report
 	}
 
 	// Draw a report point
-	dc.SetColor(color.RGBA{214, 0, 0, 255})
+	dc.SetRGBA255(147, 14, 14, 255)
 	dc.SetLineWidth(2)
-	dc.SetFillStyle(gg.NewSolidPattern(color.RGBA{255, 0, 0, 255}))
 	ptX, ptY := convertPoint(reportLat, reportLon, tiles, zoom)
 	dc.NewSubPath()
 	dc.DrawCircle(ptX, ptY, 15)
 	dc.ClosePath()
+	dc.SetRGBA255(255, 0, 0, 150)
 	dc.FillPreserve()
 	dc.Stroke()
 
@@ -238,12 +236,14 @@ func computeBoundingBoxMultiPolygon(coords [][][][]float64) *api.ViewPort {
 // drqwPolygon draws the polygon inside a given image.
 func drawPolygon(dc *gg.Context, poly [][][]float64) {
 	for _, loop := range poly {
+		dc.SetRGBA255(219, 33, 213, 255)
 		dc.NewSubPath()
 		dc.MoveTo(loop[0][0], loop[0][1])
 		for _, point := range loop[1:] {
 			dc.LineTo(point[0], point[1])
 		}
 		dc.ClosePath()
+		dc.SetRGBA255(219, 33, 213, 100)
 		dc.FillPreserve()
 		dc.Stroke()
 	}

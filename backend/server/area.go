@@ -21,7 +21,7 @@ func CreateOrUpdateArea(c *gin.Context) {
 	}
 
 	if args.Version != "2.0" {
-		log.Errorf("Bad version in /create_area, expected: 2.0, got: %v", args.Version)
+		log.Errorf("Bad version in /create_or_update_area, expected: 2.0, got: %v", args.Version)
 		c.String(http.StatusNotAcceptable, "Bad API version, expecting 2.0.") // 406
 		return
 	}
