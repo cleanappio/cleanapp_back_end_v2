@@ -26,7 +26,8 @@ func GeneratePolygonImg(feature *geojson.Feature, reportLat, reportLon float64) 
 	return generate(xMin, xMax, yMin, yMax, zoom, feature, reportLat, reportLon)
 }
 
-// fetchTile downloads the OSM tile and saves it as a PNG file with a polygon drawn on it
+// generate generates an image for a given bound and a feature
+// It fetches all tiles within the bound and draws the feature and the report point on them
 func generate(xMin, xMax, yMin, yMax, zoom int, feature *geojson.Feature, reportLat, reportLon float64) ([]byte, error) {
 	// Get all four tiles numbers.
 	tiles := getAllTiles(xMin, xMax, yMin, yMax)
