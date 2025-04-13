@@ -1,0 +1,1 @@
+{"version":3,"file":"MarkerView.d.ts","sourceRoot":"","sources":["../../../../../src/web/components/MarkerView.tsx"],"names":[],"mappings":"AAAA,OAAO,EAAE,MAAM,EAAE,MAAM,WAAW,CAAC;AACnC,OAAO,EAIL,YAAY,EAMb,MAAM,OAAO,CAAC;AAKf,KAAK,eAAe,GAAG;IACrB,UAAU,EAAE,CAAC,MAAM,EAAE,MAAM,CAAC,CAAC;IAC7B,QAAQ,CAAC,EAAE,YAAY,CAAC;CACzB,CAAC;;AAyDF,wBAA4C"}

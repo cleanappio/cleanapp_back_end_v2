@@ -12,7 +12,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const retention = 24 * 365 * time.Hour // For initial run it's one year. To be reduced after we get more users.
+const (
+	aggregationLevelThreshold = 14
+	retention = 24 * 365 * time.Hour // For initial run it's one year. To be reduced after we get more users.
+)
 
 func GetMap(c *gin.Context) {
 	var ma api.MapArgs
@@ -36,9 +39,17 @@ func GetMap(c *gin.Context) {
 		c.Status(http.StatusInternalServerError) // 500
 		return
 	}
-	a := map_aggr.NewMapAggregatorS2(&ma.VPort, &ma.Center)
-	for _, p := range r {
-		a.AddPoint(p)
-	}
-	c.IndentedJSON(http.StatusOK, a.ToArray()) // 200
+
+	level := map_aggr.CellBaseLevel(&ma.VPort, &ma.Center)
+
+	if level > aggregationLevelThreshold {
+		log.Infof("The level is %d, no aggregation needed, returning raw data")
+		c.IndentedJSON(http.StatusOK, r) // 200
+	} else {
+		a := map_aggr.NewMapAggregatorS2(&ma.VPort, &ma.Center)
+		for _, p := range r {
+			a.AddPoint(p)
+		}
+		c.IndentedJSON(http.StatusOK, a.ToArray()) // 200
+		}
 }

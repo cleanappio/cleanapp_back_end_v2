@@ -1,0 +1,1 @@
+{"version":3,"names":["_reactNative","require","_default","exports","default","TurboModuleRegistry","getEnforcing"],"sourceRoot":"../../../src","sources":["specs/NativeRNMBXCameraModule.ts"],"mappings":";;;;;;AAEA,IAAAA,YAAA,GAAAC,OAAA;AA0BA;AAAA,IAAAC,QAAA,GAAAC,OAAA,CAAAC,OAAA,GAOeC,gCAAmB,CAACC,YAAY,CAAO,mBAAmB,CAAC","ignoreList":[]}

@@ -27,10 +27,9 @@ const (
 	maxLevel                  = 18
 	minRepToAggr              = 10
 	weightDiffThreshold       = 8
-	aggregationLevelThreshold = 14
 )
 
-func cellBaseLevel(vp *api.ViewPort, center *api.Point) int {
+func CellBaseLevel(vp *api.ViewPort, center *api.Point) int {
 	minLL := s2.LatLngFromDegrees(vp.LatMin, vp.LonMin)
 	maxLL := s2.LatLngFromDegrees(vp.LatMax, vp.LonMax)
 
@@ -61,7 +60,7 @@ func cellBaseLevel(vp *api.ViewPort, center *api.Point) int {
 
 func NewMapAggregatorS2(vp *api.ViewPort, center *api.Point) mapAggregatorS2 {
 	return mapAggregatorS2{
-		level:  cellBaseLevel(vp, center),
+		level:  CellBaseLevel(vp, center),
 		points: make(map[s2.CellID][]*api.MapResult),
 		aggrs:  make(map[s2.CellID]*aggrUnit),
 	}
@@ -81,7 +80,7 @@ func (a *mapAggregatorS2) ToArray() []api.MapResult {
 	r := make([]api.MapResult, 0, len(a.aggrs))
 	for _, unit := range a.aggrs {
 		ll := s2.LatLngFromPoint(unit.pin)
-		if a.level > aggregationLevelThreshold || unit.cnt <= minRepToAggr {
+		if unit.cnt <= minRepToAggr {
 			for _, res := range unit.origRes {
 				r = append(r, *res)
 			}
@@ -145,7 +144,7 @@ func (a *mapAggregatorS2) aggrStep(level int) {
 				cnt:         eu.cnt + unit.cnt,
 				containment: eu.containment,
 			}
-			if level > aggregationLevelThreshold || eu.cnt+unit.cnt <= minRepToAggr {
+			if eu.cnt+unit.cnt <= minRepToAggr {
 				nextAggrs[p].origRes = append(eu.origRes, unit.origRes...)
 			}
 		}

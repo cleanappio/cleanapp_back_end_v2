@@ -1,0 +1,191 @@
+def defaultMapboxMapsImpl = "mapbox"
+def defaultMapboxMapsVersion = "10.18.4"
+
+def safeExtGet(prop, fallback) {
+    rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
+}
+
+def isNewArchitectureEnabled() {
+    // To opt-in for the New Architecture, you can either:
+    // - Set `newArchEnabled` to true inside the `gradle.properties` file
+    // - Invoke gradle with `-newArchEnabled=true`
+    // - Set an environment variable `ORG_GRADLE_PROJECT_newArchEnabled=true`
+    return project.hasProperty("newArchEnabled") && project.newArchEnabled == "true"
+}
+
+def getCoroutinesVersion(kotlinVersion) {
+    return kotlinVersion >= '1.9' ? '1.8.0' : '1.6.4'
+}
+
+// expo plugin
+if (rootProject.ext.has('expoRNMapboxMapsImpl')) {
+    rootProject.ext.set('RNMapboxMapsImpl', rootProject.ext.get('expoRNMapboxMapsImpl'))
+}
+if (rootProject.ext.has('expoRNMapboxMapsVersion')) {
+    rootProject.ext.set('RNMapboxMapsVersion', rootProject.ext.get('expoRNMapboxMapsVersion'))
+}
+
+buildscript {
+  repositories {
+    google()
+    mavenCentral()
+  }
+
+  ext {
+    rnmapboxDefaultKotlinVersion = '1.7.21'
+  }
+
+  project.ext.set("kotlinVersion", rootProject.ext.has('kotlinVersion') ? rootProject.ext.get('kotlinVersion') : rnmapboxDefaultKotlinVersion)
+  dependencies {
+      classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:${project.kotlinVersion}"
+  }
+}
+
+if (isNewArchitectureEnabled()) {
+    apply plugin: 'com.facebook.react'
+}
+apply plugin: 'com.android.library'
+
+if (safeExtGet("RNMapboxMapsImpl", defaultMapboxMapsImpl) == "mapbox") {
+  apply plugin: 'kotlin-android'
+}
+
+android {
+    def agpVersion = com.android.Version.ANDROID_GRADLE_PLUGIN_VERSION
+    // Check AGP version for backward compatibility reasons
+    if (agpVersion.tokenize('.')[0].toInteger() >= 7) {
+        namespace = "com.rnmapbox.rnmbx"
+    }
+    if (safeExtGet("RNMapboxMapsImpl", defaultMapboxMapsImpl) == "maplibre") {
+        msg = '@rnmapbox/maps: Maplibre implementation has been removed, set RNMapboxMapsImpl to mapbox- see https://github.com/rnmapbox/maps/wiki/Deprecated-RNMapboxImpl-Maplibre#android'
+        logger.error(msg)
+        throw new GradleException(msg)
+    }
+    else if (safeExtGet("RNMapboxMapsImpl", defaultMapboxMapsImpl) == "mapbox-gl") {
+        msg = '@rnmapbox/maps: MapboxGL implementation is DEPRECATED has been removed, set RNMapboxMapsImpl to mapbox  - see https://github.com/rnmapbox/maps/wiki/Deprecated-RNMapboxImpl-Maplibre#android'
+        logger.error(msg)
+        throw new GradleException(msg)
+    }
+    else if (safeExtGet("RNMapboxMapsImpl", defaultMapboxMapsImpl) == "mapbox") {
+        sourceSets {
+            main {
+                java.srcDirs = ['src/main/java']
+                def majorMapboxVersion = safeExtGet("RNMapboxMapsVersion", defaultMapboxMapsVersion).split("\\.")[0] as Integer
+                if (majorMapboxVersion >= 11) {
+                    java.srcDirs += 'src/main/mapbox-v11-compat/v11'
+                } else {
+                    java.srcDirs += 'src/main/mapbox-v11-compat/v10'
+                }
+                java.srcDirs += 'src/main/rn-compat/rn75'
+                if (safeExtGet("RNMapboxMapsUseV11", false)) {
+                    logger.warn("RNMapboxMapsUseV11 is deprecated, just set RNMapboxMapsVersion to 11.*")
+                }
+            }
+        }
+
+        packagingOptions {
+            pickFirst 'lib/x86/libc++_shared.so'
+            pickFirst 'lib/x86_64/libc++_shared.so'
+            pickFirst 'lib/arm64-v8a/libc++_shared.so'
+            pickFirst 'lib/armeabi-v7a/libc++_shared.so'
+        }
+    }
+    else {
+        msg = "RNMapboxMapsImpl should be one of: mapbox, mapbox-gl, maplibre got: ${safeExtGet("RNMapboxMapsImpl", defaultMapboxMapsImpl)}"
+        logger.error(msg)
+        throw new GradleException(msg)
+    }
+
+    if (!isNewArchitectureEnabled()) {
+        sourceSets {
+            main {
+                java.srcDirs += 'src/main/old-arch'
+            }
+        }
+    }
+
+    compileSdkVersion safeExtGet("compileSdkVersion", 28)
+    buildToolsVersion safeExtGet("buildToolsVersion", '28.0.3')
+
+    defaultConfig {
+        minSdkVersion safeExtGet('minSdkVersion', 21)
+        targetSdkVersion safeExtGet('targetSdkVersion', 26)
+        versionCode 1
+        versionName "1.0"
+        buildConfigField "boolean", "IS_NEW_ARCHITECTURE_ENABLED", isNewArchitectureEnabled().toString()
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+}
+
+def customizableDependencies(name, defaultDependencies) {
+    if (rootProject.ext.has(name)) {
+        def libs = rootProject.ext.get(name)
+        if (libs instanceof CharSequence) {
+            libs.split(';').each {
+                implementation it
+            }
+        } else {
+            libs.delegate = defaultDependencies.owner.delegate
+            libs.call()
+        }
+    } else {
+        defaultDependencies.delegate = defaultDependencies.owner.delegate
+        defaultDependencies.call()
+    }
+}
+
+dependencies {
+    implementation fileTree(dir: 'libs', include: ['*.jar'])
+
+    // React Native
+    implementation "com.facebook.react:react-native:+"
+
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:${safeExtGet('kotlinxCoroutinesCoreVersion', getCoroutinesVersion(project.kotlinVersion))}"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:${safeExtGet('kotlinxCoroutinesAndroidVersion', getCoroutinesVersion(project.kotlinVersion))}"
+
+    // Mapbox SDK
+    customizableDependencies('RNMapboxMapsLibs') {
+        if (safeExtGet("RNMapboxMapsImpl", defaultMapboxMapsImpl) == "mapbox") {
+            implementation "com.mapbox.maps:android:${safeExtGet("RNMapboxMapsVersion", defaultMapboxMapsVersion)}"
+            implementation 'com.mapbox.mapboxsdk:mapbox-sdk-turf:6.11.0'
+            implementation 'androidx.asynclayoutinflater:asynclayoutinflater:1.0.0'
+        } else {
+            msg = '@rnmapbox/maps: RNMapboxMapsImpl has invalid value - only mapbox supported - see https://github.com/rnmapbox/maps/wiki/Deprecated-RNMapboxImpl-Maplibre#android'
+            logger.error(msg)
+            throw new GradleException(msg)
+        }
+    }
+
+    // Dependencies
+    customizableDependencies('RNMapboxMapsSupportLibs') {
+        //implementation "com.android.support:support-vector-drawable:28.0.0"
+        implementation "com.android.support:support-annotations:28.0.0"
+        //implementation "com.android.support:appcompat-v7:28.0.0"
+    }
+    customizableDependencies('RNMapboxMapsOkHTTPLibs') {
+        implementation "com.squareup.okhttp3:okhttp:4.9.0"
+        implementation "com.squareup.okhttp3:okhttp-urlconnection:4.9.0"
+    }
+
+    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.8.2'
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.8.2'
+    testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.8.2'
+    testImplementation 'org.jetbrains.kotlin:kotlin-test'
+    testImplementation "org.mockito.kotlin:mockito-kotlin:5.2.1"
+}
+
+
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
+}

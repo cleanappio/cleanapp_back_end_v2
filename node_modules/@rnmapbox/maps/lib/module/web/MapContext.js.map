@@ -1,0 +1,1 @@
+{"version":3,"names":["React","MapContext","createContext"],"sourceRoot":"../../../src","sources":["web/MapContext.ts"],"mappings":";;AAAA,OAAOA,KAAK,MAAM,OAAO;AAGzB,MAAMC,UAAU,gBAAGD,KAAK,CAACE,aAAa,CAAgB,CAAC,CAAC,CAAC;AAEzD,eAAeD,UAAU","ignoreList":[]}
