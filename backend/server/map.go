@@ -43,7 +43,6 @@ func GetMap(c *gin.Context) {
 	level := map_aggr.CellBaseLevel(&ma.VPort, &ma.Center)
 
 	if level > aggregationLevelThreshold {
-		log.Infof("The level is %d, no aggregation needed, returning raw data")
 		c.IndentedJSON(http.StatusOK, r) // 200
 	} else {
 		a := map_aggr.NewMapAggregatorS2(&ma.VPort, &ma.Center)
