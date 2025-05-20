@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS reports(
   image LONGBLOB NOT NULL,
   action_id VARCHAR(32),
   PRIMARY KEY (seq),
+  INDEX id_index (id),
   INDEX action_idx (action_id)
 );
 SHOW TABLES;

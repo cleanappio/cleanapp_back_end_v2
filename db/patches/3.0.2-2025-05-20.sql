@@ -1,0 +1,1 @@
+ALTER TABLE reports ADD INDEX id_index (id);

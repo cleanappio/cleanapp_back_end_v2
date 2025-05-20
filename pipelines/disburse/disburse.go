@@ -50,7 +50,7 @@ func (d *DailyDisburser) Disburse() error {
 	rows, err := d.db.Query(fmt.Sprintf(`
 	  SELECT id, kitns_daily, kitns_ref_daily
 	  FROM %s
-	  WHERE kitns_daily > 0 OR kitns_ref_daily > 0.0
+	  WHERE id != '' AND (kitns_daily > 0 OR kitns_ref_daily > 0.0)
 	`, *usersTable))
 	if err != nil {
 		return err
