@@ -70,6 +70,8 @@ CREATE TABLE IF NOT EXISTS reports(
 SHOW TABLES;
 DESCRIBE TABLE reports;
 SHOW COLUMNS FROM reports;
+-- Migration Statement:
+-- SELECT CONCAT('INSERT INTO reports (seq, id, team, latitude, longitude) VALUES(', seq, ',', QUOTE(id), ',', team, ',', latitude, ',', longitude, ');') AS insert_statement FROM reports;
 
 CREATE TABLE IF NOT EXISTS referrals(
   refkey CHAR(128) NOT NULL,
@@ -111,7 +113,9 @@ CREATE TABLE IF NOT EXISTS areas(
   created_at TIMESTAMP,
   updated_at TIMESTAMP,
   PRIMARY KEY (id)
- );
+);
+-- Migration Statement:
+-- SELECT CONCAT('INSERT INTO areas (id, name, description, is_custom, contact_name, area_json) VALUES(', id, ',', QUOTE(name), ',', QUOTE(description), ',', is_custom, ',', QUOTE(contact_name), ',', QUOTE(area_json), ');') AS insert_statement FROM areas;
 
 CREATE TABLE IF NOT EXISTS contact_emails(
   area_id INT NOT NULL,
@@ -120,12 +124,16 @@ CREATE TABLE IF NOT EXISTS contact_emails(
   INDEX area_id_index (area_id),
   INDEX email_index (email)
 );
+-- Migration Statement:
+-- SELECT CONCAT('INSERT INTO contact_emails (area_id, email, consent_report) VALUES(', area_id, ',', QUOTE(email), ',', consent_report, ');') AS insert_statement FROM contact_emails;
 
 CREATE TABLE IF NOT EXISTS area_index(
   area_id INT NOT NULL,
   geom GEOMETRY NOT NULL SRID 4326,
   SPATIAL INDEX(geom)
 );
+-- Migration Statement:
+-- SELECT CONCAT('INSERT INTO area_index (area_id, geom) VALUES(', area_id, ',', ST_AsText(geom), ');') AS insert_statement FROM area_index;
 
 -- Create the user.
 -- 1. Remove '%' user
