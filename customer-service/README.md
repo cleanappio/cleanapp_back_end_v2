@@ -68,6 +68,7 @@ DB_USER=cleanapp_user
 DB_PASSWORD=cleanapp_password
 DB_HOST=localhost
 DB_PORT=3306
+TRUSTED_PROXIES=127.0.0.1,::1
 ENCRYPTION_KEY=your_64_character_hex_string_for_aes256_encryption
 JWT_SECRET=your_super_secret_jwt_key
 PORT=8080
