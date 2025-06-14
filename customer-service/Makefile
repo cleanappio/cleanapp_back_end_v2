@@ -64,9 +64,10 @@ security:
 	gosec ./...
 
 # Docker commands
+# docker build -t $(DOCKER_IMAGE):$(VERSION) .
+# docker tag $(DOCKER_IMAGE):$(VERSION) $(DOCKER_IMAGE):latest
 docker-build:
-	docker build -t $(DOCKER_IMAGE):$(VERSION) .
-	docker tag $(DOCKER_IMAGE):$(VERSION) $(DOCKER_IMAGE):latest
+	./build_image.sh
 
 docker-run:
 	docker run -d \

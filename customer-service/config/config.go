@@ -32,6 +32,8 @@ func Load() *Config {
 		Port:       getEnv("PORT", "8080"),
 	}
 
+	log.Println("Loading configuration:", cfg)
+
 	// Handle encryption key
 	encryptionKey := os.Getenv("ENCRYPTION_KEY")
 	if encryptionKey == "" {

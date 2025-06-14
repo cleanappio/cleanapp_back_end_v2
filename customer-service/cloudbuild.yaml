@@ -1,0 +1,12 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', '${_TAG}', '.']
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '${_TAG}']
+
+options:
+  machineType: 'E2_HIGHCPU_32'
+
+substitutions:
+  _TAG: 'override-this'
