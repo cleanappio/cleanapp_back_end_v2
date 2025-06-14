@@ -1,0 +1,7 @@
+# The go.sum file will be automatically generated when you run:
+# go mod download
+# or
+# make deps
+
+# This file contains the expected cryptographic checksums of the content of specific 
+# module versions and should be committed to version control along with your go.mod file.
