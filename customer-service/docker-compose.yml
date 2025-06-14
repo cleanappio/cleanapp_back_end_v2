@@ -34,6 +34,9 @@ services:
       JWT_SECRET: "your-super-secret-jwt-key-replace-in-production"
       PORT: 8080
       TRUSTED_PROXIES: "127.0.0.1,::1"
+      # Stripe Configuration (use test keys for development)
+      STRIPE_SECRET_KEY: "sk_test_your_stripe_test_key"
+      STRIPE_WEBHOOK_SECRET: "whsec_your_webhook_secret"
       # OAuth providers would be configured here in production
     depends_on:
       mysql:

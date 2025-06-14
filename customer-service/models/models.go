@@ -41,14 +41,18 @@ type Subscription struct {
 	NextBillingDate time.Time `json:"next_billing_date"`
 }
 
-// PaymentMethod represents a customer's payment method
+// PaymentMethod represents a customer's payment method stored in Stripe
 type PaymentMethod struct {
-	ID         int    `json:"id"`
-	CustomerID string `json:"customer_id"`
-	LastFour   string `json:"last_four"`
-	CardHolder string `json:"card_holder"`
-	Expiry     string `json:"expiry"`
-	IsDefault  bool   `json:"is_default"`
+	ID                    int    `json:"id"`
+	CustomerID            string `json:"customer_id"`
+	StripePaymentMethodID string `json:"stripe_payment_method_id"`
+	StripeCustomerID      string `json:"stripe_customer_id"`
+	LastFour              string `json:"last_four"`
+	Brand                 string `json:"brand"` // visa, mastercard, amex, etc.
+	ExpMonth              int    `json:"exp_month"`
+	ExpYear               int    `json:"exp_year"`
+	CardholderName        string `json:"cardholder_name"`
+	IsDefault             bool   `json:"is_default"`
 }
 
 // BillingHistory represents a billing transaction
@@ -79,12 +83,9 @@ type UpdateCustomerRequest struct {
 
 // CreateSubscriptionRequest represents the request to create a subscription
 type CreateSubscriptionRequest struct {
-	PlanType     string `json:"plan_type" binding:"required,oneof=base advanced exclusive"`
-	BillingCycle string `json:"billing_cycle" binding:"required,oneof=monthly annual"`
-	CardNumber   string `json:"card_number" binding:"required"`
-	CardHolder   string `json:"card_holder" binding:"required"`
-	Expiry       string `json:"expiry" binding:"required"`
-	CVV          string `json:"cvv" binding:"required,len=3"`
+	PlanType              string `json:"plan_type" binding:"required,oneof=base advanced exclusive"`
+	BillingCycle          string `json:"billing_cycle" binding:"required,oneof=monthly annual"`
+	StripePaymentMethodID string `json:"stripe_payment_method_id" binding:"required"`
 }
 
 // UpdateSubscriptionRequest represents the request to update a subscription
@@ -116,4 +117,16 @@ type MessageResponse struct {
 // ErrorResponse represents an error response
 type ErrorResponse struct {
 	Error string `json:"error"`
+}
+
+// AddPaymentMethodRequest represents the request to add a new payment method via Stripe
+type AddPaymentMethodRequest struct {
+	StripePaymentMethodID string `json:"stripe_payment_method_id" binding:"required"`
+	IsDefault             bool   `json:"is_default"`
+}
+
+// StripeWebhookRequest represents a Stripe webhook payload
+type StripeWebhookRequest struct {
+	Type string                 `json:"type"`
+	Data map[string]interface{} `json:"data"`
 }

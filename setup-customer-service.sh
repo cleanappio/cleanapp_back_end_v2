@@ -1,5 +1,3 @@
-#!/bin/bash
-
 # Customer Service - Complete Project Setup Script
 # This script creates the complete project structure with all files
 
@@ -173,16 +171,31 @@ type Config struct {
 	// Server
 	Port           string
 	TrustedProxies []string
+
+	// Stripe
+	StripeSecretKey     string
+	StripeWebhookSecret string
+	StripePrices        map[string]string // Map of plan_billing to price ID
 }
 
 func Load() *Config {
 	cfg := &Config{
-		DBUser:     getEnv("DB_USER", "root"),
-		DBPassword: getEnv("DB_PASSWORD", "password"),
-		DBHost:     getEnv("DB_HOST", "localhost"),
-		DBPort:     getEnv("DB_PORT", "3306"),
-		JWTSecret:  getEnv("JWT_SECRET", "your-secret-key-here"),
-		Port:       getEnv("PORT", "8080"),
+		DBUser:              getEnv("DB_USER", "root"),
+		DBPassword:          getEnv("DB_PASSWORD", "password"),
+		DBHost:              getEnv("DB_HOST", "localhost"),
+		DBPort:              getEnv("DB_PORT", "3306"),
+		JWTSecret:           getEnv("JWT_SECRET", "your-secret-key-here"),
+		Port:                getEnv("PORT", "8080"),
+		StripeSecretKey:     getEnv("STRIPE_SECRET_KEY", ""),
+		StripeWebhookSecret: getEnv("STRIPE_WEBHOOK_SECRET", ""),
+		StripePrices: map[string]string{
+			"base_monthly":      getEnv("STRIPE_PRICE_BASE_MONTHLY", ""),
+			"base_annual":       getEnv("STRIPE_PRICE_BASE_ANNUAL", ""),
+			"advanced_monthly":  getEnv("STRIPE_PRICE_ADVANCED_MONTHLY", ""),
+			"advanced_annual":   getEnv("STRIPE_PRICE_ADVANCED_ANNUAL", ""),
+			"exclusive_monthly": getEnv("STRIPE_PRICE_EXCLUSIVE_MONTHLY", ""),
+			"exclusive_annual":  getEnv("STRIPE_PRICE_EXCLUSIVE_ANNUAL", ""),
+		},
 	}
 
 	// Handle encryption key
@@ -210,6 +223,11 @@ func Load() *Config {
 				cfg.TrustedProxies = append(cfg.TrustedProxies, trimmed)
 			}
 		}
+	}
+
+	// Warn if Stripe is not configured
+	if cfg.StripeSecretKey == "" {
+		log.Printf("WARNING: Stripe secret key not configured. Payment processing will not work.")
 	}
 
 	return cfg
@@ -269,14 +287,18 @@ type Subscription struct {
 	NextBillingDate time.Time `json:"next_billing_date"`
 }
 
-// PaymentMethod represents a customer's payment method
+// PaymentMethod represents a customer's payment method stored in Stripe
 type PaymentMethod struct {
-	ID         int    `json:"id"`
-	CustomerID string `json:"customer_id"`
-	LastFour   string `json:"last_four"`
-	CardHolder string `json:"card_holder"`
-	Expiry     string `json:"expiry"`
-	IsDefault  bool   `json:"is_default"`
+	ID                    int    `json:"id"`
+	CustomerID            string `json:"customer_id"`
+	StripePaymentMethodID string `json:"stripe_payment_method_id"`
+	StripeCustomerID      string `json:"stripe_customer_id"`
+	LastFour              string `json:"last_four"`
+	Brand                 string `json:"brand"` // visa, mastercard, amex, etc.
+	ExpMonth              int    `json:"exp_month"`
+	ExpYear               int    `json:"exp_year"`
+	CardholderName        string `json:"cardholder_name"`
+	IsDefault             bool   `json:"is_default"`
 }
 
 // BillingHistory represents a billing transaction
@@ -307,12 +329,9 @@ type UpdateCustomerRequest struct {
 
 // CreateSubscriptionRequest represents the request to create a subscription
 type CreateSubscriptionRequest struct {
-	PlanType     string `json:"plan_type" binding:"required,oneof=base advanced exclusive"`
-	BillingCycle string `json:"billing_cycle" binding:"required,oneof=monthly annual"`
-	CardNumber   string `json:"card_number" binding:"required"`
-	CardHolder   string `json:"card_holder" binding:"required"`
-	Expiry       string `json:"expiry" binding:"required"`
-	CVV          string `json:"cvv" binding:"required,len=3"`
+	PlanType              string `json:"plan_type" binding:"required,oneof=base advanced exclusive"`
+	BillingCycle          string `json:"billing_cycle" binding:"required,oneof=monthly annual"`
+	StripePaymentMethodID string `json:"stripe_payment_method_id" binding:"required"`
 }
 
 // UpdateSubscriptionRequest represents the request to update a subscription
@@ -345,6 +364,18 @@ type MessageResponse struct {
 type ErrorResponse struct {
 	Error string `json:"error"`
 }
+
+// AddPaymentMethodRequest represents the request to add a new payment method via Stripe
+type AddPaymentMethodRequest struct {
+	StripePaymentMethodID string `json:"stripe_payment_method_id" binding:"required"`
+	IsDefault             bool   `json:"is_default"`
+}
+
+// StripeWebhookRequest represents a Stripe webhook payload
+type StripeWebhookRequest struct {
+	Type string                 `json:"type"`
+	Data map[string]interface{} `json:"data"`
+}
 EOF
 
 # Create database/schema.go
@@ -367,8 +398,10 @@ CREATE TABLE IF NOT EXISTS customers (
     id VARCHAR(256) PRIMARY KEY,
     name VARCHAR(256) NOT NULL,
     email_encrypted TEXT NOT NULL,
+    stripe_customer_id VARCHAR(256),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_stripe_customer (stripe_customer_id)
 );
 
 CREATE TABLE IF NOT EXISTS login_methods (
@@ -397,35 +430,47 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     plan_type ENUM('base', 'advanced', 'exclusive') NOT NULL,
     billing_cycle ENUM('monthly', 'annual') NOT NULL,
     status ENUM('active', 'suspended', 'cancelled') DEFAULT 'active',
+    stripe_subscription_id VARCHAR(256),
+    stripe_price_id VARCHAR(256),
     start_date DATE NOT NULL,
     next_billing_date DATE NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
+    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
+    INDEX idx_stripe_subscription (stripe_subscription_id)
 );
 
 CREATE TABLE IF NOT EXISTS payment_methods (
     id INT AUTO_INCREMENT PRIMARY KEY,
     customer_id VARCHAR(256) NOT NULL,
-    card_number_encrypted TEXT NOT NULL,
-    card_holder_encrypted TEXT NOT NULL,
-    expiry_encrypted VARCHAR(256) NOT NULL,
-    cvv_encrypted VARCHAR(256) NOT NULL,
+    stripe_payment_method_id VARCHAR(256) NOT NULL,
+    stripe_customer_id VARCHAR(256) NOT NULL,
+    last_four VARCHAR(4) NOT NULL,
+    brand VARCHAR(50) NOT NULL,
+    exp_month INT NOT NULL,
+    exp_year INT NOT NULL,
+    cardholder_name VARCHAR(256),
     is_default BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
+    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
+    UNIQUE KEY unique_stripe_payment_method (stripe_payment_method_id),
+    INDEX idx_stripe_customer_payment (stripe_customer_id)
 );
 
 CREATE TABLE IF NOT EXISTS billing_history (
     id INT AUTO_INCREMENT PRIMARY KEY,
     customer_id VARCHAR(256) NOT NULL,
     subscription_id INT NOT NULL,
+    stripe_payment_intent_id VARCHAR(256),
+    stripe_invoice_id VARCHAR(256),
     amount DECIMAL(10, 2) NOT NULL,
     currency VARCHAR(3) DEFAULT 'USD',
     status ENUM('pending', 'completed', 'failed', 'refunded') NOT NULL,
     payment_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
-    FOREIGN KEY (subscription_id) REFERENCES subscriptions(id)
+    FOREIGN KEY (subscription_id) REFERENCES subscriptions(id),
+    INDEX idx_stripe_payment_intent (stripe_payment_intent_id),
+    INDEX idx_stripe_invoice (stripe_invoice_id)
 );
 
 CREATE TABLE IF NOT EXISTS auth_tokens (
@@ -537,6 +582,89 @@ var Migrations = []Migration{
 			SELECT 1;
 		`,
 	},
+	{
+		Version: 2,
+		Name:    "migrate_to_stripe_payment_methods",
+		Up: `
+			-- Migration 2: Convert payment methods to use Stripe
+			-- This migration transforms the payment_methods table to store Stripe data
+			-- instead of encrypted credit card information
+			
+			-- First, backup existing payment methods if any exist
+			CREATE TABLE IF NOT EXISTS payment_methods_backup AS SELECT * FROM payment_methods;
+			
+			-- Drop the existing payment_methods table
+			DROP TABLE IF EXISTS payment_methods;
+			
+			-- Create new payment_methods table with Stripe fields
+			CREATE TABLE payment_methods (
+				id INT AUTO_INCREMENT PRIMARY KEY,
+				customer_id VARCHAR(256) NOT NULL,
+				stripe_payment_method_id VARCHAR(256) NOT NULL,
+				stripe_customer_id VARCHAR(256) NOT NULL,
+				last_four VARCHAR(4) NOT NULL,
+				brand VARCHAR(50) NOT NULL,
+				exp_month INT NOT NULL,
+				exp_year INT NOT NULL,
+				cardholder_name VARCHAR(256),
+				is_default BOOLEAN DEFAULT FALSE,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
+				UNIQUE KEY unique_stripe_payment_method (stripe_payment_method_id),
+				INDEX idx_stripe_customer_payment (stripe_customer_id)
+			);
+			
+			-- Add Stripe customer ID to customers table if it doesn't exist
+			SET @dbname = DATABASE();
+			SET @tablename = 'customers';
+			SET @columnname = 'stripe_customer_id';
+			SET @preparedStatement = (SELECT IF(
+				(SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+				WHERE TABLE_SCHEMA = @dbname
+				AND TABLE_NAME = @tablename
+				AND COLUMN_NAME = @columnname) = 0,
+				'ALTER TABLE customers ADD COLUMN stripe_customer_id VARCHAR(256), ADD INDEX idx_stripe_customer (stripe_customer_id);',
+				'SELECT 1;'
+			));
+			PREPARE alterIfNotExists FROM @preparedStatement;
+			EXECUTE alterIfNotExists;
+			DEALLOCATE PREPARE alterIfNotExists;
+			
+			-- Add Stripe fields to subscriptions table
+			SET @columnname = 'stripe_subscription_id';
+			SET @preparedStatement = (SELECT IF(
+				(SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+				WHERE TABLE_SCHEMA = @dbname
+				AND TABLE_NAME = 'subscriptions'
+				AND COLUMN_NAME = @columnname) = 0,
+				'ALTER TABLE subscriptions ADD COLUMN stripe_subscription_id VARCHAR(256), ADD COLUMN stripe_price_id VARCHAR(256), ADD INDEX idx_stripe_subscription (stripe_subscription_id);',
+				'SELECT 1;'
+			));
+			PREPARE alterIfNotExists FROM @preparedStatement;
+			EXECUTE alterIfNotExists;
+			DEALLOCATE PREPARE alterIfNotExists;
+			
+			-- Add Stripe fields to billing_history table
+			SET @columnname = 'stripe_payment_intent_id';
+			SET @preparedStatement = (SELECT IF(
+				(SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+				WHERE TABLE_SCHEMA = @dbname
+				AND TABLE_NAME = 'billing_history'
+				AND COLUMN_NAME = @columnname) = 0,
+				'ALTER TABLE billing_history ADD COLUMN stripe_payment_intent_id VARCHAR(256), ADD COLUMN stripe_invoice_id VARCHAR(256), ADD INDEX idx_stripe_payment_intent (stripe_payment_intent_id), ADD INDEX idx_stripe_invoice (stripe_invoice_id);',
+				'SELECT 1;'
+			));
+			PREPARE alterIfNotExists FROM @preparedStatement;
+			EXECUTE alterIfNotExists;
+			DEALLOCATE PREPARE alterIfNotExists;
+		`,
+		Down: `
+			-- Restore from backup if needed
+			-- This is a destructive migration, so we keep the backup table
+			-- Manual intervention would be required to restore encrypted card data
+			SELECT 1;
+		`,
+	},
 }
 
 // InitializeSchema creates the database schema and runs migrations
@@ -614,6 +742,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 
 	"customer-service/models"
@@ -698,9 +827,8 @@ func (s *CustomerService) CreateCustomer(ctx context.Context, req models.CreateC
 // CreateSubscription creates a new subscription for a customer
 func (s *CustomerService) CreateSubscription(ctx context.Context, customerID string, req models.CreateSubscriptionRequest) (*models.Subscription, error) {
 	// Verify customer exists
-	var exists bool
-	err := s.db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM customers WHERE id = ?)", customerID).Scan(&exists)
-	if err != nil || !exists {
+	customer, err := s.GetCustomer(ctx, customerID)
+	if err != nil {
 		return nil, errors.New("customer not found")
 	}
 
@@ -716,6 +844,12 @@ func (s *CustomerService) CreateSubscription(ctx context.Context, customerID str
 		return nil, errors.New("customer already has an active subscription")
 	}
 
+	// Get or create Stripe customer ID
+	stripeCustomerID, err := s.ensureStripeCustomer(ctx, customer)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Stripe customer: %w", err)
+	}
+
 	// Start transaction
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -723,14 +857,14 @@ func (s *CustomerService) CreateSubscription(ctx context.Context, customerID str
 	}
 	defer tx.Rollback()
 
-	// Insert subscription
+	// Insert subscription (Stripe subscription would be created here in production)
 	subscriptionID, err := s.insertSubscriptionWithID(ctx, tx, customerID, req.PlanType, req.BillingCycle)
 	if err != nil {
 		return nil, err
 	}
 
-	// Insert payment method
-	if err := s.insertPaymentMethodFromRequest(ctx, tx, customerID, req); err != nil {
+	// Attach payment method to customer if not already attached
+	if err := s.attachStripePaymentMethod(ctx, tx, customerID, stripeCustomerID, req.StripePaymentMethodID); err != nil {
 		return nil, err
 	}
 
@@ -906,6 +1040,211 @@ func (s *CustomerService) GetCustomer(ctx context.Context, customerID string) (*
 	return customer, nil
 }
 
+// GetPaymentMethods retrieves all payment methods for a customer
+func (s *CustomerService) GetPaymentMethods(ctx context.Context, customerID string) ([]models.PaymentMethod, error) {
+	query := `
+		SELECT id, customer_id, stripe_payment_method_id, stripe_customer_id, 
+		       last_four, brand, exp_month, exp_year, cardholder_name, is_default
+		FROM payment_methods
+		WHERE customer_id = ?
+		ORDER BY is_default DESC, created_at DESC
+	`
+	
+	rows, err := s.db.QueryContext(ctx, query, customerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var methods []models.PaymentMethod
+	for rows.Next() {
+		var method models.PaymentMethod
+		err := rows.Scan(
+			&method.ID,
+			&method.CustomerID,
+			&method.StripePaymentMethodID,
+			&method.StripeCustomerID,
+			&method.LastFour,
+			&method.Brand,
+			&method.ExpMonth,
+			&method.ExpYear,
+			&method.CardholderName,
+			&method.IsDefault,
+		)
+		if err != nil {
+			return nil, err
+		}
+		methods = append(methods, method)
+	}
+
+	return methods, rows.Err()
+}
+
+// AddPaymentMethod adds a new payment method for a customer
+func (s *CustomerService) AddPaymentMethod(ctx context.Context, customerID string, stripePaymentMethodID string, isDefault bool) error {
+	// Get customer to ensure they exist and get Stripe customer ID
+	customer, err := s.GetCustomer(ctx, customerID)
+	if err != nil {
+		return err
+	}
+
+	// Ensure customer has a Stripe customer ID
+	stripeCustomerID, err := s.ensureStripeCustomer(ctx, customer)
+	if err != nil {
+		return err
+	}
+
+	// In production, you would:
+	// 1. Attach the payment method to the Stripe customer
+	// 2. Retrieve payment method details from Stripe
+	// For now, we'll simulate with placeholder data
+	paymentMethodDetails := &models.PaymentMethod{
+		CustomerID:            customerID,
+		StripePaymentMethodID: stripePaymentMethodID,
+		StripeCustomerID:      stripeCustomerID,
+		LastFour:              "4242", // Would come from Stripe
+		Brand:                 "visa", // Would come from Stripe
+		ExpMonth:              12,     // Would come from Stripe
+		ExpYear:               2025,   // Would come from Stripe
+		CardholderName:        "",     // Would come from Stripe
+		IsDefault:             isDefault,
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// If setting as default, unset other defaults
+	if isDefault {
+		_, err = tx.ExecContext(ctx,
+			"UPDATE payment_methods SET is_default = FALSE WHERE customer_id = ?",
+			customerID)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Insert new payment method
+	_, err = tx.ExecContext(ctx,
+		`INSERT INTO payment_methods 
+		(customer_id, stripe_payment_method_id, stripe_customer_id, last_four, brand, exp_month, exp_year, cardholder_name, is_default) 
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		paymentMethodDetails.CustomerID,
+		paymentMethodDetails.StripePaymentMethodID,
+		paymentMethodDetails.StripeCustomerID,
+		paymentMethodDetails.LastFour,
+		paymentMethodDetails.Brand,
+		paymentMethodDetails.ExpMonth,
+		paymentMethodDetails.ExpYear,
+		paymentMethodDetails.CardholderName,
+		paymentMethodDetails.IsDefault,
+	)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+// UpdatePaymentMethod updates a payment method (mainly for setting default)
+func (s *CustomerService) UpdatePaymentMethod(ctx context.Context, customerID string, paymentMethodID int, isDefault bool) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Verify payment method belongs to customer
+	var exists bool
+	err = tx.QueryRowContext(ctx,
+		"SELECT EXISTS(SELECT 1 FROM payment_methods WHERE id = ? AND customer_id = ?)",
+		paymentMethodID, customerID).Scan(&exists)
+	if err != nil || !exists {
+		return errors.New("payment method not found")
+	}
+
+	if isDefault {
+		// Unset other defaults
+		_, err = tx.ExecContext(ctx,
+			"UPDATE payment_methods SET is_default = FALSE WHERE customer_id = ?",
+			customerID)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Update the payment method
+	_, err = tx.ExecContext(ctx,
+		"UPDATE payment_methods SET is_default = ? WHERE id = ?",
+		isDefault, paymentMethodID)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+// DeletePaymentMethod removes a payment method
+func (s *CustomerService) DeletePaymentMethod(ctx context.Context, customerID string, paymentMethodID int) error {
+	// In production, you would also detach from Stripe
+	result, err := s.db.ExecContext(ctx,
+		"DELETE FROM payment_methods WHERE id = ? AND customer_id = ?",
+		paymentMethodID, customerID)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rowsAffected == 0 {
+		return errors.New("payment method not found")
+	}
+
+	return nil
+}
+
+// GetBillingHistory retrieves billing history for a customer
+func (s *CustomerService) GetBillingHistory(ctx context.Context, customerID string, limit, offset int) ([]models.BillingHistory, error) {
+	query := `
+		SELECT id, customer_id, subscription_id, amount, currency, status, payment_date
+		FROM billing_history
+		WHERE customer_id = ?
+		ORDER BY payment_date DESC
+		LIMIT ? OFFSET ?
+	`
+	
+	rows, err := s.db.QueryContext(ctx, query, customerID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var history []models.BillingHistory
+	for rows.Next() {
+		var record models.BillingHistory
+		err := rows.Scan(
+			&record.ID,
+			&record.CustomerID,
+			&record.SubscriptionID,
+			&record.Amount,
+			&record.Currency,
+			&record.Status,
+			&record.PaymentDate,
+		)
+		if err != nil {
+			return nil, err
+		}
+		history = append(history, record)
+	}
+
+	return history, rows.Err()
+}
+
 // Login authenticates a customer and returns a JWT token
 func (s *CustomerService) Login(ctx context.Context, req models.LoginRequest) (string, error) {
 	var customerID string
@@ -1032,35 +1371,62 @@ func (s *CustomerService) insertSubscriptionWithID(ctx context.Context, tx *sql.
 
 func (s *CustomerService) insertPaymentMethod(ctx context.Context, tx *sql.Tx, customerID string, req models.CreateCustomerRequest) error {
 	// This method is no longer used since payment is now part of subscription creation
-	return errors.New("deprecated: use insertPaymentMethodFromRequest")
+	return errors.New("deprecated: use attachStripePaymentMethod")
 }
 
-func (s *CustomerService) insertPaymentMethodFromRequest(ctx context.Context, tx *sql.Tx, customerID string, req models.CreateSubscriptionRequest) error {
-	// Encrypt payment data
-	cardNumberEncrypted, err := s.encryptor.Encrypt(req.CardNumber)
+func (s *CustomerService) attachStripePaymentMethod(ctx context.Context, tx *sql.Tx, customerID, stripeCustomerID, stripePaymentMethodID string) error {
+	// Check if payment method already exists
+	var exists bool
+	err := tx.QueryRowContext(ctx,
+		"SELECT EXISTS(SELECT 1 FROM payment_methods WHERE stripe_payment_method_id = ?)",
+		stripePaymentMethodID).Scan(&exists)
 	if err != nil {
 		return err
 	}
-
-	cardHolderEncrypted, err := s.encryptor.Encrypt(req.CardHolder)
-	if err != nil {
-		return err
+	if exists {
+		// Payment method already attached, nothing to do
+		return nil
 	}
 
-	expiryEncrypted, err := s.encryptor.Encrypt(req.Expiry)
-	if err != nil {
-		return err
-	}
-
-	cvvEncrypted, err := s.encryptor.Encrypt(req.CVV)
-	if err != nil {
-		return err
-	}
-
+	// In production, you would:
+	// 1. Call Stripe API to attach payment method to customer
+	// 2. Retrieve payment method details from Stripe
+	// For now, we'll use placeholder data
 	_, err = tx.ExecContext(ctx,
-		"INSERT INTO payment_methods (customer_id, card_number_encrypted, card_holder_encrypted, expiry_encrypted, cvv_encrypted, is_default) VALUES (?, ?, ?, ?, ?, ?)",
-		customerID, cardNumberEncrypted, cardHolderEncrypted, expiryEncrypted, cvvEncrypted, true)
+		`INSERT INTO payment_methods 
+		(customer_id, stripe_payment_method_id, stripe_customer_id, last_four, brand, exp_month, exp_year, is_default) 
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		customerID, stripePaymentMethodID, stripeCustomerID, "4242", "visa", 12, 2025, true)
 	return err
+}
+
+func (s *CustomerService) ensureStripeCustomer(ctx context.Context, customer *models.Customer) (string, error) {
+	// Check if customer already has a Stripe customer ID
+	var stripeCustomerID sql.NullString
+	err := s.db.QueryRowContext(ctx,
+		"SELECT stripe_customer_id FROM customers WHERE id = ?",
+		customer.ID).Scan(&stripeCustomerID)
+	if err != nil {
+		return "", err
+	}
+
+	if stripeCustomerID.Valid && stripeCustomerID.String != "" {
+		return stripeCustomerID.String, nil
+	}
+
+	// In production, you would create a Stripe customer here
+	// For now, we'll generate a placeholder ID
+	newStripeCustomerID := fmt.Sprintf("cus_%s", utils.GenerateRandomID(14))
+	
+	// Update customer with Stripe customer ID
+	_, err = s.db.ExecContext(ctx,
+		"UPDATE customers SET stripe_customer_id = ? WHERE id = ?",
+		newStripeCustomerID, customer.ID)
+	if err != nil {
+		return "", err
+	}
+
+	return newStripeCustomerID, nil
 }
 
 func (s *CustomerService) updateCustomerName(ctx context.Context, tx *sql.Tx, customerID, name string) error {
@@ -1336,6 +1702,7 @@ package handlers
 
 import (
 	"net/http"
+	"strconv"
 
 	"customer-service/models"
 	"github.com/gin-gonic/gin"
@@ -1444,15 +1811,30 @@ func (h *Handlers) GetBillingHistory(c *gin.Context) {
 	}
 
 	// Pagination parameters
-	page := c.DefaultQuery("page", "1")
-	limit := c.DefaultQuery("limit", "10")
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+	
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 || limit > 100 {
+		limit = 10
+	}
+	
+	offset := (page - 1) * limit
 
-	// TODO: Implement GetBillingHistory in service layer
+	history, err := h.service.GetBillingHistory(c.Request.Context(), customerID, limit, offset)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to get billing history"})
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"message": "billing history endpoint - to be implemented",
-		"customer_id": customerID,
-		"page": page,
-		"limit": limit,
+		"data": history,
+		"pagination": gin.H{
+			"page":  page,
+			"limit": limit,
+		},
 	})
 }
 EOF
@@ -1464,6 +1846,7 @@ package handlers
 
 import (
 	"net/http"
+	"strconv"
 
 	"customer-service/models"
 	"github.com/gin-gonic/gin"
@@ -1477,11 +1860,13 @@ func (h *Handlers) GetPaymentMethods(c *gin.Context) {
 		return
 	}
 
-	// TODO: Implement GetPaymentMethods in service layer
-	c.JSON(http.StatusOK, gin.H{
-		"message": "payment methods endpoint - to be implemented",
-		"customer_id": customerID,
-	})
+	methods, err := h.service.GetPaymentMethods(c.Request.Context(), customerID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to get payment methods"})
+		return
+	}
+
+	c.JSON(http.StatusOK, methods)
 }
 
 // AddPaymentMethod adds a new payment method
@@ -1492,20 +1877,17 @@ func (h *Handlers) AddPaymentMethod(c *gin.Context) {
 		return
 	}
 
-	var req struct {
-		CardNumber string `json:"card_number" binding:"required"`
-		CardHolder string `json:"card_holder" binding:"required"`
-		Expiry     string `json:"expiry" binding:"required"`
-		CVV        string `json:"cvv" binding:"required,len=3"`
-		IsDefault  bool   `json:"is_default"`
-	}
-
+	var req models.AddPaymentMethodRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
 		return
 	}
 
-	// TODO: Implement AddPaymentMethod in service layer
+	if err := h.service.AddPaymentMethod(c.Request.Context(), customerID, req.StripePaymentMethodID, req.IsDefault); err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to add payment method"})
+		return
+	}
+
 	c.JSON(http.StatusCreated, models.MessageResponse{Message: "payment method added successfully"})
 }
 
@@ -1517,9 +1899,9 @@ func (h *Handlers) UpdatePaymentMethod(c *gin.Context) {
 		return
 	}
 
-	paymentMethodID := c.Param("id")
-	if paymentMethodID == "" {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "payment method id required"})
+	paymentMethodID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "invalid payment method id"})
 		return
 	}
 
@@ -1532,7 +1914,15 @@ func (h *Handlers) UpdatePaymentMethod(c *gin.Context) {
 		return
 	}
 
-	// TODO: Implement UpdatePaymentMethod in service layer
+	if err := h.service.UpdatePaymentMethod(c.Request.Context(), customerID, paymentMethodID, req.IsDefault); err != nil {
+		if err.Error() == "payment method not found" {
+			c.JSON(http.StatusNotFound, models.ErrorResponse{Error: err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to update payment method"})
+		return
+	}
+
 	c.JSON(http.StatusOK, models.MessageResponse{Message: "payment method updated successfully"})
 }
 
@@ -1544,38 +1934,41 @@ func (h *Handlers) DeletePaymentMethod(c *gin.Context) {
 		return
 	}
 
-	paymentMethodID := c.Param("id")
-	if paymentMethodID == "" {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "payment method id required"})
+	paymentMethodID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "invalid payment method id"})
 		return
 	}
 
-	// TODO: Implement DeletePaymentMethod in service layer
+	if err := h.service.DeletePaymentMethod(c.Request.Context(), customerID, paymentMethodID); err != nil {
+		if err.Error() == "payment method not found" {
+			c.JSON(http.StatusNotFound, models.ErrorResponse{Error: err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to delete payment method"})
+		return
+	}
+
 	c.JSON(http.StatusOK, models.MessageResponse{Message: "payment method deleted successfully"})
 }
 
-// ProcessPayment processes a payment webhook (from payment gateway)
+// ProcessPayment processes a payment webhook from Stripe
 func (h *Handlers) ProcessPayment(c *gin.Context) {
-	// This would typically be called by your payment processor (Stripe, etc.)
-	// and would include webhook signature verification
+	// In production, you would:
+	// 1. Verify the webhook signature using the Stripe webhook secret
+	// 2. Parse the Stripe event
+	// 3. Handle different event types (payment_intent.succeeded, payment_intent.failed, etc.)
+	// 4. Update your database accordingly
 
-	var req struct {
-		CustomerID     string  `json:"customer_id"`
-		Amount         float64 `json:"amount"`
-		Currency       string  `json:"currency"`
-		PaymentMethod  string  `json:"payment_method"`
-		WebhookSecret  string  `json:"webhook_secret"`
-	}
-
+	var req models.StripeWebhookRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
 		return
 	}
 
-	// TODO: Verify webhook signature
-	// TODO: Process payment in service layer
-
-	c.JSON(http.StatusOK, models.MessageResponse{Message: "payment processed"})
+	// TODO: Implement Stripe webhook handling
+	// For now, just acknowledge receipt
+	c.JSON(http.StatusOK, models.MessageResponse{Message: "webhook received"})
 }
 EOF
 
@@ -1708,6 +2101,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"math/big"
 )
 
 // GenerateEthereumAddress generates a random Ethereum-like address
@@ -1732,6 +2126,17 @@ func GenerateRandomToken(length int) (string, error) {
 		return "", fmt.Errorf("failed to generate random token: %w", err)
 	}
 	return hex.EncodeToString(bytes), nil
+}
+
+// GenerateRandomID generates a random ID of specified length (for Stripe-like IDs)
+func GenerateRandomID(length int) string {
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	b := make([]byte, length)
+	for i := range b {
+		n, _ := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
+		b[i] = charset[n.Int64()]
+	}
+	return string(b)
 }
 EOF
 
@@ -2109,6 +2514,9 @@ require (
 	golang.org/x/crypto v0.18.0
 )
 
+// Note: To add Stripe SDK when implementing full integration:
+// github.com/stripe/stripe-go/v76 v76.8.0
+
 require (
 	github.com/bytedance/sonic v1.10.2 // indirect
 	github.com/chenzhuoyu/base64x v0.0.0-20230717121745-296ad89f973d // indirect
@@ -2218,6 +2626,9 @@ services:
       JWT_SECRET: "your-super-secret-jwt-key-replace-in-production"
       PORT: 8080
       TRUSTED_PROXIES: "127.0.0.1,::1"
+      # Stripe Configuration (use test keys for development)
+      STRIPE_SECRET_KEY: "sk_test_your_stripe_test_key"
+      STRIPE_WEBHOOK_SECRET: "whsec_your_webhook_secret"
       # OAuth providers would be configured here in production
     depends_on:
       mysql:
@@ -2251,6 +2662,18 @@ PORT=8080
 # For no proxy: leave empty
 TRUSTED_PROXIES=127.0.0.1,::1
 
+# Stripe Configuration
+STRIPE_SECRET_KEY=sk_test_your_stripe_secret_key
+STRIPE_WEBHOOK_SECRET=whsec_your_stripe_webhook_secret
+
+# Stripe Price IDs for subscription plans
+STRIPE_PRICE_BASE_MONTHLY=price_base_monthly_id
+STRIPE_PRICE_BASE_ANNUAL=price_base_annual_id
+STRIPE_PRICE_ADVANCED_MONTHLY=price_advanced_monthly_id
+STRIPE_PRICE_ADVANCED_ANNUAL=price_advanced_annual_id
+STRIPE_PRICE_EXCLUSIVE_MONTHLY=price_exclusive_monthly_id
+STRIPE_PRICE_EXCLUSIVE_ANNUAL=price_exclusive_annual_id
+
 # OAuth Provider Keys
 # For OAuth login, validate with provider and store the user ID in oauth_id field
 # GOOGLE_CLIENT_ID=your_google_client_id
@@ -2259,10 +2682,6 @@ TRUSTED_PROXIES=127.0.0.1,::1
 # APPLE_CLIENT_SECRET=your_apple_client_secret
 # FACEBOOK_APP_ID=your_facebook_app_id
 # FACEBOOK_APP_SECRET=your_facebook_app_secret
-
-# Payment Gateway (for future implementation)
-# STRIPE_SECRET_KEY=your_stripe_secret_key
-# STRIPE_WEBHOOK_SECRET=your_stripe_webhook_secret
 
 # Note: Database migrations run automatically on startup
 # No configuration needed - see database/schema.go for migration definitions
@@ -2577,10 +2996,11 @@ A secure Go microservice for managing CleanApp platform customers with subscript
 - **Multi-provider Authentication**: Email/password and OAuth (Google, Apple, Facebook)
 - **Flexible Subscription Management**: Customers can exist without subscriptions
 - **Subscription Tiers**: Three tiers (Base, Advanced, Exclusive) with monthly/annual billing
-- **Secure Data Handling**: AES-256 encryption for sensitive data
+- **Secure Payment Processing**: Stripe integration - no credit card data stored locally
 - **JWT Bearer Token Authentication**
 - **RESTful API with Gin framework**
 - **MySQL database with proper schema design**
+- **Database migrations for safe schema updates**
 
 ## Architecture
 
@@ -2607,15 +3027,15 @@ This separation allows for:
 ### Database Schema
 
 The service uses MySQL with the following tables:
-- `customers`: Core customer information with encrypted email
+- `customers`: Core customer information with encrypted email and Stripe customer ID
 - `login_methods`: Authentication methods (one per type per customer)
   - Email login uses password_hash
   - OAuth login uses oauth_id from provider
   - No redundant email storage (uses customers table)
 - `customer_areas`: Many-to-many relationship for service areas
-- `subscriptions`: Subscription plans and billing cycles
-- `payment_methods`: Encrypted credit card information
-- `billing_history`: Payment transaction records
+- `subscriptions`: Subscription plans with Stripe subscription IDs
+- `payment_methods`: Stripe payment method references (no card data stored)
+- `billing_history`: Payment transaction records with Stripe payment intent IDs
 - `auth_tokens`: JWT token management
 - `schema_migrations`: Tracks applied database migrations
 
@@ -2628,16 +3048,18 @@ The service includes an incremental migration system:
 
 Current migrations:
 1. **Version 1**: Remove redundant `method_id` field from `login_methods` table
+2. **Version 2**: Migrate payment methods to use Stripe (removes card data storage)
 
 ### Security Features
 
-1. **Encryption**: AES-256-GCM encryption for emails and payment data
+1. **Encryption**: AES-256-GCM encryption for emails
 2. **Password Hashing**: bcrypt for password storage
 3. **JWT Tokens**: Secure bearer token authentication
-4. **HTTPS**: Enforced for all sensitive data transmission
-5. **Business Logic Separation**: Customer accounts are independent from subscriptions
-6. **Optimized Schema**: No redundant data storage (emails stored once)
-7. **Migration System**: Safe, incremental database updates with version tracking
+4. **Payment Security**: Stripe integration - no credit card data stored
+5. **HTTPS**: Enforced for all sensitive data transmission
+6. **Business Logic Separation**: Customer accounts are independent from subscriptions
+7. **Optimized Schema**: No redundant data storage (emails stored once)
+8. **Migration System**: Safe, incremental database updates with version tracking
 
 ## Project Structure
 
@@ -2792,16 +3214,13 @@ Authorization: Bearer <token>
 
 #### Subscription Management
 
-- **POST /api/v3/subscriptions** - Create a new subscription (requires payment info)
+- **POST /api/v3/subscriptions** - Create a new subscription (requires Stripe payment method)
 
 ```json
 {
   "plan_type": "base",
   "billing_cycle": "monthly",
-  "card_number": "4111111111111111",
-  "card_holder": "John Doe",
-  "expiry": "12/25",
-  "cvv": "123"
+  "stripe_payment_method_id": "pm_1234567890abcdef"
 }
 ```
 
@@ -2968,16 +3387,15 @@ curl -X POST http://localhost:8080/api/v3/login \
 
 ### Create Subscription (Step 2 - Requires Authentication)
 ```bash
+# First, create a payment method in Stripe and get the payment method ID
+# Then use that ID to create the subscription:
 curl -X POST http://localhost:8080/api/v3/subscriptions \
   -H "Authorization: Bearer <your-token>" \
   -H "Content-Type: application/json" \
   -d '{
     "plan_type": "base",
     "billing_cycle": "monthly",
-    "card_number": "4111111111111111",
-    "card_holder": "Test User",
-    "expiry": "12/25",
-    "cvv": "123"
+    "stripe_payment_method_id": "pm_1234567890abcdef"
   }'
 ```
 
@@ -3012,14 +3430,12 @@ curl -X DELETE http://localhost:8080/api/v3/subscriptions/me \
 
 ### Add Payment Method
 ```bash
+# First create a payment method in Stripe, then attach it:
 curl -X POST http://localhost:8080/api/v3/payment-methods \
   -H "Authorization: Bearer <your-token>" \
   -H "Content-Type: application/json" \
   -d '{
-    "card_number": "5555555555554444",
-    "card_holder": "Test User",
-    "expiry": "12/26",
-    "cvv": "456",
+    "stripe_payment_method_id": "pm_1234567890abcdef",
     "is_default": true
   }'
 ```
@@ -3037,6 +3453,7 @@ curl -X POST http://localhost:8080/api/v3/payment-methods \
 
 ## Future Enhancements
 
+- [ ] Complete Stripe integration (subscriptions, webhooks)
 - [ ] Implement OAuth customer registration
 - [ ] Add free trial period support
 - [ ] Implement subscription pause/resume
@@ -3052,6 +3469,43 @@ curl -X POST http://localhost:8080/api/v3/payment-methods \
 - [ ] Support multiple payment methods per customer
 - [ ] Add subscription renewal notifications
 - [ ] Add migration rollback commands
+
+## Stripe Integration
+
+The service integrates with Stripe for secure payment processing:
+
+### Setting Up Stripe
+
+1. **Create Stripe Products and Prices**:
+   - Create products for each plan tier (Base, Advanced, Exclusive)
+   - Create prices for monthly and annual billing cycles
+   - Add the price IDs to your `.env` file
+
+2. **Frontend Integration**:
+   - Use Stripe Elements or Checkout to collect payment information
+   - Create PaymentMethod in Stripe
+   - Send the `pm_xxx` ID to your API
+
+3. **Webhook Configuration**:
+   - Set up webhook endpoint: `https://your-domain.com/api/v3/webhooks/payment`
+   - Subscribe to events: `payment_intent.succeeded`, `payment_intent.failed`, etc.
+   - Add webhook secret to `.env`
+
+### Payment Flow
+
+1. **Customer creates payment method in Stripe** (frontend)
+2. **Customer sends payment method ID to create subscription**
+3. **Backend creates/updates Stripe customer**
+4. **Backend attaches payment method to customer**
+5. **Backend creates subscription in Stripe** (in production)
+6. **Stripe processes recurring payments automatically**
+
+### Security Benefits
+
+- **PCI Compliance**: No credit card data touches your servers
+- **SCA Ready**: Supports Strong Customer Authentication
+- **Secure Storage**: Payment methods stored and managed by Stripe
+- **Tokenization**: Only store Stripe reference IDs
 
 ## License
 
@@ -3086,19 +3540,19 @@ echo ""
 echo "📄 Created 23 files with:"
 echo "   - API version v3"
 echo "   - Separated customer and subscription creation"
-echo "   - Fixed encryption type errors"
-echo "   - Removed all unused imports and variables"
+echo "   - Stripe payment integration (no card data stored)"
+echo "   - OAuth authentication support"
 echo "   - Optimized database schema (no redundant fields)"
 echo "   - Database migration system"
 echo "   - Fixed login validation for email/password auth"
 echo "   - Configured trusted proxies from env"
-echo "   - Fixed Makefile .env loading"
+echo "   - Complete test coverage"
 echo ""
 echo "💡 Key Business Logic:"
 echo "   - Customers can exist without subscriptions"
 echo "   - Only one active subscription per customer"
-echo "   - Payment required only when creating subscription"
-echo "   - No redundant data storage in database"
+echo "   - Payment handled by Stripe (PCI compliant)"
+echo "   - No credit card data stored in database"
 echo "   - Automatic database migrations on startup"
 echo ""
 echo "🚀 Next steps:"

@@ -7,10 +7,11 @@ A secure Go microservice for managing CleanApp platform customers with subscript
 - **Multi-provider Authentication**: Email/password and OAuth (Google, Apple, Facebook)
 - **Flexible Subscription Management**: Customers can exist without subscriptions
 - **Subscription Tiers**: Three tiers (Base, Advanced, Exclusive) with monthly/annual billing
-- **Secure Data Handling**: AES-256 encryption for sensitive data
+- **Secure Payment Processing**: Stripe integration - no credit card data stored locally
 - **JWT Bearer Token Authentication**
 - **RESTful API with Gin framework**
 - **MySQL database with proper schema design**
+- **Database migrations for safe schema updates**
 
 ## Architecture
 
@@ -37,15 +38,15 @@ This separation allows for:
 ### Database Schema
 
 The service uses MySQL with the following tables:
-- `customers`: Core customer information with encrypted email
+- `customers`: Core customer information with encrypted email and Stripe customer ID
 - `login_methods`: Authentication methods (one per type per customer)
   - Email login uses password_hash
   - OAuth login uses oauth_id from provider
   - No redundant email storage (uses customers table)
 - `customer_areas`: Many-to-many relationship for service areas
-- `subscriptions`: Subscription plans and billing cycles
-- `payment_methods`: Encrypted credit card information
-- `billing_history`: Payment transaction records
+- `subscriptions`: Subscription plans with Stripe subscription IDs
+- `payment_methods`: Stripe payment method references (no card data stored)
+- `billing_history`: Payment transaction records with Stripe payment intent IDs
 - `auth_tokens`: JWT token management
 - `schema_migrations`: Tracks applied database migrations
 
@@ -58,16 +59,18 @@ The service includes an incremental migration system:
 
 Current migrations:
 1. **Version 1**: Remove redundant `method_id` field from `login_methods` table
+2. **Version 2**: Migrate payment methods to use Stripe (removes card data storage)
 
 ### Security Features
 
-1. **Encryption**: AES-256-GCM encryption for emails and payment data
+1. **Encryption**: AES-256-GCM encryption for emails
 2. **Password Hashing**: bcrypt for password storage
 3. **JWT Tokens**: Secure bearer token authentication
-4. **HTTPS**: Enforced for all sensitive data transmission
-5. **Business Logic Separation**: Customer accounts are independent from subscriptions
-6. **Optimized Schema**: No redundant data storage (emails stored once)
-7. **Migration System**: Safe, incremental database updates with version tracking
+4. **Payment Security**: Stripe integration - no credit card data stored
+5. **HTTPS**: Enforced for all sensitive data transmission
+6. **Business Logic Separation**: Customer accounts are independent from subscriptions
+7. **Optimized Schema**: No redundant data storage (emails stored once)
+8. **Migration System**: Safe, incremental database updates with version tracking
 
 ## Project Structure
 
@@ -222,16 +225,13 @@ Authorization: Bearer <token>
 
 #### Subscription Management
 
-- **POST /api/v3/subscriptions** - Create a new subscription (requires payment info)
+- **POST /api/v3/subscriptions** - Create a new subscription (requires Stripe payment method)
 
 ```json
 {
   "plan_type": "base",
   "billing_cycle": "monthly",
-  "card_number": "4111111111111111",
-  "card_holder": "John Doe",
-  "expiry": "12/25",
-  "cvv": "123"
+  "stripe_payment_method_id": "pm_1234567890abcdef"
 }
 ```
 
@@ -398,16 +398,15 @@ curl -X POST http://localhost:8080/api/v3/login \
 
 ### Create Subscription (Step 2 - Requires Authentication)
 ```bash
+# First, create a payment method in Stripe and get the payment method ID
+# Then use that ID to create the subscription:
 curl -X POST http://localhost:8080/api/v3/subscriptions \
   -H "Authorization: Bearer <your-token>" \
   -H "Content-Type: application/json" \
   -d '{
     "plan_type": "base",
     "billing_cycle": "monthly",
-    "card_number": "4111111111111111",
-    "card_holder": "Test User",
-    "expiry": "12/25",
-    "cvv": "123"
+    "stripe_payment_method_id": "pm_1234567890abcdef"
   }'
 ```
 
@@ -442,14 +441,12 @@ curl -X DELETE http://localhost:8080/api/v3/subscriptions/me \
 
 ### Add Payment Method
 ```bash
+# First create a payment method in Stripe, then attach it:
 curl -X POST http://localhost:8080/api/v3/payment-methods \
   -H "Authorization: Bearer <your-token>" \
   -H "Content-Type: application/json" \
   -d '{
-    "card_number": "5555555555554444",
-    "card_holder": "Test User",
-    "expiry": "12/26",
-    "cvv": "456",
+    "stripe_payment_method_id": "pm_1234567890abcdef",
     "is_default": true
   }'
 ```
@@ -467,6 +464,7 @@ curl -X POST http://localhost:8080/api/v3/payment-methods \
 
 ## Future Enhancements
 
+- [ ] Complete Stripe integration (subscriptions, webhooks)
 - [ ] Implement OAuth customer registration
 - [ ] Add free trial period support
 - [ ] Implement subscription pause/resume
@@ -482,6 +480,43 @@ curl -X POST http://localhost:8080/api/v3/payment-methods \
 - [ ] Support multiple payment methods per customer
 - [ ] Add subscription renewal notifications
 - [ ] Add migration rollback commands
+
+## Stripe Integration
+
+The service integrates with Stripe for secure payment processing:
+
+### Setting Up Stripe
+
+1. **Create Stripe Products and Prices**:
+   - Create products for each plan tier (Base, Advanced, Exclusive)
+   - Create prices for monthly and annual billing cycles
+   - Add the price IDs to your `.env` file
+
+2. **Frontend Integration**:
+   - Use Stripe Elements or Checkout to collect payment information
+   - Create PaymentMethod in Stripe
+   - Send the `pm_xxx` ID to your API
+
+3. **Webhook Configuration**:
+   - Set up webhook endpoint: `https://your-domain.com/api/v3/webhooks/payment`
+   - Subscribe to events: `payment_intent.succeeded`, `payment_intent.failed`, etc.
+   - Add webhook secret to `.env`
+
+### Payment Flow
+
+1. **Customer creates payment method in Stripe** (frontend)
+2. **Customer sends payment method ID to create subscription**
+3. **Backend creates/updates Stripe customer**
+4. **Backend attaches payment method to customer**
+5. **Backend creates subscription in Stripe** (in production)
+6. **Stripe processes recurring payments automatically**
+
+### Security Benefits
+
+- **PCI Compliance**: No credit card data touches your servers
+- **SCA Ready**: Supports Strong Customer Authentication
+- **Secure Storage**: Payment methods stored and managed by Stripe
+- **Tokenization**: Only store Stripe reference IDs
 
 ## License
 

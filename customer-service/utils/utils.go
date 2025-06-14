@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"math/big"
 )
 
 // GenerateEthereumAddress generates a random Ethereum-like address
@@ -29,4 +30,15 @@ func GenerateRandomToken(length int) (string, error) {
 		return "", fmt.Errorf("failed to generate random token: %w", err)
 	}
 	return hex.EncodeToString(bytes), nil
+}
+
+// GenerateRandomID generates a random ID of specified length (for Stripe-like IDs)
+func GenerateRandomID(length int) string {
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	b := make([]byte, length)
+	for i := range b {
+		n, _ := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
+		b[i] = charset[n.Int64()]
+	}
+	return string(b)
 }

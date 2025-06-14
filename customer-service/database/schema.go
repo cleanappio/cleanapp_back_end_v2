@@ -15,8 +15,10 @@ CREATE TABLE IF NOT EXISTS customers (
     id VARCHAR(256) PRIMARY KEY,
     name VARCHAR(256) NOT NULL,
     email_encrypted TEXT NOT NULL,
+    stripe_customer_id VARCHAR(256),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_stripe_customer (stripe_customer_id)
 );
 
 CREATE TABLE IF NOT EXISTS login_methods (
@@ -45,35 +47,47 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     plan_type ENUM('base', 'advanced', 'exclusive') NOT NULL,
     billing_cycle ENUM('monthly', 'annual') NOT NULL,
     status ENUM('active', 'suspended', 'cancelled') DEFAULT 'active',
+    stripe_subscription_id VARCHAR(256),
+    stripe_price_id VARCHAR(256),
     start_date DATE NOT NULL,
     next_billing_date DATE NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
+    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
+    INDEX idx_stripe_subscription (stripe_subscription_id)
 );
 
 CREATE TABLE IF NOT EXISTS payment_methods (
     id INT AUTO_INCREMENT PRIMARY KEY,
     customer_id VARCHAR(256) NOT NULL,
-    card_number_encrypted TEXT NOT NULL,
-    card_holder_encrypted TEXT NOT NULL,
-    expiry_encrypted VARCHAR(256) NOT NULL,
-    cvv_encrypted VARCHAR(256) NOT NULL,
+    stripe_payment_method_id VARCHAR(256) NOT NULL,
+    stripe_customer_id VARCHAR(256) NOT NULL,
+    last_four VARCHAR(4) NOT NULL,
+    brand VARCHAR(50) NOT NULL,
+    exp_month INT NOT NULL,
+    exp_year INT NOT NULL,
+    cardholder_name VARCHAR(256),
     is_default BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
+    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
+    UNIQUE KEY unique_stripe_payment_method (stripe_payment_method_id),
+    INDEX idx_stripe_customer_payment (stripe_customer_id)
 );
 
 CREATE TABLE IF NOT EXISTS billing_history (
     id INT AUTO_INCREMENT PRIMARY KEY,
     customer_id VARCHAR(256) NOT NULL,
     subscription_id INT NOT NULL,
+    stripe_payment_intent_id VARCHAR(256),
+    stripe_invoice_id VARCHAR(256),
     amount DECIMAL(10, 2) NOT NULL,
     currency VARCHAR(3) DEFAULT 'USD',
     status ENUM('pending', 'completed', 'failed', 'refunded') NOT NULL,
     payment_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
-    FOREIGN KEY (subscription_id) REFERENCES subscriptions(id)
+    FOREIGN KEY (subscription_id) REFERENCES subscriptions(id),
+    INDEX idx_stripe_payment_intent (stripe_payment_intent_id),
+    INDEX idx_stripe_invoice (stripe_invoice_id)
 );
 
 CREATE TABLE IF NOT EXISTS auth_tokens (
@@ -182,6 +196,89 @@ var Migrations = []Migration{
 		Down: `
 			-- This migration is not reversible as we're removing redundant data
 			-- The method_id column contained duplicate information
+			SELECT 1;
+		`,
+	},
+	{
+		Version: 2,
+		Name:    "migrate_to_stripe_payment_methods",
+		Up: `
+			-- Migration 2: Convert payment methods to use Stripe
+			-- This migration transforms the payment_methods table to store Stripe data
+			-- instead of encrypted credit card information
+			
+			-- First, backup existing payment methods if any exist
+			CREATE TABLE IF NOT EXISTS payment_methods_backup AS SELECT * FROM payment_methods;
+			
+			-- Drop the existing payment_methods table
+			DROP TABLE IF EXISTS payment_methods;
+			
+			-- Create new payment_methods table with Stripe fields
+			CREATE TABLE payment_methods (
+				id INT AUTO_INCREMENT PRIMARY KEY,
+				customer_id VARCHAR(256) NOT NULL,
+				stripe_payment_method_id VARCHAR(256) NOT NULL,
+				stripe_customer_id VARCHAR(256) NOT NULL,
+				last_four VARCHAR(4) NOT NULL,
+				brand VARCHAR(50) NOT NULL,
+				exp_month INT NOT NULL,
+				exp_year INT NOT NULL,
+				cardholder_name VARCHAR(256),
+				is_default BOOLEAN DEFAULT FALSE,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
+				UNIQUE KEY unique_stripe_payment_method (stripe_payment_method_id),
+				INDEX idx_stripe_customer_payment (stripe_customer_id)
+			);
+			
+			-- Add Stripe customer ID to customers table if it doesn't exist
+			SET @dbname = DATABASE();
+			SET @tablename = 'customers';
+			SET @columnname = 'stripe_customer_id';
+			SET @preparedStatement = (SELECT IF(
+				(SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+				WHERE TABLE_SCHEMA = @dbname
+				AND TABLE_NAME = @tablename
+				AND COLUMN_NAME = @columnname) = 0,
+				'ALTER TABLE customers ADD COLUMN stripe_customer_id VARCHAR(256), ADD INDEX idx_stripe_customer (stripe_customer_id);',
+				'SELECT 1;'
+			));
+			PREPARE alterIfNotExists FROM @preparedStatement;
+			EXECUTE alterIfNotExists;
+			DEALLOCATE PREPARE alterIfNotExists;
+			
+			-- Add Stripe fields to subscriptions table
+			SET @columnname = 'stripe_subscription_id';
+			SET @preparedStatement = (SELECT IF(
+				(SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+				WHERE TABLE_SCHEMA = @dbname
+				AND TABLE_NAME = 'subscriptions'
+				AND COLUMN_NAME = @columnname) = 0,
+				'ALTER TABLE subscriptions ADD COLUMN stripe_subscription_id VARCHAR(256), ADD COLUMN stripe_price_id VARCHAR(256), ADD INDEX idx_stripe_subscription (stripe_subscription_id);',
+				'SELECT 1;'
+			));
+			PREPARE alterIfNotExists FROM @preparedStatement;
+			EXECUTE alterIfNotExists;
+			DEALLOCATE PREPARE alterIfNotExists;
+			
+			-- Add Stripe fields to billing_history table
+			SET @columnname = 'stripe_payment_intent_id';
+			SET @preparedStatement = (SELECT IF(
+				(SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+				WHERE TABLE_SCHEMA = @dbname
+				AND TABLE_NAME = 'billing_history'
+				AND COLUMN_NAME = @columnname) = 0,
+				'ALTER TABLE billing_history ADD COLUMN stripe_payment_intent_id VARCHAR(256), ADD COLUMN stripe_invoice_id VARCHAR(256), ADD INDEX idx_stripe_payment_intent (stripe_payment_intent_id), ADD INDEX idx_stripe_invoice (stripe_invoice_id);',
+				'SELECT 1;'
+			));
+			PREPARE alterIfNotExists FROM @preparedStatement;
+			EXECUTE alterIfNotExists;
+			DEALLOCATE PREPARE alterIfNotExists;
+		`,
+		Down: `
+			-- Restore from backup if needed
+			-- This is a destructive migration, so we keep the backup table
+			-- Manual intervention would be required to restore encrypted card data
 			SELECT 1;
 		`,
 	},

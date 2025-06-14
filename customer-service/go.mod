@@ -9,6 +9,9 @@ require (
 	golang.org/x/crypto v0.18.0
 )
 
+// Note: To add Stripe SDK when implementing full integration:
+// github.com/stripe/stripe-go/v76 v76.8.0
+
 require (
 	github.com/bytedance/sonic v1.10.2 // indirect
 	github.com/chenzhuoyu/base64x v0.0.0-20230717121745-296ad89f973d // indirect

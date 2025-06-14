@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"strconv"
 
 	"customer-service/models"
 	"github.com/gin-gonic/gin"
@@ -15,11 +16,13 @@ func (h *Handlers) GetPaymentMethods(c *gin.Context) {
 		return
 	}
 
-	// TODO: Implement GetPaymentMethods in service layer
-	c.JSON(http.StatusOK, gin.H{
-		"message": "payment methods endpoint - to be implemented",
-		"customer_id": customerID,
-	})
+	methods, err := h.service.GetPaymentMethods(c.Request.Context(), customerID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to get payment methods"})
+		return
+	}
+
+	c.JSON(http.StatusOK, methods)
 }
 
 // AddPaymentMethod adds a new payment method
@@ -30,20 +33,17 @@ func (h *Handlers) AddPaymentMethod(c *gin.Context) {
 		return
 	}
 
-	var req struct {
-		CardNumber string `json:"card_number" binding:"required"`
-		CardHolder string `json:"card_holder" binding:"required"`
-		Expiry     string `json:"expiry" binding:"required"`
-		CVV        string `json:"cvv" binding:"required,len=3"`
-		IsDefault  bool   `json:"is_default"`
-	}
-
+	var req models.AddPaymentMethodRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
 		return
 	}
 
-	// TODO: Implement AddPaymentMethod in service layer
+	if err := h.service.AddPaymentMethod(c.Request.Context(), customerID, req.StripePaymentMethodID, req.IsDefault); err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to add payment method"})
+		return
+	}
+
 	c.JSON(http.StatusCreated, models.MessageResponse{Message: "payment method added successfully"})
 }
 
@@ -55,9 +55,9 @@ func (h *Handlers) UpdatePaymentMethod(c *gin.Context) {
 		return
 	}
 
-	paymentMethodID := c.Param("id")
-	if paymentMethodID == "" {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "payment method id required"})
+	paymentMethodID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "invalid payment method id"})
 		return
 	}
 
@@ -70,7 +70,15 @@ func (h *Handlers) UpdatePaymentMethod(c *gin.Context) {
 		return
 	}
 
-	// TODO: Implement UpdatePaymentMethod in service layer
+	if err := h.service.UpdatePaymentMethod(c.Request.Context(), customerID, paymentMethodID, req.IsDefault); err != nil {
+		if err.Error() == "payment method not found" {
+			c.JSON(http.StatusNotFound, models.ErrorResponse{Error: err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to update payment method"})
+		return
+	}
+
 	c.JSON(http.StatusOK, models.MessageResponse{Message: "payment method updated successfully"})
 }
 
@@ -82,36 +90,39 @@ func (h *Handlers) DeletePaymentMethod(c *gin.Context) {
 		return
 	}
 
-	paymentMethodID := c.Param("id")
-	if paymentMethodID == "" {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "payment method id required"})
+	paymentMethodID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "invalid payment method id"})
 		return
 	}
 
-	// TODO: Implement DeletePaymentMethod in service layer
+	if err := h.service.DeletePaymentMethod(c.Request.Context(), customerID, paymentMethodID); err != nil {
+		if err.Error() == "payment method not found" {
+			c.JSON(http.StatusNotFound, models.ErrorResponse{Error: err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to delete payment method"})
+		return
+	}
+
 	c.JSON(http.StatusOK, models.MessageResponse{Message: "payment method deleted successfully"})
 }
 
-// ProcessPayment processes a payment webhook (from payment gateway)
+// ProcessPayment processes a payment webhook from Stripe
 func (h *Handlers) ProcessPayment(c *gin.Context) {
-	// This would typically be called by your payment processor (Stripe, etc.)
-	// and would include webhook signature verification
+	// In production, you would:
+	// 1. Verify the webhook signature using the Stripe webhook secret
+	// 2. Parse the Stripe event
+	// 3. Handle different event types (payment_intent.succeeded, payment_intent.failed, etc.)
+	// 4. Update your database accordingly
 
-	var req struct {
-		CustomerID     string  `json:"customer_id"`
-		Amount         float64 `json:"amount"`
-		Currency       string  `json:"currency"`
-		PaymentMethod  string  `json:"payment_method"`
-		WebhookSecret  string  `json:"webhook_secret"`
-	}
-
+	var req models.StripeWebhookRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
 		return
 	}
 
-	// TODO: Verify webhook signature
-	// TODO: Process payment in service layer
-
-	c.JSON(http.StatusOK, models.MessageResponse{Message: "payment processed"})
+	// TODO: Implement Stripe webhook handling
+	// For now, just acknowledge receipt
+	c.JSON(http.StatusOK, models.MessageResponse{Message: "webhook received"})
 }

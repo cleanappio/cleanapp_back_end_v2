@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"strconv"
 
 	"customer-service/models"
 	"github.com/gin-gonic/gin"
@@ -110,14 +111,29 @@ func (h *Handlers) GetBillingHistory(c *gin.Context) {
 	}
 
 	// Pagination parameters
-	page := c.DefaultQuery("page", "1")
-	limit := c.DefaultQuery("limit", "10")
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+	
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 || limit > 100 {
+		limit = 10
+	}
+	
+	offset := (page - 1) * limit
 
-	// TODO: Implement GetBillingHistory in service layer
+	history, err := h.service.GetBillingHistory(c.Request.Context(), customerID, limit, offset)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to get billing history"})
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"message": "billing history endpoint - to be implemented",
-		"customer_id": customerID,
-		"page": page,
-		"limit": limit,
+		"data": history,
+		"pagination": gin.H{
+			"page":  page,
+			"limit": limit,
+		},
 	})
 }
