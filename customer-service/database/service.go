@@ -71,16 +71,6 @@ func (s *CustomerService) CreateCustomer(ctx context.Context, req models.CreateC
 		return nil, err
 	}
 
-	// Insert subscription
-	if err := s.insertSubscription(ctx, tx, id, req.PlanType, req.BillingCycle); err != nil {
-		return nil, err
-	}
-
-	// Insert payment method
-	if err := s.insertPaymentMethod(ctx, tx, id, req); err != nil {
-		return nil, err
-	}
-
 	// Commit transaction
 	if err = tx.Commit(); err != nil {
 		return nil, err
@@ -93,6 +83,153 @@ func (s *CustomerService) CreateCustomer(ctx context.Context, req models.CreateC
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}, nil
+}
+
+// CreateSubscription creates a new subscription for a customer
+func (s *CustomerService) CreateSubscription(ctx context.Context, customerID string, req models.CreateSubscriptionRequest) (*models.Subscription, error) {
+	// Verify customer exists
+	var exists bool
+	err := s.db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM customers WHERE id = ?)", customerID).Scan(&exists)
+	if err != nil || !exists {
+		return nil, errors.New("customer not found")
+	}
+
+	// Check if customer already has an active subscription
+	var activeCount int
+	err = s.db.QueryRowContext(ctx, 
+		"SELECT COUNT(*) FROM subscriptions WHERE customer_id = ? AND status = 'active'", 
+		customerID).Scan(&activeCount)
+	if err != nil {
+		return nil, err
+	}
+	if activeCount > 0 {
+		return nil, errors.New("customer already has an active subscription")
+	}
+
+	// Start transaction
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	// Insert subscription
+	subscriptionID, err := s.insertSubscriptionWithID(ctx, tx, customerID, req.PlanType, req.BillingCycle)
+	if err != nil {
+		return nil, err
+	}
+
+	// Insert payment method
+	if err := s.insertPaymentMethodFromRequest(ctx, tx, customerID, req); err != nil {
+		return nil, err
+	}
+
+	// Commit transaction
+	if err = tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	// Return subscription details
+	startDate := time.Now()
+	var nextBillingDate time.Time
+	if req.BillingCycle == models.BillingMonthly {
+		nextBillingDate = startDate.AddDate(0, 1, 0)
+	} else {
+		nextBillingDate = startDate.AddDate(1, 0, 0)
+	}
+
+	return &models.Subscription{
+		ID:              int(subscriptionID),
+		CustomerID:      customerID,
+		PlanType:        req.PlanType,
+		BillingCycle:    req.BillingCycle,
+		Status:          "active",
+		StartDate:       startDate,
+		NextBillingDate: nextBillingDate,
+	}, nil
+}
+
+// GetSubscription retrieves the customer's active subscription
+func (s *CustomerService) GetSubscription(ctx context.Context, customerID string) (*models.Subscription, error) {
+	subscription := &models.Subscription{}
+	
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, customer_id, plan_type, billing_cycle, status, start_date, next_billing_date 
+		 FROM subscriptions 
+		 WHERE customer_id = ? AND status = 'active' 
+		 ORDER BY created_at DESC 
+		 LIMIT 1`,
+		customerID).Scan(
+			&subscription.ID,
+			&subscription.CustomerID,
+			&subscription.PlanType,
+			&subscription.BillingCycle,
+			&subscription.Status,
+			&subscription.StartDate,
+			&subscription.NextBillingDate)
+	
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, errors.New("no active subscription found")
+		}
+		return nil, err
+	}
+	
+	return subscription, nil
+}
+
+// UpdateSubscription updates an existing subscription
+func (s *CustomerService) UpdateSubscription(ctx context.Context, customerID string, req models.UpdateSubscriptionRequest) error {
+	// Get current subscription
+	currentSub, err := s.GetSubscription(ctx, customerID)
+	if err != nil {
+		return err
+	}
+
+	// Calculate new next billing date if billing cycle changed
+	var nextBillingDate time.Time
+	if req.BillingCycle != currentSub.BillingCycle {
+		if req.BillingCycle == models.BillingMonthly {
+			nextBillingDate = time.Now().AddDate(0, 1, 0)
+		} else {
+			nextBillingDate = time.Now().AddDate(1, 0, 0)
+		}
+	} else {
+		nextBillingDate = currentSub.NextBillingDate
+	}
+
+	// Update subscription
+	_, err = s.db.ExecContext(ctx,
+		`UPDATE subscriptions 
+		 SET plan_type = ?, billing_cycle = ?, next_billing_date = ?, updated_at = NOW() 
+		 WHERE customer_id = ? AND status = 'active'`,
+		req.PlanType, req.BillingCycle, nextBillingDate, customerID)
+	
+	return err
+}
+
+// CancelSubscription cancels the customer's active subscription
+func (s *CustomerService) CancelSubscription(ctx context.Context, customerID string) error {
+	result, err := s.db.ExecContext(ctx,
+		`UPDATE subscriptions 
+		 SET status = 'cancelled', updated_at = NOW() 
+		 WHERE customer_id = ? AND status = 'active'`,
+		customerID)
+	
+	if err != nil {
+		return err
+	}
+	
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	
+	if rowsAffected == 0 {
+		return errors.New("no active subscription found")
+	}
+	
+	return nil
 }
 
 // UpdateCustomer updates customer information
@@ -256,7 +393,32 @@ func (s *CustomerService) insertSubscription(ctx context.Context, tx *sql.Tx, cu
 	return err
 }
 
+func (s *CustomerService) insertSubscriptionWithID(ctx context.Context, tx *sql.Tx, customerID, planType, billingCycle string) (int64, error) {
+	startDate := time.Now()
+	var nextBillingDate time.Time
+
+	if billingCycle == models.BillingMonthly {
+		nextBillingDate = startDate.AddDate(0, 1, 0)
+	} else {
+		nextBillingDate = startDate.AddDate(1, 0, 0)
+	}
+
+	result, err := tx.ExecContext(ctx,
+		"INSERT INTO subscriptions (customer_id, plan_type, billing_cycle, start_date, next_billing_date) VALUES (?, ?, ?, ?, ?)",
+		customerID, planType, billingCycle, startDate, nextBillingDate)
+	if err != nil {
+		return 0, err
+	}
+	
+	return result.LastInsertId()
+}
+
 func (s *CustomerService) insertPaymentMethod(ctx context.Context, tx *sql.Tx, customerID string, req models.CreateCustomerRequest) error {
+	// This method is no longer used since payment is now part of subscription creation
+	return errors.New("deprecated: use insertPaymentMethodFromRequest")
+}
+
+func (s *CustomerService) insertPaymentMethodFromRequest(ctx context.Context, tx *sql.Tx, customerID string, req models.CreateSubscriptionRequest) error {
 	// Encrypt payment data
 	cardNumberEncrypted, err := s.encryptor.Encrypt(req.CardNumber)
 	if err != nil {

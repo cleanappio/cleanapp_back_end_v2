@@ -68,12 +68,6 @@ type CreateCustomerRequest struct {
 	Email        string   `json:"email" binding:"required,email"`
 	Password     string   `json:"password" binding:"required,min=8"`
 	AreaIDs      []int    `json:"area_ids" binding:"required,min=1"`
-	PlanType     string   `json:"plan_type" binding:"required,oneof=base advanced exclusive"`
-	BillingCycle string   `json:"billing_cycle" binding:"required,oneof=monthly annual"`
-	CardNumber   string   `json:"card_number" binding:"required"`
-	CardHolder   string   `json:"card_holder" binding:"required"`
-	Expiry       string   `json:"expiry" binding:"required"`
-	CVV          string   `json:"cvv" binding:"required,len=3"`
 }
 
 // UpdateCustomerRequest represents the request to update customer information
@@ -81,6 +75,22 @@ type UpdateCustomerRequest struct {
 	Name    *string `json:"name,omitempty" binding:"omitempty,max=256"`
 	Email   *string `json:"email,omitempty" binding:"omitempty,email"`
 	AreaIDs []int   `json:"area_ids,omitempty"`
+}
+
+// CreateSubscriptionRequest represents the request to create a subscription
+type CreateSubscriptionRequest struct {
+	PlanType     string `json:"plan_type" binding:"required,oneof=base advanced exclusive"`
+	BillingCycle string `json:"billing_cycle" binding:"required,oneof=monthly annual"`
+	CardNumber   string `json:"card_number" binding:"required"`
+	CardHolder   string `json:"card_holder" binding:"required"`
+	Expiry       string `json:"expiry" binding:"required"`
+	CVV          string `json:"cvv" binding:"required,len=3"`
+}
+
+// UpdateSubscriptionRequest represents the request to update a subscription
+type UpdateSubscriptionRequest struct {
+	PlanType     string `json:"plan_type" binding:"required,oneof=base advanced exclusive"`
+	BillingCycle string `json:"billing_cycle" binding:"required,oneof=monthly annual"`
 }
 
 // LoginRequest represents the authentication request

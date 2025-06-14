@@ -98,6 +98,7 @@ func setupRouter(service *database.CustomerService, cfg *config.Config) *gin.Eng
 		protected.DELETE("/customers/me", h.DeleteCustomer)
 
 		// Subscription routes
+		protected.POST("/subscriptions", h.CreateSubscription)
 		protected.GET("/subscriptions/me", h.GetSubscription)
 		protected.PUT("/subscriptions/me", h.UpdateSubscription)
 		protected.DELETE("/subscriptions/me", h.CancelSubscription)

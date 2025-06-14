@@ -122,6 +122,7 @@ func setupRouter(service *database.CustomerService, cfg *config.Config) *gin.Eng
 		protected.DELETE("/customers/me", h.DeleteCustomer)
 
 		// Subscription routes
+		protected.POST("/subscriptions", h.CreateSubscription)
 		protected.GET("/subscriptions/me", h.GetSubscription)
 		protected.PUT("/subscriptions/me", h.UpdateSubscription)
 		protected.DELETE("/subscriptions/me", h.CancelSubscription)
@@ -294,12 +295,6 @@ type CreateCustomerRequest struct {
 	Email        string   `json:"email" binding:"required,email"`
 	Password     string   `json:"password" binding:"required,min=8"`
 	AreaIDs      []int    `json:"area_ids" binding:"required,min=1"`
-	PlanType     string   `json:"plan_type" binding:"required,oneof=base advanced exclusive"`
-	BillingCycle string   `json:"billing_cycle" binding:"required,oneof=monthly annual"`
-	CardNumber   string   `json:"card_number" binding:"required"`
-	CardHolder   string   `json:"card_holder" binding:"required"`
-	Expiry       string   `json:"expiry" binding:"required"`
-	CVV          string   `json:"cvv" binding:"required,len=3"`
 }
 
 // UpdateCustomerRequest represents the request to update customer information
@@ -307,6 +302,22 @@ type UpdateCustomerRequest struct {
 	Name    *string `json:"name,omitempty" binding:"omitempty,max=256"`
 	Email   *string `json:"email,omitempty" binding:"omitempty,email"`
 	AreaIDs []int   `json:"area_ids,omitempty"`
+}
+
+// CreateSubscriptionRequest represents the request to create a subscription
+type CreateSubscriptionRequest struct {
+	PlanType     string `json:"plan_type" binding:"required,oneof=base advanced exclusive"`
+	BillingCycle string `json:"billing_cycle" binding:"required,oneof=monthly annual"`
+	CardNumber   string `json:"card_number" binding:"required"`
+	CardHolder   string `json:"card_holder" binding:"required"`
+	Expiry       string `json:"expiry" binding:"required"`
+	CVV          string `json:"cvv" binding:"required,len=3"`
+}
+
+// UpdateSubscriptionRequest represents the request to update a subscription
+type UpdateSubscriptionRequest struct {
+	PlanType     string `json:"plan_type" binding:"required,oneof=base advanced exclusive"`
+	BillingCycle string `json:"billing_cycle" binding:"required,oneof=monthly annual"`
 }
 
 // LoginRequest represents the authentication request
@@ -503,16 +514,6 @@ func (s *CustomerService) CreateCustomer(ctx context.Context, req models.CreateC
 		return nil, err
 	}
 
-	// Insert subscription
-	if err := s.insertSubscription(ctx, tx, id, req.PlanType, req.BillingCycle); err != nil {
-		return nil, err
-	}
-
-	// Insert payment method
-	if err := s.insertPaymentMethod(ctx, tx, id, req); err != nil {
-		return nil, err
-	}
-
 	// Commit transaction
 	if err = tx.Commit(); err != nil {
 		return nil, err
@@ -525,6 +526,153 @@ func (s *CustomerService) CreateCustomer(ctx context.Context, req models.CreateC
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}, nil
+}
+
+// CreateSubscription creates a new subscription for a customer
+func (s *CustomerService) CreateSubscription(ctx context.Context, customerID string, req models.CreateSubscriptionRequest) (*models.Subscription, error) {
+	// Verify customer exists
+	var exists bool
+	err := s.db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM customers WHERE id = ?)", customerID).Scan(&exists)
+	if err != nil || !exists {
+		return nil, errors.New("customer not found")
+	}
+
+	// Check if customer already has an active subscription
+	var activeCount int
+	err = s.db.QueryRowContext(ctx, 
+		"SELECT COUNT(*) FROM subscriptions WHERE customer_id = ? AND status = 'active'", 
+		customerID).Scan(&activeCount)
+	if err != nil {
+		return nil, err
+	}
+	if activeCount > 0 {
+		return nil, errors.New("customer already has an active subscription")
+	}
+
+	// Start transaction
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	// Insert subscription
+	subscriptionID, err := s.insertSubscriptionWithID(ctx, tx, customerID, req.PlanType, req.BillingCycle)
+	if err != nil {
+		return nil, err
+	}
+
+	// Insert payment method
+	if err := s.insertPaymentMethodFromRequest(ctx, tx, customerID, req); err != nil {
+		return nil, err
+	}
+
+	// Commit transaction
+	if err = tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	// Return subscription details
+	startDate := time.Now()
+	var nextBillingDate time.Time
+	if req.BillingCycle == models.BillingMonthly {
+		nextBillingDate = startDate.AddDate(0, 1, 0)
+	} else {
+		nextBillingDate = startDate.AddDate(1, 0, 0)
+	}
+
+	return &models.Subscription{
+		ID:              int(subscriptionID),
+		CustomerID:      customerID,
+		PlanType:        req.PlanType,
+		BillingCycle:    req.BillingCycle,
+		Status:          "active",
+		StartDate:       startDate,
+		NextBillingDate: nextBillingDate,
+	}, nil
+}
+
+// GetSubscription retrieves the customer's active subscription
+func (s *CustomerService) GetSubscription(ctx context.Context, customerID string) (*models.Subscription, error) {
+	subscription := &models.Subscription{}
+	
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, customer_id, plan_type, billing_cycle, status, start_date, next_billing_date 
+		 FROM subscriptions 
+		 WHERE customer_id = ? AND status = 'active' 
+		 ORDER BY created_at DESC 
+		 LIMIT 1`,
+		customerID).Scan(
+			&subscription.ID,
+			&subscription.CustomerID,
+			&subscription.PlanType,
+			&subscription.BillingCycle,
+			&subscription.Status,
+			&subscription.StartDate,
+			&subscription.NextBillingDate)
+	
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, errors.New("no active subscription found")
+		}
+		return nil, err
+	}
+	
+	return subscription, nil
+}
+
+// UpdateSubscription updates an existing subscription
+func (s *CustomerService) UpdateSubscription(ctx context.Context, customerID string, req models.UpdateSubscriptionRequest) error {
+	// Get current subscription
+	currentSub, err := s.GetSubscription(ctx, customerID)
+	if err != nil {
+		return err
+	}
+
+	// Calculate new next billing date if billing cycle changed
+	var nextBillingDate time.Time
+	if req.BillingCycle != currentSub.BillingCycle {
+		if req.BillingCycle == models.BillingMonthly {
+			nextBillingDate = time.Now().AddDate(0, 1, 0)
+		} else {
+			nextBillingDate = time.Now().AddDate(1, 0, 0)
+		}
+	} else {
+		nextBillingDate = currentSub.NextBillingDate
+	}
+
+	// Update subscription
+	_, err = s.db.ExecContext(ctx,
+		`UPDATE subscriptions 
+		 SET plan_type = ?, billing_cycle = ?, next_billing_date = ?, updated_at = NOW() 
+		 WHERE customer_id = ? AND status = 'active'`,
+		req.PlanType, req.BillingCycle, nextBillingDate, customerID)
+	
+	return err
+}
+
+// CancelSubscription cancels the customer's active subscription
+func (s *CustomerService) CancelSubscription(ctx context.Context, customerID string) error {
+	result, err := s.db.ExecContext(ctx,
+		`UPDATE subscriptions 
+		 SET status = 'cancelled', updated_at = NOW() 
+		 WHERE customer_id = ? AND status = 'active'`,
+		customerID)
+	
+	if err != nil {
+		return err
+	}
+	
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	
+	if rowsAffected == 0 {
+		return errors.New("no active subscription found")
+	}
+	
+	return nil
 }
 
 // UpdateCustomer updates customer information
@@ -688,7 +836,32 @@ func (s *CustomerService) insertSubscription(ctx context.Context, tx *sql.Tx, cu
 	return err
 }
 
+func (s *CustomerService) insertSubscriptionWithID(ctx context.Context, tx *sql.Tx, customerID, planType, billingCycle string) (int64, error) {
+	startDate := time.Now()
+	var nextBillingDate time.Time
+
+	if billingCycle == models.BillingMonthly {
+		nextBillingDate = startDate.AddDate(0, 1, 0)
+	} else {
+		nextBillingDate = startDate.AddDate(1, 0, 0)
+	}
+
+	result, err := tx.ExecContext(ctx,
+		"INSERT INTO subscriptions (customer_id, plan_type, billing_cycle, start_date, next_billing_date) VALUES (?, ?, ?, ?, ?)",
+		customerID, planType, billingCycle, startDate, nextBillingDate)
+	if err != nil {
+		return 0, err
+	}
+	
+	return result.LastInsertId()
+}
+
 func (s *CustomerService) insertPaymentMethod(ctx context.Context, tx *sql.Tx, customerID string, req models.CreateCustomerRequest) error {
+	// This method is no longer used since payment is now part of subscription creation
+	return errors.New("deprecated: use insertPaymentMethodFromRequest")
+}
+
+func (s *CustomerService) insertPaymentMethodFromRequest(ctx context.Context, tx *sql.Tx, customerID string, req models.CreateSubscriptionRequest) error {
 	// Encrypt payment data
 	cardNumberEncrypted, err := s.encryptor.Encrypt(req.CardNumber)
 	if err != nil {
@@ -831,6 +1004,7 @@ cat > handlers/handlers.go << 'EOF'
 package handlers
 
 import (
+	"context"
 	"net/http"
 
 	"customer-service/database"
@@ -960,6 +1134,33 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// CreateSubscription creates a new subscription for the customer
+func (h *Handlers) CreateSubscription(c *gin.Context) {
+	customerID := c.GetString("customer_id")
+	if customerID == "" {
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse{Error: "unauthorized"})
+		return
+	}
+
+	var req models.CreateSubscriptionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	subscription, err := h.service.CreateSubscription(c.Request.Context(), customerID, req)
+	if err != nil {
+		if err.Error() == "customer already has an active subscription" {
+			c.JSON(http.StatusConflict, models.ErrorResponse{Error: err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to create subscription"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, subscription)
+}
+
 // GetSubscription retrieves the customer's current subscription
 func (h *Handlers) GetSubscription(c *gin.Context) {
 	customerID := c.GetString("customer_id")
@@ -968,11 +1169,17 @@ func (h *Handlers) GetSubscription(c *gin.Context) {
 		return
 	}
 
-	// TODO: Implement GetSubscription in service layer
-	c.JSON(http.StatusOK, gin.H{
-		"message": "subscription endpoint - to be implemented",
-		"customer_id": customerID,
-	})
+	subscription, err := h.service.GetSubscription(c.Request.Context(), customerID)
+	if err != nil {
+		if err.Error() == "no active subscription found" {
+			c.JSON(http.StatusNotFound, models.ErrorResponse{Error: err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to get subscription"})
+		return
+	}
+
+	c.JSON(http.StatusOK, subscription)
 }
 
 // UpdateSubscription updates the customer's subscription plan
@@ -983,17 +1190,21 @@ func (h *Handlers) UpdateSubscription(c *gin.Context) {
 		return
 	}
 
-	var req struct {
-		PlanType     string `json:"plan_type" binding:"required,oneof=base advanced exclusive"`
-		BillingCycle string `json:"billing_cycle" binding:"required,oneof=monthly annual"`
-	}
-
+	var req models.UpdateSubscriptionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
 		return
 	}
 
-	// TODO: Implement UpdateSubscription in service layer
+	if err := h.service.UpdateSubscription(c.Request.Context(), customerID, req); err != nil {
+		if err.Error() == "no active subscription found" {
+			c.JSON(http.StatusNotFound, models.ErrorResponse{Error: err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to update subscription"})
+		return
+	}
+
 	c.JSON(http.StatusOK, models.MessageResponse{Message: "subscription updated successfully"})
 }
 
@@ -1005,7 +1216,15 @@ func (h *Handlers) CancelSubscription(c *gin.Context) {
 		return
 	}
 
-	// TODO: Implement CancelSubscription in service layer
+	if err := h.service.CancelSubscription(c.Request.Context(), customerID); err != nil {
+		if err.Error() == "no active subscription found" {
+			c.JSON(http.StatusNotFound, models.ErrorResponse{Error: err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to cancel subscription"})
+		return
+	}
+
 	c.JSON(http.StatusOK, models.MessageResponse{Message: "subscription cancelled successfully"})
 }
 
@@ -2139,13 +2358,28 @@ A secure Go microservice for managing CleanApp platform customers with subscript
 ## Features
 
 - **Multi-provider Authentication**: Email/password and OAuth (Google, Apple, Facebook)
-- **Subscription Management**: Three tiers (Base, Advanced, Exclusive) with monthly/annual billing
+- **Flexible Subscription Management**: Customers can exist without subscriptions
+- **Subscription Tiers**: Three tiers (Base, Advanced, Exclusive) with monthly/annual billing
 - **Secure Data Handling**: AES-256 encryption for sensitive data
 - **JWT Bearer Token Authentication**
 - **RESTful API with Gin framework**
 - **MySQL database with proper schema design**
 
 ## Architecture
+
+### Customer and Subscription Flow
+
+The service separates customer creation from subscription management:
+
+1. **Customer Creation**: Creates a basic customer account without any subscription
+2. **Subscription Creation**: Customer can then add a subscription with payment information
+3. **Subscription Management**: Customers can update, cancel, or view their subscriptions
+
+This separation allows for:
+- Free trial periods
+- Customer accounts without active subscriptions
+- Multiple subscription management strategies
+- Better separation of concerns
 
 ### Database Schema
 
@@ -2164,6 +2398,7 @@ The service uses MySQL with the following tables:
 2. **Password Hashing**: bcrypt for password storage
 3. **JWT Tokens**: Secure bearer token authentication
 4. **HTTPS**: Enforced for all sensitive data transmission
+5. **Business Logic Separation**: Customer accounts are independent from subscriptions
 
 ## Project Structure
 
@@ -2287,20 +2522,14 @@ Response:
 ```
 
 #### POST /api/v3/customers
-Create a new customer account.
+Create a new customer account (without subscription).
 
 ```json
 {
   "name": "John Doe",
   "email": "john@example.com",
   "password": "securepassword123",
-  "area_ids": [1, 2, 3],
-  "plan_type": "advanced",
-  "billing_cycle": "annual",
-  "card_number": "4111111111111111",
-  "card_holder": "John Doe",
-  "expiry": "12/25",
-  "cvv": "123"
+  "area_ids": [1, 2, 3]
 }
 ```
 
@@ -2321,6 +2550,19 @@ Authorization: Bearer <token>
 - **DELETE /api/v3/customers/me** - Delete customer account
 
 #### Subscription Management
+
+- **POST /api/v3/subscriptions** - Create a new subscription (requires payment info)
+
+```json
+{
+  "plan_type": "base",
+  "billing_cycle": "monthly",
+  "card_number": "4111111111111111",
+  "card_holder": "John Doe",
+  "expiry": "12/25",
+  "cvv": "123"
+}
+```
 
 - **GET /api/v3/subscriptions/me** - Get current subscription
 - **PUT /api/v3/subscriptions/me** - Update subscription plan
@@ -2357,6 +2599,12 @@ Authorization: Bearer <token>
 5. **OAuth Integration**: Properly validate tokens with OAuth providers
 
 ## Subscription Plans
+
+### Business Rules
+- A customer can be created without a subscription
+- Each customer can have only one active subscription at a time
+- Payment information is required when creating a subscription
+- Subscriptions can be updated or cancelled independently
 
 ### Pricing Tiers
 - **Base**: Entry-level features
@@ -2421,7 +2669,7 @@ The service uses structured logging. In production, consider:
 
 ## API Usage Examples
 
-### Create Customer
+### Create Customer (Step 1)
 ```bash
 curl -X POST http://localhost:8080/api/v3/customers \
   -H "Content-Type: application/json" \
@@ -2429,13 +2677,7 @@ curl -X POST http://localhost:8080/api/v3/customers \
     "name": "Test User",
     "email": "test@example.com",
     "password": "password123",
-    "area_ids": [1, 2],
-    "plan_type": "base",
-    "billing_cycle": "monthly",
-    "card_number": "4111111111111111",
-    "card_holder": "Test User",
-    "expiry": "12/25",
-    "cvv": "123"
+    "area_ids": [1, 2]
   }'
 ```
 
@@ -2449,9 +2691,30 @@ curl -X POST http://localhost:8080/api/v3/login \
   }'
 ```
 
+### Create Subscription (Step 2 - Requires Authentication)
+```bash
+curl -X POST http://localhost:8080/api/v3/subscriptions \
+  -H "Authorization: Bearer <your-token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "plan_type": "base",
+    "billing_cycle": "monthly",
+    "card_number": "4111111111111111",
+    "card_holder": "Test User",
+    "expiry": "12/25",
+    "cvv": "123"
+  }'
+```
+
 ### Get Customer Info
 ```bash
 curl -X GET http://localhost:8080/api/v3/customers/me \
+  -H "Authorization: Bearer <your-token>"
+```
+
+### Get Subscription Info
+```bash
+curl -X GET http://localhost:8080/api/v3/subscriptions/me \
   -H "Authorization: Bearer <your-token>"
 ```
 
@@ -2464,6 +2727,12 @@ curl -X PUT http://localhost:8080/api/v3/subscriptions/me \
     "plan_type": "advanced",
     "billing_cycle": "annual"
   }'
+```
+
+### Cancel Subscription
+```bash
+curl -X DELETE http://localhost:8080/api/v3/subscriptions/me \
+  -H "Authorization: Bearer <your-token>"
 ```
 
 ### Add Payment Method
@@ -2492,8 +2761,10 @@ curl -X POST http://localhost:8080/api/v3/payment-methods \
 
 ## Future Enhancements
 
+- [ ] Add free trial period support
+- [ ] Implement subscription pause/resume
 - [ ] Add webhook support for payment processing
-- [ ] Implement subscription upgrade/downgrade
+- [ ] Implement subscription upgrade/downgrade with proration
 - [ ] Add email verification
 - [ ] Implement 2FA
 - [ ] Add API versioning strategy (currently v3)
@@ -2501,6 +2772,8 @@ curl -X POST http://localhost:8080/api/v3/payment-methods \
 - [ ] Add comprehensive logging
 - [ ] Create admin endpoints
 - [ ] Add metrics and monitoring
+- [ ] Support multiple payment methods per customer
+- [ ] Add subscription renewal notifications
 
 ## License
 
@@ -2534,10 +2807,16 @@ echo "       └── encryption/"
 echo ""
 echo "📄 Created 23 files with:"
 echo "   - API version v3"
+echo "   - Separated customer and subscription creation"
 echo "   - Fixed encryption type errors"
 echo "   - Removed unused imports"
 echo "   - Configured trusted proxies from env"
 echo "   - Fixed Makefile .env loading"
+echo ""
+echo "💡 Key Business Logic:"
+echo "   - Customers can exist without subscriptions"
+echo "   - Only one active subscription per customer"
+echo "   - Payment required only when creating subscription"
 echo ""
 echo "🚀 Next steps:"
 echo "   1. cd customer-service"

@@ -5,13 +5,28 @@ A secure Go microservice for managing CleanApp platform customers with subscript
 ## Features
 
 - **Multi-provider Authentication**: Email/password and OAuth (Google, Apple, Facebook)
-- **Subscription Management**: Three tiers (Base, Advanced, Exclusive) with monthly/annual billing
+- **Flexible Subscription Management**: Customers can exist without subscriptions
+- **Subscription Tiers**: Three tiers (Base, Advanced, Exclusive) with monthly/annual billing
 - **Secure Data Handling**: AES-256 encryption for sensitive data
 - **JWT Bearer Token Authentication**
 - **RESTful API with Gin framework**
 - **MySQL database with proper schema design**
 
 ## Architecture
+
+### Customer and Subscription Flow
+
+The service separates customer creation from subscription management:
+
+1. **Customer Creation**: Creates a basic customer account without any subscription
+2. **Subscription Creation**: Customer can then add a subscription with payment information
+3. **Subscription Management**: Customers can update, cancel, or view their subscriptions
+
+This separation allows for:
+- Free trial periods
+- Customer accounts without active subscriptions
+- Multiple subscription management strategies
+- Better separation of concerns
 
 ### Database Schema
 
@@ -30,6 +45,7 @@ The service uses MySQL with the following tables:
 2. **Password Hashing**: bcrypt for password storage
 3. **JWT Tokens**: Secure bearer token authentication
 4. **HTTPS**: Enforced for all sensitive data transmission
+5. **Business Logic Separation**: Customer accounts are independent from subscriptions
 
 ## Project Structure
 
@@ -153,20 +169,14 @@ Response:
 ```
 
 #### POST /api/v3/customers
-Create a new customer account.
+Create a new customer account (without subscription).
 
 ```json
 {
   "name": "John Doe",
   "email": "john@example.com",
   "password": "securepassword123",
-  "area_ids": [1, 2, 3],
-  "plan_type": "advanced",
-  "billing_cycle": "annual",
-  "card_number": "4111111111111111",
-  "card_holder": "John Doe",
-  "expiry": "12/25",
-  "cvv": "123"
+  "area_ids": [1, 2, 3]
 }
 ```
 
@@ -187,6 +197,19 @@ Authorization: Bearer <token>
 - **DELETE /api/v3/customers/me** - Delete customer account
 
 #### Subscription Management
+
+- **POST /api/v3/subscriptions** - Create a new subscription (requires payment info)
+
+```json
+{
+  "plan_type": "base",
+  "billing_cycle": "monthly",
+  "card_number": "4111111111111111",
+  "card_holder": "John Doe",
+  "expiry": "12/25",
+  "cvv": "123"
+}
+```
 
 - **GET /api/v3/subscriptions/me** - Get current subscription
 - **PUT /api/v3/subscriptions/me** - Update subscription plan
@@ -223,6 +246,12 @@ Authorization: Bearer <token>
 5. **OAuth Integration**: Properly validate tokens with OAuth providers
 
 ## Subscription Plans
+
+### Business Rules
+- A customer can be created without a subscription
+- Each customer can have only one active subscription at a time
+- Payment information is required when creating a subscription
+- Subscriptions can be updated or cancelled independently
 
 ### Pricing Tiers
 - **Base**: Entry-level features
@@ -287,7 +316,7 @@ The service uses structured logging. In production, consider:
 
 ## API Usage Examples
 
-### Create Customer
+### Create Customer (Step 1)
 ```bash
 curl -X POST http://localhost:8080/api/v3/customers \
   -H "Content-Type: application/json" \
@@ -295,13 +324,7 @@ curl -X POST http://localhost:8080/api/v3/customers \
     "name": "Test User",
     "email": "test@example.com",
     "password": "password123",
-    "area_ids": [1, 2],
-    "plan_type": "base",
-    "billing_cycle": "monthly",
-    "card_number": "4111111111111111",
-    "card_holder": "Test User",
-    "expiry": "12/25",
-    "cvv": "123"
+    "area_ids": [1, 2]
   }'
 ```
 
@@ -315,9 +338,30 @@ curl -X POST http://localhost:8080/api/v3/login \
   }'
 ```
 
+### Create Subscription (Step 2 - Requires Authentication)
+```bash
+curl -X POST http://localhost:8080/api/v3/subscriptions \
+  -H "Authorization: Bearer <your-token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "plan_type": "base",
+    "billing_cycle": "monthly",
+    "card_number": "4111111111111111",
+    "card_holder": "Test User",
+    "expiry": "12/25",
+    "cvv": "123"
+  }'
+```
+
 ### Get Customer Info
 ```bash
 curl -X GET http://localhost:8080/api/v3/customers/me \
+  -H "Authorization: Bearer <your-token>"
+```
+
+### Get Subscription Info
+```bash
+curl -X GET http://localhost:8080/api/v3/subscriptions/me \
   -H "Authorization: Bearer <your-token>"
 ```
 
@@ -330,6 +374,12 @@ curl -X PUT http://localhost:8080/api/v3/subscriptions/me \
     "plan_type": "advanced",
     "billing_cycle": "annual"
   }'
+```
+
+### Cancel Subscription
+```bash
+curl -X DELETE http://localhost:8080/api/v3/subscriptions/me \
+  -H "Authorization: Bearer <your-token>"
 ```
 
 ### Add Payment Method
@@ -358,8 +408,10 @@ curl -X POST http://localhost:8080/api/v3/payment-methods \
 
 ## Future Enhancements
 
+- [ ] Add free trial period support
+- [ ] Implement subscription pause/resume
 - [ ] Add webhook support for payment processing
-- [ ] Implement subscription upgrade/downgrade
+- [ ] Implement subscription upgrade/downgrade with proration
 - [ ] Add email verification
 - [ ] Implement 2FA
 - [ ] Add API versioning strategy (currently v3)
@@ -367,6 +419,8 @@ curl -X POST http://localhost:8080/api/v3/payment-methods \
 - [ ] Add comprehensive logging
 - [ ] Create admin endpoints
 - [ ] Add metrics and monitoring
+- [ ] Support multiple payment methods per customer
+- [ ] Add subscription renewal notifications
 
 ## License
 
