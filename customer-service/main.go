@@ -81,7 +81,7 @@ func setupRouter(service *database.CustomerService, cfg *config.Config) *gin.Eng
 	h := handlers.NewHandlers(service)
 
 	// Public routes
-	public := router.Group("/api/v1")
+	public := router.Group("/api/v3")
 	{
 		public.POST("/login", h.Login)
 		public.POST("/customers", h.CreateCustomer)
@@ -89,7 +89,7 @@ func setupRouter(service *database.CustomerService, cfg *config.Config) *gin.Eng
 	}
 
 	// Protected routes
-	protected := router.Group("/api/v1")
+	protected := router.Group("/api/v3")
 	protected.Use(middleware.AuthMiddleware(service))
 	{
 		// Customer routes
@@ -111,7 +111,7 @@ func setupRouter(service *database.CustomerService, cfg *config.Config) *gin.Eng
 	}
 
 	// Webhook routes (usually have different authentication)
-	webhooks := router.Group("/api/v1/webhooks")
+	webhooks := router.Group("/api/v3/webhooks")
 	{
 		webhooks.POST("/payment", h.ProcessPayment)
 	}

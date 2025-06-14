@@ -68,7 +68,6 @@ DB_USER=cleanapp_user
 DB_PASSWORD=cleanapp_password
 DB_HOST=localhost
 DB_PORT=3306
-TRUSTED_PROXIES=127.0.0.1,::1
 ENCRYPTION_KEY=your_64_character_hex_string_for_aes256_encryption
 JWT_SECRET=your_super_secret_jwt_key
 PORT=8080
@@ -123,11 +122,11 @@ air
 
 ## API Endpoints
 
-All endpoints are prefixed with `/api/v1`
+All endpoints are prefixed with `/api/v3`
 
 ### Public Endpoints
 
-#### POST /api/v1/login
+#### POST /api/v3/login
 Authenticate a customer and receive a JWT token.
 
 ```json
@@ -153,7 +152,7 @@ Response:
 }
 ```
 
-#### POST /api/v1/customers
+#### POST /api/v3/customers
 Create a new customer account.
 
 ```json
@@ -171,7 +170,7 @@ Create a new customer account.
 }
 ```
 
-#### GET /api/v1/health
+#### GET /api/v3/health
 Health check endpoint.
 
 ### Protected Endpoints (Require Bearer Token)
@@ -183,27 +182,27 @@ Authorization: Bearer <token>
 
 #### Customer Management
 
-- **GET /api/v1/customers/me** - Get current customer information
-- **PUT /api/v1/customers/me** - Update customer information
-- **DELETE /api/v1/customers/me** - Delete customer account
+- **GET /api/v3/customers/me** - Get current customer information
+- **PUT /api/v3/customers/me** - Update customer information
+- **DELETE /api/v3/customers/me** - Delete customer account
 
 #### Subscription Management
 
-- **GET /api/v1/subscriptions/me** - Get current subscription
-- **PUT /api/v1/subscriptions/me** - Update subscription plan
-- **DELETE /api/v1/subscriptions/me** - Cancel subscription
-- **GET /api/v1/billing-history** - Get billing history (supports pagination)
+- **GET /api/v3/subscriptions/me** - Get current subscription
+- **PUT /api/v3/subscriptions/me** - Update subscription plan
+- **DELETE /api/v3/subscriptions/me** - Cancel subscription
+- **GET /api/v3/billing-history** - Get billing history (supports pagination)
 
 #### Payment Methods
 
-- **GET /api/v1/payment-methods** - List payment methods
-- **POST /api/v1/payment-methods** - Add new payment method
-- **PUT /api/v1/payment-methods/:id** - Update payment method
-- **DELETE /api/v1/payment-methods/:id** - Delete payment method
+- **GET /api/v3/payment-methods** - List payment methods
+- **POST /api/v3/payment-methods** - Add new payment method
+- **PUT /api/v3/payment-methods/:id** - Update payment method
+- **DELETE /api/v3/payment-methods/:id** - Delete payment method
 
 ### Webhook Endpoints
 
-- **POST /api/v1/webhooks/payment** - Payment processor webhook
+- **POST /api/v3/webhooks/payment** - Payment processor webhook
 
 ## Security Considerations
 
@@ -290,7 +289,7 @@ The service uses structured logging. In production, consider:
 
 ### Create Customer
 ```bash
-curl -X POST http://localhost:8080/api/v1/customers \
+curl -X POST http://localhost:8080/api/v3/customers \
   -H "Content-Type: application/json" \
   -d '{
     "name": "Test User",
@@ -308,7 +307,7 @@ curl -X POST http://localhost:8080/api/v1/customers \
 
 ### Login
 ```bash
-curl -X POST http://localhost:8080/api/v1/login \
+curl -X POST http://localhost:8080/api/v3/login \
   -H "Content-Type: application/json" \
   -d '{
     "email": "test@example.com",
@@ -318,13 +317,13 @@ curl -X POST http://localhost:8080/api/v1/login \
 
 ### Get Customer Info
 ```bash
-curl -X GET http://localhost:8080/api/v1/customers/me \
+curl -X GET http://localhost:8080/api/v3/customers/me \
   -H "Authorization: Bearer <your-token>"
 ```
 
 ### Update Subscription
 ```bash
-curl -X PUT http://localhost:8080/api/v1/subscriptions/me \
+curl -X PUT http://localhost:8080/api/v3/subscriptions/me \
   -H "Authorization: Bearer <your-token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -335,7 +334,7 @@ curl -X PUT http://localhost:8080/api/v1/subscriptions/me \
 
 ### Add Payment Method
 ```bash
-curl -X POST http://localhost:8080/api/v1/payment-methods \
+curl -X POST http://localhost:8080/api/v3/payment-methods \
   -H "Authorization: Bearer <your-token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -363,7 +362,7 @@ curl -X POST http://localhost:8080/api/v1/payment-methods \
 - [ ] Implement subscription upgrade/downgrade
 - [ ] Add email verification
 - [ ] Implement 2FA
-- [ ] Add API versioning
+- [ ] Add API versioning strategy (currently v3)
 - [ ] Implement caching layer
 - [ ] Add comprehensive logging
 - [ ] Create admin endpoints

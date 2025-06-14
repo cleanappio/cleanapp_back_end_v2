@@ -116,7 +116,7 @@ docs:
 
 # Health check
 health:
-	curl -f http://localhost:8080/api/v1/health || exit 1
+	curl -f http://localhost:8080/api/v3/health || exit 1
 
 # Full setup
 setup: deps docker-build compose-up
