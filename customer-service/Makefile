@@ -96,11 +96,16 @@ compose-logs:
 # Database migrations (placeholder for future implementation)
 migrate-up:
 	@echo "Running database migrations..."
-	# Add migration tool commands here
+	@echo "Migrations are automatically run on service startup"
+	@echo "To add new migrations, edit database/schema.go"
 
 migrate-down:
 	@echo "Rolling back database migrations..."
-	# Add migration rollback commands here
+	@echo "Not implemented - add rollback logic if needed"
+
+migrate-status:
+	@echo "Checking migration status..."
+	@echo "Connect to MySQL and run: SELECT * FROM cleanapp.schema_migrations;"
 
 # Development helpers
 dev:
@@ -153,4 +158,4 @@ help:
 
 .PHONY: build build-linux run clean test test-coverage deps tidy lint fmt security \
         docker-build docker-run docker-stop compose-up compose-down compose-logs \
-        migrate-up migrate-down dev mocks docs health setup help
+        migrate-up migrate-down migrate-status dev mocks docs health setup help

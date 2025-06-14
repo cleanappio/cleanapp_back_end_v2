@@ -26,6 +26,7 @@ func main() {
 	defer db.Close()
 
 	// Initialize database schema
+	log.Println("Initializing database schema and running migrations...")
 	if err := database.InitializeSchema(db); err != nil {
 		log.Fatal("Failed to initialize database schema:", err)
 	}

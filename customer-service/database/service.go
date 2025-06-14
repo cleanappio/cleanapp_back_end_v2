@@ -488,7 +488,6 @@ func (s *CustomerService) updateCustomerAreas(ctx context.Context, tx *sql.Tx, c
 func (s *CustomerService) authenticateWithPassword(ctx context.Context, email, password string) (string, error) {
 	var customerID string
 	var passwordHash string
-	var emailEncrypted string
 
 	// First, find the customer by decrypting emails
 	rows, err := s.db.QueryContext(ctx,

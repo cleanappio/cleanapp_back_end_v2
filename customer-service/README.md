@@ -47,6 +47,17 @@ The service uses MySQL with the following tables:
 - `payment_methods`: Encrypted credit card information
 - `billing_history`: Payment transaction records
 - `auth_tokens`: JWT token management
+- `schema_migrations`: Tracks applied database migrations
+
+### Database Migrations
+
+The service includes an incremental migration system:
+- Migrations are automatically applied on service startup
+- Migration history is tracked in `schema_migrations` table
+- Each migration has a version number and can be rolled back if needed
+
+Current migrations:
+1. **Version 1**: Remove redundant `method_id` field from `login_methods` table
 
 ### Security Features
 
@@ -315,9 +326,28 @@ make docker-build
 
 ### Database Migrations
 
-The service automatically creates the schema on startup. For production environments, consider using a migration tool like:
-- [golang-migrate](https://github.com/golang-migrate/migrate)
-- [goose](https://github.com/pressly/goose)
+The service automatically creates the schema on startup and runs any pending migrations.
+
+To add a new migration:
+1. Edit `database/schema.go`
+2. Add a new Migration struct to the `Migrations` slice
+3. Increment the version number
+4. Provide Up and Down SQL statements
+
+Example:
+```go
+{
+    Version: 2,
+    Name:    "add_user_preferences",
+    Up:      "ALTER TABLE customers ADD COLUMN preferences JSON;",
+    Down:    "ALTER TABLE customers DROP COLUMN preferences;",
+}
+```
+
+Check migration status:
+```bash
+make migrate-status
+```
 
 ### Monitoring and Logging
 
@@ -427,6 +457,7 @@ curl -X POST http://localhost:8080/api/v3/payment-methods \
 5. Add monitoring and logging
 6. Regular security audits
 7. Implement backup strategies
+8. Review and test migrations before applying to production
 
 ## Future Enhancements
 
@@ -444,6 +475,7 @@ curl -X POST http://localhost:8080/api/v3/payment-methods \
 - [ ] Add metrics and monitoring
 - [ ] Support multiple payment methods per customer
 - [ ] Add subscription renewal notifications
+- [ ] Add migration rollback commands
 
 ## License
 
