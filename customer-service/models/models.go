@@ -94,10 +94,12 @@ type UpdateSubscriptionRequest struct {
 }
 
 // LoginRequest represents the authentication request
+// For email/password login: provide email and password
+// For OAuth login: provide provider and token
 type LoginRequest struct {
 	Email    string `json:"email" binding:"required_without=Provider"`
 	Password string `json:"password" binding:"required_without=Provider"`
-	Provider string `json:"provider" binding:"required_without=Email,oneof=google apple facebook"`
+	Provider string `json:"provider" binding:"required_without=Email,omitempty,oneof=google apple facebook"`
 	Token    string `json:"token" binding:"required_with=Provider"` // OAuth ID from provider
 }
 

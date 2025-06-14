@@ -106,6 +106,11 @@ var Migrations = []Migration{
 		Version: 1,
 		Name:    "remove_method_id_from_login_methods",
 		Up: `
+			-- Migration 1: Remove redundant method_id field
+			-- The method_id field was storing duplicate data:
+			-- - For email auth: it stored the email (already in customers table)
+			-- - For OAuth: it should be oauth_id instead
+			
 			-- Check if method_id column exists before trying to drop it
 			SET @dbname = DATABASE();
 			SET @tablename = 'login_methods';

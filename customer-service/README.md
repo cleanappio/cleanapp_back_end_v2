@@ -67,6 +67,7 @@ Current migrations:
 4. **HTTPS**: Enforced for all sensitive data transmission
 5. **Business Logic Separation**: Customer accounts are independent from subscriptions
 6. **Optimized Schema**: No redundant data storage (emails stored once)
+7. **Migration System**: Safe, incremental database updates with version tracking
 
 ## Project Structure
 
@@ -166,21 +167,23 @@ All endpoints are prefixed with `/api/v3`
 #### POST /api/v3/login
 Authenticate a customer and receive a JWT token.
 
+**Email/Password Login:**
 ```json
 {
   "email": "user@example.com",
   "password": "securepassword"
 }
 ```
+Note: Do not include the `provider` field for email/password login.
 
-OR for OAuth:
-
+**OAuth Login:**
 ```json
 {
   "provider": "google",
   "token": "oauth-user-id-from-provider"
 }
 ```
+Note: The `provider` must be one of: `google`, `apple`, `facebook`
 
 Response:
 ```json
@@ -333,6 +336,7 @@ To add a new migration:
 2. Add a new Migration struct to the `Migrations` slice
 3. Increment the version number
 4. Provide Up and Down SQL statements
+5. The migration will run automatically on next startup
 
 Example:
 ```go
@@ -347,6 +351,8 @@ Example:
 Check migration status:
 ```bash
 make migrate-status
+# Or directly in MySQL:
+# SELECT * FROM cleanapp.schema_migrations;
 ```
 
 ### Monitoring and Logging
@@ -371,9 +377,9 @@ curl -X POST http://localhost:8080/api/v3/customers \
   }'
 ```
 
-### Login
+### Login Examples
 ```bash
-# Email/Password login
+# Email/Password login (no provider field needed)
 curl -X POST http://localhost:8080/api/v3/login \
   -H "Content-Type: application/json" \
   -d '{
@@ -381,7 +387,7 @@ curl -X POST http://localhost:8080/api/v3/login \
     "password": "password123"
   }'
 
-# OAuth login (after OAuth flow with provider)
+# OAuth login (no email/password needed)
 curl -X POST http://localhost:8080/api/v3/login \
   -H "Content-Type: application/json" \
   -d '{
