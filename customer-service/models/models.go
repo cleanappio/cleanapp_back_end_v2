@@ -1,9 +1,6 @@
 package models
 
-import (
-	"encoding/json"
-	"time"
-)
+import "time"
 
 // Constants for subscription plans
 const (
@@ -44,31 +41,25 @@ type Subscription struct {
 	NextBillingDate time.Time `json:"next_billing_date"`
 }
 
-// PaymentMethod represents a customer's payment method stored in Stripe
+// PaymentMethod represents a customer's payment method
 type PaymentMethod struct {
-	ID                    int       `json:"id"`
-	CustomerID            string    `json:"customer_id"`
-	StripePaymentMethodID string    `json:"stripe_payment_method_id"`
-	Type                  string    `json:"type"` // card, bank_account, etc.
-	Brand                 string    `json:"brand,omitempty"` // visa, mastercard, etc.
-	LastFour              string    `json:"last_four,omitempty"`
-	ExpMonth              int       `json:"exp_month,omitempty"`
-	ExpYear               int       `json:"exp_year,omitempty"`
-	IsDefault             bool      `json:"is_default"`
-	CreatedAt             time.Time `json:"created_at"`
+	ID         int    `json:"id"`
+	CustomerID string `json:"customer_id"`
+	LastFour   string `json:"last_four"`
+	CardHolder string `json:"card_holder"`
+	Expiry     string `json:"expiry"`
+	IsDefault  bool   `json:"is_default"`
 }
 
 // BillingHistory represents a billing transaction
 type BillingHistory struct {
-	ID                   int       `json:"id"`
-	CustomerID           string    `json:"customer_id"`
-	SubscriptionID       int       `json:"subscription_id"`
-	StripePaymentIntentID string   `json:"stripe_payment_intent_id,omitempty"`
-	Amount               int64     `json:"amount"` // Amount in cents (Stripe format)
-	Currency             string    `json:"currency"`
-	Status               string    `json:"status"`
-	Description          string    `json:"description,omitempty"`
-	PaymentDate          time.Time `json:"payment_date"`
+	ID             int       `json:"id"`
+	CustomerID     string    `json:"customer_id"`
+	SubscriptionID int       `json:"subscription_id"`
+	Amount         float64   `json:"amount"`
+	Currency       string    `json:"currency"`
+	Status         string    `json:"status"`
+	PaymentDate    time.Time `json:"payment_date"`
 }
 
 // CreateCustomerRequest represents the request to create a new customer
@@ -88,9 +79,12 @@ type UpdateCustomerRequest struct {
 
 // CreateSubscriptionRequest represents the request to create a subscription
 type CreateSubscriptionRequest struct {
-	PlanType              string `json:"plan_type" binding:"required,oneof=base advanced exclusive"`
-	BillingCycle          string `json:"billing_cycle" binding:"required,oneof=monthly annual"`
-	StripePaymentMethodID string `json:"stripe_payment_method_id" binding:"required"`
+	PlanType     string `json:"plan_type" binding:"required,oneof=base advanced exclusive"`
+	BillingCycle string `json:"billing_cycle" binding:"required,oneof=monthly annual"`
+	CardNumber   string `json:"card_number" binding:"required"`
+	CardHolder   string `json:"card_holder" binding:"required"`
+	Expiry       string `json:"expiry" binding:"required"`
+	CVV          string `json:"cvv" binding:"required,len=3"`
 }
 
 // UpdateSubscriptionRequest represents the request to update a subscription
@@ -122,23 +116,4 @@ type MessageResponse struct {
 // ErrorResponse represents an error response
 type ErrorResponse struct {
 	Error string `json:"error"`
-}
-
-// AddPaymentMethodRequest represents the request to add a payment method from Stripe
-type AddPaymentMethodRequest struct {
-	StripePaymentMethodID string `json:"stripe_payment_method_id" binding:"required"`
-	SetAsDefault          bool   `json:"set_as_default"`
-}
-
-// PaymentIntentResponse represents a Stripe payment intent creation response
-type PaymentIntentResponse struct {
-	ClientSecret string `json:"client_secret"`
-	Amount       int64  `json:"amount"`
-	Currency     string `json:"currency"`
-}
-
-// ProcessPaymentWebhookRequest represents a Stripe webhook event
-type ProcessPaymentWebhookRequest struct {
-	Type string          `json:"type"` // Event type from Stripe
-	Data json.RawMessage `json:"data"` // Event data from Stripe
 }
