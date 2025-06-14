@@ -26,7 +26,11 @@ build-linux:
 # Run the application
 run:
 	$(GOBUILD) -o $(BINARY_NAME) -v
-	./$(BINARY_NAME)
+	@if [ -f .env ]; then \
+		export $(cat .env | grep -v '^\#' | xargs) && ./$(BINARY_NAME); \
+	else \
+		./$(BINARY_NAME); \
+	fi
 
 # Clean build artifacts
 clean:
@@ -64,10 +68,9 @@ security:
 	gosec ./...
 
 # Docker commands
-# docker build -t $(DOCKER_IMAGE):$(VERSION) .
-# docker tag $(DOCKER_IMAGE):$(VERSION) $(DOCKER_IMAGE):latest
 docker-build:
-	./build_image.sh
+	docker build -t $(DOCKER_IMAGE):$(VERSION) .
+	docker tag $(DOCKER_IMAGE):$(VERSION) $(DOCKER_IMAGE):latest
 
 docker-run:
 	docker run -d \

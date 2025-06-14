@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"log"
 	"os"
+	"strings"
 )
 
 type Config struct {
@@ -19,7 +20,8 @@ type Config struct {
 	JWTSecret     string
 
 	// Server
-	Port string
+	Port           string
+	TrustedProxies []string
 }
 
 func Load() *Config {
@@ -32,8 +34,6 @@ func Load() *Config {
 		Port:       getEnv("PORT", "8080"),
 	}
 
-	log.Println("Loading configuration:", cfg)
-
 	// Handle encryption key
 	encryptionKey := os.Getenv("ENCRYPTION_KEY")
 	if encryptionKey == "" {
@@ -44,6 +44,22 @@ func Load() *Config {
 		log.Printf("WARNING: Generated temporary encryption key. Set ENCRYPTION_KEY environment variable for production.")
 	}
 	cfg.EncryptionKey = encryptionKey
+
+	// Handle trusted proxies
+	trustedProxies := os.Getenv("TRUSTED_PROXIES")
+	if trustedProxies == "" {
+		// Default to localhost only
+		cfg.TrustedProxies = []string{"127.0.0.1", "::1"}
+	} else {
+		// Split comma-separated values and trim spaces
+		proxies := strings.Split(trustedProxies, ",")
+		cfg.TrustedProxies = make([]string, 0, len(proxies))
+		for _, proxy := range proxies {
+			if trimmed := strings.TrimSpace(proxy); trimmed != "" {
+				cfg.TrustedProxies = append(cfg.TrustedProxies, trimmed)
+			}
+		}
+	}
 
 	return cfg
 }

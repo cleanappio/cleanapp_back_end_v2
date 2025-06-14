@@ -40,7 +40,7 @@ func main() {
 	service := database.NewCustomerService(db, encryptor, cfg.JWTSecret)
 
 	// Setup Gin router
-	router := setupRouter(service)
+	router := setupRouter(service, cfg)
 
 	// Start server
 	log.Printf("Server starting on port %s", cfg.Port)
@@ -66,8 +66,11 @@ func setupDatabase(cfg *config.Config) (*sql.DB, error) {
 	return db, nil
 }
 
-func setupRouter(service *database.CustomerService) *gin.Engine {
+func setupRouter(service *database.CustomerService, cfg *config.Config) *gin.Engine {
 	router := gin.Default()
+
+	// Set trusted proxies from config
+	router.SetTrustedProxies(cfg.TrustedProxies)
 
 	// Apply global middleware
 	router.Use(middleware.CORSMiddleware())
