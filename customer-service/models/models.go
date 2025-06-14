@@ -26,7 +26,7 @@ type LoginMethod struct {
 	ID         int       `json:"id"`
 	CustomerID string    `json:"customer_id"`
 	MethodType string    `json:"method_type"`
-	MethodID   string    `json:"method_id,omitempty"`
+	OAuthID    string    `json:"oauth_id,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
 }
 
@@ -98,7 +98,7 @@ type LoginRequest struct {
 	Email    string `json:"email" binding:"required_without=Provider"`
 	Password string `json:"password" binding:"required_without=Provider"`
 	Provider string `json:"provider" binding:"required_without=Email,oneof=google apple facebook"`
-	Token    string `json:"token" binding:"required_with=Provider"`
+	Token    string `json:"token" binding:"required_with=Provider"` // OAuth ID from provider
 }
 
 // TokenResponse represents the authentication response

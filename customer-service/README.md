@@ -22,6 +22,12 @@ The service separates customer creation from subscription management:
 2. **Subscription Creation**: Customer can then add a subscription with payment information
 3. **Subscription Management**: Customers can update, cancel, or view their subscriptions
 
+### Authentication Design
+
+- **Email Login**: Email stored encrypted in customers table, password hash in login_methods
+- **OAuth Login**: OAuth provider ID stored in login_methods, linked to customer
+- **No Redundancy**: Email is stored only once (in customers table), not duplicated in login_methods
+
 This separation allows for:
 - Free trial periods
 - Customer accounts without active subscriptions
@@ -31,8 +37,11 @@ This separation allows for:
 ### Database Schema
 
 The service uses MySQL with the following tables:
-- `customers`: Core customer information
-- `login_methods`: Multiple authentication methods per customer
+- `customers`: Core customer information with encrypted email
+- `login_methods`: Authentication methods (one per type per customer)
+  - Email login uses password_hash
+  - OAuth login uses oauth_id from provider
+  - No redundant email storage (uses customers table)
 - `customer_areas`: Many-to-many relationship for service areas
 - `subscriptions`: Subscription plans and billing cycles
 - `payment_methods`: Encrypted credit card information
@@ -46,6 +55,7 @@ The service uses MySQL with the following tables:
 3. **JWT Tokens**: Secure bearer token authentication
 4. **HTTPS**: Enforced for all sensitive data transmission
 5. **Business Logic Separation**: Customer accounts are independent from subscriptions
+6. **Optimized Schema**: No redundant data storage (emails stored once)
 
 ## Project Structure
 
@@ -157,7 +167,7 @@ OR for OAuth:
 ```json
 {
   "provider": "google",
-  "token": "oauth-token-from-provider"
+  "token": "oauth-user-id-from-provider"
 }
 ```
 
@@ -243,7 +253,10 @@ Authorization: Bearer <token>
    - Restrict database access
    - Regular backups
 
-5. **OAuth Integration**: Properly validate tokens with OAuth providers
+5. **OAuth Integration**: 
+   - Properly validate tokens with OAuth providers
+   - Store OAuth provider IDs in oauth_id field
+   - Each customer can link one account per OAuth provider
 
 ## Subscription Plans
 
@@ -330,11 +343,20 @@ curl -X POST http://localhost:8080/api/v3/customers \
 
 ### Login
 ```bash
+# Email/Password login
 curl -X POST http://localhost:8080/api/v3/login \
   -H "Content-Type: application/json" \
   -d '{
     "email": "test@example.com",
     "password": "password123"
+  }'
+
+# OAuth login (after OAuth flow with provider)
+curl -X POST http://localhost:8080/api/v3/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "provider": "google",
+    "token": "google-user-id-123456"
   }'
 ```
 
@@ -408,6 +430,7 @@ curl -X POST http://localhost:8080/api/v3/payment-methods \
 
 ## Future Enhancements
 
+- [ ] Implement OAuth customer registration
 - [ ] Add free trial period support
 - [ ] Implement subscription pause/resume
 - [ ] Add webhook support for payment processing

@@ -253,7 +253,7 @@ type LoginMethod struct {
 	ID         int       `json:"id"`
 	CustomerID string    `json:"customer_id"`
 	MethodType string    `json:"method_type"`
-	MethodID   string    `json:"method_id,omitempty"`
+	OAuthID    string    `json:"oauth_id,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
 }
 
@@ -325,7 +325,7 @@ type LoginRequest struct {
 	Email    string `json:"email" binding:"required_without=Provider"`
 	Password string `json:"password" binding:"required_without=Provider"`
 	Provider string `json:"provider" binding:"required_without=Email,oneof=google apple facebook"`
-	Token    string `json:"token" binding:"required_with=Provider"`
+	Token    string `json:"token" binding:"required_with=Provider"` // OAuth ID from provider
 }
 
 // TokenResponse represents the authentication response
@@ -368,11 +368,12 @@ CREATE TABLE IF NOT EXISTS login_methods (
     id INT AUTO_INCREMENT PRIMARY KEY,
     customer_id VARCHAR(256) NOT NULL,
     method_type ENUM('email', 'google', 'apple', 'facebook') NOT NULL,
-    method_id VARCHAR(256),
     password_hash VARCHAR(256),
+    oauth_id VARCHAR(256),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
-    UNIQUE KEY unique_method (method_type, method_id)
+    UNIQUE KEY unique_customer_method (customer_id, method_type),
+    INDEX idx_oauth (method_type, oauth_id)
 );
 
 CREATE TABLE IF NOT EXISTS customer_areas (
@@ -505,7 +506,7 @@ func (s *CustomerService) CreateCustomer(ctx context.Context, req models.CreateC
 	}
 
 	// Insert login method
-	if err := s.insertLoginMethod(ctx, tx, id, "email", req.Email, string(passwordHash)); err != nil {
+	if err := s.insertLoginMethod(ctx, tx, id, "email", string(passwordHash)); err != nil {
 		return nil, err
 	}
 
@@ -801,10 +802,17 @@ func (s *CustomerService) insertCustomer(ctx context.Context, tx *sql.Tx, id, na
 	return err
 }
 
-func (s *CustomerService) insertLoginMethod(ctx context.Context, tx *sql.Tx, customerID, methodType, methodID, passwordHash string) error {
+func (s *CustomerService) insertLoginMethod(ctx context.Context, tx *sql.Tx, customerID, methodType, passwordHash string) error {
 	_, err := tx.ExecContext(ctx,
-		"INSERT INTO login_methods (customer_id, method_type, method_id, password_hash) VALUES (?, ?, ?, ?)",
-		customerID, methodType, methodID, passwordHash)
+		"INSERT INTO login_methods (customer_id, method_type, password_hash) VALUES (?, ?, ?)",
+		customerID, methodType, passwordHash)
+	return err
+}
+
+func (s *CustomerService) insertOAuthLoginMethod(ctx context.Context, tx *sql.Tx, customerID, methodType, oauthID string) error {
+	_, err := tx.ExecContext(ctx,
+		"INSERT INTO login_methods (customer_id, method_type, oauth_id) VALUES (?, ?, ?)",
+		customerID, methodType, oauthID)
 	return err
 }
 
@@ -905,14 +913,6 @@ func (s *CustomerService) updateCustomerEmail(ctx context.Context, tx *sql.Tx, c
 	_, err = tx.ExecContext(ctx,
 		"UPDATE customers SET email_encrypted = ? WHERE id = ?",
 		emailEncrypted, customerID)
-	if err != nil {
-		return err
-	}
-
-	// Update login method
-	_, err = tx.ExecContext(ctx,
-		"UPDATE login_methods SET method_id = ? WHERE customer_id = ? AND method_type = 'email'",
-		email, customerID)
 	return err
 }
 
@@ -932,10 +932,42 @@ func (s *CustomerService) updateCustomerAreas(ctx context.Context, tx *sql.Tx, c
 func (s *CustomerService) authenticateWithPassword(ctx context.Context, email, password string) (string, error) {
 	var customerID string
 	var passwordHash string
+	var emailEncrypted string
 
-	err := s.db.QueryRowContext(ctx,
-		"SELECT customer_id, password_hash FROM login_methods WHERE method_type = 'email' AND method_id = ?",
-		email).Scan(&customerID, &passwordHash)
+	// First, find the customer by decrypting emails
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT id, email_encrypted FROM customers")
+	if err != nil {
+		return "", errors.New("authentication failed")
+	}
+	defer rows.Close()
+
+	var foundCustomerID string
+	for rows.Next() {
+		var id, encEmail string
+		if err := rows.Scan(&id, &encEmail); err != nil {
+			continue
+		}
+		
+		decryptedEmail, err := s.encryptor.Decrypt(encEmail)
+		if err != nil {
+			continue
+		}
+		
+		if decryptedEmail == email {
+			foundCustomerID = id
+			break
+		}
+	}
+
+	if foundCustomerID == "" {
+		return "", errors.New("invalid credentials")
+	}
+
+	// Now get the password hash for this customer
+	err = s.db.QueryRowContext(ctx,
+		"SELECT customer_id, password_hash FROM login_methods WHERE customer_id = ? AND method_type = 'email'",
+		foundCustomerID).Scan(&customerID, &passwordHash)
 	if err != nil {
 		return "", errors.New("invalid credentials")
 	}
@@ -949,10 +981,11 @@ func (s *CustomerService) authenticateWithPassword(ctx context.Context, email, p
 
 func (s *CustomerService) authenticateWithOAuth(ctx context.Context, provider, token string) (string, error) {
 	// In production, validate token with respective OAuth provider
+	// and get the OAuth ID from the provider
 	// This is a simplified implementation
 	var customerID string
 	err := s.db.QueryRowContext(ctx,
-		"SELECT customer_id FROM login_methods WHERE method_type = ? AND method_id = ?",
+		"SELECT customer_id FROM login_methods WHERE method_type = ? AND oauth_id = ?",
 		provider, token).Scan(&customerID)
 	if err != nil {
 		return "", errors.New("invalid oauth token")
@@ -996,6 +1029,16 @@ func (s *CustomerService) verifyTokenInDB(customerID, tokenString string) error 
 	}
 	return nil
 }
+
+// CreateOAuthCustomer creates a customer with OAuth provider
+// TODO: Implement this method for OAuth registration
+func (s *CustomerService) CreateOAuthCustomer(ctx context.Context, name, email, provider, oauthID string, areaIDs []int) (*models.Customer, error) {
+	// This would:
+	// 1. Create customer with encrypted email
+	// 2. Create login_method with oauth_id
+	// 3. No password needed
+	return nil, errors.New("oauth registration not implemented")
+}
 EOF
 
 # Create handlers/handlers.go
@@ -1004,7 +1047,6 @@ cat > handlers/handlers.go << 'EOF'
 package handlers
 
 import (
-	"context"
 	"net/http"
 
 	"customer-service/database"
@@ -2011,6 +2053,7 @@ services:
       JWT_SECRET: "your-super-secret-jwt-key-replace-in-production"
       PORT: 8080
       TRUSTED_PROXIES: "127.0.0.1,::1"
+      # OAuth providers would be configured here in production
     depends_on:
       mysql:
         condition: service_healthy
@@ -2043,7 +2086,8 @@ PORT=8080
 # For no proxy: leave empty
 TRUSTED_PROXIES=127.0.0.1,::1
 
-# OAuth Provider Keys (when implementing OAuth)
+# OAuth Provider Keys
+# For OAuth login, validate with provider and store the user ID in oauth_id field
 # GOOGLE_CLIENT_ID=your_google_client_id
 # GOOGLE_CLIENT_SECRET=your_google_client_secret
 # APPLE_CLIENT_ID=your_apple_client_id
@@ -2375,6 +2419,12 @@ The service separates customer creation from subscription management:
 2. **Subscription Creation**: Customer can then add a subscription with payment information
 3. **Subscription Management**: Customers can update, cancel, or view their subscriptions
 
+### Authentication Design
+
+- **Email Login**: Email stored encrypted in customers table, password hash in login_methods
+- **OAuth Login**: OAuth provider ID stored in login_methods, linked to customer
+- **No Redundancy**: Email is stored only once (in customers table), not duplicated in login_methods
+
 This separation allows for:
 - Free trial periods
 - Customer accounts without active subscriptions
@@ -2384,8 +2434,11 @@ This separation allows for:
 ### Database Schema
 
 The service uses MySQL with the following tables:
-- `customers`: Core customer information
-- `login_methods`: Multiple authentication methods per customer
+- `customers`: Core customer information with encrypted email
+- `login_methods`: Authentication methods (one per type per customer)
+  - Email login uses password_hash
+  - OAuth login uses oauth_id from provider
+  - No redundant email storage (uses customers table)
 - `customer_areas`: Many-to-many relationship for service areas
 - `subscriptions`: Subscription plans and billing cycles
 - `payment_methods`: Encrypted credit card information
@@ -2399,6 +2452,7 @@ The service uses MySQL with the following tables:
 3. **JWT Tokens**: Secure bearer token authentication
 4. **HTTPS**: Enforced for all sensitive data transmission
 5. **Business Logic Separation**: Customer accounts are independent from subscriptions
+6. **Optimized Schema**: No redundant data storage (emails stored once)
 
 ## Project Structure
 
@@ -2510,7 +2564,7 @@ OR for OAuth:
 ```json
 {
   "provider": "google",
-  "token": "oauth-token-from-provider"
+  "token": "oauth-user-id-from-provider"
 }
 ```
 
@@ -2596,7 +2650,10 @@ Authorization: Bearer <token>
    - Restrict database access
    - Regular backups
 
-5. **OAuth Integration**: Properly validate tokens with OAuth providers
+5. **OAuth Integration**: 
+   - Properly validate tokens with OAuth providers
+   - Store OAuth provider IDs in oauth_id field
+   - Each customer can link one account per OAuth provider
 
 ## Subscription Plans
 
@@ -2683,11 +2740,20 @@ curl -X POST http://localhost:8080/api/v3/customers \
 
 ### Login
 ```bash
+# Email/Password login
 curl -X POST http://localhost:8080/api/v3/login \
   -H "Content-Type: application/json" \
   -d '{
     "email": "test@example.com",
     "password": "password123"
+  }'
+
+# OAuth login (after OAuth flow with provider)
+curl -X POST http://localhost:8080/api/v3/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "provider": "google",
+    "token": "google-user-id-123456"
   }'
 ```
 
@@ -2761,6 +2827,7 @@ curl -X POST http://localhost:8080/api/v3/payment-methods \
 
 ## Future Enhancements
 
+- [ ] Implement OAuth customer registration
 - [ ] Add free trial period support
 - [ ] Implement subscription pause/resume
 - [ ] Add webhook support for payment processing
@@ -2809,7 +2876,8 @@ echo "📄 Created 23 files with:"
 echo "   - API version v3"
 echo "   - Separated customer and subscription creation"
 echo "   - Fixed encryption type errors"
-echo "   - Removed unused imports"
+echo "   - Removed all unused imports"
+echo "   - Optimized database schema (no redundant fields)"
 echo "   - Configured trusted proxies from env"
 echo "   - Fixed Makefile .env loading"
 echo ""
@@ -2817,6 +2885,7 @@ echo "💡 Key Business Logic:"
 echo "   - Customers can exist without subscriptions"
 echo "   - Only one active subscription per customer"
 echo "   - Payment required only when creating subscription"
+echo "   - No redundant data storage in database"
 echo ""
 echo "🚀 Next steps:"
 echo "   1. cd customer-service"

@@ -19,11 +19,12 @@ CREATE TABLE IF NOT EXISTS login_methods (
     id INT AUTO_INCREMENT PRIMARY KEY,
     customer_id VARCHAR(256) NOT NULL,
     method_type ENUM('email', 'google', 'apple', 'facebook') NOT NULL,
-    method_id VARCHAR(256),
     password_hash VARCHAR(256),
+    oauth_id VARCHAR(256),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
-    UNIQUE KEY unique_method (method_type, method_id)
+    UNIQUE KEY unique_customer_method (customer_id, method_type),
+    INDEX idx_oauth (method_type, oauth_id)
 );
 
 CREATE TABLE IF NOT EXISTS customer_areas (

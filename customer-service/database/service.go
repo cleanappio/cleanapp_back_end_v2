@@ -62,7 +62,7 @@ func (s *CustomerService) CreateCustomer(ctx context.Context, req models.CreateC
 	}
 
 	// Insert login method
-	if err := s.insertLoginMethod(ctx, tx, id, "email", req.Email, string(passwordHash)); err != nil {
+	if err := s.insertLoginMethod(ctx, tx, id, "email", string(passwordHash)); err != nil {
 		return nil, err
 	}
 
@@ -358,10 +358,17 @@ func (s *CustomerService) insertCustomer(ctx context.Context, tx *sql.Tx, id, na
 	return err
 }
 
-func (s *CustomerService) insertLoginMethod(ctx context.Context, tx *sql.Tx, customerID, methodType, methodID, passwordHash string) error {
+func (s *CustomerService) insertLoginMethod(ctx context.Context, tx *sql.Tx, customerID, methodType, passwordHash string) error {
 	_, err := tx.ExecContext(ctx,
-		"INSERT INTO login_methods (customer_id, method_type, method_id, password_hash) VALUES (?, ?, ?, ?)",
-		customerID, methodType, methodID, passwordHash)
+		"INSERT INTO login_methods (customer_id, method_type, password_hash) VALUES (?, ?, ?)",
+		customerID, methodType, passwordHash)
+	return err
+}
+
+func (s *CustomerService) insertOAuthLoginMethod(ctx context.Context, tx *sql.Tx, customerID, methodType, oauthID string) error {
+	_, err := tx.ExecContext(ctx,
+		"INSERT INTO login_methods (customer_id, method_type, oauth_id) VALUES (?, ?, ?)",
+		customerID, methodType, oauthID)
 	return err
 }
 
@@ -462,14 +469,6 @@ func (s *CustomerService) updateCustomerEmail(ctx context.Context, tx *sql.Tx, c
 	_, err = tx.ExecContext(ctx,
 		"UPDATE customers SET email_encrypted = ? WHERE id = ?",
 		emailEncrypted, customerID)
-	if err != nil {
-		return err
-	}
-
-	// Update login method
-	_, err = tx.ExecContext(ctx,
-		"UPDATE login_methods SET method_id = ? WHERE customer_id = ? AND method_type = 'email'",
-		email, customerID)
 	return err
 }
 
@@ -489,10 +488,42 @@ func (s *CustomerService) updateCustomerAreas(ctx context.Context, tx *sql.Tx, c
 func (s *CustomerService) authenticateWithPassword(ctx context.Context, email, password string) (string, error) {
 	var customerID string
 	var passwordHash string
+	var emailEncrypted string
 
-	err := s.db.QueryRowContext(ctx,
-		"SELECT customer_id, password_hash FROM login_methods WHERE method_type = 'email' AND method_id = ?",
-		email).Scan(&customerID, &passwordHash)
+	// First, find the customer by decrypting emails
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT id, email_encrypted FROM customers")
+	if err != nil {
+		return "", errors.New("authentication failed")
+	}
+	defer rows.Close()
+
+	var foundCustomerID string
+	for rows.Next() {
+		var id, encEmail string
+		if err := rows.Scan(&id, &encEmail); err != nil {
+			continue
+		}
+		
+		decryptedEmail, err := s.encryptor.Decrypt(encEmail)
+		if err != nil {
+			continue
+		}
+		
+		if decryptedEmail == email {
+			foundCustomerID = id
+			break
+		}
+	}
+
+	if foundCustomerID == "" {
+		return "", errors.New("invalid credentials")
+	}
+
+	// Now get the password hash for this customer
+	err = s.db.QueryRowContext(ctx,
+		"SELECT customer_id, password_hash FROM login_methods WHERE customer_id = ? AND method_type = 'email'",
+		foundCustomerID).Scan(&customerID, &passwordHash)
 	if err != nil {
 		return "", errors.New("invalid credentials")
 	}
@@ -506,10 +537,11 @@ func (s *CustomerService) authenticateWithPassword(ctx context.Context, email, p
 
 func (s *CustomerService) authenticateWithOAuth(ctx context.Context, provider, token string) (string, error) {
 	// In production, validate token with respective OAuth provider
+	// and get the OAuth ID from the provider
 	// This is a simplified implementation
 	var customerID string
 	err := s.db.QueryRowContext(ctx,
-		"SELECT customer_id FROM login_methods WHERE method_type = ? AND method_id = ?",
+		"SELECT customer_id FROM login_methods WHERE method_type = ? AND oauth_id = ?",
 		provider, token).Scan(&customerID)
 	if err != nil {
 		return "", errors.New("invalid oauth token")
@@ -552,4 +584,14 @@ func (s *CustomerService) verifyTokenInDB(customerID, tokenString string) error 
 		return errors.New("token not found or expired")
 	}
 	return nil
+}
+
+// CreateOAuthCustomer creates a customer with OAuth provider
+// TODO: Implement this method for OAuth registration
+func (s *CustomerService) CreateOAuthCustomer(ctx context.Context, name, email, provider, oauthID string, areaIDs []int) (*models.Customer, error) {
+	// This would:
+	// 1. Create customer with encrypted email
+	// 2. Create login_method with oauth_id
+	// 3. No password needed
+	return nil, errors.New("oauth registration not implemented")
 }

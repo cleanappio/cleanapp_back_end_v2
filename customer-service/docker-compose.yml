@@ -34,6 +34,7 @@ services:
       JWT_SECRET: "your-super-secret-jwt-key-replace-in-production"
       PORT: 8080
       TRUSTED_PROXIES: "127.0.0.1,::1"
+      # OAuth providers would be configured here in production
     depends_on:
       mysql:
         condition: service_healthy
