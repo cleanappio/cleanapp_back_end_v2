@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/cleanapp/customer-service/database"
+	"customer-service/database"
 	"github.com/gin-gonic/gin"
 )
 

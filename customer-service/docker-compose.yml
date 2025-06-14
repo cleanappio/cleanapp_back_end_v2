@@ -21,7 +21,7 @@ services:
 
   app:
     build: .
-    container_name: cleanapp_service
+    container_name: customer_service
     restart: always
     ports:
       - "8080:8080"

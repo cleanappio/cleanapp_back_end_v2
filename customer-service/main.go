@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/cleanapp/customer-service/config"
-	"github.com/cleanapp/customer-service/database"
-	"github.com/cleanapp/customer-service/handlers"
-	"github.com/cleanapp/customer-service/middleware"
-	"github.com/cleanapp/customer-service/utils/encryption"
+	"customer-service/config"
+	"customer-service/database"
+	"customer-service/handlers"
+	"customer-service/middleware"
+	"customer-service/utils/encryption"
 	"github.com/gin-gonic/gin"
 	_ "github.com/go-sql-driver/mysql"
 )

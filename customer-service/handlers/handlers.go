@@ -3,8 +3,8 @@ package handlers
 import (
 	"net/http"
 
-	"github.com/cleanapp/customer-service/database"
-	"github.com/cleanapp/customer-service/models"
+	"customer-service/database"
+	"customer-service/models"
 	"github.com/gin-gonic/gin"
 )
 
@@ -113,6 +113,6 @@ func (h *Handlers) Login(c *gin.Context) {
 func (h *Handlers) HealthCheck(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"status":  "healthy",
-		"service": "cleanapp-customer-service",
+		"service": "customer-service",
 	})
 }

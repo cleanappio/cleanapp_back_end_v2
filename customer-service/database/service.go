@@ -6,9 +6,9 @@ import (
 	"errors"
 	"time"
 
-	"github.com/cleanapp/customer-service/models"
-	"github.com/cleanapp/customer-service/utils"
-	"github.com/cleanapp/customer-service/utils/encryption"
+	"customer-service/models"
+	"customer-service/utils"
+	"customer-service/utils/encryption"
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 )

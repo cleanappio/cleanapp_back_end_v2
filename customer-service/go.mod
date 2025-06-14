@@ -1,4 +1,4 @@
-module github.com/cleanapp/customer-service
+module customer-service
 
 go 1.21
 

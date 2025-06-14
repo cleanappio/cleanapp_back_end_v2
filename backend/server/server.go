@@ -52,28 +52,28 @@ func StartService() {
 	}))
 
 	router.GET(EndPointHelp, Help)
-	router.POST(EndPointUser, CreateOrUpdateUser)
-	router.POST(EndPointPrivacyAndTOC, UpdatePrivacyAndTOC)
-	router.POST(EndPointReport, Report)
-	router.POST(EndPointReadReport, ReadReport)
-	router.POST(EndPointGetMap, GetMap)
-	router.POST(EndPointGetStats, GetStats)
-	router.POST(EndPointGetTeams, GetTeams)
-	router.POST(EndPointGetTopScores, GetTopScores)
-	router.POST(EndPointReadReferral, ReadReferral)
-	router.POST(EndPointWriteReferral, WriteReferral)
-	router.POST(EndPointGenerateReferral, GenerateReferral)
-	router.POST(EndPointGetBlockChainLink, GetBlockchainLink)
-	router.POST(EndPointCreateAction, CreateAction)
-	router.POST(EndPointUpdateAction, UpdateAction)
-	router.POST(EndPointDeleteAction, DeleteAction)
-	router.GET(EndPointGetActions, GetActions)
-	router.GET(EndPointGetAction, GetAction)
-	router.POST(EndPointUpdateUserAction, UpdateUserAction)
-	router.POST(EndPointCreateOrUpdateArea, CreateOrUpdateArea)
-	router.GET(EndPointGetAreas, GetAreas)
-	router.POST(EndPointUpdateConsent, UpdateConsent)
-	router.GET(EndPointGetAreasCount, GetAreasCount)
+	router.POST(EndPointUser, CreateOrUpdateUser) // +
+	router.POST(EndPointPrivacyAndTOC, UpdatePrivacyAndTOC) // +
+	router.POST(EndPointReport, Report)  // +
+	router.POST(EndPointReadReport, ReadReport) // +
+	router.POST(EndPointGetMap, GetMap) // +
+	router.POST(EndPointGetStats, GetStats) // +
+	router.POST(EndPointGetTeams, GetTeams) // +
+	router.POST(EndPointGetTopScores, GetTopScores) // +
+	router.POST(EndPointReadReferral, ReadReferral) // get -> post
+	router.POST(EndPointWriteReferral, WriteReferral) // Missing
+	router.POST(EndPointGenerateReferral, GenerateReferral) // +
+	router.POST(EndPointGetBlockChainLink, GetBlockchainLink) // +
+	router.POST(EndPointCreateAction, CreateAction)  // Missing
+	router.POST(EndPointUpdateAction, UpdateAction) // modifyAction
+	router.POST(EndPointDeleteAction, DeleteAction) // Missing
+	router.GET(EndPointGetActions, GetActions) // post -> get
+	router.GET(EndPointGetAction, GetAction) // Missing
+	router.POST(EndPointUpdateUserAction, UpdateUserAction) // userAction?
+	router.POST(EndPointCreateOrUpdateArea, CreateOrUpdateArea) // +
+	router.GET(EndPointGetAreas, GetAreas) // +
+	router.POST(EndPointUpdateConsent, UpdateConsent) // +
+	router.GET(EndPointGetAreasCount, GetAreasCount) // +
 
 	router.Run(fmt.Sprintf(":%d", *serverPort))
 	log.Info("Finished the service. Should not ever being seen.")

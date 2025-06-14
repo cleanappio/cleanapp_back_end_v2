@@ -3,7 +3,7 @@ package handlers
 import (
 	"net/http"
 
-	"github.com/cleanapp/customer-service/models"
+	"customer-service/models"
 	"github.com/gin-gonic/gin"
 )
 

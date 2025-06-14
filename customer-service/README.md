@@ -1,4 +1,4 @@
-# CleanApp Customer Microservice
+# Customer Service
 
 A secure Go microservice for managing CleanApp platform customers with subscription management, authentication, and payment processing.
 
