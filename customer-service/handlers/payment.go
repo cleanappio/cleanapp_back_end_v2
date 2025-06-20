@@ -1,11 +1,15 @@
 package handlers
 
 import (
+	"log"
 	"net/http"
 	"strconv"
+	"encoding/json"
+	"io"
 
 	"customer-service/models"
 	"github.com/gin-gonic/gin"
+	"github.com/stripe/stripe-go/v76"
 )
 
 // GetPaymentMethods retrieves customer's payment methods
@@ -110,19 +114,120 @@ func (h *Handlers) DeletePaymentMethod(c *gin.Context) {
 
 // ProcessPayment processes a payment webhook from Stripe
 func (h *Handlers) ProcessPayment(c *gin.Context) {
-	// In production, you would:
-	// 1. Verify the webhook signature using the Stripe webhook secret
-	// 2. Parse the Stripe event
-	// 3. Handle different event types (payment_intent.succeeded, payment_intent.failed, etc.)
-	// 4. Update your database accordingly
-
-	var req models.StripeWebhookRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
+	// Read the request body
+	payload, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "failed to read request body"})
 		return
 	}
 
-	// TODO: Implement Stripe webhook handling
-	// For now, just acknowledge receipt
-	c.JSON(http.StatusOK, models.MessageResponse{Message: "webhook received"})
+	// Get the Stripe signature header
+	signatureHeader := c.GetHeader("Stripe-Signature")
+	if signatureHeader == "" {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "missing stripe signature"})
+		return
+	}
+
+	// Construct the event
+	event, err := h.stripeClient.ConstructWebhookEvent(payload, signatureHeader)
+	if err != nil {
+		log.Printf("Webhook signature verification failed: %v", err)
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "invalid signature"})
+		return
+	}
+
+	// Handle the event
+	switch event.Type {
+	case "payment_intent.succeeded":
+		var paymentIntent stripe.PaymentIntent
+		if err := json.Unmarshal(event.Data.Raw, &paymentIntent); err != nil {
+			log.Printf("Error parsing payment intent: %v", err)
+			c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "failed to parse event"})
+			return
+		}
+		
+		// Process successful payment
+		if err := h.service.ProcessSuccessfulPayment(c.Request.Context(), &paymentIntent); err != nil {
+			log.Printf("Error processing successful payment: %v", err)
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to process payment"})
+			return
+		}
+
+	case "payment_intent.payment_failed":
+		var paymentIntent stripe.PaymentIntent
+		if err := json.Unmarshal(event.Data.Raw, &paymentIntent); err != nil {
+			log.Printf("Error parsing payment intent: %v", err)
+			c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "failed to parse event"})
+			return
+		}
+		
+		// Process failed payment
+		if err := h.service.ProcessFailedPayment(c.Request.Context(), &paymentIntent); err != nil {
+			log.Printf("Error processing failed payment: %v", err)
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to process payment failure"})
+			return
+		}
+
+	case "invoice.payment_succeeded":
+		var invoice stripe.Invoice
+		if err := json.Unmarshal(event.Data.Raw, &invoice); err != nil {
+			log.Printf("Error parsing invoice: %v", err)
+			c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "failed to parse event"})
+			return
+		}
+		
+		// Process invoice payment
+		if err := h.service.ProcessInvoicePayment(c.Request.Context(), &invoice); err != nil {
+			log.Printf("Error processing invoice payment: %v", err)
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to process invoice"})
+			return
+		}
+
+	case "customer.subscription.created":
+		var subscription stripe.Subscription
+		if err := json.Unmarshal(event.Data.Raw, &subscription); err != nil {
+			log.Printf("Error parsing subscription: %v", err)
+			c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "failed to parse event"})
+			return
+		}
+		
+		// Handle subscription creation
+		log.Printf("Subscription created: %s", subscription.ID)
+
+	case "customer.subscription.updated":
+		var subscription stripe.Subscription
+		if err := json.Unmarshal(event.Data.Raw, &subscription); err != nil {
+			log.Printf("Error parsing subscription: %v", err)
+			c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "failed to parse event"})
+			return
+		}
+		
+		// Update subscription status
+		if err := h.service.UpdateSubscriptionStatus(c.Request.Context(), &subscription); err != nil {
+			log.Printf("Error updating subscription status: %v", err)
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to update subscription"})
+			return
+		}
+
+	case "customer.subscription.deleted":
+		var subscription stripe.Subscription
+		if err := json.Unmarshal(event.Data.Raw, &subscription); err != nil {
+			log.Printf("Error parsing subscription: %v", err)
+			c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "failed to parse event"})
+			return
+		}
+		
+		// Handle subscription deletion
+		if err := h.service.HandleSubscriptionDeletion(c.Request.Context(), &subscription); err != nil {
+			log.Printf("Error handling subscription deletion: %v", err)
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to handle deletion"})
+			return
+		}
+
+	default:
+		log.Printf("Unhandled webhook event type: %s", event.Type)
+	}
+
+	// Return 200 OK to acknowledge receipt of the event
+	c.JSON(http.StatusOK, models.MessageResponse{Message: "webhook processed"})
 }

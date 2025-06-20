@@ -8,19 +8,22 @@ import (
 
 	"customer-service/database"
 	"customer-service/models"
+	"customer-service/utils/stripe"
 
 	"github.com/gin-gonic/gin"
 )
 
 // Handlers contains all HTTP handlers
 type Handlers struct {
-	service *database.CustomerService
+	service      *database.CustomerService
+	stripeClient *stripe.Client // Add this field
 }
 
 // NewHandlers creates a new handlers instance
-func NewHandlers(service *database.CustomerService) *Handlers {
+func NewHandlers(service *database.CustomerService, stripeClient *stripe.Client) *Handlers {
 	return &Handlers{
-		service: service,
+		service:      service,
+		stripeClient: stripeClient,
 	}
 }
 

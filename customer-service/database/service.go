@@ -11,23 +11,27 @@ import (
 	"customer-service/models"
 	"customer-service/utils"
 	"customer-service/utils/encryption"
+	"customer-service/utils/stripe"
 	"github.com/golang-jwt/jwt/v5"
+	stripelib "github.com/stripe/stripe-go/v76"
 	"golang.org/x/crypto/bcrypt"
 )
 
 // CustomerService handles all customer-related database operations
 type CustomerService struct {
-	db        *sql.DB
-	encryptor *encryption.Encryptor
-	jwtSecret []byte
+	db           *sql.DB
+	encryptor    *encryption.Encryptor
+	jwtSecret    []byte
+	stripeClient *stripe.Client // Add this field
 }
 
 // NewCustomerService creates a new customer service instance
-func NewCustomerService(db *sql.DB, encryptor *encryption.Encryptor, jwtSecret string) *CustomerService {
+func NewCustomerService(db *sql.DB, encryptor *encryption.Encryptor, jwtSecret string, stripeClient *stripe.Client) *CustomerService {
 	return &CustomerService{
-		db:        db,
-		encryptor: encryptor,
-		jwtSecret: []byte(jwtSecret),
+		db:           db,
+		encryptor:    encryptor,
+		jwtSecret:    []byte(jwtSecret),
+		stripeClient: stripeClient,
 	}
 }
 
@@ -120,14 +124,37 @@ func (s *CustomerService) CreateSubscription(ctx context.Context, customerID str
 	}
 	defer tx.Rollback()
 
-	// Insert subscription (Stripe subscription would be created here in production)
-	subscriptionID, err := s.insertSubscriptionWithID(ctx, tx, customerID, req.PlanType, req.BillingCycle)
+	// Attach payment method to customer in Stripe
+	pm, err := s.stripeClient.AttachPaymentMethod(req.StripePaymentMethodID, stripeCustomerID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to attach payment method: %w", err)
+	}
+
+	// Set as default payment method
+	if err := s.stripeClient.SetDefaultPaymentMethod(stripeCustomerID, pm.ID); err != nil {
+		return nil, fmt.Errorf("failed to set default payment method: %w", err)
+	}
+
+	// Create subscription in Stripe
+	stripeSub, err := s.stripeClient.CreateSubscription(stripeCustomerID, req.PlanType, req.BillingCycle)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Stripe subscription: %w", err)
+	}
+
+	// Insert subscription in database
+	_, err = tx.ExecContext(ctx,
+		`INSERT INTO subscriptions (customer_id, plan_type, billing_cycle, status, 
+		 stripe_subscription_id, stripe_price_id, start_date, next_billing_date) 
+		 VALUES (?, ?, ?, ?, ?, ?, FROM_UNIXTIME(?), FROM_UNIXTIME(?))`,
+		customerID, req.PlanType, req.BillingCycle, stripeSub.Status,
+		stripeSub.ID, stripeSub.Items.Data[0].Price.ID,
+		stripeSub.CurrentPeriodStart, stripeSub.CurrentPeriodEnd)
 	if err != nil {
 		return nil, err
 	}
 
-	// Attach payment method to customer if not already attached
-	if err := s.attachStripePaymentMethod(ctx, tx, customerID, stripeCustomerID, req.StripePaymentMethodID); err != nil {
+	// Store payment method in database
+	if err := s.storePaymentMethodFromStripe(ctx, tx, customerID, stripeCustomerID, pm); err != nil {
 		return nil, err
 	}
 
@@ -137,22 +164,14 @@ func (s *CustomerService) CreateSubscription(ctx context.Context, customerID str
 	}
 
 	// Return subscription details
-	startDate := time.Now()
-	var nextBillingDate time.Time
-	if req.BillingCycle == models.BillingMonthly {
-		nextBillingDate = startDate.AddDate(0, 1, 0)
-	} else {
-		nextBillingDate = startDate.AddDate(1, 0, 0)
-	}
-
 	return &models.Subscription{
-		ID:              int(subscriptionID),
+		ID:              0, // Will be set by auto-increment
 		CustomerID:      customerID,
 		PlanType:        req.PlanType,
 		BillingCycle:    req.BillingCycle,
-		Status:          "active",
-		StartDate:       startDate,
-		NextBillingDate: nextBillingDate,
+		Status:          string(stripeSub.Status),
+		StartDate:       time.Unix(stripeSub.CurrentPeriodStart, 0),
+		NextBillingDate: time.Unix(stripeSub.CurrentPeriodEnd, 0),
 	}, nil
 }
 
@@ -188,55 +207,63 @@ func (s *CustomerService) GetSubscription(ctx context.Context, customerID string
 // UpdateSubscription updates an existing subscription
 func (s *CustomerService) UpdateSubscription(ctx context.Context, customerID string, req models.UpdateSubscriptionRequest) error {
 	// Get current subscription
-	currentSub, err := s.GetSubscription(ctx, customerID)
+	var stripeSubID string
+	err := s.db.QueryRowContext(ctx,
+		"SELECT stripe_subscription_id FROM subscriptions WHERE customer_id = ? AND status = 'active'",
+		customerID).Scan(&stripeSubID)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			return errors.New("no active subscription found")
+		}
 		return err
 	}
 
-	// Calculate new next billing date if billing cycle changed
-	var nextBillingDate time.Time
-	if req.BillingCycle != currentSub.BillingCycle {
-		if req.BillingCycle == models.BillingMonthly {
-			nextBillingDate = time.Now().AddDate(0, 1, 0)
-		} else {
-			nextBillingDate = time.Now().AddDate(1, 0, 0)
-		}
-	} else {
-		nextBillingDate = currentSub.NextBillingDate
+	// Update subscription in Stripe
+	stripeSub, err := s.stripeClient.UpdateSubscription(stripeSubID, req.PlanType, req.BillingCycle)
+	if err != nil {
+		return fmt.Errorf("failed to update Stripe subscription: %w", err)
 	}
 
-	// Update subscription
+	// Update subscription in database
 	_, err = s.db.ExecContext(ctx,
 		`UPDATE subscriptions 
-		 SET plan_type = ?, billing_cycle = ?, next_billing_date = ?, updated_at = NOW() 
+		 SET plan_type = ?, billing_cycle = ?, next_billing_date = FROM_UNIXTIME(?), 
+		     stripe_price_id = ?, updated_at = NOW() 
 		 WHERE customer_id = ? AND status = 'active'`,
-		req.PlanType, req.BillingCycle, nextBillingDate, customerID)
+		req.PlanType, req.BillingCycle, stripeSub.CurrentPeriodEnd,
+		stripeSub.Items.Data[0].Price.ID, customerID)
 	
 	return err
 }
 
 // CancelSubscription cancels the customer's active subscription
 func (s *CustomerService) CancelSubscription(ctx context.Context, customerID string) error {
-	result, err := s.db.ExecContext(ctx,
+	// Get subscription
+	var stripeSubID string
+	err := s.db.QueryRowContext(ctx,
+		"SELECT stripe_subscription_id FROM subscriptions WHERE customer_id = ? AND status = 'active'",
+		customerID).Scan(&stripeSubID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return errors.New("no active subscription found")
+		}
+		return err
+	}
+
+	// Cancel subscription in Stripe
+	stripeSub, err := s.stripeClient.CancelSubscription(stripeSubID)
+	if err != nil {
+		return fmt.Errorf("failed to cancel Stripe subscription: %w", err)
+	}
+
+	// Update subscription in database
+	_, err = s.db.ExecContext(ctx,
 		`UPDATE subscriptions 
-		 SET status = 'cancelled', updated_at = NOW() 
+		 SET status = ?, updated_at = NOW() 
 		 WHERE customer_id = ? AND status = 'active'`,
-		customerID)
+		stripeSub.Status, customerID)
 	
-	if err != nil {
-		return err
-	}
-	
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	
-	if rowsAffected == 0 {
-		return errors.New("no active subscription found")
-	}
-	
-	return nil
+	return err
 }
 
 // UpdateCustomer updates customer information
@@ -358,20 +385,17 @@ func (s *CustomerService) AddPaymentMethod(ctx context.Context, customerID strin
 		return err
 	}
 
-	// In production, you would:
-	// 1. Attach the payment method to the Stripe customer
-	// 2. Retrieve payment method details from Stripe
-	// For now, we'll simulate with placeholder data
-	paymentMethodDetails := &models.PaymentMethod{
-		CustomerID:            customerID,
-		StripePaymentMethodID: stripePaymentMethodID,
-		StripeCustomerID:      stripeCustomerID,
-		LastFour:              "4242", // Would come from Stripe
-		Brand:                 "visa", // Would come from Stripe
-		ExpMonth:              12,     // Would come from Stripe
-		ExpYear:               2025,   // Would come from Stripe
-		CardholderName:        "",     // Would come from Stripe
-		IsDefault:             isDefault,
+	// Attach payment method to Stripe customer
+	pm, err := s.stripeClient.AttachPaymentMethod(stripePaymentMethodID, stripeCustomerID)
+	if err != nil {
+		return fmt.Errorf("failed to attach payment method: %w", err)
+	}
+
+	// Set as default if requested
+	if isDefault {
+		if err := s.stripeClient.SetDefaultPaymentMethod(stripeCustomerID, pm.ID); err != nil {
+			return fmt.Errorf("failed to set default payment method: %w", err)
+		}
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -390,22 +414,8 @@ func (s *CustomerService) AddPaymentMethod(ctx context.Context, customerID strin
 		}
 	}
 
-	// Insert new payment method
-	_, err = tx.ExecContext(ctx,
-		`INSERT INTO payment_methods 
-		(customer_id, stripe_payment_method_id, stripe_customer_id, last_four, brand, exp_month, exp_year, cardholder_name, is_default) 
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		paymentMethodDetails.CustomerID,
-		paymentMethodDetails.StripePaymentMethodID,
-		paymentMethodDetails.StripeCustomerID,
-		paymentMethodDetails.LastFour,
-		paymentMethodDetails.Brand,
-		paymentMethodDetails.ExpMonth,
-		paymentMethodDetails.ExpYear,
-		paymentMethodDetails.CardholderName,
-		paymentMethodDetails.IsDefault,
-	)
-	if err != nil {
+	// Store payment method in database
+	if err := s.storePaymentMethodFromStripe(ctx, tx, customerID, stripeCustomerID, pm); err != nil {
 		return err
 	}
 
@@ -452,7 +462,24 @@ func (s *CustomerService) UpdatePaymentMethod(ctx context.Context, customerID st
 
 // DeletePaymentMethod removes a payment method
 func (s *CustomerService) DeletePaymentMethod(ctx context.Context, customerID string, paymentMethodID int) error {
-	// In production, you would also detach from Stripe
+	// Get the Stripe payment method ID
+	var stripePaymentMethodID string
+	err := s.db.QueryRowContext(ctx,
+		"SELECT stripe_payment_method_id FROM payment_methods WHERE id = ? AND customer_id = ?",
+		paymentMethodID, customerID).Scan(&stripePaymentMethodID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return errors.New("payment method not found")
+		}
+		return err
+	}
+
+	// Detach from Stripe
+	if _, err := s.stripeClient.DetachPaymentMethod(stripePaymentMethodID); err != nil {
+		return fmt.Errorf("failed to detach payment method from Stripe: %w", err)
+	}
+
+	// Delete from database
 	result, err := s.db.ExecContext(ctx,
 		"DELETE FROM payment_methods WHERE id = ? AND customer_id = ?",
 		paymentMethodID, customerID)
@@ -678,19 +705,21 @@ func (s *CustomerService) ensureStripeCustomer(ctx context.Context, customer *mo
 		return stripeCustomerID.String, nil
 	}
 
-	// In production, you would create a Stripe customer here
-	// For now, we'll generate a placeholder ID
-	newStripeCustomerID := fmt.Sprintf("cus_%s", utils.GenerateRandomID(14))
+	// Create customer in Stripe
+	stripeCustomer, err := s.stripeClient.CreateCustomer(customer.Email, customer.Name, customer.ID)
+	if err != nil {
+		return "", fmt.Errorf("failed to create Stripe customer: %w", err)
+	}
 	
 	// Update customer with Stripe customer ID
 	_, err = s.db.ExecContext(ctx,
 		"UPDATE customers SET stripe_customer_id = ? WHERE id = ?",
-		newStripeCustomerID, customer.ID)
+		stripeCustomer.ID, customer.ID)
 	if err != nil {
 		return "", err
 	}
 
-	return newStripeCustomerID, nil
+	return stripeCustomer.ID, nil
 }
 
 func (s *CustomerService) updateCustomerName(ctx context.Context, tx *sql.Tx, customerID, name string) error {
@@ -1219,7 +1248,6 @@ func (s *CustomerService) verifyRefreshTokenInDB(customerID, tokenString string)
 	return nil
 }
 
-
 // AuthenticateCustomer authenticates a customer and returns their ID
 func (s *CustomerService) AuthenticateCustomer(ctx context.Context, req models.LoginRequest) (string, error) {
 	// OAuth login
@@ -1229,4 +1257,151 @@ func (s *CustomerService) AuthenticateCustomer(ctx context.Context, req models.L
 	
 	// Email/password login
 	return s.authenticateWithPassword(ctx, req.Email, req.Password)
+}
+
+// ProcessSuccessfulPayment processes a successful payment from Stripe
+func (s *CustomerService) ProcessSuccessfulPayment(ctx context.Context, paymentIntent *stripelib.PaymentIntent) error {
+	// Extract customer ID from metadata or invoice
+	customerID := paymentIntent.Metadata["customer_id"]
+	if customerID == "" && paymentIntent.Invoice != nil {
+		// Get invoice and extract customer
+		// This would require expanding the invoice in the webhook
+		return nil // For now, skip if no customer ID
+	}
+
+	// Record payment in billing history
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO billing_history 
+		(customer_id, subscription_id, stripe_payment_intent_id, amount, currency, status, payment_date) 
+		SELECT c.id, s.id, ?, ?, ?, 'completed', NOW()
+		FROM customers c
+		JOIN subscriptions s ON s.customer_id = c.id
+		WHERE c.id = ? AND s.status = 'active'
+		LIMIT 1`,
+		paymentIntent.ID, float64(paymentIntent.Amount)/100, paymentIntent.Currency, customerID)
+	
+	return err
+}
+
+// ProcessFailedPayment processes a failed payment from Stripe
+func (s *CustomerService) ProcessFailedPayment(ctx context.Context, paymentIntent *stripelib.PaymentIntent) error {
+	// Similar to successful payment but with 'failed' status
+	customerID := paymentIntent.Metadata["customer_id"]
+	if customerID == "" {
+		return nil
+	}
+
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO billing_history 
+		(customer_id, subscription_id, stripe_payment_intent_id, amount, currency, status, payment_date) 
+		SELECT c.id, s.id, ?, ?, ?, 'failed', NOW()
+		FROM customers c
+		JOIN subscriptions s ON s.customer_id = c.id
+		WHERE c.id = ? AND s.status = 'active'
+		LIMIT 1`,
+		paymentIntent.ID, float64(paymentIntent.Amount)/100, paymentIntent.Currency, customerID)
+	
+	return err
+}
+
+// ProcessInvoicePayment processes an invoice payment from Stripe
+func (s *CustomerService) ProcessInvoicePayment(ctx context.Context, invoice *stripelib.Invoice) error {
+	if invoice.Subscription == nil {
+		return nil // Not a subscription invoice
+	}
+
+	// Get customer ID from Stripe customer ID
+	var customerID string
+	err := s.db.QueryRowContext(ctx,
+		"SELECT id FROM customers WHERE stripe_customer_id = ?",
+		invoice.Customer.ID).Scan(&customerID)
+	if err != nil {
+		return err
+	}
+
+	// Get subscription ID
+	var subscriptionID int
+	err = s.db.QueryRowContext(ctx,
+		"SELECT id FROM subscriptions WHERE stripe_subscription_id = ?",
+		invoice.Subscription.ID).Scan(&subscriptionID)
+	if err != nil {
+		return err
+	}
+
+	// Record payment in billing history
+	_, err = s.db.ExecContext(ctx,
+		`INSERT INTO billing_history 
+		(customer_id, subscription_id, stripe_payment_intent_id, stripe_invoice_id, 
+		 amount, currency, status, payment_date) 
+		VALUES (?, ?, ?, ?, ?, ?, 'completed', FROM_UNIXTIME(?))`,
+		customerID, subscriptionID, invoice.PaymentIntent.ID, invoice.ID,
+		float64(invoice.AmountPaid)/100, invoice.Currency, invoice.StatusTransitions.PaidAt)
+	
+	// Update next billing date
+	if err == nil && invoice.Subscription != nil {
+		_, err = s.db.ExecContext(ctx,
+			"UPDATE subscriptions SET next_billing_date = FROM_UNIXTIME(?) WHERE id = ?",
+			invoice.Subscription.CurrentPeriodEnd, subscriptionID)
+	}
+	
+	return err
+}
+
+// UpdateSubscriptionStatus updates subscription status from Stripe webhook
+func (s *CustomerService) UpdateSubscriptionStatus(ctx context.Context, subscription *stripelib.Subscription) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE subscriptions 
+		 SET status = ?, next_billing_date = FROM_UNIXTIME(?), updated_at = NOW() 
+		 WHERE stripe_subscription_id = ?`,
+		subscription.Status, subscription.CurrentPeriodEnd, subscription.ID)
+	return err
+}
+
+// HandleSubscriptionDeletion handles subscription deletion from Stripe
+func (s *CustomerService) HandleSubscriptionDeletion(ctx context.Context, subscription *stripelib.Subscription) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE subscriptions 
+		 SET status = 'cancelled', updated_at = NOW() 
+		 WHERE stripe_subscription_id = ?`,
+		subscription.ID)
+	return err
+}
+
+func (s *CustomerService) storePaymentMethodFromStripe(ctx context.Context, tx *sql.Tx, customerID, stripeCustomerID string, pm *stripelib.PaymentMethod) error {
+	// Check if payment method already exists
+	var exists bool
+	err := tx.QueryRowContext(ctx,
+		"SELECT EXISTS(SELECT 1 FROM payment_methods WHERE stripe_payment_method_id = ?)",
+		pm.ID).Scan(&exists)
+	if err != nil {
+		return err
+	}
+	if exists {
+		return nil
+	}
+
+	// Extract card details
+	var lastFour, brand string
+	var expMonth, expYear int64
+	var cardholderName string
+	
+	if pm.Card != nil {
+		lastFour = pm.Card.Last4
+		brand = string(pm.Card.Brand)
+		expMonth = pm.Card.ExpMonth
+		expYear = pm.Card.ExpYear
+		if pm.BillingDetails != nil && pm.BillingDetails.Name != "" {
+			cardholderName = pm.BillingDetails.Name
+		}
+	}
+
+	// Insert payment method
+	_, err = tx.ExecContext(ctx,
+		`INSERT INTO payment_methods 
+		(customer_id, stripe_payment_method_id, stripe_customer_id, last_four, brand, 
+		 exp_month, exp_year, cardholder_name, is_default) 
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		customerID, pm.ID, stripeCustomerID, lastFour, brand, 
+		expMonth, expYear, cardholderName, true)
+	return err
 }

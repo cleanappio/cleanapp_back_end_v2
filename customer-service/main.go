@@ -10,6 +10,7 @@ import (
 	"customer-service/handlers"
 	"customer-service/middleware"
 	"customer-service/utils/encryption"
+	"customer-service/utils/stripe"
 	"github.com/gin-gonic/gin"
 	_ "github.com/go-sql-driver/mysql"
 )
@@ -37,11 +38,14 @@ func main() {
 		log.Fatal("Failed to initialize encryptor:", err)
 	}
 
-	// Initialize service
-	service := database.NewCustomerService(db, encryptor, cfg.JWTSecret)
+	// Initialize Stripe client
+	stripeClient := stripe.NewClient(cfg)
+
+	// Initialize service with Stripe client
+	service := database.NewCustomerService(db, encryptor, cfg.JWTSecret, stripeClient)
 
 	// Setup Gin router
-	router := setupRouter(service, cfg)
+	router := setupRouter(service, stripeClient, cfg)
 
 	// Start server
 	log.Printf("Server starting on port %s", cfg.Port)
@@ -67,7 +71,7 @@ func setupDatabase(cfg *config.Config) (*sql.DB, error) {
 	return db, nil
 }
 
-func setupRouter(service *database.CustomerService, cfg *config.Config) *gin.Engine {
+func setupRouter(service *database.CustomerService, stripeClient *stripe.Client, cfg *config.Config) *gin.Engine {
 	router := gin.Default()
 
 	// Set trusted proxies from config
@@ -78,8 +82,8 @@ func setupRouter(service *database.CustomerService, cfg *config.Config) *gin.Eng
 	router.Use(middleware.SecurityHeaders())
 	router.Use(middleware.RateLimitMiddleware())
 
-	// Initialize handlers
-	h := handlers.NewHandlers(service)
+	// Initialize handlers with Stripe client
+	h := handlers.NewHandlers(service, stripeClient)
 
 	// Root level health check (not under /api/v3)
 	router.GET("/health", h.RootHealthCheck)
@@ -88,13 +92,7 @@ func setupRouter(service *database.CustomerService, cfg *config.Config) *gin.Eng
 	public := router.Group("/api/v3")
 	{
 		// Authentication routes
-		auth := public.Group("/auth")
-		{
-			auth.POST("/login", h.Login)
-			auth.POST("/refresh", h.RefreshToken)
-			auth.POST("/oauth", h.OAuthLogin)
-			auth.GET("/oauth/:provider", h.GetOAuthURL)
-		}
+		public.POST("/login", h.Login) // Simplified route
 
 		// Customer registration
 		public.POST("/customers", h.CreateCustomer)
@@ -110,9 +108,6 @@ func setupRouter(service *database.CustomerService, cfg *config.Config) *gin.Eng
 	protected := router.Group("/api/v3")
 	protected.Use(middleware.AuthMiddleware(service))
 	{
-		// Authentication
-		protected.POST("/auth/logout", h.Logout)
-
 		// Customer routes
 		protected.GET("/customers/me", h.GetCustomer)
 		protected.PUT("/customers/me", h.UpdateCustomer)
