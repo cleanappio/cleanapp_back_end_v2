@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"customer-service/models"
@@ -321,6 +322,7 @@ func (s *CustomerService) GetPaymentMethods(ctx context.Context, customerID stri
 	var methods []models.PaymentMethod
 	for rows.Next() {
 		var method models.PaymentMethod
+		var cardholderName sql.NullString
 		err := rows.Scan(
 			&method.ID,
 			&method.CustomerID,
@@ -330,7 +332,7 @@ func (s *CustomerService) GetPaymentMethods(ctx context.Context, customerID stri
 			&method.Brand,
 			&method.ExpMonth,
 			&method.ExpYear,
-			&method.CardholderName,
+			&cardholderName,
 			&method.IsDefault,
 		)
 		if err != nil {
@@ -512,18 +514,10 @@ func (s *CustomerService) Login(ctx context.Context, req models.LoginRequest) (s
 	var customerID string
 	var err error
 
-	if req.Provider == "" {
-		// Email/password login
-		customerID, err = s.authenticateWithPassword(ctx, req.Email, req.Password)
-		if err != nil {
-			return "", err
-		}
-	} else {
-		// OAuth login
-		customerID, err = s.authenticateWithOAuth(ctx, req.Provider, req.Token)
-		if err != nil {
-			return "", err
-		}
+	// Email/password login
+	customerID, err = s.authenticateWithPassword(ctx, req.Email, req.Password)
+	if err != nil {
+		return "", err
 	}
 
 	return s.generateToken(ctx, customerID)
@@ -811,9 +805,12 @@ func (s *CustomerService) generateToken(ctx context.Context, customerID string) 
 }
 
 func (s *CustomerService) verifyTokenInDB(customerID, tokenString string) error {
-	tokenHash := utils.HashToken(tokenString)
-	var exists bool
+	log.Printf("Customer ID: %s, Token: %s", customerID, tokenString)
 
+	tokenHash := utils.HashToken(tokenString)
+	log.Printf("Hashed token: %s", tokenHash)
+
+	var exists bool
 	err := s.db.QueryRow(
 		"SELECT EXISTS(SELECT 1 FROM auth_tokens WHERE customer_id = ? AND token_hash = ? AND expires_at > NOW())",
 		customerID, tokenHash).Scan(&exists)
@@ -831,4 +828,367 @@ func (s *CustomerService) CreateOAuthCustomer(ctx context.Context, name, email, 
 	// 2. Create login_method with oauth_id
 	// 3. No password needed
 	return nil, errors.New("oauth registration not implemented")
+}
+
+// GenerateTokenPair generates both access and refresh tokens
+func (s *CustomerService) GenerateTokenPair(ctx context.Context, customerID string) (string, string, error) {
+	// Generate access token (1 hour expiry)
+	accessToken := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"customer_id": customerID,
+		"type":        "access",
+		"exp":         time.Now().Add(1 * time.Hour).Unix(),
+		"iat":         time.Now().Unix(),
+	})
+
+	accessTokenString, err := accessToken.SignedString(s.jwtSecret)
+	if err != nil {
+		return "", "", err
+	}
+
+	// Generate refresh token (30 days expiry)
+	refreshToken := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"customer_id": customerID,
+		"type":        "refresh",
+		"exp":         time.Now().Add(30 * 24 * time.Hour).Unix(),
+		"iat":         time.Now().Unix(),
+	})
+
+	refreshTokenString, err := refreshToken.SignedString(s.jwtSecret)
+	if err != nil {
+		return "", "", err
+	}
+
+	// Store both tokens
+	if err := s.storeTokens(ctx, customerID, accessTokenString, refreshTokenString); err != nil {
+		return "", "", err
+	}
+
+	return accessTokenString, refreshTokenString, nil
+}
+
+// ValidateRefreshToken validates a refresh token and returns the customer ID
+func (s *CustomerService) ValidateRefreshToken(tokenString string) (string, error) {
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, errors.New("invalid signing method")
+		}
+		return s.jwtSecret, nil
+	})
+
+	if err != nil || !token.Valid {
+		return "", errors.New("invalid token")
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return "", errors.New("invalid token claims")
+	}
+
+	// Check token type
+	tokenType, ok := claims["type"].(string)
+	if !ok || tokenType != "refresh" {
+		return "", errors.New("not a refresh token")
+	}
+
+	customerID, ok := claims["customer_id"].(string)
+	if !ok {
+		return "", errors.New("invalid customer id in token")
+	}
+
+	// Verify token in database
+	if err := s.verifyRefreshTokenInDB(customerID, tokenString); err != nil {
+		return "", err
+	}
+
+	return customerID, nil
+}
+
+// InvalidateToken removes a token from the database
+func (s *CustomerService) InvalidateToken(ctx context.Context, customerID, tokenString string) error {
+	tokenHash := utils.HashToken(tokenString)
+	_, err := s.db.ExecContext(ctx,
+		"DELETE FROM auth_tokens WHERE customer_id = ? AND token_hash = ?",
+		customerID, tokenHash)
+	return err
+}
+
+// ValidateOAuthToken validates OAuth token with provider
+func (s *CustomerService) ValidateOAuthToken(ctx context.Context, provider, idToken, accessToken string) (*models.OAuthUserInfo, error) {
+	// TODO: Implement actual OAuth validation with providers
+	// This is a placeholder implementation
+	
+	switch provider {
+	case "google":
+		// Validate with Google OAuth2 API
+		return s.validateGoogleToken(idToken)
+	case "facebook":
+		// Validate with Facebook Graph API
+		return s.validateFacebookToken(accessToken)
+	case "apple":
+		// Validate with Apple Sign In
+		return s.validateAppleToken(idToken)
+	default:
+		return nil, errors.New("unsupported provider")
+	}
+}
+
+// GetOrCreateOAuthCustomer gets existing customer or creates new one from OAuth
+func (s *CustomerService) GetOrCreateOAuthCustomer(ctx context.Context, provider string, userInfo *models.OAuthUserInfo) (*models.Customer, bool, error) {
+	// Check if customer exists with this OAuth ID
+	var customerID string
+	err := s.db.QueryRowContext(ctx,
+		"SELECT customer_id FROM login_methods WHERE method_type = ? AND oauth_id = ?",
+		provider, userInfo.ID).Scan(&customerID)
+	
+	if err == nil {
+		// Customer exists, return it
+		customer, err := s.GetCustomer(ctx, customerID)
+		return customer, false, err
+	}
+
+	// Customer doesn't exist, create new one
+	id, err := utils.GenerateEthereumAddress()
+	if err != nil {
+		return nil, false, err
+	}
+
+	// Encrypt email
+	emailEncrypted, err := s.encryptor.Encrypt(userInfo.Email)
+	if err != nil {
+		return nil, false, err
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, false, err
+	}
+	defer tx.Rollback()
+
+	// Insert customer
+	if err := s.insertCustomer(ctx, tx, id, userInfo.Name, emailEncrypted); err != nil {
+		return nil, false, err
+	}
+
+	// Insert OAuth login method
+	if err := s.insertOAuthLoginMethod(ctx, tx, id, provider, userInfo.ID); err != nil {
+		return nil, false, err
+	}
+
+	// Add default area (ID: 1)
+	if err := s.insertCustomerAreas(ctx, tx, id, []int{1}); err != nil {
+		return nil, false, err
+	}
+
+	if err = tx.Commit(); err != nil {
+		return nil, false, err
+	}
+
+	return &models.Customer{
+		ID:        id,
+		Name:      userInfo.Name,
+		Email:     userInfo.Email,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}, true, nil
+}
+
+// GenerateOAuthURL generates OAuth provider URL
+func (s *CustomerService) GenerateOAuthURL(provider string) (string, string, error) {
+	// TODO: Implement actual OAuth URL generation
+	// This requires OAuth client configuration
+	
+	state := utils.GenerateRandomID(32)
+	
+	switch provider {
+	case "google":
+		// Generate Google OAuth URL
+		return "https://accounts.google.com/o/oauth2/v2/auth?client_id=YOUR_CLIENT_ID&redirect_uri=YOUR_REDIRECT_URI&response_type=code&scope=openid%20email%20profile&state=" + state, state, nil
+	case "facebook":
+		// Generate Facebook OAuth URL
+		return "https://www.facebook.com/v12.0/dialog/oauth?client_id=YOUR_APP_ID&redirect_uri=YOUR_REDIRECT_URI&state=" + state, state, nil
+	case "apple":
+		// Generate Apple OAuth URL
+		return "https://appleid.apple.com/auth/authorize?client_id=YOUR_CLIENT_ID&redirect_uri=YOUR_REDIRECT_URI&response_type=code&scope=name%20email&state=" + state, state, nil
+	default:
+		return "", "", errors.New("unsupported provider")
+	}
+}
+
+// ReactivateSubscription reactivates a cancelled subscription
+func (s *CustomerService) ReactivateSubscription(ctx context.Context, customerID string) (*models.Subscription, error) {
+	// Check for cancelled subscription
+	var subscription models.Subscription
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, customer_id, plan_type, billing_cycle, status, start_date, next_billing_date 
+		 FROM subscriptions 
+		 WHERE customer_id = ? AND status = 'cancelled' 
+		 ORDER BY updated_at DESC 
+		 LIMIT 1`,
+		customerID).Scan(
+			&subscription.ID,
+			&subscription.CustomerID,
+			&subscription.PlanType,
+			&subscription.BillingCycle,
+			&subscription.Status,
+			&subscription.StartDate,
+			&subscription.NextBillingDate)
+	
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, errors.New("no cancelled subscription found")
+		}
+		return nil, err
+	}
+
+	// Calculate new billing date
+	nextBillingDate := time.Now()
+	if subscription.BillingCycle == models.BillingMonthly {
+		nextBillingDate = nextBillingDate.AddDate(0, 1, 0)
+	} else {
+		nextBillingDate = nextBillingDate.AddDate(1, 0, 0)
+	}
+
+	// Reactivate subscription
+	_, err = s.db.ExecContext(ctx,
+		`UPDATE subscriptions 
+		 SET status = 'active', next_billing_date = ?, updated_at = NOW() 
+		 WHERE id = ?`,
+		nextBillingDate, subscription.ID)
+	
+	if err != nil {
+		return nil, err
+	}
+
+	subscription.Status = "active"
+	subscription.NextBillingDate = nextBillingDate
+	
+	return &subscription, nil
+}
+
+// GetBillingRecord retrieves a specific billing record
+func (s *CustomerService) GetBillingRecord(ctx context.Context, customerID, billingID string) (*models.BillingHistory, error) {
+	var record models.BillingHistory
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, customer_id, subscription_id, amount, currency, status, payment_date
+		 FROM billing_history
+		 WHERE id = ? AND customer_id = ?`,
+		billingID, customerID).Scan(
+			&record.ID,
+			&record.CustomerID,
+			&record.SubscriptionID,
+			&record.Amount,
+			&record.Currency,
+			&record.Status,
+			&record.PaymentDate)
+	
+	if err != nil {
+		return nil, err
+	}
+	
+	return &record, nil
+}
+
+// GenerateInvoice generates or retrieves an invoice PDF
+func (s *CustomerService) GenerateInvoice(ctx context.Context, billing *models.BillingHistory) ([]byte, string, error) {
+	// TODO: Implement actual PDF generation or Stripe invoice retrieval
+	// For now, return a placeholder
+	
+	// In production, you would:
+	// 1. Check if invoice exists in Stripe
+	// 2. Download from Stripe or generate PDF
+	// 3. Cache the result
+	
+	placeholderPDF := []byte("PDF content would go here")
+	return placeholderPDF, "application/pdf", nil
+}
+
+// GetAreas retrieves all service areas
+func (s *CustomerService) GetAreas(ctx context.Context) ([]models.Area, error) {
+	// TODO: This should come from a proper areas table
+	// For now, return mock data
+	
+	areas := []models.Area{
+		{ID: 1, Name: "Downtown", Coordinates: map[string]float64{"lat": 40.7128, "lng": -74.0060}},
+		{ID: 2, Name: "Midtown", Coordinates: map[string]float64{"lat": 40.7549, "lng": -73.9840}},
+		{ID: 3, Name: "Uptown", Coordinates: map[string]float64{"lat": 40.7812, "lng": -73.9665}},
+		{ID: 4, Name: "Brooklyn", Coordinates: map[string]float64{"lat": 40.6782, "lng": -73.9442}},
+		{ID: 5, Name: "Queens", Coordinates: map[string]float64{"lat": 40.7282, "lng": -73.7949}},
+	}
+	
+	return areas, nil
+}
+
+// Helper methods for OAuth validation (placeholders)
+
+func (s *CustomerService) validateGoogleToken(idToken string) (*models.OAuthUserInfo, error) {
+	// TODO: Implement Google token validation
+	// Use Google's OAuth2 API to validate the ID token
+	return nil, errors.New("google oauth not implemented")
+}
+
+func (s *CustomerService) validateFacebookToken(accessToken string) (*models.OAuthUserInfo, error) {
+	// TODO: Implement Facebook token validation
+	// Use Facebook Graph API to validate the access token
+	return nil, errors.New("facebook oauth not implemented")
+}
+
+func (s *CustomerService) validateAppleToken(idToken string) (*models.OAuthUserInfo, error) {
+	// TODO: Implement Apple token validation
+	// Validate Apple's JWT token
+	return nil, errors.New("apple oauth not implemented")
+}
+
+// Helper methods for token storage
+
+func (s *CustomerService) storeTokens(ctx context.Context, customerID, accessToken, refreshToken string) error {
+	accessHash := utils.HashToken(accessToken)
+	refreshHash := utils.HashToken(refreshToken)
+	
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Store access token
+	_, err = tx.ExecContext(ctx,
+		"INSERT INTO auth_tokens (customer_id, token_hash, token_type, expires_at) VALUES (?, ?, 'access', ?)",
+		customerID, accessHash, time.Now().Add(1*time.Hour))
+	if err != nil {
+		return err
+	}
+
+	// Store refresh token
+	_, err = tx.ExecContext(ctx,
+		"INSERT INTO auth_tokens (customer_id, token_hash, token_type, expires_at) VALUES (?, ?, 'refresh', ?)",
+		customerID, refreshHash, time.Now().Add(30*24*time.Hour))
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+func (s *CustomerService) verifyRefreshTokenInDB(customerID, tokenString string) error {
+	tokenHash := utils.HashToken(tokenString)
+	var exists bool
+
+	err := s.db.QueryRow(
+		"SELECT EXISTS(SELECT 1 FROM auth_tokens WHERE customer_id = ? AND token_hash = ? AND token_type = 'refresh' AND expires_at > NOW())",
+		customerID, tokenHash).Scan(&exists)
+	if err != nil || !exists {
+		return errors.New("refresh token not found or expired")
+	}
+	return nil
+}
+
+// AuthenticateCustomer authenticates a customer and returns their ID
+func (s *CustomerService) AuthenticateCustomer(ctx context.Context, req models.LoginRequest) (string, error) {
+	// OAuth login
+	if req.Provider != "" {
+		return s.authenticateWithOAuth(ctx, req.Provider, req.Token)
+	}
+	
+	// Email/password login
+	return s.authenticateWithPassword(ctx, req.Email, req.Password)
 }

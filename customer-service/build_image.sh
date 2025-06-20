@@ -71,8 +71,7 @@ if [ "${OPT}" == "dev" ]; then
   echo "Building and pushing docker image..."
   gcloud builds submit \
     --region=${CLOUD_REGION} \
-    --substitutions=_TAG=${DOCKER_TAG}:${BUILD_VERSION} \
-    --config=cloudbuild.yaml
+    --substitutions=_TAG=${DOCKER_TAG}:${BUILD_VERSION}
 fi
 
 echo "Tagging Docker image as current ${OPT}..."

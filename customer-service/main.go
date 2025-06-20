@@ -81,11 +81,28 @@ func setupRouter(service *database.CustomerService, cfg *config.Config) *gin.Eng
 	// Initialize handlers
 	h := handlers.NewHandlers(service)
 
+	// Root level health check (not under /api/v3)
+	router.GET("/health", h.RootHealthCheck)
+
 	// Public routes
 	public := router.Group("/api/v3")
 	{
-		public.POST("/login", h.Login)
+		// Authentication routes
+		auth := public.Group("/auth")
+		{
+			auth.POST("/login", h.Login)
+			auth.POST("/refresh", h.RefreshToken)
+			auth.POST("/oauth", h.OAuthLogin)
+			auth.GET("/oauth/:provider", h.GetOAuthURL)
+		}
+
+		// Customer registration
 		public.POST("/customers", h.CreateCustomer)
+		
+		// Public data
+		public.GET("/areas", h.GetAreas)
+		
+		// API health check
 		public.GET("/health", h.HealthCheck)
 	}
 
@@ -93,6 +110,9 @@ func setupRouter(service *database.CustomerService, cfg *config.Config) *gin.Eng
 	protected := router.Group("/api/v3")
 	protected.Use(middleware.AuthMiddleware(service))
 	{
+		// Authentication
+		protected.POST("/auth/logout", h.Logout)
+
 		// Customer routes
 		protected.GET("/customers/me", h.GetCustomer)
 		protected.PUT("/customers/me", h.UpdateCustomer)
@@ -103,7 +123,14 @@ func setupRouter(service *database.CustomerService, cfg *config.Config) *gin.Eng
 		protected.GET("/subscriptions/me", h.GetSubscription)
 		protected.PUT("/subscriptions/me", h.UpdateSubscription)
 		protected.DELETE("/subscriptions/me", h.CancelSubscription)
-		protected.GET("/billing-history", h.GetBillingHistory)
+		protected.POST("/subscriptions/me/reactivate", h.ReactivateSubscription)
+
+		// Billing routes
+		billing := protected.Group("/billing")
+		{
+			billing.GET("/history", h.GetBillingHistory)
+			billing.GET("/invoices/:id", h.DownloadInvoice)
+		}
 
 		// Payment routes
 		protected.GET("/payment-methods", h.GetPaymentMethods)

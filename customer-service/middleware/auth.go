@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"customer-service/database"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -26,7 +27,6 @@ func AuthMiddleware(service *database.CustomerService) gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-
 		// Validate token
 		customerID, err := service.ValidateToken(tokenString)
 		if err != nil {

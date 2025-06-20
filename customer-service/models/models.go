@@ -7,7 +7,7 @@ const (
 	PlanBase      = "base"
 	PlanAdvanced  = "advanced"
 	PlanExclusive = "exclusive"
-	
+
 	BillingMonthly = "monthly"
 	BillingAnnual  = "annual"
 )
@@ -66,6 +66,13 @@ type BillingHistory struct {
 	PaymentDate    time.Time `json:"payment_date"`
 }
 
+// Area represents a service area
+type Area struct {
+	ID          int         `json:"id"`
+	Name        string      `json:"name"`
+	Coordinates interface{} `json:"coordinates,omitempty"`
+}
+
 // CreateCustomerRequest represents the request to create a new customer
 type CreateCustomerRequest struct {
 	Name         string   `json:"name" binding:"required,max=256"`
@@ -106,7 +113,34 @@ type LoginRequest struct {
 
 // TokenResponse represents the authentication response
 type TokenResponse struct {
-	Token string `json:"token"`
+	Token        string    `json:"token"`
+	RefreshToken string    `json:"refresh_token,omitempty"`
+	TokenType    string    `json:"token_type,omitempty"`
+	ExpiresIn    int       `json:"expires_in,omitempty"`
+	Customer     *Customer `json:"customer,omitempty"` // Only for new OAuth registrations
+}
+
+// OAuthLoginRequest represents an OAuth authentication request
+type OAuthLoginRequest struct {
+	Provider        string                 `json:"provider" binding:"required,oneof=google facebook apple"`
+	IDToken         string                 `json:"id_token,omitempty"`
+	AccessToken     string                 `json:"access_token,omitempty"`
+	AuthorizationCode string               `json:"authorization_code,omitempty"`
+	UserInfo        map[string]interface{} `json:"user_info,omitempty"`
+}
+
+// OAuthURLResponse represents the OAuth URL response
+type OAuthURLResponse struct {
+	URL   string `json:"url"`
+	State string `json:"state,omitempty"`
+}
+
+// OAuthUserInfo represents user information from OAuth provider
+type OAuthUserInfo struct {
+	ID      string `json:"id"`
+	Email   string `json:"email"`
+	Name    string `json:"name"`
+	Picture string `json:"picture,omitempty"`
 }
 
 // MessageResponse represents a simple message response

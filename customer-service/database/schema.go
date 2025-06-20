@@ -282,6 +282,50 @@ var Migrations = []Migration{
 			SELECT 1;
 		`,
 	},
+	// Add this migration to the Migrations slice in database/schema.go
+	{
+		Version: 3,
+		Name:    "add_token_type_and_areas",
+		Up: `
+			-- Migration 3: Add token type to auth_tokens and create areas table
+			
+			-- Add token_type column to auth_tokens if it doesn't exist
+			SET @dbname = DATABASE();
+			SET @tablename = 'auth_tokens';
+			SET @columnname = 'token_type';
+			SET @preparedStatement = (SELECT IF(
+				(SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+				WHERE TABLE_SCHEMA = @dbname
+				AND TABLE_NAME = @tablename
+				AND COLUMN_NAME = @columnname) = 0,
+				'ALTER TABLE auth_tokens ADD COLUMN token_type ENUM(''access'', ''refresh'') DEFAULT ''access'' AFTER token_hash;',
+				'SELECT 1;'
+			));
+			PREPARE alterIfNotExists FROM @preparedStatement;
+			EXECUTE alterIfNotExists;
+			DEALLOCATE PREPARE alterIfNotExists;
+
+			-- Add index on token_type
+			SET @preparedStatement = (SELECT IF(
+				(SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS
+				WHERE TABLE_SCHEMA = @dbname
+				AND TABLE_NAME = @tablename
+				AND INDEX_NAME = 'idx_token_type') = 0,
+				'ALTER TABLE auth_tokens ADD INDEX idx_token_type (token_type, expires_at);',
+				'SELECT 1;'
+			));
+			PREPARE addIndexIfNotExists FROM @preparedStatement;
+			EXECUTE addIndexIfNotExists;
+			DEALLOCATE PREPARE addIndexIfNotExists;
+		`,
+		Down: `
+			-- Remove token_type column
+			ALTER TABLE auth_tokens DROP COLUMN IF EXISTS token_type;
+			
+			-- Remove areas table (be careful, this will delete area data)
+			DROP TABLE IF EXISTS areas;
+		`,
+	},
 }
 
 // InitializeSchema creates the database schema and runs migrations
