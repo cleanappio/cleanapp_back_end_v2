@@ -785,6 +785,7 @@ func (s *CustomerService) authenticateWithPassword(ctx context.Context, email, p
 	}
 
 	if foundCustomerID == "" {
+		log.Println("Customer not found for email:", email)
 		return "", errors.New("invalid credentials")
 	}
 
@@ -797,6 +798,7 @@ func (s *CustomerService) authenticateWithPassword(ctx context.Context, email, p
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(password)); err != nil {
+		log.Println("Password mismatch for customer:", customerID)
 		return "", errors.New("invalid credentials")
 	}
 
@@ -1283,27 +1285,6 @@ func (s *CustomerService) ProcessSuccessfulPayment(ctx context.Context, paymentI
 	return err
 }
 
-// ProcessFailedPayment processes a failed payment from Stripe
-func (s *CustomerService) ProcessFailedPayment(ctx context.Context, paymentIntent *stripelib.PaymentIntent) error {
-	// Similar to successful payment but with 'failed' status
-	customerID := paymentIntent.Metadata["customer_id"]
-	if customerID == "" {
-		return nil
-	}
-
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO billing_history 
-		(customer_id, subscription_id, stripe_payment_intent_id, amount, currency, status, payment_date) 
-		SELECT c.id, s.id, ?, ?, ?, 'failed', NOW()
-		FROM customers c
-		JOIN subscriptions s ON s.customer_id = c.id
-		WHERE c.id = ? AND s.status = 'active'
-		LIMIT 1`,
-		paymentIntent.ID, float64(paymentIntent.Amount)/100, paymentIntent.Currency, customerID)
-	
-	return err
-}
-
 // ProcessInvoicePayment processes an invoice payment from Stripe
 func (s *CustomerService) ProcessInvoicePayment(ctx context.Context, invoice *stripelib.Invoice) error {
 	if invoice.Subscription == nil {
@@ -1404,4 +1385,314 @@ func (s *CustomerService) storePaymentMethodFromStripe(ctx context.Context, tx *
 		customerID, pm.ID, stripeCustomerID, lastFour, brand, 
 		expMonth, expYear, cardholderName, true)
 	return err
+}
+
+// IsWebhookEventProcessed checks if a webhook event has already been processed
+func (s *CustomerService) IsWebhookEventProcessed(ctx context.Context, eventID string) (bool, error) {
+	var exists bool
+	err := s.db.QueryRowContext(ctx,
+		"SELECT EXISTS(SELECT 1 FROM webhook_events WHERE id = ?)",
+		eventID).Scan(&exists)
+	return exists, err
+}
+
+// MarkWebhookEventProcessing marks a webhook event as being processed
+func (s *CustomerService) MarkWebhookEventProcessing(ctx context.Context, eventID, eventType string, rawData []byte) error {
+	_, err := s.db.ExecContext(ctx,
+		"INSERT INTO webhook_events (id, type, raw_data, status) VALUES (?, ?, ?, 'processed') ON DUPLICATE KEY UPDATE id = id",
+		eventID, eventType, rawData)
+	return err
+}
+
+// MarkWebhookEventProcessed marks a webhook event as successfully processed
+func (s *CustomerService) MarkWebhookEventProcessed(ctx context.Context, eventID string) error {
+	_, err := s.db.ExecContext(ctx,
+		"UPDATE webhook_events SET status = 'processed', processed_at = NOW() WHERE id = ?",
+		eventID)
+	return err
+}
+
+// MarkWebhookEventFailed marks a webhook event as failed
+func (s *CustomerService) MarkWebhookEventFailed(ctx context.Context, eventID, errorMessage string) error {
+	_, err := s.db.ExecContext(ctx,
+		"UPDATE webhook_events SET status = 'failed', error_message = ?, processed_at = NOW() WHERE id = ?",
+		errorMessage, eventID)
+	return err
+}
+
+// MarkWebhookEventSkipped marks a webhook event as skipped
+func (s *CustomerService) MarkWebhookEventSkipped(ctx context.Context, eventID string) error {
+	_, err := s.db.ExecContext(ctx,
+		"INSERT INTO webhook_events (id, type, status) VALUES (?, 'unknown', 'skipped') ON DUPLICATE KEY UPDATE status = 'skipped'",
+		eventID)
+	return err
+}
+
+// SyncSubscriptionFromStripe syncs subscription data from Stripe
+func (s *CustomerService) SyncSubscriptionFromStripe(ctx context.Context, stripeSub *stripelib.Subscription) error {
+	// Get customer ID from Stripe customer
+	var customerID string
+	err := s.db.QueryRowContext(ctx,
+		"SELECT id FROM customers WHERE stripe_customer_id = ?",
+		stripeSub.Customer.ID).Scan(&customerID)
+	if err != nil {
+		return fmt.Errorf("customer not found for stripe_customer_id: %s", stripeSub.Customer.ID)
+	}
+
+	// Extract plan details from metadata or items
+	planType := stripeSub.Metadata["plan_type"]
+	billingCycle := stripeSub.Metadata["billing_cycle"]
+	
+	// Update or insert subscription
+	_, err = s.db.ExecContext(ctx,
+		`INSERT INTO subscriptions 
+		(customer_id, stripe_subscription_id, stripe_price_id, plan_type, billing_cycle, 
+		 status, start_date, next_billing_date, trial_end, cancel_at_period_end) 
+		VALUES (?, ?, ?, ?, ?, ?, FROM_UNIXTIME(?), FROM_UNIXTIME(?), ?, ?)
+		ON DUPLICATE KEY UPDATE 
+		status = VALUES(status),
+		next_billing_date = VALUES(next_billing_date),
+		trial_end = VALUES(trial_end),
+		cancel_at_period_end = VALUES(cancel_at_period_end),
+		updated_at = NOW()`,
+		customerID, stripeSub.ID, stripeSub.Items.Data[0].Price.ID, planType, billingCycle,
+		stripeSub.Status, stripeSub.CurrentPeriodStart, stripeSub.CurrentPeriodEnd,
+		nilableTimestamp(stripeSub.TrialEnd), stripeSub.CancelAtPeriodEnd)
+	
+	// Log sync operation
+	s.logStripeSync(ctx, "subscription", customerID, stripeSub.ID, "sync", err)
+	
+	return err
+}
+
+// ProcessFailedPayment processes a failed payment from Stripe
+func (s *CustomerService) ProcessFailedPayment(ctx context.Context, paymentIntent *stripelib.PaymentIntent) error {
+	// Extract customer ID from metadata or get from Stripe customer
+	customerID := paymentIntent.Metadata["customer_id"]
+	if customerID == "" && paymentIntent.Customer != nil {
+		// Get customer ID from our database using Stripe customer ID
+		err := s.db.QueryRowContext(ctx,
+			"SELECT id FROM customers WHERE stripe_customer_id = ?",
+			paymentIntent.Customer.ID).Scan(&customerID)
+		if err != nil {
+			log.Printf("Failed to find customer for stripe_customer_id: %s", paymentIntent.Customer.ID)
+			return nil // Don't fail the webhook
+		}
+	}
+
+	// Get failure reason
+	failureReason := ""
+	if paymentIntent.LastPaymentError != nil {
+		failureReason = paymentIntent.LastPaymentError.Msg
+	}
+
+	// Record failed payment in billing history
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO billing_history 
+		(customer_id, subscription_id, stripe_payment_intent_id, amount, currency, status, failure_reason, payment_date) 
+		SELECT c.id, s.id, ?, ?, ?, 'failed', ?, NOW()
+		FROM customers c
+		LEFT JOIN subscriptions s ON s.customer_id = c.id AND s.status = 'active'
+		WHERE c.id = ?
+		LIMIT 1`,
+		paymentIntent.ID, float64(paymentIntent.Amount)/100, paymentIntent.Currency, failureReason, customerID)
+	
+	return err
+}
+
+// ProcessFailedInvoicePayment processes a failed invoice payment
+func (s *CustomerService) ProcessFailedInvoicePayment(ctx context.Context, invoice *stripelib.Invoice) error {
+	if invoice.Subscription == nil {
+		return nil // Not a subscription invoice
+	}
+
+	// Get customer ID from Stripe customer ID
+	var customerID string
+	err := s.db.QueryRowContext(ctx,
+		"SELECT id FROM customers WHERE stripe_customer_id = ?",
+		invoice.Customer.ID).Scan(&customerID)
+	if err != nil {
+		return err
+	}
+
+	// Update subscription status if needed
+	if invoice.Subscription != nil {
+		_, err = s.db.ExecContext(ctx,
+			`UPDATE subscriptions 
+			 SET status = 'past_due', updated_at = NOW() 
+			 WHERE stripe_subscription_id = ?`,
+			invoice.Subscription.ID)
+		if err != nil {
+			log.Printf("Failed to update subscription status: %v", err)
+		}
+	}
+
+	// Record failed payment
+	failureReason := "Invoice payment failed"
+	if invoice.LastFinalizationError != nil {
+		failureReason = invoice.LastFinalizationError.Msg
+	}
+
+	_, err = s.db.ExecContext(ctx,
+		`INSERT INTO billing_history 
+		(customer_id, subscription_id, stripe_invoice_id, amount, currency, status, failure_reason, payment_date) 
+		SELECT ?, s.id, ?, ?, ?, 'failed', ?, NOW()
+		FROM subscriptions s
+		WHERE s.customer_id = ? AND s.stripe_subscription_id = ?
+		LIMIT 1`,
+		customerID, invoice.ID, float64(invoice.AmountDue)/100, invoice.Currency, 
+		failureReason, customerID, invoice.Subscription.ID)
+	
+	return err
+}
+
+// HandleTrialWillEnd handles trial ending notifications
+func (s *CustomerService) HandleTrialWillEnd(ctx context.Context, subscription *stripelib.Subscription) error {
+	// Update trial_end in our database
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE subscriptions 
+		 SET trial_end = FROM_UNIXTIME(?), updated_at = NOW() 
+		 WHERE stripe_subscription_id = ?`,
+		subscription.TrialEnd, subscription.ID)
+	
+	// TODO: Send email notification to customer about trial ending
+	
+	return err
+}
+
+// SyncPaymentMethodFromStripe syncs a payment method from Stripe
+func (s *CustomerService) SyncPaymentMethodFromStripe(ctx context.Context, pm *stripelib.PaymentMethod) error {
+	// Get customer ID from Stripe customer ID
+	var customerID string
+	err := s.db.QueryRowContext(ctx,
+		"SELECT id FROM customers WHERE stripe_customer_id = ?",
+		pm.Customer.ID).Scan(&customerID)
+	if err != nil {
+		return fmt.Errorf("customer not found for stripe_customer_id: %s", pm.Customer.ID)
+	}
+
+	// Extract card details
+	var lastFour, brand string
+	var expMonth, expYear int64
+	var cardholderName string
+	
+	if pm.Card != nil {
+		lastFour = pm.Card.Last4
+		brand = string(pm.Card.Brand)
+		expMonth = pm.Card.ExpMonth
+		expYear = pm.Card.ExpYear
+		if pm.BillingDetails != nil && pm.BillingDetails.Name != "" {
+			cardholderName = pm.BillingDetails.Name
+		}
+	}
+
+	// Insert or update payment method
+	_, err = s.db.ExecContext(ctx,
+		`INSERT INTO payment_methods 
+		(customer_id, stripe_payment_method_id, stripe_customer_id, last_four, brand, 
+		 exp_month, exp_year, cardholder_name, is_default) 
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, FALSE)
+		ON DUPLICATE KEY UPDATE 
+		last_four = VALUES(last_four),
+		brand = VALUES(brand),
+		exp_month = VALUES(exp_month),
+		exp_year = VALUES(exp_year),
+		cardholder_name = VALUES(cardholder_name)`,
+		customerID, pm.ID, pm.Customer.ID, lastFour, brand, 
+		expMonth, expYear, cardholderName)
+	
+	// Log sync operation
+	s.logStripeSync(ctx, "payment_method", customerID, pm.ID, "sync", err)
+	
+	return err
+}
+
+// HandlePaymentMethodDetached handles payment method detachment
+func (s *CustomerService) HandlePaymentMethodDetached(ctx context.Context, pm *stripelib.PaymentMethod) error {
+	// Delete the payment method from our database
+	result, err := s.db.ExecContext(ctx,
+		"DELETE FROM payment_methods WHERE stripe_payment_method_id = ?",
+		pm.ID)
+	
+	if err != nil {
+		return err
+	}
+	
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected > 0 {
+		log.Printf("Deleted payment method %s from database", pm.ID)
+	}
+	
+	return nil
+}
+
+// ProcessRefund processes a refund from Stripe
+func (s *CustomerService) ProcessRefund(ctx context.Context, charge *stripelib.Charge) error {
+	// Calculate total refunded amount
+	var refundAmount int64
+	for _, refund := range charge.Refunds.Data {
+		refundAmount += refund.Amount
+	}
+	
+	// Determine refund status
+	status := "partially_refunded"
+	if refundAmount >= charge.Amount {
+		status = "refunded"
+	}
+	
+	// Update billing history with refund information
+	result, err := s.db.ExecContext(ctx,
+		`UPDATE billing_history 
+		 SET refund_amount = ?, status = ?
+		 WHERE stripe_charge_id = ? OR stripe_payment_intent_id = ?`,
+		float64(refundAmount)/100, status, charge.ID, charge.PaymentIntent.ID)
+	
+	if err != nil {
+		return err
+	}
+	
+	rowsAffected, _ := result.RowsAffected()
+	log.Printf("Updated %d billing records with refund amount %.2f", rowsAffected, float64(refundAmount)/100)
+	
+	return nil
+}
+
+// Helper functions to add to database/service.go
+
+// logStripeSync logs Stripe sync operations for debugging
+func (s *CustomerService) logStripeSync(ctx context.Context, entityType, entityID, stripeID, action string, err error) {
+	status := "success"
+	var errorMsg *string
+	if err != nil {
+		status = "failed"
+		errStr := err.Error()
+		errorMsg = &errStr
+	}
+	
+	_, logErr := s.db.ExecContext(ctx,
+		`INSERT INTO stripe_sync_log 
+		(entity_type, entity_id, stripe_id, action, status, error_message) 
+		VALUES (?, ?, ?, ?, ?, ?)`,
+		entityType, entityID, stripeID, action, status, errorMsg)
+	
+	if logErr != nil {
+		log.Printf("Failed to log stripe sync operation: %v", logErr)
+	}
+}
+
+// nilableTimestamp converts unix timestamp to *time.Time
+func nilableTimestamp(unixTime int64) *time.Time {
+	if unixTime == 0 {
+		return nil
+	}
+	t := time.Unix(unixTime, 0)
+	return &t
+}
+
+// formatNullableTime formats a nullable timestamp for MySQL
+func formatNullableTime(t *time.Time) interface{} {
+	if t == nil {
+		return nil
+	}
+	return t.Unix()
 }
