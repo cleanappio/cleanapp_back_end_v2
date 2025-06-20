@@ -541,6 +541,12 @@ func (s *CustomerService) ValidateToken(tokenString string) (string, error) {
 		return "", errors.New("invalid token claims")
 	}
 
+	// Check if it's an access token (not refresh)
+	tokenType, _ := claims["type"].(string)
+	if tokenType == "refresh" {
+		return "", errors.New("cannot use refresh token for authentication")
+	}
+
 	customerID, ok := claims["customer_id"].(string)
 	if !ok {
 		return "", errors.New("invalid customer id in token")
@@ -599,9 +605,10 @@ func (s *CustomerService) insertSubscription(ctx context.Context, tx *sql.Tx, cu
 		nextBillingDate = startDate.AddDate(1, 0, 0)
 	}
 
+	// Use FROM_UNIXTIME for date fields to ensure timezone consistency
 	_, err := tx.ExecContext(ctx,
-		"INSERT INTO subscriptions (customer_id, plan_type, billing_cycle, start_date, next_billing_date) VALUES (?, ?, ?, ?, ?)",
-		customerID, planType, billingCycle, startDate, nextBillingDate)
+		"INSERT INTO subscriptions (customer_id, plan_type, billing_cycle, start_date, next_billing_date) VALUES (?, ?, ?, FROM_UNIXTIME(?), FROM_UNIXTIME(?))",
+		customerID, planType, billingCycle, startDate.Unix(), nextBillingDate.Unix())
 	return err
 }
 
@@ -615,9 +622,10 @@ func (s *CustomerService) insertSubscriptionWithID(ctx context.Context, tx *sql.
 		nextBillingDate = startDate.AddDate(1, 0, 0)
 	}
 
+	// Use FROM_UNIXTIME for date fields to ensure timezone consistency
 	result, err := tx.ExecContext(ctx,
-		"INSERT INTO subscriptions (customer_id, plan_type, billing_cycle, start_date, next_billing_date) VALUES (?, ?, ?, ?, ?)",
-		customerID, planType, billingCycle, startDate, nextBillingDate)
+		"INSERT INTO subscriptions (customer_id, plan_type, billing_cycle, start_date, next_billing_date) VALUES (?, ?, ?, FROM_UNIXTIME(?), FROM_UNIXTIME(?))",
+		customerID, planType, billingCycle, startDate.Unix(), nextBillingDate.Unix())
 	if err != nil {
 		return 0, err
 	}
@@ -780,11 +788,17 @@ func (s *CustomerService) authenticateWithOAuth(ctx context.Context, provider, t
 	return customerID, nil
 }
 
+// generateToken generates a JWT token for a customer (legacy method for backward compatibility)
 func (s *CustomerService) generateToken(ctx context.Context, customerID string) (string, error) {
+	// Calculate expiry time once
+	now := time.Now()
+	expiry := now.Add(24 * time.Hour)
+
 	// Generate JWT token
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"customer_id": customerID,
-		"exp":         time.Now().Add(24 * time.Hour).Unix(),
+		"exp":         expiry.Unix(),
+		"iat":         now.Unix(),
 	})
 
 	tokenString, err := token.SignedString(s.jwtSecret)
@@ -792,11 +806,11 @@ func (s *CustomerService) generateToken(ctx context.Context, customerID string) 
 		return "", err
 	}
 
-	// Store token hash for validation
+	// Store token hash using FROM_UNIXTIME for consistent timezone handling
 	tokenHash := utils.HashToken(tokenString)
 	_, err = s.db.ExecContext(ctx,
-		"INSERT INTO auth_tokens (customer_id, token_hash, expires_at) VALUES (?, ?, ?)",
-		customerID, tokenHash, time.Now().Add(24*time.Hour))
+		"INSERT INTO auth_tokens (customer_id, token_hash, expires_at) VALUES (?, ?, FROM_UNIXTIME(?))",
+		customerID, tokenHash, expiry.Unix())
 	if err != nil {
 		return "", err
 	}
@@ -804,15 +818,14 @@ func (s *CustomerService) generateToken(ctx context.Context, customerID string) 
 	return tokenString, nil
 }
 
+// verifyTokenInDB checks if a token exists and is not expired
 func (s *CustomerService) verifyTokenInDB(customerID, tokenString string) error {
-	log.Printf("Customer ID: %s, Token: %s", customerID, tokenString)
-
 	tokenHash := utils.HashToken(tokenString)
-	log.Printf("Hashed token: %s", tokenHash)
-
 	var exists bool
+
+	// Use UTC_TIMESTAMP() for comparison to ensure timezone consistency
 	err := s.db.QueryRow(
-		"SELECT EXISTS(SELECT 1 FROM auth_tokens WHERE customer_id = ? AND token_hash = ? AND expires_at > NOW())",
+		"SELECT EXISTS(SELECT 1 FROM auth_tokens WHERE customer_id = ? AND token_hash = ? AND (token_type = 'access' OR token_type IS NULL) AND expires_at > NOW())",
 		customerID, tokenHash).Scan(&exists)
 	if err != nil || !exists {
 		return errors.New("token not found or expired")
@@ -832,12 +845,18 @@ func (s *CustomerService) CreateOAuthCustomer(ctx context.Context, name, email, 
 
 // GenerateTokenPair generates both access and refresh tokens
 func (s *CustomerService) GenerateTokenPair(ctx context.Context, customerID string) (string, string, error) {
+	// Calculate expiration times once to ensure consistency
+	now := time.Now()
+	log.Println("Current time for token generation:", now, "In UNIX:", now.Unix())
+	accessExpiry := now.Add(1 * time.Hour)
+	refreshExpiry := now.Add(30 * 24 * time.Hour)
+
 	// Generate access token (1 hour expiry)
 	accessToken := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"customer_id": customerID,
 		"type":        "access",
-		"exp":         time.Now().Add(1 * time.Hour).Unix(),
-		"iat":         time.Now().Unix(),
+		"exp":         accessExpiry.Unix(),
+		"iat":         now.Unix(),
 	})
 
 	accessTokenString, err := accessToken.SignedString(s.jwtSecret)
@@ -849,8 +868,8 @@ func (s *CustomerService) GenerateTokenPair(ctx context.Context, customerID stri
 	refreshToken := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"customer_id": customerID,
 		"type":        "refresh",
-		"exp":         time.Now().Add(30 * 24 * time.Hour).Unix(),
-		"iat":         time.Now().Unix(),
+		"exp":         refreshExpiry.Unix(),
+		"iat":         now.Unix(),
 	})
 
 	refreshTokenString, err := refreshToken.SignedString(s.jwtSecret)
@@ -858,8 +877,8 @@ func (s *CustomerService) GenerateTokenPair(ctx context.Context, customerID stri
 		return "", "", err
 	}
 
-	// Store both tokens
-	if err := s.storeTokens(ctx, customerID, accessTokenString, refreshTokenString); err != nil {
+	// Store both tokens with the same expiry times
+	if err := s.storeTokens(ctx, customerID, accessTokenString, refreshTokenString, accessExpiry, refreshExpiry); err != nil {
 		return "", "", err
 	}
 
@@ -906,10 +925,27 @@ func (s *CustomerService) ValidateRefreshToken(tokenString string) (string, erro
 // InvalidateToken removes a token from the database
 func (s *CustomerService) InvalidateToken(ctx context.Context, customerID, tokenString string) error {
 	tokenHash := utils.HashToken(tokenString)
-	_, err := s.db.ExecContext(ctx,
+	
+	// Delete the token
+	result, err := s.db.ExecContext(ctx,
 		"DELETE FROM auth_tokens WHERE customer_id = ? AND token_hash = ?",
 		customerID, tokenHash)
-	return err
+	if err != nil {
+		return err
+	}
+	
+	// Check if any rows were affected
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	
+	if rowsAffected == 0 {
+		// Token not found, but we don't treat this as an error for logout
+		return nil
+	}
+	
+	return nil
 }
 
 // ValidateOAuthToken validates OAuth token with provider
@@ -1048,12 +1084,12 @@ func (s *CustomerService) ReactivateSubscription(ctx context.Context, customerID
 		nextBillingDate = nextBillingDate.AddDate(1, 0, 0)
 	}
 
-	// Reactivate subscription
+	// Reactivate subscription using FROM_UNIXTIME for timezone consistency
 	_, err = s.db.ExecContext(ctx,
 		`UPDATE subscriptions 
-		 SET status = 'active', next_billing_date = ?, updated_at = NOW() 
+		 SET status = 'active', next_billing_date = FROM_UNIXTIME(?), updated_at = UTC_TIMESTAMP() 
 		 WHERE id = ?`,
-		nextBillingDate, subscription.ID)
+		nextBillingDate.Unix(), subscription.ID)
 	
 	if err != nil {
 		return nil, err
@@ -1138,9 +1174,8 @@ func (s *CustomerService) validateAppleToken(idToken string) (*models.OAuthUserI
 	return nil, errors.New("apple oauth not implemented")
 }
 
-// Helper methods for token storage
-
-func (s *CustomerService) storeTokens(ctx context.Context, customerID, accessToken, refreshToken string) error {
+// storeTokens stores access and refresh tokens with their expiration times using Unix timestamps
+func (s *CustomerService) storeTokens(ctx context.Context, customerID, accessToken, refreshToken string, accessExpiry, refreshExpiry time.Time) error {
 	accessHash := utils.HashToken(accessToken)
 	refreshHash := utils.HashToken(refreshToken)
 	
@@ -1150,18 +1185,18 @@ func (s *CustomerService) storeTokens(ctx context.Context, customerID, accessTok
 	}
 	defer tx.Rollback()
 
-	// Store access token
+	// Store access token using FROM_UNIXTIME for consistent timezone handling
 	_, err = tx.ExecContext(ctx,
-		"INSERT INTO auth_tokens (customer_id, token_hash, token_type, expires_at) VALUES (?, ?, 'access', ?)",
-		customerID, accessHash, time.Now().Add(1*time.Hour))
+		"INSERT INTO auth_tokens (customer_id, token_hash, token_type, expires_at) VALUES (?, ?, 'access', FROM_UNIXTIME(?))",
+		customerID, accessHash, accessExpiry.Unix())
 	if err != nil {
 		return err
 	}
 
-	// Store refresh token
+	// Store refresh token using FROM_UNIXTIME for consistent timezone handling
 	_, err = tx.ExecContext(ctx,
-		"INSERT INTO auth_tokens (customer_id, token_hash, token_type, expires_at) VALUES (?, ?, 'refresh', ?)",
-		customerID, refreshHash, time.Now().Add(30*24*time.Hour))
+		"INSERT INTO auth_tokens (customer_id, token_hash, token_type, expires_at) VALUES (?, ?, 'refresh', FROM_UNIXTIME(?))",
+		customerID, refreshHash, refreshExpiry.Unix())
 	if err != nil {
 		return err
 	}
@@ -1169,18 +1204,21 @@ func (s *CustomerService) storeTokens(ctx context.Context, customerID, accessTok
 	return tx.Commit()
 }
 
+// verifyRefreshTokenInDB checks if a refresh token exists and is not expired
 func (s *CustomerService) verifyRefreshTokenInDB(customerID, tokenString string) error {
 	tokenHash := utils.HashToken(tokenString)
 	var exists bool
 
+	// Use UTC_TIMESTAMP() for comparison to ensure timezone consistency
 	err := s.db.QueryRow(
-		"SELECT EXISTS(SELECT 1 FROM auth_tokens WHERE customer_id = ? AND token_hash = ? AND token_type = 'refresh' AND expires_at > NOW())",
+		"SELECT EXISTS(SELECT 1 FROM auth_tokens WHERE customer_id = ? AND token_hash = ? AND token_type = 'refresh' AND FROM_UNIXTIME(expires_at) > NOW())",
 		customerID, tokenHash).Scan(&exists)
 	if err != nil || !exists {
 		return errors.New("refresh token not found or expired")
 	}
 	return nil
 }
+
 
 // AuthenticateCustomer authenticates a customer and returns their ID
 func (s *CustomerService) AuthenticateCustomer(ctx context.Context, req models.LoginRequest) (string, error) {
