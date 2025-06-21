@@ -3,6 +3,7 @@ package config
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -76,16 +77,35 @@ func Load() *Config {
 		}
 	}
 
-	// Warn if Stripe is not configured
+	// Validate Stripe configuration
 	if cfg.StripeSecretKey == "" {
-		log.Printf("WARNING: Stripe secret key not configured. Payment processing will not work.")
+		log.Printf("ERROR: STRIPE_SECRET_KEY not configured. Stripe operations will fail.")
+		log.Printf("Please set STRIPE_SECRET_KEY environment variable")
+	} else {
+		// Log that Stripe is configured (without exposing the full key)
+		log.Printf("Stripe configured with key: %s***", cfg.StripeSecretKey[:7])
+	}
+
+	if cfg.StripeWebhookSecret == "" {
+		log.Printf("WARNING: STRIPE_WEBHOOK_SECRET not configured. Webhook signature verification will fail.")
+	}
+
+	// Check if any prices are missing
+	missingPrices := []string{}
+	for plan, priceID := range cfg.StripePrices {
+		if priceID == "" {
+			missingPrices = append(missingPrices, fmt.Sprintf("STRIPE_PRICE_%s", strings.ToUpper(plan)))
+		}
+	}
+	if len(missingPrices) > 0 {
+		log.Printf("WARNING: Missing Stripe price IDs: %s", strings.Join(missingPrices, ", "))
 	}
 
 	return cfg
 }
 
 func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
+	if value, exists := os.LookupEnv(key); exists {
 		return value
 	}
 	return defaultValue

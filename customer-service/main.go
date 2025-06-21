@@ -92,7 +92,14 @@ func setupRouter(service *database.CustomerService, stripeClient *stripe.Client,
 	public := router.Group("/api/v3")
 	{
 		// Authentication routes
-		public.POST("/login", h.Login) // Simplified route
+		// Authentication routes
+		auth := public.Group("/auth")
+		{
+			auth.POST("/login", h.Login)
+			auth.POST("/refresh", h.RefreshToken)
+			auth.POST("/oauth", h.OAuthLogin)
+			auth.GET("/oauth/:provider", h.GetOAuthURL)
+		}
 
 		// Customer registration
 		public.POST("/customers", h.CreateCustomer)
@@ -108,6 +115,9 @@ func setupRouter(service *database.CustomerService, stripeClient *stripe.Client,
 	protected := router.Group("/api/v3")
 	protected.Use(middleware.AuthMiddleware(service))
 	{
+		// Authentication
+		protected.POST("/auth/logout", h.Logout)
+
 		// Customer routes
 		protected.GET("/customers/me", h.GetCustomer)
 		protected.PUT("/customers/me", h.UpdateCustomer)

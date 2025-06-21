@@ -27,7 +27,7 @@ build-linux:
 run:
 	$(GOBUILD) -o $(BINARY_NAME) -v
 	@if [ -f .env ]; then \
-		export $(cat .env | grep -v '^\#' | xargs) && ./$(BINARY_NAME); \
+		export $$(cat .env | grep -v '^\#' | xargs) && ./$(BINARY_NAME); \
 	else \
 		./$(BINARY_NAME); \
 	fi

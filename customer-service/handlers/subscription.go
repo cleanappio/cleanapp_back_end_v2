@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"log"
 	"net/http"
 	"strconv"
 
@@ -24,6 +25,7 @@ func (h *Handlers) CreateSubscription(c *gin.Context) {
 
 	subscription, err := h.service.CreateSubscription(c.Request.Context(), customerID, req)
 	if err != nil {
+		log.Printf("CreateSubscription error: %v", err)
 		if err.Error() == "customer already has an active subscription" {
 			c.JSON(http.StatusConflict, models.ErrorResponse{Error: err.Error()})
 			return
@@ -91,6 +93,7 @@ func (h *Handlers) CancelSubscription(c *gin.Context) {
 	}
 
 	if err := h.service.CancelSubscription(c.Request.Context(), customerID); err != nil {
+		log.Printf("CancelSubscription error: %v", err)
 		if err.Error() == "no active subscription found" {
 			c.JSON(http.StatusNotFound, models.ErrorResponse{Error: err.Error()})
 			return

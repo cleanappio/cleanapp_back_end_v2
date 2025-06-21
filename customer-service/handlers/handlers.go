@@ -122,8 +122,6 @@ func (h *Handlers) Login(c *gin.Context) {
 		return
 	}
 
-	log.Println("Loggied in: token:", token, "refreshToken:", refreshToken)
-
 	c.JSON(http.StatusOK, models.TokenResponse{
 		Token:        token,
 		RefreshToken: refreshToken,

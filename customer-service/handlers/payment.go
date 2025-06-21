@@ -10,7 +10,7 @@ import (
 
 	"customer-service/models"
 	"github.com/gin-gonic/gin"
-	"github.com/stripe/stripe-go/v76"
+	"github.com/stripe/stripe-go/v82"
 )
 
 // GetPaymentMethods retrieves customer's payment methods

@@ -13,7 +13,7 @@ import (
 	"customer-service/utils/encryption"
 	"customer-service/utils/stripe"
 	"github.com/golang-jwt/jwt/v5"
-	stripelib "github.com/stripe/stripe-go/v76"
+	stripelib "github.com/stripe/stripe-go/v82"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -148,7 +148,7 @@ func (s *CustomerService) CreateSubscription(ctx context.Context, customerID str
 		 VALUES (?, ?, ?, ?, ?, ?, FROM_UNIXTIME(?), FROM_UNIXTIME(?))`,
 		customerID, req.PlanType, req.BillingCycle, stripeSub.Status,
 		stripeSub.ID, stripeSub.Items.Data[0].Price.ID,
-		stripeSub.CurrentPeriodStart, stripeSub.CurrentPeriodEnd)
+		stripeSub.Items.Data[0].CurrentPeriodStart, stripeSub.Items.Data[0].CurrentPeriodEnd)
 	if err != nil {
 		return nil, err
 	}
@@ -170,8 +170,8 @@ func (s *CustomerService) CreateSubscription(ctx context.Context, customerID str
 		PlanType:        req.PlanType,
 		BillingCycle:    req.BillingCycle,
 		Status:          string(stripeSub.Status),
-		StartDate:       time.Unix(stripeSub.CurrentPeriodStart, 0),
-		NextBillingDate: time.Unix(stripeSub.CurrentPeriodEnd, 0),
+		StartDate:       time.Unix(stripeSub.Items.Data[0].CurrentPeriodStart, 0),
+		NextBillingDate: time.Unix(stripeSub.Items.Data[0].CurrentPeriodEnd, 0),
 	}, nil
 }
 
@@ -207,7 +207,7 @@ func (s *CustomerService) GetSubscription(ctx context.Context, customerID string
 // UpdateSubscription updates an existing subscription
 func (s *CustomerService) UpdateSubscription(ctx context.Context, customerID string, req models.UpdateSubscriptionRequest) error {
 	// Get current subscription
-	var stripeSubID string
+	var stripeSubID sql.NullString
 	err := s.db.QueryRowContext(ctx,
 		"SELECT stripe_subscription_id FROM subscriptions WHERE customer_id = ? AND status = 'active'",
 		customerID).Scan(&stripeSubID)
@@ -219,7 +219,7 @@ func (s *CustomerService) UpdateSubscription(ctx context.Context, customerID str
 	}
 
 	// Update subscription in Stripe
-	stripeSub, err := s.stripeClient.UpdateSubscription(stripeSubID, req.PlanType, req.BillingCycle)
+	stripeSub, err := s.stripeClient.UpdateSubscription(stripeSubID.String, req.PlanType, req.BillingCycle)
 	if err != nil {
 		return fmt.Errorf("failed to update Stripe subscription: %w", err)
 	}
@@ -230,7 +230,7 @@ func (s *CustomerService) UpdateSubscription(ctx context.Context, customerID str
 		 SET plan_type = ?, billing_cycle = ?, next_billing_date = FROM_UNIXTIME(?), 
 		     stripe_price_id = ?, updated_at = NOW() 
 		 WHERE customer_id = ? AND status = 'active'`,
-		req.PlanType, req.BillingCycle, stripeSub.CurrentPeriodEnd,
+		req.PlanType, req.BillingCycle, stripeSub.Items.Data[0].CurrentPeriodEnd,
 		stripeSub.Items.Data[0].Price.ID, customerID)
 	
 	return err
@@ -239,7 +239,7 @@ func (s *CustomerService) UpdateSubscription(ctx context.Context, customerID str
 // CancelSubscription cancels the customer's active subscription
 func (s *CustomerService) CancelSubscription(ctx context.Context, customerID string) error {
 	// Get subscription
-	var stripeSubID string
+	var stripeSubID sql.NullString
 	err := s.db.QueryRowContext(ctx,
 		"SELECT stripe_subscription_id FROM subscriptions WHERE customer_id = ? AND status = 'active'",
 		customerID).Scan(&stripeSubID)
@@ -251,7 +251,7 @@ func (s *CustomerService) CancelSubscription(ctx context.Context, customerID str
 	}
 
 	// Cancel subscription in Stripe
-	stripeSub, err := s.stripeClient.CancelSubscription(stripeSubID)
+	stripeSub, err := s.stripeClient.CancelSubscription(stripeSubID.String)
 	if err != nil {
 		return fmt.Errorf("failed to cancel Stripe subscription: %w", err)
 	}
@@ -1265,7 +1265,7 @@ func (s *CustomerService) AuthenticateCustomer(ctx context.Context, req models.L
 func (s *CustomerService) ProcessSuccessfulPayment(ctx context.Context, paymentIntent *stripelib.PaymentIntent) error {
 	// Extract customer ID from metadata or invoice
 	customerID := paymentIntent.Metadata["customer_id"]
-	if customerID == "" && paymentIntent.Invoice != nil {
+	if customerID == "" {
 		// Get invoice and extract customer
 		// This would require expanding the invoice in the webhook
 		return nil // For now, skip if no customer ID
@@ -1287,7 +1287,12 @@ func (s *CustomerService) ProcessSuccessfulPayment(ctx context.Context, paymentI
 
 // ProcessInvoicePayment processes an invoice payment from Stripe
 func (s *CustomerService) ProcessInvoicePayment(ctx context.Context, invoice *stripelib.Invoice) error {
-	if invoice.Subscription == nil {
+	var subscr *stripelib.Subscription
+	if invoice.Parent != nil && invoice.Parent.Type == stripelib.InvoiceParentTypeSubscriptionDetails {
+		subscr = invoice.Parent.SubscriptionDetails.Subscription
+	}
+
+	if subscr == nil {
 		return nil // Not a subscription invoice
 	}
 
@@ -1304,25 +1309,29 @@ func (s *CustomerService) ProcessInvoicePayment(ctx context.Context, invoice *st
 	var subscriptionID int
 	err = s.db.QueryRowContext(ctx,
 		"SELECT id FROM subscriptions WHERE stripe_subscription_id = ?",
-		invoice.Subscription.ID).Scan(&subscriptionID)
+		subscr.ID).Scan(&subscriptionID)
 	if err != nil {
 		return err
 	}
 
 	// Record payment in billing history
+	var pID string
+	if len(invoice.Payments.Data) > 0 {
+		pID = invoice.Payments.Data[0].ID
+	}
 	_, err = s.db.ExecContext(ctx,
 		`INSERT INTO billing_history 
 		(customer_id, subscription_id, stripe_payment_intent_id, stripe_invoice_id, 
 		 amount, currency, status, payment_date) 
 		VALUES (?, ?, ?, ?, ?, ?, 'completed', FROM_UNIXTIME(?))`,
-		customerID, subscriptionID, invoice.PaymentIntent.ID, invoice.ID,
+		customerID, subscriptionID, pID, invoice.ID,
 		float64(invoice.AmountPaid)/100, invoice.Currency, invoice.StatusTransitions.PaidAt)
 	
 	// Update next billing date
-	if err == nil && invoice.Subscription != nil {
+	if err == nil {
 		_, err = s.db.ExecContext(ctx,
 			"UPDATE subscriptions SET next_billing_date = FROM_UNIXTIME(?) WHERE id = ?",
-			invoice.Subscription.CurrentPeriodEnd, subscriptionID)
+			subscr.Items.Data[0].CurrentPeriodEnd, subscriptionID)
 	}
 	
 	return err
@@ -1334,7 +1343,7 @@ func (s *CustomerService) UpdateSubscriptionStatus(ctx context.Context, subscrip
 		`UPDATE subscriptions 
 		 SET status = ?, next_billing_date = FROM_UNIXTIME(?), updated_at = NOW() 
 		 WHERE stripe_subscription_id = ?`,
-		subscription.Status, subscription.CurrentPeriodEnd, subscription.ID)
+		subscription.Status, subscription.Items.Data[0].CurrentPeriodEnd, subscription.ID)
 	return err
 }
 
@@ -1456,7 +1465,7 @@ func (s *CustomerService) SyncSubscriptionFromStripe(ctx context.Context, stripe
 		cancel_at_period_end = VALUES(cancel_at_period_end),
 		updated_at = NOW()`,
 		customerID, stripeSub.ID, stripeSub.Items.Data[0].Price.ID, planType, billingCycle,
-		stripeSub.Status, stripeSub.CurrentPeriodStart, stripeSub.CurrentPeriodEnd,
+		stripeSub.Status, stripeSub.Items.Data[0].CurrentPeriodStart, stripeSub.Items.Data[0].CurrentPeriodEnd,
 		nilableTimestamp(stripeSub.TrialEnd), stripeSub.CancelAtPeriodEnd)
 	
 	// Log sync operation
@@ -1502,7 +1511,12 @@ func (s *CustomerService) ProcessFailedPayment(ctx context.Context, paymentInten
 
 // ProcessFailedInvoicePayment processes a failed invoice payment
 func (s *CustomerService) ProcessFailedInvoicePayment(ctx context.Context, invoice *stripelib.Invoice) error {
-	if invoice.Subscription == nil {
+	var subscr *stripelib.Subscription
+	if invoice.Parent != nil && invoice.Parent.Type == stripelib.InvoiceParentTypeSubscriptionDetails {
+		subscr = invoice.Parent.SubscriptionDetails.Subscription
+	}
+
+	if subscr == nil {
 		return nil // Not a subscription invoice
 	}
 
@@ -1516,15 +1530,13 @@ func (s *CustomerService) ProcessFailedInvoicePayment(ctx context.Context, invoi
 	}
 
 	// Update subscription status if needed
-	if invoice.Subscription != nil {
-		_, err = s.db.ExecContext(ctx,
-			`UPDATE subscriptions 
-			 SET status = 'past_due', updated_at = NOW() 
-			 WHERE stripe_subscription_id = ?`,
-			invoice.Subscription.ID)
-		if err != nil {
-			log.Printf("Failed to update subscription status: %v", err)
-		}
+	_, err = s.db.ExecContext(ctx,
+		`UPDATE subscriptions 
+			SET status = 'past_due', updated_at = NOW() 
+			WHERE stripe_subscription_id = ?`,
+		subscr)
+	if err != nil {
+		log.Printf("Failed to update subscription status: %v", err)
 	}
 
 	// Record failed payment
@@ -1541,7 +1553,7 @@ func (s *CustomerService) ProcessFailedInvoicePayment(ctx context.Context, invoi
 		WHERE s.customer_id = ? AND s.stripe_subscription_id = ?
 		LIMIT 1`,
 		customerID, invoice.ID, float64(invoice.AmountDue)/100, invoice.Currency, 
-		failureReason, customerID, invoice.Subscription.ID)
+		failureReason, customerID, subscr.ID)
 	
 	return err
 }
