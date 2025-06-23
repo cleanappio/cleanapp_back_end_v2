@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     customer_id VARCHAR(256) NOT NULL,
     plan_type ENUM('base', 'advanced', 'exclusive') NOT NULL,
     billing_cycle ENUM('monthly', 'annual') NOT NULL,
-    status ENUM('active', 'suspended', 'cancelled') DEFAULT 'active',
+    status ENUM('active', 'incomplete', 'suspended', 'cancelled') DEFAULT 'active',
     stripe_subscription_id VARCHAR(256),
     stripe_price_id VARCHAR(256),
     start_date DATE NOT NULL,
@@ -489,6 +489,60 @@ var Migrations = []Migration{
         -- Note: We don't remove Stripe ID columns as they may contain important data
         -- and were potentially added in earlier migrations
     `,
+	},
+	{
+		Version: 5,
+		Name:    "change_subscription_status_enum_field",
+		Up: `
+        SET @tablename = 'subscriptions';
+
+        SET @columnname = 'status';
+        SET @preparedStatement = (SELECT IF(
+						(SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE INDEX_NAME = 'idx_stripe_subscription'
+            'ALTER TABLE subscriptions CHANGE COLUMN status status ENUM(''active'', ''incomplete'', ''suspended'', ''cancelled'') DEFAULT ''active'';'
+        );
+        PREPARE alterIfNotExists FROM @preparedStatement;
+        EXECUTE alterIfNotExists;
+        DEALLOCATE PREPARE alterIfNotExists;
+		`,
+		Down: `
+				ALTER TABLE subscriptions CHANGE COLUMN status status ENUM('active', 'suspended', 'cancelled') DEFAULT 'active';
+		`,
+	},
+	{
+		Version: 6,
+		Name:    "add_subscription_stripe_id_unique_index",
+		Up: `
+				SET @dbname = DATABASE();
+				SET @tablename = 'subscriptions';
+				SET @indexname = 'idx_stripe_subscription';
+				SET @preparedStatement = (SELECT IF(
+					(SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS 
+            WHERE TABLE_SCHEMA = @dbname
+            AND TABLE_NAME = @tablename
+            AND INDEX_NAME = @indexname) = 1,
+					'ALTER TABLE subscriptions DROP INDEX idx_stripe_subscription;',
+					'SELECT 1;'
+				));
+				PREPARE alterIfNotExists FROM @preparedStatement;
+				EXECUTE alterIfNotExists;
+				DEALLOCATE PREPARE alterIfNotExists;
+
+				SET @preparedStatement = (SELECT IF(
+					(SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS
+						WHERE TABLE_SCHEMA = @dbname
+						AND TABLE_NAME = @tablename
+						AND INDEX_NAME = @indexname) = 0,
+					'ALTER TABLE subscriptions ADD UNIQUE INDEX idx_stripe_subscription(stripe_subscription_id);',
+					'SELECT 1;'
+				));
+				PREPARE alterIfNotExists FROM @preparedStatement;
+				EXECUTE alterIfNotExists;
+				DEALLOCATE PREPARE alterIfNotExists;
+			`,
+		Down: `
+				ALTER TABLE subscriptions DROP INDEX IF EXISTS idx_stripe_subscription;
+		`,
 	},
 }
 
