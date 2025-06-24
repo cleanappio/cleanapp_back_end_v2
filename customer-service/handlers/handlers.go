@@ -84,7 +84,6 @@ func (h *Handlers) DeleteCustomer(c *gin.Context) {
 
 // GetCustomer retrieves customer information
 func (h *Handlers) GetCustomer(c *gin.Context) {
-	log.Println(c.Request)
 	customerID := c.GetString("customer_id")
 	if customerID == "" {
 		c.JSON(http.StatusUnauthorized, models.ErrorResponse{Error: "unauthorized"})

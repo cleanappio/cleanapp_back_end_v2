@@ -6,6 +6,8 @@ import (
 	"customer-service/config"
 	"github.com/stripe/stripe-go/v82"
 	"github.com/stripe/stripe-go/v82/customer"
+	"github.com/stripe/stripe-go/v82/invoice"
+
 	"github.com/stripe/stripe-go/v82/paymentmethod"
 	"github.com/stripe/stripe-go/v82/subscription"
 	"github.com/stripe/stripe-go/v82/webhook"
@@ -54,6 +56,7 @@ func (c *Client) CreateCustomer(email, name, customerID string) (*stripe.Custome
 
 // AttachPaymentMethod attaches a payment method to a customer
 func (c *Client) AttachPaymentMethod(paymentMethodID, customerID string) (*stripe.PaymentMethod, error) {
+	log.Printf("Attaching payment method %s to customer %s", paymentMethodID, customerID)
 	params := &stripe.PaymentMethodAttachParams{
 		Customer: stripe.String(customerID),
 	}
@@ -82,6 +85,7 @@ func (c *Client) DetachPaymentMethod(paymentMethodID string) (*stripe.PaymentMet
 
 // SetDefaultPaymentMethod sets the default payment method for a customer
 func (c *Client) SetDefaultPaymentMethod(customerID, paymentMethodID string) error {
+	log.Printf("Setting default payment method %s for customer %s", paymentMethodID, customerID)
 	params := &stripe.CustomerParams{
 		InvoiceSettings: &stripe.CustomerInvoiceSettingsParams{
 			DefaultPaymentMethod: stripe.String(paymentMethodID),
@@ -98,7 +102,7 @@ func (c *Client) SetDefaultPaymentMethod(customerID, paymentMethodID string) err
 }
 
 // CreateSubscription creates a subscription in Stripe
-func (c *Client) CreateSubscription(customerID string, planType, billingCycle string) (*stripe.Subscription, error) {
+func (c *Client) CreateSubscription(customerID, planType, billingCycle, paymentMethodID string) (*stripe.Subscription, error) {
 	priceKey := fmt.Sprintf("%s_%s", planType, billingCycle)
 	priceID := c.config.StripePrices[priceKey]
 	
@@ -115,21 +119,50 @@ func (c *Client) CreateSubscription(customerID string, planType, billingCycle st
 				Price: stripe.String(priceID),
 			},
 		},
-		PaymentBehavior: stripe.String("default_incomplete"),
-		Expand:          []*string{stripe.String("latest_invoice.payment_intent")},
+		PaymentBehavior: stripe.String("error_if_incomplete"),
+		Expand:          []*string{
+			stripe.String("latest_invoice"),
+			stripe.String("latest_invoice.payment_intent"),
+		},
+		PaymentSettings: &stripe.SubscriptionPaymentSettingsParams{
+			PaymentMethodOptions: nil,
+			SaveDefaultPaymentMethod: stripe.String("on_subscription"),
+		},
+		DefaultPaymentMethod: &paymentMethodID,
 		Metadata: map[string]string{
 			"plan_type":     planType,
 			"billing_cycle": billingCycle,
 		},
 	}
 	
-	result, err := subscription.New(params)
+	resultSubscr, err := subscription.New(params)
 	if err != nil {
 		log.Printf("Failed to create subscription: %v", err)
 		return nil, fmt.Errorf("failed to create subscription: %w", err)
 	}
 	
-	return result, nil
+	// DEBUG -- verify payments.
+	invParams := &stripe.InvoiceListParams{
+			Subscription: &resultSubscr.ID,
+	}
+	it := invoice.List(invParams)
+	for it.Next() {
+			inv := it.Invoice()
+			for _, pay := range inv.Payments.Data {
+				if pay.Payment.Type == stripe.InvoicePaymentPaymentTypePaymentIntent {
+					fmt.Println("Linked PaymentIntent:", pay.Payment.PaymentIntent)
+					fmt.Printf("Subscription ID: %s\n", resultSubscr.ID)
+					fmt.Printf("PaymentIntent Status: %s\n", pay.Status)
+					if pay.Status != "succeeded" {
+						log.Fatalf("Initial payment failed. PaymentIntent status: %s", pay.Status)
+					}
+				}
+			}
+			fmt.Printf("Invoice %s: amount due = %d, status = %s\n",
+					inv.ID, inv.AmountDue, inv.Status)
+	}
+
+	return resultSubscr, nil
 }
 
 // UpdateSubscription updates a subscription in Stripe

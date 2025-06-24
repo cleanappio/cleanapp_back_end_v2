@@ -11,6 +11,7 @@ import (
 	"customer-service/models"
 	"github.com/gin-gonic/gin"
 	"github.com/stripe/stripe-go/v82"
+	"github.com/stripe/stripe-go/v82/invoice"
 )
 
 // GetPaymentMethods retrieves customer's payment methods
@@ -154,6 +155,8 @@ func (h *Handlers) ProcessPayment(c *gin.Context) {
 		// Continue processing anyway, but log the error
 	}
 
+	log.Printf("Processing webhook event: %v", event)
+
 	// Process the event
 	var processingError error
 	switch event.Type {
@@ -174,11 +177,18 @@ func (h *Handlers) ProcessPayment(c *gin.Context) {
 		}
 
 	case "invoice.payment_succeeded":
-		var invoice stripe.Invoice
-		if err := json.Unmarshal(event.Data.Raw, &invoice); err != nil {
+		var inv stripe.Invoice
+		if err := json.Unmarshal(event.Data.Raw, &inv); err != nil {
 			processingError = fmt.Errorf("failed to parse invoice: %w", err)
 		} else {
-			processingError = h.service.ProcessInvoicePayment(c.Request.Context(), &invoice)
+			inv, err := invoice.Get(inv.ID, &stripe.InvoiceParams{
+				Expand: []*string{stripe.String("payments")},
+			})
+			if err != nil {
+					log.Printf("Failed to retrieve invoice %s: %v", inv.ID, err)
+			}
+
+			processingError = h.service.ProcessInvoicePayment(c.Request.Context(), inv)
 		}
 
 	case "invoice.payment_failed":

@@ -136,7 +136,7 @@ func (s *CustomerService) CreateSubscription(ctx context.Context, customerID str
 	}
 
 	// Create subscription in Stripe
-	stripeSub, err := s.stripeClient.CreateSubscription(stripeCustomerID, req.PlanType, req.BillingCycle)
+	stripeSub, err := s.stripeClient.CreateSubscription(stripeCustomerID, req.PlanType, req.BillingCycle, req.StripePaymentMethodID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Stripe subscription: %w", err)
 	}
