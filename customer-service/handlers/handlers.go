@@ -256,7 +256,7 @@ func (h *Handlers) GetOAuthURL(c *gin.Context) {
 	})
 }
 
-// ReactivateSubscription reactivates a cancelled subscription
+// ReactivateSubscription reactivates a canceled subscription
 func (h *Handlers) ReactivateSubscription(c *gin.Context) {
 	customerID := c.GetString("customer_id")
 	if customerID == "" {
@@ -266,7 +266,7 @@ func (h *Handlers) ReactivateSubscription(c *gin.Context) {
 
 	subscription, err := h.service.ReactivateSubscription(c.Request.Context(), customerID)
 	if err != nil {
-		if err.Error() == "no cancelled subscription found" {
+		if err.Error() == "no canceled subscription found" {
 			c.JSON(http.StatusNotFound, models.ErrorResponse{Error: err.Error()})
 			return
 		}

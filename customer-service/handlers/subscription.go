@@ -102,7 +102,7 @@ func (h *Handlers) CancelSubscription(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, models.MessageResponse{Message: "subscription cancelled successfully"})
+	c.JSON(http.StatusOK, models.MessageResponse{Message: "subscription canceled successfully"})
 }
 
 // GetBillingHistory retrieves the customer's billing history

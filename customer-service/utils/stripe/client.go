@@ -6,7 +6,6 @@ import (
 	"customer-service/config"
 	"github.com/stripe/stripe-go/v82"
 	"github.com/stripe/stripe-go/v82/customer"
-	"github.com/stripe/stripe-go/v82/invoice"
 
 	"github.com/stripe/stripe-go/v82/paymentmethod"
 	"github.com/stripe/stripe-go/v82/subscription"
@@ -141,27 +140,6 @@ func (c *Client) CreateSubscription(customerID, planType, billingCycle, paymentM
 		return nil, fmt.Errorf("failed to create subscription: %w", err)
 	}
 	
-	// DEBUG -- verify payments.
-	invParams := &stripe.InvoiceListParams{
-			Subscription: &resultSubscr.ID,
-	}
-	it := invoice.List(invParams)
-	for it.Next() {
-			inv := it.Invoice()
-			for _, pay := range inv.Payments.Data {
-				if pay.Payment.Type == stripe.InvoicePaymentPaymentTypePaymentIntent {
-					fmt.Println("Linked PaymentIntent:", pay.Payment.PaymentIntent)
-					fmt.Printf("Subscription ID: %s\n", resultSubscr.ID)
-					fmt.Printf("PaymentIntent Status: %s\n", pay.Status)
-					if pay.Status != "succeeded" {
-						log.Fatalf("Initial payment failed. PaymentIntent status: %s", pay.Status)
-					}
-				}
-			}
-			fmt.Printf("Invoice %s: amount due = %d, status = %s\n",
-					inv.ID, inv.AmountDue, inv.Status)
-	}
-
 	return resultSubscr, nil
 }
 
@@ -223,9 +201,9 @@ func (c *Client) CancelSubscription(subscriptionID string) (*stripe.Subscription
 	return result, nil
 }
 
-// ReactivateSubscription reactivates a cancelled subscription
+// ReactivateSubscription reactivates a canceled subscription
 func (c *Client) ReactivateSubscription(subscriptionID string) (*stripe.Subscription, error) {
-	// For a cancelled subscription that hasn't ended yet, we can update it
+	// For a canceled subscription that hasn't ended yet, we can update it
 	params := &stripe.SubscriptionParams{
 		CancelAtPeriodEnd: stripe.Bool(false),
 	}

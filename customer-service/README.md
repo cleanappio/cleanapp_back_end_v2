@@ -278,7 +278,7 @@ Authorization: Bearer <token>
 - A customer can be created without a subscription
 - Each customer can have only one active subscription at a time
 - Payment information is required when creating a subscription
-- Subscriptions can be updated or cancelled independently
+- Subscriptions can be updated or canceled independently
 
 ### Pricing Tiers
 - **Base**: Entry-level features

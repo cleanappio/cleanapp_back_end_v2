@@ -257,6 +257,7 @@ func (s *CustomerService) CancelSubscription(ctx context.Context, customerID str
 	}
 
 	// Update subscription in database
+	log.Printf("Updating subscription status to %s for customer %s", stripeSub.Status, customerID)
 	_, err = s.db.ExecContext(ctx,
 		`UPDATE subscriptions 
 		 SET status = ?, updated_at = NOW() 
@@ -337,7 +338,7 @@ func (s *CustomerService) GetPaymentMethods(ctx context.Context, customerID stri
 		       last_four, brand, exp_month, exp_year, cardholder_name, is_default
 		FROM payment_methods
 		WHERE customer_id = ?
-		ORDER BY is_default DESC, created_at DESC
+		ORDER BY created_at DESC
 	`
 	
 	rows, err := s.db.QueryContext(ctx, query, customerID)
@@ -1081,14 +1082,14 @@ func (s *CustomerService) GenerateOAuthURL(provider string) (string, string, err
 	}
 }
 
-// ReactivateSubscription reactivates a cancelled subscription
+// ReactivateSubscription reactivates a canceled subscription
 func (s *CustomerService) ReactivateSubscription(ctx context.Context, customerID string) (*models.Subscription, error) {
-	// Check for cancelled subscription
+	// Check for canceled subscription
 	var subscription models.Subscription
 	err := s.db.QueryRowContext(ctx,
 		`SELECT id, customer_id, plan_type, billing_cycle, status, start_date, next_billing_date 
 		 FROM subscriptions 
-		 WHERE customer_id = ? AND status = 'cancelled' 
+		 WHERE customer_id = ? AND status = 'canceled' 
 		 ORDER BY updated_at DESC 
 		 LIMIT 1`,
 		customerID).Scan(
@@ -1102,7 +1103,7 @@ func (s *CustomerService) ReactivateSubscription(ctx context.Context, customerID
 	
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, errors.New("no cancelled subscription found")
+			return nil, errors.New("no canceled subscription found")
 		}
 		return nil, err
 	}
@@ -1296,9 +1297,15 @@ func (s *CustomerService) ProcessInvoicePayment(ctx context.Context, invoice *st
 		return nil // Not a subscription invoice
 	}
 
+	// Retrieve full subscription details
+	subscr, err := s.stripeClient.GetSubscription(subscr.ID)
+	if err != nil {
+		return fmt.Errorf("failed to retrieve subscription: %w", err)
+	}
+
 	// Get customer ID from Stripe customer ID
 	var customerID string
-	err := s.db.QueryRowContext(ctx,
+	err = s.db.QueryRowContext(ctx,
 		"SELECT id FROM customers WHERE stripe_customer_id = ?",
 		invoice.Customer.ID).Scan(&customerID)
 	if err != nil {
@@ -1351,7 +1358,7 @@ func (s *CustomerService) UpdateSubscriptionStatus(ctx context.Context, subscrip
 func (s *CustomerService) HandleSubscriptionDeletion(ctx context.Context, subscription *stripelib.Subscription) error {
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE subscriptions 
-		 SET status = 'cancelled', updated_at = NOW() 
+		 SET status = 'canceled', updated_at = NOW() 
 		 WHERE stripe_subscription_id = ?`,
 		subscription.ID)
 	return err

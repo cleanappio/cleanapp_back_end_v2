@@ -497,10 +497,7 @@ var Migrations = []Migration{
         SET @tablename = 'subscriptions';
 
         SET @columnname = 'status';
-        SET @preparedStatement = (SELECT IF(
-						(SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE INDEX_NAME = 'idx_stripe_subscription'
-            'ALTER TABLE subscriptions CHANGE COLUMN status status ENUM(''active'', ''incomplete'', ''suspended'', ''cancelled'') DEFAULT ''active'';'
-        );
+        SET @preparedStatement = (SELECT 'ALTER TABLE subscriptions CHANGE COLUMN status status ENUM(''active'', ''incomplete'', ''suspended'', ''cancelled'') DEFAULT ''active'';');
         PREPARE alterIfNotExists FROM @preparedStatement;
         EXECUTE alterIfNotExists;
         DEALLOCATE PREPARE alterIfNotExists;
@@ -542,6 +539,22 @@ var Migrations = []Migration{
 			`,
 		Down: `
 				ALTER TABLE subscriptions DROP INDEX IF EXISTS idx_stripe_subscription;
+		`,
+	},
+	{
+		Version: 7,
+		Name:    "fix_subscription_status_enum",
+		Up: `
+        SET @tablename = 'subscriptions';
+
+        SET @columnname = 'status';
+        SET @preparedStatement = (SELECT 'ALTER TABLE subscriptions CHANGE COLUMN status status ENUM(''active'', ''suspended'', ''canceled'') DEFAULT ''active'';');
+        PREPARE alterIfNotExists FROM @preparedStatement;
+        EXECUTE alterIfNotExists;
+        DEALLOCATE PREPARE alterIfNotExists;
+		`,
+		Down: `
+				ALTER TABLE subscriptions CHANGE COLUMN status status ENUM('active', 'incomplete', 'suspended', 'cancelled') DEFAULT 'active';
 		`,
 	},
 }
