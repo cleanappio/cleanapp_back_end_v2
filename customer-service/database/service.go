@@ -99,9 +99,53 @@ func (s *CustomerService) CreateSubscription(ctx context.Context, customerID str
 		return nil, errors.New("customer not found")
 	}
 
+	// Start transaction for all database operations
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	// Get or create Stripe customer ID within the transaction
+	stripeCustomerID, err := s.ensureStripeCustomerTx(ctx, tx, customer)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Stripe customer: %w", err)
+	}
+
+	// Check if customer already has an active subscription within the transaction
+	var existingStripeSubID sql.NullString
+	err = tx.QueryRowContext(ctx, 
+		"SELECT stripe_subscription_id FROM subscriptions WHERE customer_id = ? AND status = 'active'", 
+		customerID).Scan(&existingStripeSubID)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, err
+	}
+
+	// If there's an existing active subscription, cancel it first
+	if err != sql.ErrNoRows && existingStripeSubID.Valid && existingStripeSubID.String != "" {
+		log.Printf("Canceling existing subscription %s for customer %s before creating new one", existingStripeSubID.String, customerID)
+		
+		// Cancel the existing subscription in Stripe
+		_, err := s.stripeClient.CancelSubscription(existingStripeSubID.String)
+		if err != nil {
+			// Log the error but continue - the subscription might already be canceled in Stripe
+			log.Printf("Warning: Failed to cancel existing Stripe subscription %s: %v", existingStripeSubID.String, err)
+		}
+		
+		// Update the existing subscription status in database (within transaction)
+		_, err = tx.ExecContext(ctx,
+			`UPDATE subscriptions 
+			 SET status = 'canceled', updated_at = NOW() 
+			 WHERE customer_id = ? AND status = 'active'`,
+			customerID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to cancel existing subscription: %w", err)
+		}
+	}
+
 	// Check if customer already has an active subscription
 	var activeCount int
-	err = s.db.QueryRowContext(ctx, 
+	err = tx.QueryRowContext(ctx, 
 		"SELECT COUNT(*) FROM subscriptions WHERE customer_id = ? AND status = 'active'", 
 		customerID).Scan(&activeCount)
 	if err != nil {
@@ -110,19 +154,6 @@ func (s *CustomerService) CreateSubscription(ctx context.Context, customerID str
 	if activeCount > 0 {
 		return nil, errors.New("customer already has an active subscription")
 	}
-
-	// Get or create Stripe customer ID
-	stripeCustomerID, err := s.ensureStripeCustomer(ctx, customer)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Stripe customer: %w", err)
-	}
-
-	// Start transaction
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
 
 	// Attach payment method to customer in Stripe
 	pm, err := s.stripeClient.AttachPaymentMethod(req.StripePaymentMethodID, stripeCustomerID)
@@ -714,6 +745,37 @@ func (s *CustomerService) ensureStripeCustomer(ctx context.Context, customer *mo
 	
 	// Update customer with Stripe customer ID
 	_, err = s.db.ExecContext(ctx,
+		"UPDATE customers SET stripe_customer_id = ? WHERE id = ?",
+		stripeCustomer.ID, customer.ID)
+	if err != nil {
+		return "", err
+	}
+
+	return stripeCustomer.ID, nil
+}
+
+func (s *CustomerService) ensureStripeCustomerTx(ctx context.Context, tx *sql.Tx, customer *models.Customer) (string, error) {
+	// Check if customer already has a Stripe customer ID
+	var stripeCustomerID sql.NullString
+	err := tx.QueryRowContext(ctx,
+		"SELECT stripe_customer_id FROM customers WHERE id = ?",
+		customer.ID).Scan(&stripeCustomerID)
+	if err != nil {
+		return "", err
+	}
+
+	if stripeCustomerID.Valid && stripeCustomerID.String != "" {
+		return stripeCustomerID.String, nil
+	}
+
+	// Create customer in Stripe
+	stripeCustomer, err := s.stripeClient.CreateCustomer(customer.Email, customer.Name, customer.ID)
+	if err != nil {
+		return "", fmt.Errorf("failed to create Stripe customer: %w", err)
+	}
+	
+	// Update customer with Stripe customer ID
+	_, err = tx.ExecContext(ctx,
 		"UPDATE customers SET stripe_customer_id = ? WHERE id = ?",
 		stripeCustomer.ID, customer.ID)
 	if err != nil {
