@@ -154,7 +154,7 @@ func (s *CustomerService) CreateSubscription(ctx context.Context, customerID str
 	}
 
 	// Store payment method in database
-	if err := s.storePaymentMethodFromStripe(ctx, tx, customerID, stripeCustomerID, pm); err != nil {
+	if err := s.storePaymentMethodFromStripe(ctx, tx, customerID, stripeCustomerID, pm, true); err != nil {
 		return nil, err
 	}
 
@@ -416,7 +416,7 @@ func (s *CustomerService) AddPaymentMethod(ctx context.Context, customerID strin
 	}
 
 	// Store payment method in database
-	if err := s.storePaymentMethodFromStripe(ctx, tx, customerID, stripeCustomerID, pm); err != nil {
+	if err := s.storePaymentMethodFromStripe(ctx, tx, customerID, stripeCustomerID, pm, isDefault); err != nil {
 		return err
 	}
 
@@ -1364,7 +1364,7 @@ func (s *CustomerService) HandleSubscriptionDeletion(ctx context.Context, subscr
 	return err
 }
 
-func (s *CustomerService) storePaymentMethodFromStripe(ctx context.Context, tx *sql.Tx, customerID, stripeCustomerID string, pm *stripelib.PaymentMethod) error {
+func (s *CustomerService) storePaymentMethodFromStripe(ctx context.Context, tx *sql.Tx, customerID, stripeCustomerID string, pm *stripelib.PaymentMethod, isDefault bool) error {
 	// Check if payment method already exists
 	var exists bool
 	err := tx.QueryRowContext(ctx,
@@ -1399,7 +1399,7 @@ func (s *CustomerService) storePaymentMethodFromStripe(ctx context.Context, tx *
 		 exp_month, exp_year, cardholder_name, is_default) 
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		customerID, pm.ID, stripeCustomerID, lastFour, brand, 
-		expMonth, expYear, cardholderName, true)
+		expMonth, expYear, cardholderName, isDefault)
 	return err
 }
 
