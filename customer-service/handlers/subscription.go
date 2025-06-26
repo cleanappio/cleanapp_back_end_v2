@@ -19,7 +19,6 @@ func (h *Handlers) CreateSubscription(c *gin.Context) {
 
 	var req models.CreateSubscriptionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		log.Printf("CreateSubscription bind error: %v", err)
 		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
 		return
 	}
