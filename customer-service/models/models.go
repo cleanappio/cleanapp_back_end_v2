@@ -75,10 +75,10 @@ type Area struct {
 
 // CreateCustomerRequest represents the request to create a new customer
 type CreateCustomerRequest struct {
-	Name         string   `json:"name" binding:"required,max=256"`
-	Email        string   `json:"email" binding:"required,email"`
-	Password     string   `json:"password" binding:"required,min=8"`
-	AreaIDs      []int    `json:"area_ids" binding:"required,min=1"`
+	Name     string `json:"name" binding:"required,max=256"`
+	Email    string `json:"email" binding:"required,email"`
+	Password string `json:"password" binding:"required,min=8"`
+	AreaIDs  []int  `json:"area_ids" binding:"required,min=1"`
 }
 
 // UpdateCustomerRequest represents the request to update customer information
@@ -122,11 +122,11 @@ type TokenResponse struct {
 
 // OAuthLoginRequest represents an OAuth authentication request
 type OAuthLoginRequest struct {
-	Provider        string                 `json:"provider" binding:"required,oneof=google facebook apple"`
-	IDToken         string                 `json:"id_token,omitempty"`
-	AccessToken     string                 `json:"access_token,omitempty"`
-	AuthorizationCode string               `json:"authorization_code,omitempty"`
-	UserInfo        map[string]interface{} `json:"user_info,omitempty"`
+	Provider          string                 `json:"provider" binding:"required,oneof=google facebook apple"`
+	IDToken           string                 `json:"id_token,omitempty"`
+	AccessToken       string                 `json:"access_token,omitempty"`
+	AuthorizationCode string                 `json:"authorization_code,omitempty"`
+	UserInfo          map[string]interface{} `json:"user_info,omitempty"`
 }
 
 // OAuthURLResponse represents the OAuth URL response
@@ -163,4 +163,15 @@ type AddPaymentMethodRequest struct {
 type StripeWebhookRequest struct {
 	Type string                 `json:"type"`
 	Data map[string]interface{} `json:"data"`
+}
+
+type Price struct {
+	Product  string `json:"product" binding:"required, oneof=base advanced exclusive"`
+	Period   string `json:"period" binding:"required, oneof=monthly annual"` // monthly or annual
+	Amount   int64  `json:"amount" binding:"required,min=0"`                 // in cents
+	Currency string `json:"currency" binding:"required"`
+}
+
+type PricesResponse struct {
+	Prices []Price `json:"prices"`
 }

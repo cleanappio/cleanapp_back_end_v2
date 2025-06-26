@@ -45,8 +45,6 @@ func Load() *Config {
 			"base_annual":       getEnv("STRIPE_PRICE_BASE_ANNUAL", ""),
 			"advanced_monthly":  getEnv("STRIPE_PRICE_ADVANCED_MONTHLY", ""),
 			"advanced_annual":   getEnv("STRIPE_PRICE_ADVANCED_ANNUAL", ""),
-			"exclusive_monthly": getEnv("STRIPE_PRICE_EXCLUSIVE_MONTHLY", ""),
-			"exclusive_annual":  getEnv("STRIPE_PRICE_EXCLUSIVE_ANNUAL", ""),
 		},
 	}
 

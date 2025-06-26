@@ -106,6 +106,9 @@ func setupRouter(service *database.CustomerService, stripeClient *stripe.Client,
 		
 		// Public data
 		public.GET("/areas", h.GetAreas)
+
+		// Prices and plans
+		public.GET("/prices", h.GetPrices)
 		
 		// API health check
 		public.GET("/health", h.HealthCheck)

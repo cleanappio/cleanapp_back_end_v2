@@ -1,13 +1,15 @@
 package stripe
 
 import (
+	"customer-service/config"
 	"fmt"
 	"log"
-	"customer-service/config"
+
 	"github.com/stripe/stripe-go/v82"
 	"github.com/stripe/stripe-go/v82/customer"
 
 	"github.com/stripe/stripe-go/v82/paymentmethod"
+	"github.com/stripe/stripe-go/v82/price"
 	"github.com/stripe/stripe-go/v82/subscription"
 	"github.com/stripe/stripe-go/v82/webhook"
 )
@@ -256,4 +258,17 @@ func (c *Client) GetSubscription(subscriptionID string) (*stripe.Subscription, e
 	}
 	
 	return result, nil
+}
+
+// GetPrices retrieves all products asnd their prices from Stripe
+func (c *Client) GetPrices() (map[string]*stripe.Price, error) {
+	prices := make(map[string]*stripe.Price)
+	for key, priceID := range c.config.StripePrices {
+		p, err := price.Get(priceID, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get price: %w", err)
+		}
+		prices[key] = p
+	}
+	return prices, nil
 }

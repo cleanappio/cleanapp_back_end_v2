@@ -3,6 +3,7 @@ package handlers
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"customer-service/database"
@@ -318,6 +319,30 @@ func (h *Handlers) GetAreas(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, areas)
+}
+
+func (h *Handlers) GetPrices(c *gin.Context) {
+	// Retrieve all products and their prices from Stripe
+	prices := models.PricesResponse{
+		Prices: []models.Price{},
+	}
+	sp, err := h.stripeClient.GetPrices()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to retrieve prices"})
+		return
+	}
+
+	for key, p := range sp {
+		prod_period := strings.Split(key, "_")
+		prices.Prices = append(prices.Prices, models.Price{
+			Product:  prod_period[0],
+			Period:   prod_period[1],
+			Amount:   p.UnitAmount,
+			Currency: string(p.Currency),
+		})
+	}
+
+	c.JSON(http.StatusOK, prices)
 }
 
 // RootHealthCheck returns service health at root level
