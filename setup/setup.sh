@@ -36,7 +36,7 @@ CLEANAPP_MAP_URL="https://clean-app-map-4-b0150.replit.app/"
 
 # Choose the environment
 PS3="Please choose the environment: "
-options=("local" "dev" "prod" "quit")
+options=("dev" "prod" "quit")
 select OPT in "${options[@]}"
 do
   case ${OPT} in
