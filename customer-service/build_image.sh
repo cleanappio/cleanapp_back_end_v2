@@ -48,14 +48,13 @@ if [ "${OPT}" == "dev" ]; then
   BUILD=$((${BUILD} + 1))
   BUILD_VERSION="${VER}.${BUILD}"
   echo "BUILD_VERSION=${BUILD_VERSION}" > .version
-  cargo set-version ${BUILD_VERSION}
 fi
 
 echo "Running docker build for version ${BUILD_VERSION}"
 
 set -e
 
-CLOUD_REGION="us-east1"
+CLOUD_REGION="us-central1"
 PROJECT_NAME="cleanup-mysql-v2"
 DOCKER_IMAGE="cleanapp-docker-repo/cleanapp-customer-service-image"
 DOCKER_TAG="${CLOUD_REGION}-docker.pkg.dev/${PROJECT_NAME}/${DOCKER_IMAGE}"
@@ -71,7 +70,7 @@ if [ "${OPT}" == "dev" ]; then
   echo "Building and pushing docker image..."
   gcloud builds submit \
     --region=${CLOUD_REGION} \
-    --substitutions=_TAG=${DOCKER_TAG}:${BUILD_VERSION}
+    --tag=${DOCKER_TAG}:${BUILD_VERSION}
 fi
 
 echo "Tagging Docker image as current ${OPT}..."
