@@ -40,23 +40,6 @@ options=("local" "dev" "prod" "quit")
 select OPT in "${options[@]}"
 do
   case ${OPT} in
-    "local")
-        echo "Using local environment"
-        SCHEDULER_HOST="localhost"
-        ETH_NETWORK_URL_MAIN="https://sepolia.base.org"
-        CONTRACT_ADDRESS_MAIN="0xDc41655b749E8F2922A6E5e525Fc04a915aEaFAA"
-        PIPELINES_MAIN_PORT="8090"
-        REACT_APP_REF_API_ENDPOINT="http://localhost:8080/write_referral/"
-        SOLVER_URL="http://localhost:8888/report"
-        CHAIN_ID="21363"
-        WS_CHAIN_URL="wss://service.lestnet.org:8888/"
-        LAMINATOR_ADDRESS="0x36aB7A6ad656BC19Da2D5Af5b46f3cf3fc47274D"
-        CALL_BREAKER_ADDRESS="0x23912387357621473Ff6514a2DC20Df14cd72E7f"
-        KITN_DISBURSEMENT_SCHEDULER_ADDRESS="0x7E485Fd55CEdb1C303b2f91DFE7695e72A537399"
-        DISBURSEMENT_SHADOW_SCHEDULE="0 */3 * * * *"
-        EMAIL_OPT_OUT_URL="http://localhost:3000"
-        break
-        ;;
     "dev")
         echo "Using dev environment"
         SCHEDULER_HOST="dev.api.cleanapp.io"
@@ -73,6 +56,13 @@ do
         KITN_DISBURSEMENT_SCHEDULER_ADDRESS="0x7E485Fd55CEdb1C303b2f91DFE7695e72A537399"
         DISBURSEMENT_SHADOW_SCHEDULE="0 */3 * * * *"
         EMAIL_OPT_OUT_URL="http://dev.app.cleanapp.io:3000"
+        # Backend vars
+        CLEANAPP_IO_TRUSTED_PROXIES=127.0.0.1,::1
+        CLEANAPP_IO_BASE_URL=https://devapi.cleanapp.io
+        STRIPE_PRICE_BASE_MONTHLY=price_1RaNPnFLn0iSzOa605rsjpuJ
+        STRIPE_PRICE_BASE_ANNUAL=price_1RcAb0FLn0iSzOa6JcVp49qD
+        STRIPE_PRICE_ADVANCED_MONTHLY=price_1RaNfkFLn0iSzOa6E3daD9Dk
+        STRIPE_PRICE_ADVANCED_ANNUAL=price_1RcAaOFLn0iSzOa6w6GrbNY6
         break
         ;;
     "prod")
@@ -116,6 +106,10 @@ MYSQL_READER_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_READER
 KITN_PRIVATE_KEY_MAIN=\$(gcloud secrets versions access 1 --secret="KITN_PRIVATE_KEY_${SECRET_SUFFIX}")
 KITN_PRIVATE_KEY_SHADOW=\$(gcloud secrets versions access 1 --secret="KITN_PRIVATE_KEY_${SECRET_SUFFIX}")
 SENDGRID_API_KEY=\$(gcloud secrets versions access 1 --secret="SENDGRID_API_KEY_${SECRET_SUFFIX}")
+STRIPE_SECRET_KEY=\$(gcloud secrets versions access 1 --secret="STRIPE_SECRET_KEY_${SECRET_SUFFIX}")
+STRIPE_WEBHOOK_SECRET=\$(gcloud secrets versions access 1 --secret="STRIPE_WEBHOOK_SECRET_${SECRET_SUFFIX}")
+CLEANAPP_IO_ENCRYPTION_KEY=\$(gcloud secrets versions access 1 --secret="CLEANAPP_IO_ENCRYPTION_KEY_${SECRET_SUFFIX}")
+CLEANAPP_IO_JWT_SECRET=\$(gcloud secrets versions access 1 --secret="CLEANAPP_IO_JWT_SECRET_${SECRET_SUFFIX}")
 
 ENV
 
@@ -143,6 +137,8 @@ PIPELINES_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-pipelines-image:${OPT}"
 WEB_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-web-image:${OPT}"
 DB_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-db-image:live"
 STXN_KICKOFF_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-stxn-kickoff-image:${OPT}"
+CLEANAPP_IO_FRONTEND_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-frontend-image:${OPT}"
+CLEANAPP_IO_BACKEND_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-customer-service-image:${OPT}"
 
 # Create docker-compose.yml file.
 cat >docker-compose.yml << COMPOSE
@@ -218,53 +214,37 @@ services:
       - CLEANAPP_WALLET_PRIVATE_KEY=\${KITN_PRIVATE_KEY_SHADOW}
       - DISBURSEMENT_SHADOW_SCHEDULE=${DISBURSEMENT_SHADOW_SCHEDULE}
 
+  cleanapp_frontend:
+    container_name: cleanapp_frontend
+    image: ${CLEANAPP_IO_FRONTEND_DOCKER_IMAGE}
+    ports:
+      - 3001:3000
+
+  cleanapp_backend:
+    container_name: cleanapp_backend
+    image: ${CLEANAPP_IO_BACKEND_DOCKER_IMAGE}
+    environment:
+      - TRUSTED_PROXIES=${CLEANAPP_IO_TRUSTED_PROXIES}
+      - BASE_URL=${CLEANAPP_IO_BASE_URL}
+      - STRIPE_SECRET_KEY=\${STRIPE_SECRET_KEY}
+      - STRIPE_WEBHOOK_SECRET=\${STRIPE_WEBHOOK_SECRET}
+      - ENCRYPTION_KEY=\${CLEANAPP_IO_ENCRYPTION_KEY}
+      - JWT_SECRET=\${CLEANAPP_IO_JWT_SECRET}
+      - STRIPE_PRICE_BASE_MONTHLY=${STRIPE_PRICE_BASE_MONTHLY}
+      - STRIPE_PRICE_BASE_ANNUAL=${STRIPE_PRICE_BASE_ANNUAL}
+      - STRIPE_PRICE_ADVANCED_MONTHLY=${STRIPE_PRICE_ADVANCED_MONTHLY}
+      - STRIPE_PRICE_ADVANCED_ANNUAL=${STRIPE_PRICE_ADVANCED_ANNUAL}
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+      - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
+    ports:
+      - 9080:8080
+
 volumes:
   mysql:
 
 COMPOSE
-
-# Install dependencies:
-installDocker() {
-    # See instructions at https://docs.docker.com/engine/install/ubuntu/
-    for pkg in docker.io docker-doc docker-compose docker-compose-v2 podman-docker containerd runc
-    do
-        sudo apt-get remove $pkg
-    done
-
-    # Add Docker's official GPG key:
-    sudo apt-get update
-    sudo apt-get install ca-certificates curl gnupg
-    sudo install -m 0755 -d /etc/apt/keyrings
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-    sudo chmod a+r /etc/apt/keyrings/docker.gpg
-
-    # Add the repository to Apt sources:
-    echo \
-    "deb [arch="$(dpkg --print-architecture)" signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-    "$(. /etc/os-release && echo "$VERSION_CODENAME")" stable" | \
-    sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-    sudo apt-get update
-
-    # Actually install docker
-    sudo apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-
-    #Add docker-compose:
-    sudo apt  install docker-compose
-
-    # Check that it all works:
-    sudo docker run hello-world
-
-    # Configure the current user for docker usage
-    sudo chmod a+rw /var/run/docker.sock
-
-    # Configure gcloud fir docker usage
-    gcloud auth configure-docker ${DOCKER_LOCATION}
-}
-
-# Install docker.
-if [[ "$1" == "dockerinstall" ]]; then
-  installDocker
-fi
 
 set -e
 
@@ -274,6 +254,8 @@ docker pull ${PIPELINES_DOCKER_IMAGE}
 docker pull ${DB_DOCKER_IMAGE}
 docker pull ${WEB_DOCKER_IMAGE}
 docker pull ${STXN_KICKOFF_DOCKER_IMAGE}
+docker pull ${CLEANAPP_IO_FRONTEND_DOCKER_IMAGE}
+docker pull ${CLEANAPP_IO_BACKEND_DOCKER_IMAGE}
 
 # Start our docker images.
 ./up.sh
