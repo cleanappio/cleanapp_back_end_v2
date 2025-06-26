@@ -59,10 +59,10 @@ do
         # Backend vars
         CLEANAPP_IO_TRUSTED_PROXIES=127.0.0.1,::1
         CLEANAPP_IO_BASE_URL=https://devapi.cleanapp.io
-        STRIPE_PRICE_BASE_MONTHLY=price_1RaNPnFLn0iSzOa605rsjpuJ
-        STRIPE_PRICE_BASE_ANNUAL=price_1RcAb0FLn0iSzOa6JcVp49qD
-        STRIPE_PRICE_ADVANCED_MONTHLY=price_1RaNfkFLn0iSzOa6E3daD9Dk
-        STRIPE_PRICE_ADVANCED_ANNUAL=price_1RcAaOFLn0iSzOa6w6GrbNY6
+        STRIPE_PRICE_BASE_MONTHLY=price_1ReIJJFW3SknKzLcejkfepTO
+        STRIPE_PRICE_BASE_ANNUAL=price_1ReIJJFW3SknKzLcXOje9FBb
+        STRIPE_PRICE_ADVANCED_MONTHLY=price_1ReIKiFW3SknKzLcaPTOR5Ny
+        STRIPE_PRICE_ADVANCED_ANNUAL=price_1ReIKiFW3SknKzLcVMZe6U3U
         break
         ;;
     "prod")
@@ -106,10 +106,10 @@ MYSQL_READER_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_READER
 KITN_PRIVATE_KEY_MAIN=\$(gcloud secrets versions access 1 --secret="KITN_PRIVATE_KEY_${SECRET_SUFFIX}")
 KITN_PRIVATE_KEY_SHADOW=\$(gcloud secrets versions access 1 --secret="KITN_PRIVATE_KEY_${SECRET_SUFFIX}")
 SENDGRID_API_KEY=\$(gcloud secrets versions access 1 --secret="SENDGRID_API_KEY_${SECRET_SUFFIX}")
-STRIPE_SECRET_KEY=\$(gcloud secrets versions access 1 --secret="STRIPE_SECRET_KEY_${SECRET_SUFFIX}")
-STRIPE_WEBHOOK_SECRET=\$(gcloud secrets versions access 1 --secret="STRIPE_WEBHOOK_SECRET_${SECRET_SUFFIX}")
 CLEANAPP_IO_ENCRYPTION_KEY=\$(gcloud secrets versions access 1 --secret="CLEANAPP_IO_ENCRYPTION_KEY_${SECRET_SUFFIX}")
 CLEANAPP_IO_JWT_SECRET=\$(gcloud secrets versions access 1 --secret="CLEANAPP_IO_JWT_SECRET_${SECRET_SUFFIX}")
+STRIPE_SECRET_KEY=\$(gcloud secrets versions access 1 --secret="STRIPE_SECRET_KEY_${SECRET_SUFFIX}")
+STRIPE_WEBHOOK_SECRET=\$(gcloud secrets versions access 1 --secret="STRIPE_WEBHOOK_SECRET_${SECRET_SUFFIX}")
 
 ENV
 
