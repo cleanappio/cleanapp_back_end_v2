@@ -1,0 +1,47 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.cov
+
+# Dependency directories (remove the comment below if you use Go modules)
+/vendor/
+
+# Go workspace file
+go.work
+
+# Go build output
+/build/
+/bin/
+
+# IDE/editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+*.log
+
+# Test binary output
+*.test
+
+# Ignore environment files
+.env
+.env.*
+
+# Ignore Docker artifacts
+*.tar
+
+# Ignore coverage reports
+coverage.out
+
+# Ignore by default
+# !.gitignore 

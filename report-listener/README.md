@@ -151,12 +151,87 @@ services:
 
 ### Running Locally
 
+#### Quick Start
 ```bash
 # Install dependencies
 go mod download
 
+# Create .env file (first time only)
+make env-setup
+
+# Edit .env file with your configuration
+# Then run the service
+make run
+```
+
+#### Manual Setup
+```bash
+# Copy environment template
+cp .env.example .env
+
+# Edit .env file with your actual configuration
+nano .env
+
 # Run the service
-go run main.go
+make run
+```
+
+#### Advanced Usage
+```bash
+# Run with specific environment file
+make run-env ENV_FILE=path/to/custom.env
+
+# Development mode with hot reload (requires air)
+make dev
+
+# Show available commands
+make help
+```
+
+### Environment Variables
+
+The service is configured via environment variables. You can set them in a `.env` file or as system environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DB_HOST` | `localhost` | MySQL database host |
+| `DB_PORT` | `3306` | MySQL database port |
+| `DB_USER` | `server` | MySQL database user |
+| `DB_PASSWORD` | `secret_app` | MySQL database password |
+| `DB_NAME` | `cleanapp` | MySQL database name |
+| `PORT` | `8080` | HTTP server port |
+| `BROADCAST_INTERVAL` | `1s` | Broadcast frequency (e.g., `500ms`, `2s`) |
+| `LOG_LEVEL` | `info` | Log level (`debug`, `info`, `warn`, `error`) |
+
+### Makefile Commands
+
+The service includes a comprehensive Makefile for common operations:
+
+```bash
+# Basic operations
+make build          # Build the application
+make run            # Run locally (loads .env file)
+make test           # Run tests
+make clean          # Clean build artifacts
+
+# Environment management
+make env-setup      # Create .env file from template
+make env-example    # Show example .env configuration
+
+# Docker operations
+make docker-build   # Build Docker image
+make docker-run     # Run with Docker Compose
+make docker-stop    # Stop Docker Compose services
+
+# Development
+make dev            # Development mode with hot reload
+make fmt            # Format code
+make lint           # Lint code
+
+# Monitoring
+make health         # Check service health
+make api-health     # Check API health
+make logs           # Show Docker logs
 ```
 
 ## WebSocket Client Example

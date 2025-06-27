@@ -9,13 +9,8 @@ type Report struct {
 	Seq       int       `json:"seq" db:"seq"`
 	Timestamp time.Time `json:"timestamp" db:"ts"`
 	ID        string    `json:"id" db:"id"`
-	Team      int       `json:"team" db:"team"`
 	Latitude  float64   `json:"latitude" db:"latitude"`
 	Longitude float64   `json:"longitude" db:"longitude"`
-	X         *float64  `json:"x,omitempty" db:"x"`
-	Y         *float64  `json:"y,omitempty" db:"y"`
-	Image     []byte    `json:"image" db:"image"`
-	ActionID  *string   `json:"action_id,omitempty" db:"action_id"`
 }
 
 // ReportBatch represents a batch of reports to be broadcasted

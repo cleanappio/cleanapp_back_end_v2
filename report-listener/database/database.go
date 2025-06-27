@@ -51,7 +51,7 @@ func (d *Database) Close() error {
 // GetReportsSince retrieves reports since a given sequence number
 func (d *Database) GetReportsSince(ctx context.Context, sinceSeq int) ([]models.Report, error) {
 	query := `
-		SELECT seq, ts, id, team, latitude, longitude, x, y, image, action_id
+		SELECT seq, ts, id, latitude, longitude
 		FROM reports
 		WHERE seq > ?
 		ORDER BY seq ASC
@@ -70,13 +70,8 @@ func (d *Database) GetReportsSince(ctx context.Context, sinceSeq int) ([]models.
 			&report.Seq,
 			&report.Timestamp,
 			&report.ID,
-			&report.Team,
 			&report.Latitude,
 			&report.Longitude,
-			&report.X,
-			&report.Y,
-			&report.Image,
-			&report.ActionID,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan report: %w", err)
