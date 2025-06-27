@@ -25,6 +25,7 @@ type Config struct {
 	// Analysis configuration
 	AnalysisInterval time.Duration
 	MaxRetries       int
+	AnalysisPrompt   string
 
 	// Logging
 	LogLevel string
@@ -50,6 +51,7 @@ func Load() *Config {
 		// Analysis defaults (30 seconds)
 		AnalysisInterval: getDurationEnv("ANALYSIS_INTERVAL", 30*time.Second),
 		MaxRetries:       getIntEnv("MAX_RETRIES", 3),
+		AnalysisPrompt:   getEnv("ANALYSIS_PROMPT", "What kind of litter or hazard can you see on this image? Please describe the litter or hazard in detail. Also, give a probability that there is a litter or hazard on a photo and a severity level from 0.0 to 1.0."),
 
 		// Logging defaults
 		LogLevel: getEnv("LOG_LEVEL", "info"),

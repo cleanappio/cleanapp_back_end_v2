@@ -273,6 +273,7 @@ services:
       - OPENAI_MODEL=gpt-4o
       - ANALYSIS_INTERVAL=30s
       - MAX_RETRIES=3
+      - ANALYSIS_PROMPT="What kind of litter or hazard can you see on this image? Please describe the litter or hazard in detail. Also, give a probability that there is a litter or hazard on a photo and a severity level from 0.0 to 1.0."
       - LOG_LEVEL=info
     ports:
       - 9082:8080

@@ -40,6 +40,7 @@ Environment variables:
 - `OPENAI_MODEL` - OpenAI model to use (default: gpt-4o)
 - `ANALYSIS_INTERVAL` - Interval between analysis runs (default: 30s)
 - `MAX_RETRIES` - Maximum retry attempts (default: 3)
+- `ANALYSIS_PROMPT` - Custom prompt for image analysis (default: "What kind of litter or hazard can you see on this image? Please describe the litter or hazard in detail. Also, give a probability that there is a litter or hazard on a photo and a severity level from 0.0 to 1.0.")
 - `LOG_LEVEL` - Logging level (default: info)
 
 ## API Endpoints
@@ -81,7 +82,7 @@ make docker-run
 
 1. The service polls the database every 30 seconds (configurable)
 2. Finds reports that haven't been analyzed yet
-3. Sends images to OpenAI with the prompt: "What kind of litter or hazard can you see on this image? Please describe the litter or hazard in detail. Also, give a probability that there is a litter or hazard on a photo and a severity level from 0.0 to 1.0."
+3. Sends images to OpenAI with a configurable prompt (default: "What kind of litter or hazard can you see on this image? Please describe the litter or hazard in detail. Also, give a probability that there is a litter or hazard on a photo and a severity level from 0.0 to 1.0.")
 4. Stores the analysis results in the database
 5. Continues monitoring for new reports
 

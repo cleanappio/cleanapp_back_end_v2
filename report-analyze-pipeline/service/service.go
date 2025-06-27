@@ -91,8 +91,8 @@ func (s *Service) processUnanalyzedReports() {
 
 // analyzeReport analyzes a single report
 func (s *Service) analyzeReport(report *database.Report) error {
-	// Define the analysis prompt
-	prompt := `What kind of litter or hazard can you see on this image? Please describe the litter or hazard in detail. Also, give a probability that there is a litter or hazard on a photo and a severity level from 0.0 to 1.0.`
+	// Use the configurable analysis prompt
+	prompt := s.config.AnalysisPrompt
 
 	// Analyze the image using OpenAI
 	analysisText, err := s.openai.AnalyzeImage(report.Image, prompt)
