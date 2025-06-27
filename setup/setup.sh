@@ -139,6 +139,7 @@ DB_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-db-image:live"
 STXN_KICKOFF_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-stxn-kickoff-image:${OPT}"
 CLEANAPP_IO_FRONTEND_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-frontend-image:${OPT}"
 CLEANAPP_IO_BACKEND_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-customer-service-image:${OPT}"
+REPORT_LISTENER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-listener-image:${OPT}"
 
 # Create docker-compose.yml file.
 cat >docker-compose.yml << COMPOSE
@@ -241,6 +242,22 @@ services:
     ports:
       - 9080:8080
 
+  cleanapp_report_listener:
+    container_name: cleanapp_report_listener
+    image: ${REPORT_LISTENER_DOCKER_IMAGE}
+    environment:
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+      - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
+      - DB_NAME=cleanapp
+      - BROADCAST_INTERVAL=1s
+      - LOG_LEVEL=info
+    ports:
+      - 9081:8080
+    depends_on:
+      - cleanapp_db
+
 volumes:
   mysql:
 
@@ -256,6 +273,7 @@ docker pull ${WEB_DOCKER_IMAGE}
 docker pull ${STXN_KICKOFF_DOCKER_IMAGE}
 docker pull ${CLEANAPP_IO_FRONTEND_DOCKER_IMAGE}
 docker pull ${CLEANAPP_IO_BACKEND_DOCKER_IMAGE}
+docker pull ${REPORT_LISTENER_DOCKER_IMAGE}
 
 # Start our docker images.
 ./up.sh

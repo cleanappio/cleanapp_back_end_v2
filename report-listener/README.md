@@ -120,7 +120,7 @@ CREATE TABLE reports(
 ### Using Docker
 
 ```bash
-# Build the image
+# Build the image locally
 docker build -t report-listener .
 
 # Run the container
@@ -131,6 +131,30 @@ docker run -d \
   -e DB_PASSWORD=your-db-password \
   report-listener
 ```
+
+### Building for Production (Google Cloud)
+
+The service includes a build script for deploying to Google Cloud:
+
+```bash
+# Build and push to Google Cloud (interactive)
+./build_image.sh
+
+# Build for specific environment
+./build_image.sh -e dev
+./build_image.sh -e prod
+```
+
+The build script will:
+- Prompt for environment selection if not specified
+- Increment version numbers for dev builds
+- Build and push to Google Cloud Artifact Registry
+- Tag images appropriately for the environment
+
+**Prerequisites:**
+- Google Cloud CLI installed and authenticated
+- Access to the `cleanup-mysql-v2` project
+- Docker installed locally
 
 ### Using Docker Compose
 
