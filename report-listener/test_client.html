@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Report Listener Test Client</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .connected {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .connecting {
+            background-color: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+        .controls {
+            margin: 20px 0;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .connect {
+            background-color: #007bff;
+            color: white;
+        }
+        .disconnect {
+            background-color: #dc3545;
+            color: white;
+        }
+        .clear {
+            background-color: #6c757d;
+            color: white;
+        }
+        .logs {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 15px;
+            height: 400px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .log-entry {
+            margin: 2px 0;
+            padding: 2px 0;
+        }
+        .log-time {
+            color: #6c757d;
+        }
+        .log-info {
+            color: #007bff;
+        }
+        .log-success {
+            color: #28a745;
+        }
+        .log-error {
+            color: #dc3545;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .stat-card {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 15px;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #007bff;
+        }
+        .stat-label {
+            color: #6c757d;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Report Listener Test Client</h1>
+    
+    <div id="status" class="status disconnected">
+        Disconnected
+    </div>
+    
+    <div class="controls">
+        <button class="connect" onclick="connect()">Connect</button>
+        <button class="disconnect" onclick="disconnect()">Disconnect</button>
+        <button class="clear" onclick="clearLogs()">Clear Logs</button>
+        <button onclick="checkHealth()">Check Health</button>
+    </div>
+    
+    <div class="stats">
+        <div class="stat-card">
+            <div class="stat-value" id="totalReports">0</div>
+            <div class="stat-label">Total Reports</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="lastSeq">0</div>
+            <div class="stat-label">Last Sequence</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="connectedClients">0</div>
+            <div class="stat-label">Connected Clients</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="uptime">0s</div>
+            <div class="stat-label">Uptime</div>
+        </div>
+    </div>
+    
+    <h3>Logs</h3>
+    <div id="logs" class="logs"></div>
+
+    <script>
+        let ws = null;
+        let startTime = Date.now();
+        let totalReports = 0;
+        let lastSeq = 0;
+        let connectedClients = 0;
+        
+        function log(message, type = 'info') {
+            const logs = document.getElementById('logs');
+            const time = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            entry.innerHTML = `<span class="log-time">[${time}]</span> ${message}`;
+            logs.appendChild(entry);
+            logs.scrollTop = logs.scrollHeight;
+        }
+        
+        function updateStatus(status, type) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = status;
+            statusDiv.className = `status ${type}`;
+        }
+        
+        function updateStats() {
+            document.getElementById('totalReports').textContent = totalReports;
+            document.getElementById('lastSeq').textContent = lastSeq;
+            document.getElementById('connectedClients').textContent = connectedClients;
+            
+            const uptime = Math.floor((Date.now() - startTime) / 1000);
+            document.getElementById('uptime').textContent = uptime + 's';
+        }
+        
+        function connect() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                log('Already connected', 'info');
+                return;
+            }
+            
+            log('Connecting to WebSocket...', 'info');
+            updateStatus('Connecting...', 'connecting');
+            
+            ws = new WebSocket('ws://localhost:8080/api/v3/reports/listen');
+            
+            ws.onopen = function() {
+                log('Connected to report listener', 'success');
+                updateStatus('Connected', 'connected');
+                startTime = Date.now();
+            };
+            
+            ws.onmessage = function(event) {
+                try {
+                    const message = JSON.parse(event.data);
+                    
+                    if (message.type === 'reports') {
+                        const batch = message.data;
+                        totalReports += batch.count;
+                        lastSeq = batch.to_seq;
+                        
+                        log(`Received ${batch.count} reports (seq ${batch.from_seq}-${batch.to_seq})`, 'success');
+                        
+                        batch.reports.forEach(report => {
+                            log(`Report ${report.seq}: ${report.id} at (${report.latitude}, ${report.longitude})`, 'info');
+                        });
+                    }
+                } catch (error) {
+                    log(`Error parsing message: ${error}`, 'error');
+                }
+            };
+            
+            ws.onclose = function() {
+                log('Disconnected from report listener', 'error');
+                updateStatus('Disconnected', 'disconnected');
+            };
+            
+            ws.onerror = function(error) {
+                log(`WebSocket error: ${error}`, 'error');
+                updateStatus('Error', 'disconnected');
+            };
+        }
+        
+        function disconnect() {
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+        }
+        
+        function clearLogs() {
+            document.getElementById('logs').innerHTML = '';
+        }
+        
+        async function checkHealth() {
+            try {
+                const response = await fetch('http://localhost:8080/api/v3/reports/health');
+                const data = await response.json();
+                
+                connectedClients = data.connected_clients;
+                lastSeq = data.last_broadcast_seq;
+                
+                log(`Health check: ${data.status} - ${data.connected_clients} clients, last seq: ${data.last_broadcast_seq}`, 'success');
+            } catch (error) {
+                log(`Health check failed: ${error}`, 'error');
+            }
+        }
+        
+        // Update stats every second
+        setInterval(updateStats, 1000);
+        
+        // Auto-connect on page load
+        window.onload = function() {
+            setTimeout(connect, 1000);
+        };
+    </script>
+</body>
+</html> 

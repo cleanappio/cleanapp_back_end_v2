@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  report-listener:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=server
+      - DB_PASSWORD=secret_app
+      - DB_NAME=cleanapp
+      - PORT=8080
+      - BROADCAST_INTERVAL=1s
+      - LOG_LEVEL=info
+    depends_on:
+      - mysql
+    restart: unless-stopped
+    networks:
+      - cleanapp-network
+
+  mysql:
+    image: mysql:8.0
+    environment:
+      - MYSQL_ROOT_PASSWORD=root_password
+      - MYSQL_DATABASE=cleanapp
+      - MYSQL_USER=server
+      - MYSQL_PASSWORD=secret_app
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ../db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - cleanapp-network
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
+
+networks:
+  cleanapp-network:
+    driver: bridge 
