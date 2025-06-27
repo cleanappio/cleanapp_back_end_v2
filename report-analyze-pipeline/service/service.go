@@ -2,6 +2,7 @@ package service
 
 import (
 	"log"
+	"sync"
 	"time"
 
 	"report-analyze-pipeline/config"
@@ -74,30 +75,30 @@ func (s *Service) processUnanalyzedReports() {
 	}
 
 	if len(reports) == 0 {
-		log.Println("No unanalyzed reports found")
 		return
 	}
 
 	log.Printf("Processing %d unanalyzed reports", len(reports))
 
+	wg := sync.WaitGroup{}
+	wg.Add(len(reports))
 	for _, report := range reports {
-		if err := s.analyzeReport(&report); err != nil {
-			log.Printf("Failed to analyze report %d: %v", report.Seq, err)
-			continue
-		}
-		log.Printf("Successfully analyzed report %d", report.Seq)
+		go s.analyzeReport(&report, &wg)
 	}
+	wg.Wait()
 }
 
 // analyzeReport analyzes a single report
-func (s *Service) analyzeReport(report *database.Report) error {
+func (s *Service) analyzeReport(report *database.Report, wg *sync.WaitGroup) {
+	defer wg.Done()
 	// Use the configurable analysis prompt
 	prompt := s.config.AnalysisPrompt
 
 	// Analyze the image using OpenAI
 	analysisText, err := s.openai.AnalyzeImage(report.Image, prompt)
 	if err != nil {
-		return err
+		log.Printf("Failed to analyze report %d: %v", report.Seq, err)
+		return
 	}
 
 	// Create the analysis result
@@ -109,5 +110,7 @@ func (s *Service) analyzeReport(report *database.Report) error {
 	}
 
 	// Save the analysis to the database
-	return s.db.SaveAnalysis(analysis)
+	if err := s.db.SaveAnalysis(analysis); err != nil {
+		log.Printf("Failed to save analysis for report %d: %v", report.Seq, err)
+	}
 }
