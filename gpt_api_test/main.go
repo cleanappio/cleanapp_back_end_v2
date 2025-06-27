@@ -14,6 +14,41 @@ import (
 
 const openAIEndpoint = "https://api.openai.com/v1/chat/completions"
 
+const litterHazardPrompt = `
+	What kind of litter or hazard can you see on this image?
+
+	Please describe the litter or hazard in detail.
+	Also, give a probability that there is a litter or hazard on a photo in units from 0.0 to 1.0 and
+	a severity level from 0.0 to 1.0.
+
+	Please format the output as:
+	- an issue title, one sentence;
+	- a description, one paragraph;
+	- a probability, a number from 0.0 to 1.0;
+	- a severity, a number from 0.0 to 1.0;
+	- a fixing / repairing instructions, one paragraph.
+`
+
+const digitalErrorPrompt = `
+	Do you see a bug on the web page on the image?
+	Please provide a bug, please output its description if you recognize it.
+	
+	Please format the output as:
+	- a bug title, one sentence;
+	- a bug description, one paragraph;
+	- a site URL, if you recognize it;
+	- a probability, a number from 0.0 to 1.0;
+	- a severity, a number from 0.0 to 1.0;
+`
+
+const classificationPrompt = `
+	Do you see a site on a computer screen on this image?
+	Please provide a site on the screen, please output its URL if you recognize it.
+
+	Please format the output as:
+	- a site on the screen, please output its URL if you recognize it;
+`
+
 type Message struct {
 	Role    string `json:"role"`
 	Content any    `json:"content"`
@@ -104,9 +139,44 @@ func main() {
 		return
 	}
 
+	// Step 1: Call API with classificationPrompt
+	fmt.Println("Step 1: Classifying image...")
+	classificationResponse, err := callOpenAI(openAIKey, base64Image, classificationPrompt)
+	if err != nil {
+		fmt.Printf("Error in classification call: %v\n", err)
+		return
+	}
+
+	fmt.Printf("Classification response: %s\n\n", classificationResponse)
+
+	// Step 2: Check if URL is found in the response
+	hasURL := containsURL(classificationResponse)
+
+	var secondPrompt string
+	if hasURL {
+		fmt.Println("URL detected. Using digital error prompt...")
+		secondPrompt = digitalErrorPrompt
+	} else {
+		fmt.Println("No URL detected. Using litter/hazard prompt...")
+		secondPrompt = litterHazardPrompt
+	}
+
+	// Step 3: Call API with the appropriate prompt
+	fmt.Println("Step 2: Analyzing with appropriate prompt...")
+	analysisResponse, err := callOpenAI(openAIKey, base64Image, secondPrompt)
+	if err != nil {
+		fmt.Printf("Error in analysis call: %v\n", err)
+		return
+	}
+
+	fmt.Printf("Analysis response: %s\n", analysisResponse)
+}
+
+// callOpenAI makes a call to OpenAI API with the given prompt and image
+func callOpenAI(apiKey, base64Image, prompt string) (string, error) {
 	textPrompt := TextContent{
 		Type: "text",
-		Text: "What kind of litter or hazard can you see on this image? Please describe the litter or hazard in detail. Also, give a probability that there is a litter or hazard on a photo in units from 0.0 to 1.0 and a severity level from 0.0 to 1.0",
+		Text: prompt,
 	}
 
 	imagePrompt := ImageContent{
@@ -131,40 +201,82 @@ func main() {
 
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
-		fmt.Println("Error marshaling JSON:", err)
-		return
+		return "", fmt.Errorf("error marshaling JSON: %w", err)
 	}
 
 	req, err := http.NewRequest("POST", openAIEndpoint, bytes.NewBuffer(jsonData))
 	if err != nil {
-		fmt.Println("Error creating request:", err)
-		return
+		return "", fmt.Errorf("error creating request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+openAIKey)
+	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		fmt.Println("Error sending request:", err)
-		return
+		return "", fmt.Errorf("error sending request: %w", err)
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("error reading response body: %w", err)
+	}
+
 	if resp.StatusCode != http.StatusOK {
-		fmt.Println("API error:", string(body))
-		return
+		return "", fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
 	}
 
 	var chatResp ChatResponse
 	if err := json.Unmarshal(body, &chatResp); err != nil {
-		fmt.Println("Error parsing response:", err)
-		return
+		return "", fmt.Errorf("error parsing response: %w", err)
 	}
 
-	// Display the text response
-	fmt.Println("Response from model:")
-	for _, choice := range chatResp.Choices {
-		fmt.Printf("%+v\n", choice.Message.Content)
+	if len(chatResp.Choices) == 0 {
+		return "", fmt.Errorf("no choices in response")
 	}
+
+	// Extract the text content from the response
+	content := chatResp.Choices[0].Message.Content
+	if contentStr, ok := content.(string); ok {
+		return contentStr, nil
+	}
+
+	// If content is not a string, try to marshal it back to JSON
+	contentJSON, err := json.Marshal(content)
+	if err != nil {
+		return "", fmt.Errorf("error marshaling content: %w", err)
+	}
+
+	return string(contentJSON), nil
+}
+
+// containsURL checks if the response contains a URL
+func containsURL(response string) bool {
+	// Simple URL detection - look for common URL patterns
+	urlPatterns := []string{
+		"http://",
+		"https://",
+		"www.",
+		".com",
+		".org",
+		".net",
+		".edu",
+		".gov",
+		".io",
+		".co",
+		".uk",
+		".de",
+		".fr",
+		".jp",
+		".cn",
+	}
+
+	responseLower := strings.ToLower(response)
+	for _, pattern := range urlPatterns {
+		if strings.Contains(responseLower, pattern) {
+			return true
+		}
+	}
+
+	return false
 }
