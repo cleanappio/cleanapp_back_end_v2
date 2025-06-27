@@ -54,17 +54,45 @@ Environment variables:
 
 ### Local Development
 
-1. Set environment variables:
+1. Create and configure environment variables:
 ```bash
-export OPENAI_API_KEY=your_openai_api_key
-export DB_HOST=localhost
-export DB_PASSWORD=your_db_password
+# Create .env template
+make env-create
+
+# Copy template to .env and edit with your values
+cp .env.template .env
+
+# Edit .env file with your actual values
+# (especially OPENAI_API_KEY and DB_PASSWORD)
 ```
 
 2. Run the service:
 ```bash
 make run
 ```
+
+### Alternative: Direct Environment Variables
+
+If you prefer to set environment variables directly:
+
+```bash
+export OPENAI_API_KEY=your_openai_api_key
+export DB_HOST=localhost
+export DB_PASSWORD=your_db_password
+make run
+```
+
+### Make Commands
+
+- `make run` - Run the service (loads .env if present)
+- `make build` - Build the binary
+- `make test` - Run tests
+- `make clean` - Clean build artifacts
+- `make deps` - Download dependencies
+- `make env-create` - Create .env.template file
+- `make env-show` - Show .env.template contents
+- `make docker-build` - Build Docker image
+- `make docker-run` - Run with Docker
 
 ### Docker
 

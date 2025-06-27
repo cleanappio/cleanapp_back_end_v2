@@ -1,0 +1,34 @@
+# Binaries
+report-analyze-pipeline
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, coverage, and build output
+*.test
+*.out
+*.coverprofile
+*.log
+
+# Dependency directories
+vendor/
+
+# IDE/editor files
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+
+# Environment files
+.env
+.env*
+
+# Docker
+*.tar
+
+# Misc
+*.tmp
+*.bak 
