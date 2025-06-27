@@ -106,7 +106,7 @@ func main() {
 
 	textPrompt := TextContent{
 		Type: "text",
-		Text: "What kind of litter or hazard can you see on this image? Please describe the litter or hazard in detail. Also, give a probability that there is a litter or hazard on a photo and a severity level from 0.0 to 0.1",
+		Text: "What kind of litter or hazard can you see on this image? Please describe the litter or hazard in detail. Also, give a probability that there is a litter or hazard on a photo in units from 0.0 to 1.0 and a severity level from 0.0 to 1.0",
 	}
 
 	imagePrompt := ImageContent{
