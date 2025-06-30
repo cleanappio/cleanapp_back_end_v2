@@ -53,7 +53,10 @@ func (d *Database) GetReportsSince(ctx context.Context, sinceSeq int) ([]models.
 	query := `
 		SELECT 
 			r.seq, r.ts, r.id, r.latitude, r.longitude,
-			ra.seq as analysis_seq, ra.source, ra.analysis_text, ra.analysis_image, ra.created_at
+			ra.seq as analysis_seq, ra.source, ra.analysis_text, ra.analysis_image, 
+			ra.title, ra.description,
+			ra.litter_probability, ra.hazard_probability, 
+			ra.severity_level, ra.summary, ra.created_at
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		WHERE r.seq > ?
@@ -79,6 +82,12 @@ func (d *Database) GetReportsSince(ctx context.Context, sinceSeq int) ([]models.
 			&reportWithAnalysis.Analysis.Source,
 			&reportWithAnalysis.Analysis.AnalysisText,
 			&reportWithAnalysis.Analysis.AnalysisImage,
+			&reportWithAnalysis.Analysis.Title,
+			&reportWithAnalysis.Analysis.Description,
+			&reportWithAnalysis.Analysis.LitterProbability,
+			&reportWithAnalysis.Analysis.HazardProbability,
+			&reportWithAnalysis.Analysis.SeverityLevel,
+			&reportWithAnalysis.Analysis.Summary,
 			&reportWithAnalysis.Analysis.CreatedAt,
 		)
 		if err != nil {
@@ -173,7 +182,10 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int) ([]mo
 	query := `
 		SELECT 
 			r.seq, r.ts, r.id, r.latitude, r.longitude,
-			ra.seq as analysis_seq, ra.source, ra.analysis_text, ra.analysis_image, ra.created_at
+			ra.seq as analysis_seq, ra.source, ra.analysis_text, ra.analysis_image, 
+			ra.title, ra.description,
+			ra.litter_probability, ra.hazard_probability, 
+			ra.severity_level, ra.summary, ra.created_at
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		ORDER BY r.seq DESC
@@ -199,6 +211,12 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int) ([]mo
 			&reportWithAnalysis.Analysis.Source,
 			&reportWithAnalysis.Analysis.AnalysisText,
 			&reportWithAnalysis.Analysis.AnalysisImage,
+			&reportWithAnalysis.Analysis.Title,
+			&reportWithAnalysis.Analysis.Description,
+			&reportWithAnalysis.Analysis.LitterProbability,
+			&reportWithAnalysis.Analysis.HazardProbability,
+			&reportWithAnalysis.Analysis.SeverityLevel,
+			&reportWithAnalysis.Analysis.Summary,
 			&reportWithAnalysis.Analysis.CreatedAt,
 		)
 		if err != nil {

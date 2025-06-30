@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -8,6 +9,7 @@ import (
 	"report-analyze-pipeline/config"
 	"report-analyze-pipeline/database"
 	"report-analyze-pipeline/openai"
+	"report-analyze-pipeline/parser"
 )
 
 // Service represents the report analysis service
@@ -91,26 +93,51 @@ func (s *Service) processUnanalyzedReports() {
 // analyzeReport analyzes a single report
 func (s *Service) analyzeReport(report *database.Report, wg *sync.WaitGroup) {
 	defer wg.Done()
-	// Use the configurable analysis prompt
-	prompt := s.config.AnalysisPrompt
 
-	// Analyze the image using OpenAI
-	analysisText, err := s.openai.AnalyzeImage(report.Image, prompt)
+	// Prepare the prompt for OpenAI
+	prompt := fmt.Sprintf(`
+Analyze this image and provide a JSON response with the following structure:
+{
+  "title": "A descriptive title for the issue",
+  "description": "A detailed description of what you see in the image",
+  "litter_probability": 0.0-1.0,
+  "hazard_probability": 0.0-1.0,
+  "severity_level": 0.0-1.0
+}
+
+Image data: %s
+`, report.Image)
+
+	// Call OpenAI API
+	response, err := s.openai.AnalyzeImage(report.Image, prompt)
 	if err != nil {
 		log.Printf("Failed to analyze report %d: %v", report.Seq, err)
 		return
 	}
 
+	// Parse the response
+	analysis, err := parser.ParseAnalysis(response)
+	if err != nil {
+		log.Printf("Failed to parse analysis for report %d: %v", report.Seq, err)
+		return
+	}
+
 	// Create the analysis result
-	analysis := &database.ReportAnalysis{
-		Seq:           report.Seq,
-		Source:        "ChatGPT",
-		AnalysisText:  analysisText,
-		AnalysisImage: nil, // OpenAI doesn't return images in this context
+	analysisResult := &database.ReportAnalysis{
+		Seq:               report.Seq,
+		Source:            "ChatGPT",
+		AnalysisText:      response,
+		AnalysisImage:     nil, // OpenAI doesn't return images in this context
+		Title:             analysis.Title,
+		Description:       analysis.Description,
+		LitterProbability: analysis.LitterProbability,
+		HazardProbability: analysis.HazardProbability,
+		SeverityLevel:     analysis.SeverityLevel,
+		Summary:           analysis.Title + ": " + analysis.Description,
 	}
 
 	// Save the analysis to the database
-	if err := s.db.SaveAnalysis(analysis); err != nil {
+	if err := s.db.SaveAnalysis(analysisResult); err != nil {
 		log.Printf("Failed to save analysis for report %d: %v", report.Seq, err)
 	}
 }

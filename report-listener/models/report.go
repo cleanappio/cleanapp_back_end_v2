@@ -13,13 +13,20 @@ type Report struct {
 	Longitude float64   `json:"longitude" db:"longitude"`
 }
 
-// ReportAnalysis represents analysis data from the report_analysis table
+// ReportAnalysis represents an analysis result
 type ReportAnalysis struct {
-	Seq           int       `json:"seq" db:"seq"`
-	Source        string    `json:"source" db:"source"`
-	AnalysisText  string    `json:"analysis_text" db:"analysis_text"`
-	AnalysisImage []byte    `json:"analysis_image,omitempty" db:"analysis_image"`
-	CreatedAt     time.Time `json:"created_at" db:"created_at"`
+	Seq               int       `json:"seq" db:"seq"`
+	Source            string    `json:"source" db:"source"`
+	AnalysisText      string    `json:"analysis_text" db:"analysis_text"`
+	AnalysisImage     []byte    `json:"analysis_image,omitempty" db:"analysis_image"`
+	Title             string    `json:"title"`
+	Description       string    `json:"description"`
+	LitterProbability float64   `json:"litter_probability" db:"litter_probability"`
+	HazardProbability float64   `json:"hazard_probability" db:"hazard_probability"`
+	SeverityLevel     float64   `json:"severity_level" db:"severity_level"`
+	Summary           string    `json:"summary" db:"summary"`
+	CreatedAt         time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at" db:"updated_at"`
 }
 
 // ReportWithAnalysis represents a report with its corresponding analysis

@@ -16,17 +16,17 @@ const openAIEndpoint = "https://api.openai.com/v1/chat/completions"
 
 const litterHazardPrompt = `
 	What kind of litter or hazard can you see on this image?
-
+				
 	Please describe the litter or hazard in detail.
 	Also, give a probability that there is a litter or hazard on a photo in units from 0.0 to 1.0 and
 	a severity level from 0.0 to 1.0.
 
-	Please format the output as:
-	- an issue title, one sentence;
-	- a description, one paragraph;
-	- a probability, a number from 0.0 to 1.0;
-	- a severity, a number from 0.0 to 1.0;
-	- a fixing / repairing instructions, one paragraph.
+	Please format the output as a json with following fields:
+	- title: an issue title, one sentence;
+	- description: a description, one paragraph;
+	- litter_probability: a probability, a number from 0.0 to 1.0;
+	- hazard_probability: a severity, a number from 0.0 to 1.0;
+	- severity_level: a severity level, a number from 0.0 to 1.0;
 `
 
 const digitalErrorPrompt = `

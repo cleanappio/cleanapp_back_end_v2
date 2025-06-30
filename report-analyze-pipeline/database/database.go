@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"report-analyze-pipeline/config"
+	"report-analyze-pipeline/parser"
 
 	_ "github.com/go-sql-driver/mysql"
 )
@@ -32,10 +33,16 @@ type Report struct {
 
 // ReportAnalysis represents an analysis result
 type ReportAnalysis struct {
-	Seq           int
-	Source        string
-	AnalysisText  string
-	AnalysisImage []byte
+	Seq               int
+	Source            string
+	AnalysisText      string
+	AnalysisImage     []byte
+	Title             string
+	Description       string
+	LitterProbability float64
+	HazardProbability float64
+	SeverityLevel     float64
+	Summary           string
 }
 
 // NewDatabase creates a new database connection
@@ -74,7 +81,14 @@ func (d *Database) CreateReportAnalysisTable() error {
 		source VARCHAR(255) NOT NULL,
 		analysis_text TEXT,
 		analysis_image LONGBLOB,
+		title VARCHAR(500),
+		description TEXT,
+		litter_probability FLOAT,
+		hazard_probability FLOAT,
+		severity_level FLOAT,
+		summary TEXT,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 		INDEX seq_index (seq),
 		INDEX source_index (source)
 	)`
@@ -131,10 +145,25 @@ func (d *Database) GetUnanalyzedReports(cfg *config.Config, limit int) ([]Report
 // SaveAnalysis saves the analysis result to the database
 func (d *Database) SaveAnalysis(analysis *ReportAnalysis) error {
 	query := `
-	INSERT INTO report_analysis (seq, source, analysis_text, analysis_image)
-	VALUES (?, ?, ?, ?)`
+	INSERT INTO report_analysis (
+		seq, source, analysis_text, analysis_image, 
+		title, description,
+		litter_probability, hazard_probability, severity_level, summary
+	)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
-	_, err := d.db.Exec(query, analysis.Seq, analysis.Source, analysis.AnalysisText, analysis.AnalysisImage)
+	_, err := d.db.Exec(query,
+		analysis.Seq,
+		analysis.Source,
+		analysis.AnalysisText,
+		analysis.AnalysisImage,
+		analysis.Title,
+		analysis.Description,
+		analysis.LitterProbability,
+		analysis.HazardProbability,
+		analysis.SeverityLevel,
+		analysis.Summary,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to save analysis: %w", err)
 	}
@@ -164,4 +193,37 @@ func (d *Database) GetLastProcessedSeq() (int, error) {
 // GetDB returns the underlying sql.DB for direct queries
 func (d *Database) GetDB() *sql.DB {
 	return d.db
+}
+
+// SaveReportAnalysis saves the analysis results to the database
+func (db *Database) SaveReportAnalysis(reportID int, analysis *parser.AnalysisResult) error {
+	query := `
+		INSERT INTO report_analysis (
+			report_id, 
+			title,
+			description,
+			litter_probability, 
+			hazard_probability, 
+			severity_level,
+			created_at
+		) VALUES (?, ?, ?, ?, ?, ?, NOW())
+		ON DUPLICATE KEY UPDATE
+			title = VALUES(title),
+			description = VALUES(description),
+			litter_probability = VALUES(litter_probability),
+			hazard_probability = VALUES(hazard_probability),
+			severity_level = VALUES(severity_level),
+			updated_at = NOW()
+	`
+
+	_, err := db.db.Exec(query,
+		reportID,
+		analysis.Title,
+		analysis.Description,
+		analysis.LitterProbability,
+		analysis.HazardProbability,
+		analysis.SeverityLevel,
+	)
+
+	return err
 }
