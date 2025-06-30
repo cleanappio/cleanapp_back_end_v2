@@ -106,6 +106,9 @@ func setupRouter(svc *service.Service) *gin.Engine {
 
 		// Health check endpoint
 		api.GET("/reports/health", h.HealthCheck)
+
+		// Get last N analyzed reports endpoint
+		api.GET("/reports/last", h.GetLastNAnalyzedReports)
 	}
 
 	// Root health check

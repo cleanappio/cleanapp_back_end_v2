@@ -3,8 +3,10 @@ package handlers
 import (
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
+	"report-listener/database"
 	"report-listener/models"
 	ws "report-listener/websocket"
 
@@ -15,12 +17,14 @@ import (
 // Handlers contains all HTTP handlers
 type Handlers struct {
 	hub *ws.Hub
+	db  *database.Database
 }
 
 // NewHandlers creates a new handlers instance
-func NewHandlers(hub *ws.Hub) *Handlers {
+func NewHandlers(hub *ws.Hub, db *database.Database) *Handlers {
 	return &Handlers{
 		hub: hub,
+		db:  db,
 	}
 }
 
@@ -67,6 +71,49 @@ func (h *Handlers) HealthCheck(c *gin.Context) {
 		Timestamp:        time.Now().UTC().Format(time.RFC3339),
 		ConnectedClients: connectedClients,
 		LastBroadcastSeq: lastBroadcastSeq,
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// GetLastNAnalyzedReports returns the last N analyzed reports
+func (h *Handlers) GetLastNAnalyzedReports(c *gin.Context) {
+	// Get the limit parameter from query string, default to 10 if not provided
+	limitStr := c.DefaultQuery("n", "10")
+
+	limit := 10 // default value
+	if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
+		limit = parsedLimit
+	} else {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'n' parameter. Must be a positive integer."})
+		return
+	}
+
+	// Limit the maximum number of reports to prevent abuse
+	if limit > 100 {
+		limit = 100
+	}
+
+	// Get the reports from the database
+	reports, err := h.db.GetLastNAnalyzedReports(c.Request.Context(), limit)
+	if err != nil {
+		log.Printf("Failed to get last N analyzed reports: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve reports"})
+		return
+	}
+
+	// Create the response in the same format as WebSocket broadcasts
+	response := models.ReportBatch{
+		Reports: reports,
+		Count:   len(reports),
+		FromSeq: 0,
+		ToSeq:   0,
+	}
+
+	// Set FromSeq and ToSeq if there are reports
+	if len(reports) > 0 {
+		response.FromSeq = reports[0].Report.Seq
+		response.ToSeq = reports[len(reports)-1].Report.Seq
 	}
 
 	c.JSON(http.StatusOK, response)

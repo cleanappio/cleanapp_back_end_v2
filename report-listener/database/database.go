@@ -167,3 +167,54 @@ func (d *Database) EnsureServiceStateTable(ctx context.Context) error {
 
 	return nil
 }
+
+// GetLastNAnalyzedReports retrieves the last N analyzed reports
+func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int) ([]models.ReportWithAnalysis, error) {
+	query := `
+		SELECT 
+			r.seq, r.ts, r.id, r.latitude, r.longitude,
+			ra.seq as analysis_seq, ra.source, ra.analysis_text, ra.analysis_image, ra.created_at
+		FROM reports r
+		INNER JOIN report_analysis ra ON r.seq = ra.seq
+		ORDER BY r.seq DESC
+		LIMIT ?
+	`
+
+	rows, err := d.db.QueryContext(ctx, query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query last N analyzed reports: %w", err)
+	}
+	defer rows.Close()
+
+	var reports []models.ReportWithAnalysis
+	for rows.Next() {
+		var reportWithAnalysis models.ReportWithAnalysis
+		err := rows.Scan(
+			&reportWithAnalysis.Report.Seq,
+			&reportWithAnalysis.Report.Timestamp,
+			&reportWithAnalysis.Report.ID,
+			&reportWithAnalysis.Report.Latitude,
+			&reportWithAnalysis.Report.Longitude,
+			&reportWithAnalysis.Analysis.Seq,
+			&reportWithAnalysis.Analysis.Source,
+			&reportWithAnalysis.Analysis.AnalysisText,
+			&reportWithAnalysis.Analysis.AnalysisImage,
+			&reportWithAnalysis.Analysis.CreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan report with analysis: %w", err)
+		}
+		reports = append(reports, reportWithAnalysis)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating last N analyzed reports: %w", err)
+	}
+
+	// Reverse the order to get ascending sequence order (oldest to newest)
+	for i, j := 0, len(reports)-1; i < j; i, j = i+1, j-1 {
+		reports[i], reports[j] = reports[j], reports[i]
+	}
+
+	return reports, nil
+}

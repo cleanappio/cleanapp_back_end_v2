@@ -79,6 +79,54 @@ Returns service health status and statistics.
 }
 ```
 
+### Get Last N Analyzed Reports Endpoint
+```
+GET /api/v3/reports/last?n=10
+```
+Returns the last N analyzed reports. The `n` parameter specifies how many reports to return (default: 10, max: 100).
+
+**Query Parameters:**
+- `n` (optional): Number of reports to return (1-100, default: 10)
+
+**Response:**
+```json
+{
+  "reports": [
+    {
+      "report": {
+        "seq": 123,
+        "timestamp": "2024-01-01T12:00:00Z",
+        "id": "user123",
+        "latitude": 40.7128,
+        "longitude": -74.0060
+      },
+      "analysis": {
+        "seq": 123,
+        "source": "gpt-4o",
+        "analysis_text": "Analysis of the report content...",
+        "analysis_image": null,
+        "created_at": "2024-01-01T12:00:01Z"
+      }
+    }
+  ],
+  "count": 1,
+  "from_seq": 123,
+  "to_seq": 123
+}
+```
+
+**Examples:**
+```bash
+# Get last 10 reports (default)
+curl http://localhost:8080/api/v3/reports/last
+
+# Get last 5 reports
+curl http://localhost:8080/api/v3/reports/last?n=5
+
+# Get last 50 reports
+curl http://localhost:8080/api/v3/reports/last?n=50
+```
+
 ### Root Health Check
 ```
 GET /health

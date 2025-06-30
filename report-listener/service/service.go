@@ -41,7 +41,7 @@ func NewService(cfg *config.Config) (*Service, error) {
 	hub := websocket.NewHub()
 
 	// Initialize handlers
-	handlers := handlers.NewHandlers(hub)
+	handlers := handlers.NewHandlers(hub, db)
 
 	service := &Service{
 		config:   cfg,
