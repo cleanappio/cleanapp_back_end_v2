@@ -50,7 +50,14 @@ Establishes a WebSocket connection for real-time report updates with analysis.
           "source": "gpt-4o",
           "analysis_text": "Analysis of the report content...",
           "analysis_image": null,
-          "created_at": "2024-01-01T12:00:01Z"
+          "title": "Litter Detection Report",
+          "description": "Detailed description of the detected litter or hazard",
+          "litter_probability": 0.85,
+          "hazard_probability": 0.12,
+          "severity_level": 0.7,
+          "summary": "Summary of the analysis findings",
+          "created_at": "2024-01-01T12:00:01Z",
+          "updated_at": "2024-01-01T12:00:01Z"
         }
       }
     ],
@@ -105,7 +112,14 @@ Returns the last N analyzed reports. The `n` parameter specifies how many report
         "source": "gpt-4o",
         "analysis_text": "Analysis of the report content...",
         "analysis_image": null,
-        "created_at": "2024-01-01T12:00:01Z"
+        "title": "Litter Detection Report",
+        "description": "Detailed description of the detected litter or hazard",
+        "litter_probability": 0.85,
+        "hazard_probability": 0.12,
+        "severity_level": 0.7,
+        "summary": "Summary of the analysis findings",
+        "created_at": "2024-01-01T12:00:01Z",
+        "updated_at": "2024-01-01T12:00:01Z"
       }
     }
   ],
@@ -174,7 +188,14 @@ CREATE TABLE report_analysis(
   source VARCHAR(255) NOT NULL,
   analysis_text TEXT,
   analysis_image LONGBLOB,
+  title VARCHAR(500),
+  description TEXT,
+  litter_probability FLOAT,
+  hazard_probability FLOAT,
+  severity_level FLOAT,
+  summary TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX seq_index (seq),
   INDEX source_index (source)
 );
@@ -351,6 +372,12 @@ ws.onmessage = function(event) {
             console.log(`Report ${report.seq}: ${report.id} at (${report.latitude}, ${report.longitude})`);
             console.log(`Analysis source: ${analysis.source}`);
             console.log(`Analysis text: ${analysis.analysis_text}`);
+            console.log(`Title: ${analysis.title}`);
+            console.log(`Description: ${analysis.description}`);
+            console.log(`Litter probability: ${analysis.litter_probability}`);
+            console.log(`Hazard probability: ${analysis.hazard_probability}`);
+            console.log(`Severity level: ${analysis.severity_level}`);
+            console.log(`Summary: ${analysis.summary}`);
         });
     }
 };
@@ -371,7 +398,7 @@ ws.onerror = function(error) {
 A complete test client is included in `test_client_with_analysis.html` that demonstrates:
 
 - Real-time connection to the WebSocket endpoint
-- Display of reports with their analysis data
+- Display of reports with their analysis data including title, description, probabilities, severity level, and summary
 - Statistics tracking (total reports, last sequence, message count)
 - Visual separation of report data and analysis data
 - Connection status monitoring
@@ -383,7 +410,7 @@ To use the test client:
 3. Click "Connect" to establish a WebSocket connection
 4. View incoming reports with analysis in real-time
 
-The test client will show both the report data (location, timestamp, user ID) and the corresponding analysis data (source, analysis text, creation time) for each report.
+The test client will show both the report data (location, timestamp, user ID) and the corresponding analysis data (source, analysis text, title, description, probabilities, severity level, summary, creation time) for each report.
 
 ## Service Recovery
 

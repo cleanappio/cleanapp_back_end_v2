@@ -274,7 +274,7 @@ services:
       - DB_NAME=cleanapp
       - OPENAI_API_KEY=\${OPENAI_API_KEY}
       - OPENAI_MODEL=gpt-4.1
-      - ANALYSIS_INTERVAL=30s
+      - ANALYSIS_INTERVAL=500ms
       - MAX_RETRIES=3
       - ANALYSIS_PROMPT=${ANALYSIS_PROMPT}
       - LOG_LEVEL=info
