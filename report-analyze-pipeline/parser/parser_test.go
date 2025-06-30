@@ -111,6 +111,52 @@ func TestParseAnalysis(t *testing.T) {
 			wantErr:  true,
 			expected: nil,
 		},
+		{
+			name: "markdown formatted JSON",
+			response: `Here is the analysis:
+
+` + "```" + `json
+{
+  "title": "Wooden Wall with Varied Plank Colors",
+  "description": "The image shows a close-up of a wall or floor made of wooden planks. The planks have varying shades of brown, green, and gray, giving the surface a patchwork or reclaimed wood appearance. There are no visible objects, trash, or hazards present in the image.",
+  "litter_probability": 0.0,
+  "hazard_probability": 0.0,
+  "severity_level": 0.0
+}
+` + "```" + `
+
+This analysis shows no litter or hazards.`,
+			wantErr: false,
+			expected: &AnalysisResult{
+				Title:             "Wooden Wall with Varied Plank Colors",
+				Description:       "The image shows a close-up of a wall or floor made of wooden planks. The planks have varying shades of brown, green, and gray, giving the surface a patchwork or reclaimed wood appearance. There are no visible objects, trash, or hazards present in the image.",
+				LitterProbability: 0.0,
+				HazardProbability: 0.0,
+				SeverityLevel:     0.0,
+			},
+		},
+		{
+			name: "markdown formatted JSON without language identifier",
+			response: `Analysis result:
+
+` + "```" + `
+{
+  "title": "Clean Environment",
+  "description": "The area appears to be clean with no visible litter or hazards.",
+  "litter_probability": 0.0,
+  "hazard_probability": 0.0,
+  "severity_level": 0.0
+}
+` + "```" + ``,
+			wantErr: false,
+			expected: &AnalysisResult{
+				Title:             "Clean Environment",
+				Description:       "The area appears to be clean with no visible litter or hazards.",
+				LitterProbability: 0.0,
+				HazardProbability: 0.0,
+				SeverityLevel:     0.0,
+			},
+		},
 	}
 
 	for _, tt := range tests {

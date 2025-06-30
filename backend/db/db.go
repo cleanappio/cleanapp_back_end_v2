@@ -12,6 +12,7 @@ import (
 	// "cleanapp/backend/area_index"
 	"cleanapp/backend/area_index"
 	"cleanapp/backend/email"
+	imgpkg "cleanapp/backend/image"
 	"cleanapp/backend/server/api"
 	"cleanapp/backend/util"
 	"cleanapp/common"
@@ -131,15 +132,25 @@ func SaveReport(db *sql.DB, r *api.ReportArgs) error {
 	}
 	defer tx.Rollback()
 
+	// Compress the image before saving
+	compressedImage, err := imgpkg.CompressImage(r.Image)
+	if err != nil {
+		log.Errorf("Error compressing image: %w", err)
+		// Continue with original image if compression fails
+		compressedImage = r.Image
+	}
+
 	result, err := tx.ExecContext(ctx, `INSERT
 	  INTO reports (id, team, action_id, latitude, longitude, x, y, image)
 	  VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		r.Id, util.UserIdToTeam(r.Id), r.ActionId, r.Latitude, r.Longitue, r.X, r.Y, r.Image)
+		r.Id, util.UserIdToTeam(r.Id), r.ActionId, r.Latitude, r.Longitue, r.X, r.Y, compressedImage)
 	common.LogResult("saveReport", result, err, true)
 	if err != nil {
 		log.Errorf("Error inserting report: %w", err)
 		return err
 	}
+
+	r.Image = compressedImage
 
 	result, err = tx.ExecContext(ctx, `UPDATE users SET kitns_daily = kitns_daily + 1 WHERE id = ?`, r.Id)
 	common.LogResult("saveReport", result, err, true)
@@ -852,7 +863,7 @@ func sendAffectedPolygonsEmails(report *api.ReportArgs) {
 		return
 	}
 
-	for areaId, emailAddrs := range emails{
+	for areaId, emailAddrs := range emails {
 		polyImg, err := email.GeneratePolygonImg(features[areaId], report.Latitude, report.Longitue)
 		if err != nil {
 			log.Errorf("Error generating polygon image: %w", err)
@@ -899,7 +910,7 @@ func findAreasForReport(db *sql.DB, report *api.ReportArgs) (map[uint64]*geojson
 	areaFeatures := map[uint64]*geojson.Feature{}
 	for rows.Next() {
 		var (
-			areaId uint64
+			areaId   uint64
 			areaJson string
 		)
 		if err := rows.Scan(&areaId, &areaJson); err != nil {
@@ -924,7 +935,7 @@ func findAreasForReport(db *sql.DB, report *api.ReportArgs) (map[uint64]*geojson
 	for rows.Next() {
 		var (
 			areaId uint64
-			email string
+			email  string
 		)
 		if err := rows.Scan(&areaId, &email); err != nil {
 			rows.Close()

@@ -63,7 +63,7 @@ do
         STRIPE_PRICE_BASE_ANNUAL=price_1ReIJJFW3SknKzLcXOje9FBb
         STRIPE_PRICE_ADVANCED_MONTHLY=price_1ReIKiFW3SknKzLcaPTOR5Ny
         STRIPE_PRICE_ADVANCED_ANNUAL=price_1ReIKiFW3SknKzLcVMZe6U3U
-        SEQ_START_FROM=1988
+        SEQ_START_FROM=1996
         break
         ;;
     "prod")
@@ -143,6 +143,8 @@ CLEANAPP_IO_FRONTEND_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-frontend-image:${OP
 CLEANAPP_IO_BACKEND_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-customer-service-image:${OPT}"
 REPORT_LISTENER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-listener-image:${OPT}"
 REPORT_ANALYZE_PIPELINE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-analyze-pipeline-image:${OPT}"
+
+ANALYSIS_PROMPT="What kind of litter or hazard can you see on this image? Please describe the litter or hazard in detail. Also, give a probability that there is a litter or hazard on a photo in units from 0.0 to 1.0 and a severity level from 0.0 to 1.0. Please format the output as a json with following fields - title an issue title, one sentence; - description a description, one paragraph; - litter_probability a probability, a number from 0.0 to 1.0; - hazard_probability a severity, a number from 0.0 to 1.0; - severity_level a severity level, a number from 0.0 to 1.0;"
 
 # Create docker-compose.yml file.
 cat >docker-compose.yml << COMPOSE
@@ -272,9 +274,9 @@ services:
       - DB_NAME=cleanapp
       - OPENAI_API_KEY=\${OPENAI_API_KEY}
       - OPENAI_MODEL=gpt-4.1
-      - ANALYSIS_INTERVAL=500ms
+      - ANALYSIS_INTERVAL=30s
       - MAX_RETRIES=3
-      - ANALYSIS_PROMPT="What kind of litter or hazard can you see on this image? Please describe the litter or hazard in detail. Also, give a probability that there is a litter or hazard on a photo and a severity level from 0.0 to 1.0."
+      - ANALYSIS_PROMPT=${ANALYSIS_PROMPT}
       - LOG_LEVEL=info
       - SEQ_START_FROM=${SEQ_START_FROM}
     ports:
