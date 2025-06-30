@@ -26,6 +26,11 @@ func main() {
 		log.Fatal("OPENAI_API_KEY environment variable is required")
 	}
 
+	// Validate start point is set
+	if cfg.SeqStartFrom <= 0 {
+		log.Fatal("SEQ_START_FROM environment variable must be greater than 0")
+	}
+
 	// Initialize database
 	db, err := database.NewDatabase(cfg)
 	if err != nil {

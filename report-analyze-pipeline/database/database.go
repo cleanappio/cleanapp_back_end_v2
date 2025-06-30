@@ -89,16 +89,16 @@ func (d *Database) CreateReportAnalysisTable() error {
 }
 
 // GetUnanalyzedReports gets reports that haven't been analyzed yet
-func (d *Database) GetUnanalyzedReports(limit int) ([]Report, error) {
+func (d *Database) GetUnanalyzedReports(cfg *config.Config, limit int) ([]Report, error) {
 	query := `
 	SELECT r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.image, r.action_id
 	FROM reports r
 	LEFT JOIN report_analysis ra ON r.seq = ra.seq
-	WHERE ra.seq IS NULL
+	WHERE ra.seq IS NULL AND r.seq > ?
 	ORDER BY r.seq ASC
 	LIMIT ?`
 
-	rows, err := d.db.Query(query, limit)
+	rows, err := d.db.Query(query, cfg.SeqStartFrom, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query unanalyzed reports: %w", err)
 	}

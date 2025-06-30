@@ -29,6 +29,9 @@ type Config struct {
 
 	// Logging
 	LogLevel string
+
+	// Start Point
+	SeqStartFrom int
 }
 
 // Load loads configuration from environment variables
@@ -55,6 +58,9 @@ func Load() *Config {
 
 		// Logging defaults
 		LogLevel: getEnv("LOG_LEVEL", "info"),
+
+		// Start Point
+		SeqStartFrom: getIntEnv("SEQ_START_FROM", 0),
 	}
 
 	return config

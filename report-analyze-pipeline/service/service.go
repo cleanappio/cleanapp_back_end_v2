@@ -68,7 +68,7 @@ func (s *Service) analysisLoop() {
 
 // processUnanalyzedReports processes reports that haven't been analyzed yet
 func (s *Service) processUnanalyzedReports() {
-	reports, err := s.db.GetUnanalyzedReports(10) // Process up to 10 reports at a time
+	reports, err := s.db.GetUnanalyzedReports(s.config, 10) // Process up to 10 reports at a time
 	if err != nil {
 		log.Printf("Failed to get unanalyzed reports: %v", err)
 		return

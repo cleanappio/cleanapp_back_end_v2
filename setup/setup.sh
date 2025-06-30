@@ -63,6 +63,7 @@ do
         STRIPE_PRICE_BASE_ANNUAL=price_1ReIJJFW3SknKzLcXOje9FBb
         STRIPE_PRICE_ADVANCED_MONTHLY=price_1ReIKiFW3SknKzLcaPTOR5Ny
         STRIPE_PRICE_ADVANCED_ANNUAL=price_1ReIKiFW3SknKzLcVMZe6U3U
+        SEQ_START_FROM=1988
         break
         ;;
     "prod")
@@ -110,7 +111,7 @@ CLEANAPP_IO_ENCRYPTION_KEY=\$(gcloud secrets versions access 1 --secret="CLEANAP
 CLEANAPP_IO_JWT_SECRET=\$(gcloud secrets versions access 1 --secret="CLEANAPP_IO_JWT_SECRET_${SECRET_SUFFIX}")
 STRIPE_SECRET_KEY=\$(gcloud secrets versions access 1 --secret="STRIPE_SECRET_KEY_${SECRET_SUFFIX}")
 STRIPE_WEBHOOK_SECRET=\$(gcloud secrets versions access 1 --secret="STRIPE_WEBHOOK_SECRET_${SECRET_SUFFIX}")
-OPENAI_API_KEY=\$(gcloud secrets versions access 1 --secret="OPENAI_API_KEY_${SECRET_SUFFIX}")
+OPENAI_API_KEY=\$(gcloud secrets versions access 1 --secret="CLEANAPP_CHATGPT_API_KEY")
 
 ENV
 
@@ -270,11 +271,12 @@ services:
       - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
       - DB_NAME=cleanapp
       - OPENAI_API_KEY=\${OPENAI_API_KEY}
-      - OPENAI_MODEL=gpt-4o
+      - OPENAI_MODEL=gpt-4.1
       - ANALYSIS_INTERVAL=30s
       - MAX_RETRIES=3
       - ANALYSIS_PROMPT="What kind of litter or hazard can you see on this image? Please describe the litter or hazard in detail. Also, give a probability that there is a litter or hazard on a photo and a severity level from 0.0 to 1.0."
       - LOG_LEVEL=info
+      - SEQ_START_FROM=${SEQ_START_FROM}
     ports:
       - 9082:8080
     depends_on:

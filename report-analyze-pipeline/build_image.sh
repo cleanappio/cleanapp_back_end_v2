@@ -1,50 +1,86 @@
 #!/bin/bash
 
-# Build script for report-analyze-pipeline service
-# Usage: ./build_image.sh [dev|prod]
+echo "Building report-analyze-pipeline docker image..."
+
+OPT=""
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    "-e"|"--env")
+      OPT="$2"
+      shift 2
+      ;;
+    *)
+      echo "Unknown option: $1"
+      exit 1
+      ;;
+  esac
+done
+
+# Choose the environment if not specified
+if [ -z "${OPT}" ]; then
+  PS3="Please choose the environment: "
+  options=("dev" "prod" "quit")
+  select OPT in "${options[@]}"
+  do
+    case ${OPT} in
+      "dev")
+          echo "Using dev environment"
+          break
+          ;;
+      "prod")
+          echo "Using prod environment"
+          break
+          ;;
+      "quit")
+          exit
+          ;;
+      *) echo "invalid option $REPLY";;
+    esac
+  done
+fi
+
+test -d target && rm -rf target
+
+# Create .version file if it doesn't exist
+if [ ! -f .version ]; then
+  echo "BUILD_VERSION=1.0.0" > .version
+fi
+
+. .version
+
+# Increment version build number
+if [ "${OPT}" == "dev" ]; then
+  BUILD=$(echo ${BUILD_VERSION} | cut -f 3 -d ".")
+  VER=$(echo ${BUILD_VERSION} | cut -f 1,2 -d ".")
+  BUILD=$((${BUILD} + 1))
+  BUILD_VERSION="${VER}.${BUILD}"
+  echo "BUILD_VERSION=${BUILD_VERSION}" > .version
+fi
+
+echo "Running docker build for version ${BUILD_VERSION}"
 
 set -e
 
-# Default to dev if no environment specified
-ENVIRONMENT=${1:-dev}
+CLOUD_REGION="us-central1"
+PROJECT_NAME="cleanup-mysql-v2"
+DOCKER_IMAGE="cleanapp-docker-repo/cleanapp-report-analyze-pipeline-image"
+DOCKER_TAG="${CLOUD_REGION}-docker.pkg.dev/${PROJECT_NAME}/${DOCKER_IMAGE}"
 
-# Load version from .version file
-if [ -f .version ]; then
-    BUILD_VERSION=$(cat .version | grep BUILD_VERSION | cut -d'=' -f2)
-else
-    BUILD_VERSION="1.0.0"
+CURRENT_PROJECT=$(gcloud config get project)
+echo ${CURRENT_PROJECT}
+if [ "${PROJECT_NAME}" != "${CURRENT_PROJECT}" ]; then
+  gcloud auth login
+  gcloud config set project ${PROJECT_NAME}
 fi
 
-echo "Building report-analyze-pipeline for environment: $ENVIRONMENT"
-echo "Build version: $BUILD_VERSION"
+if [ "${OPT}" == "dev" ]; then
+  echo "Building and pushing docker image..."
+  gcloud builds submit \
+    --region=${CLOUD_REGION} \
+    --tag=${DOCKER_TAG}:${BUILD_VERSION}
+fi
 
-# Set Docker registry and project
-DOCKER_LOCATION="us-central1-docker.pkg.dev"
-DOCKER_PROJECT="cleanup-mysql-v2"
-DOCKER_REPO="cleanapp-docker-repo"
-IMAGE_NAME="cleanapp-report-analyze-pipeline-image"
+echo "Tagging Docker image as current ${OPT}..."
+gcloud artifacts docker tags add ${DOCKER_TAG}:${BUILD_VERSION} ${DOCKER_TAG}:${OPT}
 
-# Full image path
-FULL_IMAGE_PATH="${DOCKER_LOCATION}/${DOCKER_PROJECT}/${DOCKER_REPO}/${IMAGE_NAME}:${ENVIRONMENT}"
-
-echo "Building image: $FULL_IMAGE_PATH"
-
-# Build the Docker image
-docker build -t "$FULL_IMAGE_PATH" .
-
-echo "Image built successfully: $FULL_IMAGE_PATH"
-
-# Tag with version
-VERSIONED_IMAGE_PATH="${DOCKER_LOCATION}/${DOCKER_PROJECT}/${DOCKER_REPO}/${IMAGE_NAME}:${BUILD_VERSION}"
-docker tag "$FULL_IMAGE_PATH" "$VERSIONED_IMAGE_PATH"
-
-echo "Versioned image: $VERSIONED_IMAGE_PATH"
-
-# Push to registry
-echo "Pushing images to registry..."
-docker push "$FULL_IMAGE_PATH"
-docker push "$VERSIONED_IMAGE_PATH"
-
-echo "Build and push completed successfully!"
-echo "Environment image: $FULL_IMAGE_PATH"
-echo "Versioned image: $VERSIONED_IMAGE_PATH" 
+echo "Report-analyze-pipeline docker image build completed successfully!" 
