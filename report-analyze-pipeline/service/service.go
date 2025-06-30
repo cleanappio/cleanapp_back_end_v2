@@ -96,6 +96,8 @@ func (s *Service) analyzeReport(report *database.Report, wg *sync.WaitGroup) {
 
 	// Prepare the prompt for OpenAI
 	prompt := fmt.Sprintf(`
+%s
+
 Analyze this image and provide a JSON response with the following structure:
 {
   "title": "A descriptive title for the issue",
@@ -104,9 +106,7 @@ Analyze this image and provide a JSON response with the following structure:
   "hazard_probability": 0.0-1.0,
   "severity_level": 0.0-1.0
 }
-
-Image data: %s
-`, report.Image)
+`, s.config.AnalysisPrompt)
 
 	// Call OpenAI API
 	response, err := s.openai.AnalyzeImage(report.Image, prompt)

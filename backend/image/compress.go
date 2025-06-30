@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	maxImageDimension = 512 // Maximum width or height in pixels
+	maxImageDimension = 1024 // Maximum width or height in pixels
 	minImageQuality   = 85
 )
 

@@ -144,7 +144,7 @@ CLEANAPP_IO_BACKEND_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-customer-service-ima
 REPORT_LISTENER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-listener-image:${OPT}"
 REPORT_ANALYZE_PIPELINE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-analyze-pipeline-image:${OPT}"
 
-ANALYSIS_PROMPT="What kind of litter or hazard can you see on this image? Please describe the litter or hazard in detail. Also, give a probability that there is a litter or hazard on a photo in units from 0.0 to 1.0 and a severity level from 0.0 to 1.0. Please format the output as a json with following fields - title an issue title, one sentence; - description a description, one paragraph; - litter_probability a probability, a number from 0.0 to 1.0; - hazard_probability a severity, a number from 0.0 to 1.0; - severity_level a severity level, a number from 0.0 to 1.0;"
+ANALYSIS_PROMPT="What kind of litter or hazard can you see on this image? Please describe the litter or hazard in detail. Also, give a probability that there is a litter or hazard on a photo in units from 0.0 to 1.0 and a severity level from 0.0 to 1.0."
 
 # Create docker-compose.yml file.
 cat >docker-compose.yml << COMPOSE
