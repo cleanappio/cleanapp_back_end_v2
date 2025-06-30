@@ -171,21 +171,21 @@ func (s *Service) processNewReports() error {
 	lastSeq := s.lastProcessedSeq
 	s.mu.RUnlock()
 
-	// Fetch new reports
-	reports, err := s.db.GetReportsSince(ctx, lastSeq)
+	// Fetch new reports with analysis
+	reportsWithAnalysis, err := s.db.GetReportsSince(ctx, lastSeq)
 	if err != nil {
 		return err
 	}
 
-	if len(reports) == 0 {
+	if len(reportsWithAnalysis) == 0 {
 		return nil
 	}
 
 	// Broadcast reports
-	s.hub.BroadcastReports(reports)
+	s.hub.BroadcastReports(reportsWithAnalysis)
 
 	// Update last processed sequence in memory and persistent storage
-	newLastSeq := reports[len(reports)-1].Seq
+	newLastSeq := reportsWithAnalysis[len(reportsWithAnalysis)-1].Report.Seq
 
 	s.mu.Lock()
 	s.lastProcessedSeq = newLastSeq
@@ -197,8 +197,8 @@ func (s *Service) processNewReports() error {
 		// Don't return error here as the broadcast was successful
 	}
 
-	log.Printf("Processed %d new reports (seq %d-%d)",
-		len(reports), reports[0].Seq, reports[len(reports)-1].Seq)
+	log.Printf("Processed %d new reports with analysis (seq %d-%d)",
+		len(reportsWithAnalysis), reportsWithAnalysis[0].Report.Seq, reportsWithAnalysis[len(reportsWithAnalysis)-1].Report.Seq)
 
 	return nil
 }

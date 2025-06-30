@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Report Listener Test Client (with Analysis)</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        .connected { background-color: #d4edda; color: #155724; }
+        .disconnected { background-color: #f8d7da; color: #721c24; }
+        .connecting { background-color: #fff3cd; color: #856404; }
+        
+        .controls {
+            margin-bottom: 20px;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .connect { background-color: #007bff; color: white; }
+        .disconnect { background-color: #dc3545; color: white; }
+        .clear { background-color: #6c757d; color: white; }
+        
+        .messages {
+            max-height: 500px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+        }
+        .message {
+            margin-bottom: 15px;
+            padding: 10px;
+            border-left: 4px solid #007bff;
+            background-color: white;
+            border-radius: 0 4px 4px 0;
+        }
+        .message h4 {
+            margin: 0 0 10px 0;
+            color: #007bff;
+        }
+        .report-data {
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+        }
+        .analysis-data {
+            background-color: #e7f3ff;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            border-left: 4px solid #17a2b8;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .stat-card {
+            background: white;
+            padding: 15px;
+            border-radius: 4px;
+            text-align: center;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #007bff;
+        }
+        .stat-label {
+            font-size: 12px;
+            color: #6c757d;
+            text-transform: uppercase;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Report Listener Test Client (with Analysis)</h1>
+        <p>This client connects to the report-listener WebSocket endpoint and displays reports with their analysis data.</p>
+        
+        <div id="status" class="status disconnected">
+            Disconnected
+        </div>
+        
+        <div class="controls">
+            <button id="connectBtn" class="connect" onclick="connect()">Connect</button>
+            <button id="disconnectBtn" class="disconnect" onclick="disconnect()" disabled>Disconnect</button>
+            <button class="clear" onclick="clearMessages()">Clear Messages</button>
+        </div>
+        
+        <div class="stats">
+            <div class="stat-card">
+                <div id="totalReports" class="stat-value">0</div>
+                <div class="stat-label">Total Reports</div>
+            </div>
+            <div class="stat-card">
+                <div id="lastSeq" class="stat-value">0</div>
+                <div class="stat-label">Last Sequence</div>
+            </div>
+            <div class="stat-card">
+                <div id="messageCount" class="stat-value">0</div>
+                <div class="stat-label">Messages</div>
+            </div>
+        </div>
+        
+        <div id="messages" class="messages">
+            <p>No messages received yet. Click "Connect" to start listening for reports with analysis.</p>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let messageCount = 0;
+        let totalReports = 0;
+        let lastSeq = 0;
+
+        function updateStats() {
+            document.getElementById('totalReports').textContent = totalReports;
+            document.getElementById('lastSeq').textContent = lastSeq;
+            document.getElementById('messageCount').textContent = messageCount;
+        }
+
+        function updateStatus(status, className) {
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = status;
+            statusEl.className = `status ${className}`;
+        }
+
+        function connect() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                return;
+            }
+
+            updateStatus('Connecting...', 'connecting');
+            
+            // Get the current host and port
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const host = window.location.hostname;
+            const port = '8080'; // Default port for report-listener
+            const wsUrl = `${protocol}//${host}:${port}/api/v3/reports/listen`;
+
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = function() {
+                updateStatus('Connected', 'connected');
+                document.getElementById('connectBtn').disabled = true;
+                document.getElementById('disconnectBtn').disabled = false;
+                addMessage('System', 'WebSocket connection established');
+            };
+
+            ws.onmessage = function(event) {
+                messageCount++;
+                updateStats();
+                
+                try {
+                    const message = JSON.parse(event.data);
+                    handleMessage(message);
+                } catch (error) {
+                    addMessage('Error', `Failed to parse message: ${error.message}`);
+                }
+            };
+
+            ws.onclose = function() {
+                updateStatus('Disconnected', 'disconnected');
+                document.getElementById('connectBtn').disabled = false;
+                document.getElementById('disconnectBtn').disabled = true;
+                addMessage('System', 'WebSocket connection closed');
+            };
+
+            ws.onerror = function(error) {
+                updateStatus('Connection Error', 'disconnected');
+                addMessage('Error', `WebSocket error: ${error.message || 'Unknown error'}`);
+            };
+        }
+
+        function disconnect() {
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+        }
+
+        function handleMessage(message) {
+            if (message.type === 'reports') {
+                const batch = message.data;
+                totalReports += batch.count;
+                lastSeq = batch.to_seq;
+                updateStats();
+
+                addMessage('Reports Batch', 
+                    `Received ${batch.count} reports (seq ${batch.from_seq}-${batch.to_seq}) at ${new Date(message.timestamp).toLocaleTimeString()}`);
+
+                batch.reports.forEach((reportWithAnalysis, index) => {
+                    const report = reportWithAnalysis.report;
+                    const analysis = reportWithAnalysis.analysis;
+                    
+                    const reportHtml = `
+                        <div class="message">
+                            <h4>Report #${index + 1} (Seq: ${report.seq})</h4>
+                            <div class="report-data">
+                                <strong>Report Data:</strong>
+                                ID: ${report.id}
+                                Location: ${report.latitude}, ${report.longitude}
+                                Timestamp: ${new Date(report.timestamp).toLocaleString()}
+                            </div>
+                            <div class="analysis-data">
+                                <strong>Analysis Data:</strong>
+                                Source: ${analysis.source}
+                                Created: ${new Date(analysis.created_at).toLocaleString()}
+                                <br><br>
+                                <strong>Analysis Text:</strong><br>
+                                ${analysis.analysis_text || 'No analysis text available'}
+                            </div>
+                        </div>
+                    `;
+                    
+                    addRawMessage(reportHtml);
+                });
+            } else {
+                addMessage('Unknown', `Unknown message type: ${message.type}`);
+            }
+        }
+
+        function addMessage(type, content) {
+            const messagesDiv = document.getElementById('messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message';
+            messageDiv.innerHTML = `
+                <h4>${type}</h4>
+                <div>${content}</div>
+            `;
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        function addRawMessage(html) {
+            const messagesDiv = document.getElementById('messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.innerHTML = html;
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        function clearMessages() {
+            document.getElementById('messages').innerHTML = 
+                '<p>Messages cleared. Click "Connect" to start listening for reports with analysis.</p>';
+            messageCount = 0;
+            updateStats();
+        }
+
+        // Auto-connect on page load (optional)
+        // window.onload = function() {
+        //     setTimeout(connect, 1000);
+        // };
+    </script>
+</body>
+</html> 

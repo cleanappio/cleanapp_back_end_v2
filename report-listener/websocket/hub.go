@@ -78,22 +78,22 @@ func (h *Hub) Run() {
 	}
 }
 
-// BroadcastReports broadcasts a batch of reports to all connected clients
-func (h *Hub) BroadcastReports(reports []models.Report) {
-	if len(reports) == 0 {
+// BroadcastReports broadcasts a batch of reports with analysis to all connected clients
+func (h *Hub) BroadcastReports(reportsWithAnalysis []models.ReportWithAnalysis) {
+	if len(reportsWithAnalysis) == 0 {
 		return
 	}
 
 	// Update last broadcast sequence
-	if len(reports) > 0 {
-		h.lastBroadcastSeq = reports[len(reports)-1].Seq
+	if len(reportsWithAnalysis) > 0 {
+		h.lastBroadcastSeq = reportsWithAnalysis[len(reportsWithAnalysis)-1].Report.Seq
 	}
 
 	batch := models.ReportBatch{
-		Reports: reports,
-		Count:   len(reports),
-		FromSeq: reports[0].Seq,
-		ToSeq:   reports[len(reports)-1].Seq,
+		Reports: reportsWithAnalysis,
+		Count:   len(reportsWithAnalysis),
+		FromSeq: reportsWithAnalysis[0].Report.Seq,
+		ToSeq:   reportsWithAnalysis[len(reportsWithAnalysis)-1].Report.Seq,
 	}
 
 	message := models.BroadcastMessage{
@@ -109,8 +109,8 @@ func (h *Hub) BroadcastReports(reports []models.Report) {
 	}
 
 	h.broadcast <- data
-	log.Printf("Broadcasted %d reports (seq %d-%d) to %d clients",
-		len(reports), batch.FromSeq, batch.ToSeq, h.connectedClients)
+	log.Printf("Broadcasted %d reports with analysis (seq %d-%d) to %d clients",
+		len(reportsWithAnalysis), batch.FromSeq, batch.ToSeq, h.connectedClients)
 }
 
 // GetStats returns current hub statistics

@@ -13,12 +13,27 @@ type Report struct {
 	Longitude float64   `json:"longitude" db:"longitude"`
 }
 
+// ReportAnalysis represents analysis data from the report_analysis table
+type ReportAnalysis struct {
+	Seq           int       `json:"seq" db:"seq"`
+	Source        string    `json:"source" db:"source"`
+	AnalysisText  string    `json:"analysis_text" db:"analysis_text"`
+	AnalysisImage []byte    `json:"analysis_image,omitempty" db:"analysis_image"`
+	CreatedAt     time.Time `json:"created_at" db:"created_at"`
+}
+
+// ReportWithAnalysis represents a report with its corresponding analysis
+type ReportWithAnalysis struct {
+	Report   Report         `json:"report"`
+	Analysis ReportAnalysis `json:"analysis"`
+}
+
 // ReportBatch represents a batch of reports to be broadcasted
 type ReportBatch struct {
-	Reports []Report `json:"reports"`
-	Count   int      `json:"count"`
-	FromSeq int      `json:"from_seq"`
-	ToSeq   int      `json:"to_seq"`
+	Reports []ReportWithAnalysis `json:"reports"`
+	Count   int                  `json:"count"`
+	FromSeq int                  `json:"from_seq"`
+	ToSeq   int                  `json:"to_seq"`
 }
 
 // BroadcastMessage represents a message sent to WebSocket clients

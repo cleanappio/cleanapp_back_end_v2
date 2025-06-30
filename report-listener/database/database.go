@@ -48,39 +48,47 @@ func (d *Database) Close() error {
 	return d.db.Close()
 }
 
-// GetReportsSince retrieves reports since a given sequence number
-func (d *Database) GetReportsSince(ctx context.Context, sinceSeq int) ([]models.Report, error) {
+// GetReportsSince retrieves reports with analysis since a given sequence number
+func (d *Database) GetReportsSince(ctx context.Context, sinceSeq int) ([]models.ReportWithAnalysis, error) {
 	query := `
-		SELECT seq, ts, id, latitude, longitude
-		FROM reports
-		WHERE seq > ?
-		ORDER BY seq ASC
+		SELECT 
+			r.seq, r.ts, r.id, r.latitude, r.longitude,
+			ra.seq as analysis_seq, ra.source, ra.analysis_text, ra.analysis_image, ra.created_at
+		FROM reports r
+		INNER JOIN report_analysis ra ON r.seq = ra.seq
+		WHERE r.seq > ?
+		ORDER BY r.seq ASC
 	`
 
 	rows, err := d.db.QueryContext(ctx, query, sinceSeq)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query reports: %w", err)
+		return nil, fmt.Errorf("failed to query reports with analysis: %w", err)
 	}
 	defer rows.Close()
 
-	var reports []models.Report
+	var reports []models.ReportWithAnalysis
 	for rows.Next() {
-		var report models.Report
+		var reportWithAnalysis models.ReportWithAnalysis
 		err := rows.Scan(
-			&report.Seq,
-			&report.Timestamp,
-			&report.ID,
-			&report.Latitude,
-			&report.Longitude,
+			&reportWithAnalysis.Report.Seq,
+			&reportWithAnalysis.Report.Timestamp,
+			&reportWithAnalysis.Report.ID,
+			&reportWithAnalysis.Report.Latitude,
+			&reportWithAnalysis.Report.Longitude,
+			&reportWithAnalysis.Analysis.Seq,
+			&reportWithAnalysis.Analysis.Source,
+			&reportWithAnalysis.Analysis.AnalysisText,
+			&reportWithAnalysis.Analysis.AnalysisImage,
+			&reportWithAnalysis.Analysis.CreatedAt,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("failed to scan report: %w", err)
+			return nil, fmt.Errorf("failed to scan report with analysis: %w", err)
 		}
-		reports = append(reports, report)
+		reports = append(reports, reportWithAnalysis)
 	}
 
 	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating reports: %w", err)
+		return nil, fmt.Errorf("error iterating reports with analysis: %w", err)
 	}
 
 	return reports, nil

@@ -1,10 +1,11 @@
 # Report Listener Microservice
 
-A Go microservice that listens to the `reports` table in the CleanApp database and broadcasts new reports to connected WebSocket clients in real-time.
+A Go microservice that listens to the `reports` and `report_analysis` tables in the CleanApp database and broadcasts new reports with their analysis to connected WebSocket clients in real-time.
 
 ## Features
 
-- **Real-time Broadcasting**: Broadcasts new reports to all connected WebSocket clients
+- **Real-time Broadcasting**: Broadcasts new reports with analysis to all connected WebSocket clients
+- **Analysis Integration**: Only sends reports that have corresponding analysis in the `report_analysis` table
 - **Batch Processing**: Groups reports within the broadcast interval and sends them as batches
 - **Service Recovery**: Tracks the last processed report sequence and resumes from where it left off after service interruption
 - **Configurable Broadcast Frequency**: Adjustable broadcast interval (default: 1 second)
@@ -17,8 +18,9 @@ A Go microservice that listens to the `reports` table in the CleanApp database a
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
 │   WebSocket     │    │   Report        │    │   MySQL         │
 │   Clients       │◄───┤   Listener      │◄───┤   Database      │
-│                 │    │   Service       │    │   (reports)     │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
+│                 │    │   Service       │    │   (reports +    │
+└─────────────────┘    └─────────────────┘    │   report_analysis)│
+                                              └─────────────────┘
 ```
 
 ## API Endpoints
@@ -27,7 +29,7 @@ A Go microservice that listens to the `reports` table in the CleanApp database a
 ```
 GET /api/v3/reports/listen
 ```
-Establishes a WebSocket connection for real-time report updates.
+Establishes a WebSocket connection for real-time report updates with analysis.
 
 **Message Format:**
 ```json
@@ -36,15 +38,20 @@ Establishes a WebSocket connection for real-time report updates.
   "data": {
     "reports": [
       {
-        "seq": 123,
-        "timestamp": "2024-01-01T12:00:00Z",
-        "id": "user123",
-        "team": 1,
-        "latitude": 40.7128,
-        "longitude": -74.0060,
-        "x": 0.5,
-        "y": 0.3,
-        "action_id": "action123"
+        "report": {
+          "seq": 123,
+          "timestamp": "2024-01-01T12:00:00Z",
+          "id": "user123",
+          "latitude": 40.7128,
+          "longitude": -74.0060
+        },
+        "analysis": {
+          "seq": 123,
+          "source": "gpt-4o",
+          "analysis_text": "Analysis of the report content...",
+          "analysis_image": null,
+          "created_at": "2024-01-01T12:00:01Z"
+        }
       }
     ],
     "count": 1,
@@ -95,7 +102,7 @@ The service is configured via environment variables:
 
 ## Database Schema
 
-The service listens to the `reports` table with the following structure:
+The service listens to the `reports` and `report_analysis` tables with the following structure:
 
 ```sql
 CREATE TABLE reports(
@@ -113,7 +120,19 @@ CREATE TABLE reports(
   INDEX id_index (id),
   INDEX action_idx (action_id)
 );
+
+CREATE TABLE report_analysis(
+  seq INT NOT NULL,
+  source VARCHAR(255) NOT NULL,
+  analysis_text TEXT,
+  analysis_image LONGBLOB,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX seq_index (seq),
+  INDEX source_index (source)
+);
 ```
+
+**Note:** The service only broadcasts reports that have corresponding analysis entries in the `report_analysis` table. The `seq` field in `report_analysis` references the `seq` field in the `reports` table.
 
 ## Running the Service
 
@@ -275,10 +294,15 @@ ws.onmessage = function(event) {
     
     if (message.type === 'reports') {
         const batch = message.data;
-        console.log(`Received ${batch.count} reports (seq ${batch.from_seq}-${batch.to_seq})`);
+        console.log(`Received ${batch.count} reports with analysis (seq ${batch.from_seq}-${batch.to_seq})`);
         
-        batch.reports.forEach(report => {
+        batch.reports.forEach(reportWithAnalysis => {
+            const report = reportWithAnalysis.report;
+            const analysis = reportWithAnalysis.analysis;
+            
             console.log(`Report ${report.seq}: ${report.id} at (${report.latitude}, ${report.longitude})`);
+            console.log(`Analysis source: ${analysis.source}`);
+            console.log(`Analysis text: ${analysis.analysis_text}`);
         });
     }
 };
@@ -293,6 +317,25 @@ ws.onerror = function(error) {
     console.error('WebSocket error:', error);
 };
 ```
+
+### Test Client
+
+A complete test client is included in `test_client_with_analysis.html` that demonstrates:
+
+- Real-time connection to the WebSocket endpoint
+- Display of reports with their analysis data
+- Statistics tracking (total reports, last sequence, message count)
+- Visual separation of report data and analysis data
+- Connection status monitoring
+
+To use the test client:
+
+1. Start the report-listener service
+2. Open `test_client_with_analysis.html` in a web browser
+3. Click "Connect" to establish a WebSocket connection
+4. View incoming reports with analysis in real-time
+
+The test client will show both the report data (location, timestamp, user ID) and the corresponding analysis data (source, analysis text, creation time) for each report.
 
 ## Service Recovery
 
