@@ -182,8 +182,8 @@ func (d *Database) EnsureServiceStateTable(ctx context.Context) error {
 func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int) ([]models.ReportWithAnalysis, error) {
 	query := `
 		SELECT 
-			r.seq, r.ts, r.id, r.latitude, r.longitude, r.image,
-			ra.seq as analysis_seq, ra.source, ra.analysis_text, ra.analysis_image, 
+			r.seq, r.ts, r.id, r.latitude, r.longitude,
+			ra.seq as analysis_seq, ra.source, ra.analysis_text,
 			ra.title, ra.description,
 			ra.litter_probability, ra.hazard_probability, 
 			ra.severity_level, ra.summary, ra.created_at
@@ -208,11 +208,9 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int) ([]mo
 			&reportWithAnalysis.Report.ID,
 			&reportWithAnalysis.Report.Latitude,
 			&reportWithAnalysis.Report.Longitude,
-			&reportWithAnalysis.Report.Image,
 			&reportWithAnalysis.Analysis.Seq,
 			&reportWithAnalysis.Analysis.Source,
 			&reportWithAnalysis.Analysis.AnalysisText,
-			&reportWithAnalysis.Analysis.AnalysisImage,
 			&reportWithAnalysis.Analysis.Title,
 			&reportWithAnalysis.Analysis.Description,
 			&reportWithAnalysis.Analysis.LitterProbability,
