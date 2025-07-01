@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -103,6 +104,86 @@ func (h *Handlers) GetLastNAnalyzedReports(c *gin.Context) {
 	}
 
 	// Create the response in the same format as WebSocket broadcasts
+	response := models.ReportBatch{
+		Reports: reports,
+		Count:   len(reports),
+		FromSeq: 0,
+		ToSeq:   0,
+	}
+
+	// Set FromSeq and ToSeq if there are reports
+	if len(reports) > 0 {
+		response.FromSeq = reports[0].Report.Seq
+		response.ToSeq = reports[len(reports)-1].Report.Seq
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// GetReportBySeq returns a specific report by sequence ID
+func (h *Handlers) GetReportBySeq(c *gin.Context) {
+	// Get the seq parameter from query string
+	seqStr := c.Query("seq")
+	if seqStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing 'seq' parameter"})
+		return
+	}
+
+	seq, err := strconv.Atoi(seqStr)
+	if err != nil || seq <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'seq' parameter. Must be a positive integer."})
+		return
+	}
+
+	// Get the report from the database
+	reportWithAnalysis, err := h.db.GetReportBySeq(c.Request.Context(), seq)
+	if err != nil {
+		log.Printf("Failed to get report by seq %d: %v", seq, err)
+		if err.Error() == fmt.Sprintf("report with seq %d not found", seq) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Report not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve report"})
+		return
+	}
+
+	c.JSON(http.StatusOK, reportWithAnalysis)
+}
+
+// GetLastNReportsByID returns the last N reports for a given report ID
+func (h *Handlers) GetLastNReportsByID(c *gin.Context) {
+	// Get the id parameter from query string
+	reportID := c.Query("id")
+	if reportID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing 'id' parameter"})
+		return
+	}
+
+	// Get the N parameter from query string, default to 10 if not provided
+	nStr := c.DefaultQuery("N", "10")
+
+	n := 10 // default value
+	if parsedN, err := strconv.Atoi(nStr); err == nil && parsedN > 0 {
+		n = parsedN
+	} else {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'N' parameter. Must be a positive integer."})
+		return
+	}
+
+	// Limit the maximum number of reports to prevent abuse
+	if n > 100 {
+		n = 100
+	}
+
+	// Get the reports from the database
+	reports, err := h.db.GetLastNReportsByID(c.Request.Context(), reportID, n)
+	if err != nil {
+		log.Printf("Failed to get last N reports by ID %s: %v", reportID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve reports"})
+		return
+	}
+
+	// Create the response in the same format as other endpoints
 	response := models.ReportBatch{
 		Reports: reports,
 		Count:   len(reports),

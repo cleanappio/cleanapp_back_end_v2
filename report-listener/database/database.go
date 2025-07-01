@@ -52,7 +52,7 @@ func (d *Database) Close() error {
 func (d *Database) GetReportsSince(ctx context.Context, sinceSeq int) ([]models.ReportWithAnalysis, error) {
 	query := `
 		SELECT 
-			r.seq, r.ts, r.id, r.latitude, r.longitude,
+			r.seq, r.ts, r.id, r.latitude, r.longitude, r.image,
 			ra.seq as analysis_seq, ra.source, ra.analysis_text, ra.analysis_image, 
 			ra.title, ra.description,
 			ra.litter_probability, ra.hazard_probability, 
@@ -78,6 +78,7 @@ func (d *Database) GetReportsSince(ctx context.Context, sinceSeq int) ([]models.
 			&reportWithAnalysis.Report.ID,
 			&reportWithAnalysis.Report.Latitude,
 			&reportWithAnalysis.Report.Longitude,
+			&reportWithAnalysis.Report.Image,
 			&reportWithAnalysis.Analysis.Seq,
 			&reportWithAnalysis.Analysis.Source,
 			&reportWithAnalysis.Analysis.AnalysisText,
@@ -181,7 +182,7 @@ func (d *Database) EnsureServiceStateTable(ctx context.Context) error {
 func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int) ([]models.ReportWithAnalysis, error) {
 	query := `
 		SELECT 
-			r.seq, r.ts, r.id, r.latitude, r.longitude,
+			r.seq, r.ts, r.id, r.latitude, r.longitude, r.image,
 			ra.seq as analysis_seq, ra.source, ra.analysis_text, ra.analysis_image, 
 			ra.title, ra.description,
 			ra.litter_probability, ra.hazard_probability, 
@@ -207,6 +208,7 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int) ([]mo
 			&reportWithAnalysis.Report.ID,
 			&reportWithAnalysis.Report.Latitude,
 			&reportWithAnalysis.Report.Longitude,
+			&reportWithAnalysis.Report.Image,
 			&reportWithAnalysis.Analysis.Seq,
 			&reportWithAnalysis.Analysis.Source,
 			&reportWithAnalysis.Analysis.AnalysisText,
@@ -227,6 +229,107 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int) ([]mo
 
 	if err = rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating last N analyzed reports: %w", err)
+	}
+
+	return reports, nil
+}
+
+// GetReportBySeq retrieves a single report with analysis by sequence ID
+func (d *Database) GetReportBySeq(ctx context.Context, seq int) (*models.ReportWithAnalysis, error) {
+	query := `
+		SELECT 
+			r.seq, r.ts, r.id, r.latitude, r.longitude, r.image,
+			ra.seq as analysis_seq, ra.source, ra.analysis_text, ra.analysis_image, 
+			ra.title, ra.description,
+			ra.litter_probability, ra.hazard_probability, 
+			ra.severity_level, ra.summary, ra.created_at
+		FROM reports r
+		INNER JOIN report_analysis ra ON r.seq = ra.seq
+		WHERE r.seq = ?
+	`
+
+	var reportWithAnalysis models.ReportWithAnalysis
+	err := d.db.QueryRowContext(ctx, query, seq).Scan(
+		&reportWithAnalysis.Report.Seq,
+		&reportWithAnalysis.Report.Timestamp,
+		&reportWithAnalysis.Report.ID,
+		&reportWithAnalysis.Report.Latitude,
+		&reportWithAnalysis.Report.Longitude,
+		&reportWithAnalysis.Report.Image,
+		&reportWithAnalysis.Analysis.Seq,
+		&reportWithAnalysis.Analysis.Source,
+		&reportWithAnalysis.Analysis.AnalysisText,
+		&reportWithAnalysis.Analysis.AnalysisImage,
+		&reportWithAnalysis.Analysis.Title,
+		&reportWithAnalysis.Analysis.Description,
+		&reportWithAnalysis.Analysis.LitterProbability,
+		&reportWithAnalysis.Analysis.HazardProbability,
+		&reportWithAnalysis.Analysis.SeverityLevel,
+		&reportWithAnalysis.Analysis.Summary,
+		&reportWithAnalysis.Analysis.CreatedAt,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("report with seq %d not found", seq)
+		}
+		return nil, fmt.Errorf("failed to get report by seq: %w", err)
+	}
+
+	return &reportWithAnalysis, nil
+}
+
+// GetLastNReportsByID retrieves the last N reports with analysis for a given report ID
+func (d *Database) GetLastNReportsByID(ctx context.Context, reportID string, limit int) ([]models.ReportWithAnalysis, error) {
+	query := `
+		SELECT 
+			r.seq, r.ts, r.id, r.latitude, r.longitude, r.image,
+			ra.seq as analysis_seq, ra.source, ra.analysis_text, ra.analysis_image, 
+			ra.title, ra.description,
+			ra.litter_probability, ra.hazard_probability, 
+			ra.severity_level, ra.summary, ra.created_at
+		FROM reports r
+		INNER JOIN report_analysis ra ON r.seq = ra.seq
+		WHERE r.id = ?
+		ORDER BY r.seq DESC
+		LIMIT ?
+	`
+
+	rows, err := d.db.QueryContext(ctx, query, reportID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query reports by ID: %w", err)
+	}
+	defer rows.Close()
+
+	var reports []models.ReportWithAnalysis
+	for rows.Next() {
+		var reportWithAnalysis models.ReportWithAnalysis
+		err := rows.Scan(
+			&reportWithAnalysis.Report.Seq,
+			&reportWithAnalysis.Report.Timestamp,
+			&reportWithAnalysis.Report.ID,
+			&reportWithAnalysis.Report.Latitude,
+			&reportWithAnalysis.Report.Longitude,
+			&reportWithAnalysis.Report.Image,
+			&reportWithAnalysis.Analysis.Seq,
+			&reportWithAnalysis.Analysis.Source,
+			&reportWithAnalysis.Analysis.AnalysisText,
+			&reportWithAnalysis.Analysis.AnalysisImage,
+			&reportWithAnalysis.Analysis.Title,
+			&reportWithAnalysis.Analysis.Description,
+			&reportWithAnalysis.Analysis.LitterProbability,
+			&reportWithAnalysis.Analysis.HazardProbability,
+			&reportWithAnalysis.Analysis.SeverityLevel,
+			&reportWithAnalysis.Analysis.Summary,
+			&reportWithAnalysis.Analysis.CreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan report with analysis: %w", err)
+		}
+		reports = append(reports, reportWithAnalysis)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating reports by ID: %w", err)
 	}
 
 	return reports, nil

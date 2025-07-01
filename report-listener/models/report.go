@@ -11,6 +11,7 @@ type Report struct {
 	ID        string    `json:"id" db:"id"`
 	Latitude  float64   `json:"latitude" db:"latitude"`
 	Longitude float64   `json:"longitude" db:"longitude"`
+	Image     []byte    `json:"image,omitempty" db:"image"`
 }
 
 // ReportAnalysis represents an analysis result
