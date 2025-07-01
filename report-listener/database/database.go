@@ -229,10 +229,5 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int) ([]mo
 		return nil, fmt.Errorf("error iterating last N analyzed reports: %w", err)
 	}
 
-	// Reverse the order to get ascending sequence order (oldest to newest)
-	for i, j := 0, len(reports)-1; i < j; i, j = i+1, j-1 {
-		reports[i], reports[j] = reports[j], reports[i]
-	}
-
 	return reports, nil
 }
