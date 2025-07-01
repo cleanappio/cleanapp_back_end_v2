@@ -90,7 +90,7 @@ do
         STRIPE_PRICE_BASE_ANNUAL=price_1Rg0hJF5CkX59CnmOyT5HZVu
         STRIPE_PRICE_ADVANCED_MONTHLY=price_1Rg0hEF5CkX59CnmT5ZspSPK
         STRIPE_PRICE_ADVANCED_ANNUAL=price_1Rg0hEF5CkX59CnmF40QClFx
-        SEQ_START_FROM=1996
+        SEQ_START_FROM=1000000 # TODO: Change to the prod cleanup latest report sequence number after we run on the base mainnet
         break
         ;;
     "quit")
