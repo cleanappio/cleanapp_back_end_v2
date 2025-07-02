@@ -66,7 +66,6 @@ CREATE TABLE IF NOT EXISTS payment_methods (
     brand VARCHAR(50) NOT NULL,
     exp_month INT NOT NULL,
     exp_year INT NOT NULL,
-    cardholder_name VARCHAR(256),
     is_default BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
@@ -223,7 +222,6 @@ var Migrations = []Migration{
 				brand VARCHAR(50) NOT NULL,
 				exp_month INT NOT NULL,
 				exp_year INT NOT NULL,
-				cardholder_name VARCHAR(256),
 				is_default BOOLEAN DEFAULT FALSE,
 				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 				FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
@@ -328,10 +326,10 @@ var Migrations = []Migration{
 	},
 	// Add this to the Migrations slice in database/schema.go after migration 3:
 
-{
-    Version: 4,
-    Name:    "add_stripe_integration_support",
-    Up: `
+	{
+		Version: 4,
+		Name:    "add_stripe_integration_support",
+		Up: `
         -- Migration 4: Add full Stripe integration support
         
         -- Add trial and cancellation fields to subscriptions
@@ -466,7 +464,7 @@ var Migrations = []Migration{
             INDEX idx_created (created_at)
         );
     `,
-    Down: `
+		Down: `
         -- Remove added columns from subscriptions
         ALTER TABLE subscriptions 
             DROP COLUMN IF EXISTS trial_end,
@@ -593,7 +591,7 @@ func RunMigrations(db *sql.DB) error {
 	for _, migration := range Migrations {
 		if migration.Version > currentVersion {
 			log.Printf("Running migration %d: %s", migration.Version, migration.Name)
-			
+
 			// Start transaction
 			tx, err := db.Begin()
 			if err != nil {

@@ -237,7 +237,7 @@ func (h *Handlers) OAuthLogin(c *gin.Context) {
 // GetOAuthURL returns the OAuth provider URL for authentication
 func (h *Handlers) GetOAuthURL(c *gin.Context) {
 	provider := c.Param("provider")
-	
+
 	// Validate provider
 	if provider != "google" && provider != "facebook" && provider != "apple" {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "invalid provider"})
@@ -287,7 +287,7 @@ func (h *Handlers) DownloadInvoice(c *gin.Context) {
 	}
 
 	billingID := c.Param("id")
-	
+
 	// Get billing record and verify ownership
 	billing, err := h.service.GetBillingRecord(c.Request.Context(), customerID, billingID)
 	if err != nil {
@@ -306,7 +306,7 @@ func (h *Handlers) DownloadInvoice(c *gin.Context) {
 	c.Header("Content-Type", contentType)
 	c.Header("Content-Disposition", "attachment; filename=invoice-"+billingID+".pdf")
 	c.Header("Content-Length", fmt.Sprint(len(invoiceData)))
-	
+
 	c.Data(http.StatusOK, contentType, invoiceData)
 }
 
@@ -351,4 +351,33 @@ func (h *Handlers) RootHealthCheck(c *gin.Context) {
 		"status":    "healthy",
 		"timestamp": time.Now().UTC().Format(time.RFC3339),
 	})
+}
+
+// CheckUserExists checks if a user exists by email
+func (h *Handlers) CheckUserExists(c *gin.Context) {
+	email := c.Query("email")
+	if email == "" {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "email parameter is required"})
+		return
+	}
+
+	// Validate email format
+	if !isValidEmail(email) {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "invalid email format"})
+		return
+	}
+
+	exists, err := h.service.UserExistsByEmail(c.Request.Context(), email)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to check user existence"})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.UserExistsResponse{UserExists: exists})
+}
+
+// isValidEmail performs basic email validation
+func isValidEmail(email string) bool {
+	// Simple email validation - you might want to use a more robust library
+	return len(email) > 0 && len(email) < 256 && strings.Contains(email, "@") && strings.Contains(email, ".")
 }

@@ -11,6 +11,7 @@ import (
 	"customer-service/middleware"
 	"customer-service/utils/encryption"
 	"customer-service/utils/stripe"
+
 	"github.com/gin-gonic/gin"
 	_ "github.com/go-sql-driver/mysql"
 )
@@ -103,13 +104,16 @@ func setupRouter(service *database.CustomerService, stripeClient *stripe.Client,
 
 		// Customer registration
 		public.POST("/customers", h.CreateCustomer)
-		
+
+		// User existence check
+		public.GET("/users/exists", h.CheckUserExists)
+
 		// Public data
 		public.GET("/areas", h.GetAreas)
 
 		// Prices and plans
 		public.GET("/prices", h.GetPrices)
-		
+
 		// API health check
 		public.GET("/health", h.HealthCheck)
 	}

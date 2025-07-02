@@ -51,7 +51,6 @@ type PaymentMethod struct {
 	Brand                 string `json:"brand"` // visa, mastercard, amex, etc.
 	ExpMonth              int    `json:"exp_month"`
 	ExpYear               int    `json:"exp_year"`
-	CardholderName        string `json:"cardholder_name"`
 	IsDefault             bool   `json:"is_default"`
 }
 
@@ -174,4 +173,9 @@ type Price struct {
 
 type PricesResponse struct {
 	Prices []Price `json:"prices"`
+}
+
+// UserExistsResponse represents the response for user existence check
+type UserExistsResponse struct {
+	UserExists bool `json:"user_exists"`
 }

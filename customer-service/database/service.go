@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"customer-service/models"
 	"customer-service/utils"
 	"customer-service/utils/encryption"
 	"customer-service/utils/stripe"
+
 	"github.com/golang-jwt/jwt/v5"
 	stripelib "github.com/stripe/stripe-go/v82"
 	"golang.org/x/crypto/bcrypt"
@@ -114,8 +116,8 @@ func (s *CustomerService) CreateSubscription(ctx context.Context, customerID str
 
 	// Check if customer already has an active subscription within the transaction
 	var existingStripeSubID sql.NullString
-	err = tx.QueryRowContext(ctx, 
-		"SELECT stripe_subscription_id FROM subscriptions WHERE customer_id = ? AND status = 'active'", 
+	err = tx.QueryRowContext(ctx,
+		"SELECT stripe_subscription_id FROM subscriptions WHERE customer_id = ? AND status = 'active'",
 		customerID).Scan(&existingStripeSubID)
 	if err != nil && err != sql.ErrNoRows {
 		return nil, err
@@ -124,14 +126,14 @@ func (s *CustomerService) CreateSubscription(ctx context.Context, customerID str
 	// If there's an existing active subscription, cancel it first
 	if err != sql.ErrNoRows && existingStripeSubID.Valid && existingStripeSubID.String != "" {
 		log.Printf("Canceling existing subscription %s for customer %s before creating new one", existingStripeSubID.String, customerID)
-		
+
 		// Cancel the existing subscription in Stripe
 		_, err := s.stripeClient.CancelSubscription(existingStripeSubID.String)
 		if err != nil {
 			// Log the error but continue - the subscription might already be canceled in Stripe
 			log.Printf("Warning: Failed to cancel existing Stripe subscription %s: %v", existingStripeSubID.String, err)
 		}
-		
+
 		// Update the existing subscription status in database (within transaction)
 		_, err = tx.ExecContext(ctx,
 			`UPDATE subscriptions 
@@ -145,8 +147,8 @@ func (s *CustomerService) CreateSubscription(ctx context.Context, customerID str
 
 	// Check if customer already has an active subscription
 	var activeCount int
-	err = tx.QueryRowContext(ctx, 
-		"SELECT COUNT(*) FROM subscriptions WHERE customer_id = ? AND status = 'active'", 
+	err = tx.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM subscriptions WHERE customer_id = ? AND status = 'active'",
 		customerID).Scan(&activeCount)
 	if err != nil {
 		return nil, err
@@ -209,7 +211,7 @@ func (s *CustomerService) CreateSubscription(ctx context.Context, customerID str
 // GetSubscription retrieves the customer's active subscription
 func (s *CustomerService) GetSubscription(ctx context.Context, customerID string) (*models.Subscription, error) {
 	subscription := &models.Subscription{}
-	
+
 	err := s.db.QueryRowContext(ctx,
 		`SELECT id, customer_id, plan_type, billing_cycle, status, start_date, next_billing_date 
 		 FROM subscriptions 
@@ -217,21 +219,21 @@ func (s *CustomerService) GetSubscription(ctx context.Context, customerID string
 		 ORDER BY created_at DESC 
 		 LIMIT 1`,
 		customerID).Scan(
-			&subscription.ID,
-			&subscription.CustomerID,
-			&subscription.PlanType,
-			&subscription.BillingCycle,
-			&subscription.Status,
-			&subscription.StartDate,
-			&subscription.NextBillingDate)
-	
+		&subscription.ID,
+		&subscription.CustomerID,
+		&subscription.PlanType,
+		&subscription.BillingCycle,
+		&subscription.Status,
+		&subscription.StartDate,
+		&subscription.NextBillingDate)
+
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, errors.New("no active subscription found")
 		}
 		return nil, err
 	}
-	
+
 	return subscription, nil
 }
 
@@ -263,7 +265,7 @@ func (s *CustomerService) UpdateSubscription(ctx context.Context, customerID str
 		 WHERE customer_id = ? AND status = 'active'`,
 		req.PlanType, req.BillingCycle, stripeSub.Items.Data[0].CurrentPeriodEnd,
 		stripeSub.Items.Data[0].Price.ID, customerID)
-	
+
 	return err
 }
 
@@ -294,7 +296,7 @@ func (s *CustomerService) CancelSubscription(ctx context.Context, customerID str
 		 SET status = ?, updated_at = NOW() 
 		 WHERE customer_id = ? AND status = 'active'`,
 		stripeSub.Status, customerID)
-	
+
 	return err
 }
 
@@ -366,12 +368,12 @@ func (s *CustomerService) GetCustomer(ctx context.Context, customerID string) (*
 func (s *CustomerService) GetPaymentMethods(ctx context.Context, customerID string) ([]models.PaymentMethod, error) {
 	query := `
 		SELECT id, customer_id, stripe_payment_method_id, stripe_customer_id, 
-		       last_four, brand, exp_month, exp_year, cardholder_name, is_default
+		       last_four, brand, exp_month, exp_year, is_default
 		FROM payment_methods
 		WHERE customer_id = ?
 		ORDER BY created_at DESC
 	`
-	
+
 	rows, err := s.db.QueryContext(ctx, query, customerID)
 	if err != nil {
 		return nil, err
@@ -381,7 +383,6 @@ func (s *CustomerService) GetPaymentMethods(ctx context.Context, customerID stri
 	var methods []models.PaymentMethod
 	for rows.Next() {
 		var method models.PaymentMethod
-		var cardholderName sql.NullString
 		err := rows.Scan(
 			&method.ID,
 			&method.CustomerID,
@@ -391,7 +392,6 @@ func (s *CustomerService) GetPaymentMethods(ctx context.Context, customerID stri
 			&method.Brand,
 			&method.ExpMonth,
 			&method.ExpYear,
-			&cardholderName,
 			&method.IsDefault,
 		)
 		if err != nil {
@@ -540,7 +540,7 @@ func (s *CustomerService) GetBillingHistory(ctx context.Context, customerID stri
 		ORDER BY payment_date DESC
 		LIMIT ? OFFSET ?
 	`
-	
+
 	rows, err := s.db.QueryContext(ctx, query, customerID, limit, offset)
 	if err != nil {
 		return nil, err
@@ -688,7 +688,7 @@ func (s *CustomerService) insertSubscriptionWithID(ctx context.Context, tx *sql.
 	if err != nil {
 		return 0, err
 	}
-	
+
 	return result.LastInsertId()
 }
 
@@ -742,7 +742,7 @@ func (s *CustomerService) ensureStripeCustomer(ctx context.Context, customer *mo
 	if err != nil {
 		return "", fmt.Errorf("failed to create Stripe customer: %w", err)
 	}
-	
+
 	// Update customer with Stripe customer ID
 	_, err = s.db.ExecContext(ctx,
 		"UPDATE customers SET stripe_customer_id = ? WHERE id = ?",
@@ -773,7 +773,7 @@ func (s *CustomerService) ensureStripeCustomerTx(ctx context.Context, tx *sql.Tx
 	if err != nil {
 		return "", fmt.Errorf("failed to create Stripe customer: %w", err)
 	}
-	
+
 	// Update customer with Stripe customer ID
 	_, err = tx.ExecContext(ctx,
 		"UPDATE customers SET stripe_customer_id = ? WHERE id = ?",
@@ -835,12 +835,12 @@ func (s *CustomerService) authenticateWithPassword(ctx context.Context, email, p
 		if err := rows.Scan(&id, &encEmail); err != nil {
 			continue
 		}
-		
+
 		decryptedEmail, err := s.encryptor.Decrypt(encEmail)
 		if err != nil {
 			continue
 		}
-		
+
 		if decryptedEmail == email {
 			foundCustomerID = id
 			break
@@ -1019,7 +1019,7 @@ func (s *CustomerService) ValidateRefreshToken(tokenString string) (string, erro
 // InvalidateToken removes a token from the database
 func (s *CustomerService) InvalidateToken(ctx context.Context, customerID, tokenString string) error {
 	tokenHash := utils.HashToken(tokenString)
-	
+
 	// Delete the token
 	result, err := s.db.ExecContext(ctx,
 		"DELETE FROM auth_tokens WHERE customer_id = ? AND token_hash = ?",
@@ -1027,18 +1027,18 @@ func (s *CustomerService) InvalidateToken(ctx context.Context, customerID, token
 	if err != nil {
 		return err
 	}
-	
+
 	// Check if any rows were affected
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
 		return err
 	}
-	
+
 	if rowsAffected == 0 {
 		// Token not found, but we don't treat this as an error for logout
 		return nil
 	}
-	
+
 	return nil
 }
 
@@ -1046,7 +1046,7 @@ func (s *CustomerService) InvalidateToken(ctx context.Context, customerID, token
 func (s *CustomerService) ValidateOAuthToken(ctx context.Context, provider, idToken, accessToken string) (*models.OAuthUserInfo, error) {
 	// TODO: Implement actual OAuth validation with providers
 	// This is a placeholder implementation
-	
+
 	switch provider {
 	case "google":
 		// Validate with Google OAuth2 API
@@ -1069,7 +1069,7 @@ func (s *CustomerService) GetOrCreateOAuthCustomer(ctx context.Context, provider
 	err := s.db.QueryRowContext(ctx,
 		"SELECT customer_id FROM login_methods WHERE method_type = ? AND oauth_id = ?",
 		provider, userInfo.ID).Scan(&customerID)
-	
+
 	if err == nil {
 		// Customer exists, return it
 		customer, err := s.GetCustomer(ctx, customerID)
@@ -1126,9 +1126,9 @@ func (s *CustomerService) GetOrCreateOAuthCustomer(ctx context.Context, provider
 func (s *CustomerService) GenerateOAuthURL(provider string) (string, string, error) {
 	// TODO: Implement actual OAuth URL generation
 	// This requires OAuth client configuration
-	
+
 	state := utils.GenerateRandomID(32)
-	
+
 	switch provider {
 	case "google":
 		// Generate Google OAuth URL
@@ -1155,14 +1155,14 @@ func (s *CustomerService) ReactivateSubscription(ctx context.Context, customerID
 		 ORDER BY updated_at DESC 
 		 LIMIT 1`,
 		customerID).Scan(
-			&subscription.ID,
-			&subscription.CustomerID,
-			&subscription.PlanType,
-			&subscription.BillingCycle,
-			&subscription.Status,
-			&subscription.StartDate,
-			&subscription.NextBillingDate)
-	
+		&subscription.ID,
+		&subscription.CustomerID,
+		&subscription.PlanType,
+		&subscription.BillingCycle,
+		&subscription.Status,
+		&subscription.StartDate,
+		&subscription.NextBillingDate)
+
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, errors.New("no canceled subscription found")
@@ -1184,14 +1184,14 @@ func (s *CustomerService) ReactivateSubscription(ctx context.Context, customerID
 		 SET status = 'active', next_billing_date = FROM_UNIXTIME(?), updated_at = UTC_TIMESTAMP() 
 		 WHERE id = ?`,
 		nextBillingDate.Unix(), subscription.ID)
-	
+
 	if err != nil {
 		return nil, err
 	}
 
 	subscription.Status = "active"
 	subscription.NextBillingDate = nextBillingDate
-	
+
 	return &subscription, nil
 }
 
@@ -1203,18 +1203,18 @@ func (s *CustomerService) GetBillingRecord(ctx context.Context, customerID, bill
 		 FROM billing_history
 		 WHERE id = ? AND customer_id = ?`,
 		billingID, customerID).Scan(
-			&record.ID,
-			&record.CustomerID,
-			&record.SubscriptionID,
-			&record.Amount,
-			&record.Currency,
-			&record.Status,
-			&record.PaymentDate)
-	
+		&record.ID,
+		&record.CustomerID,
+		&record.SubscriptionID,
+		&record.Amount,
+		&record.Currency,
+		&record.Status,
+		&record.PaymentDate)
+
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return &record, nil
 }
 
@@ -1222,12 +1222,12 @@ func (s *CustomerService) GetBillingRecord(ctx context.Context, customerID, bill
 func (s *CustomerService) GenerateInvoice(ctx context.Context, billing *models.BillingHistory) ([]byte, string, error) {
 	// TODO: Implement actual PDF generation or Stripe invoice retrieval
 	// For now, return a placeholder
-	
+
 	// In production, you would:
 	// 1. Check if invoice exists in Stripe
 	// 2. Download from Stripe or generate PDF
 	// 3. Cache the result
-	
+
 	placeholderPDF := []byte("PDF content would go here")
 	return placeholderPDF, "application/pdf", nil
 }
@@ -1236,7 +1236,7 @@ func (s *CustomerService) GenerateInvoice(ctx context.Context, billing *models.B
 func (s *CustomerService) GetAreas(ctx context.Context) ([]models.Area, error) {
 	// TODO: This should come from a proper areas table
 	// For now, return mock data
-	
+
 	areas := []models.Area{
 		{ID: 1, Name: "Downtown", Coordinates: map[string]float64{"lat": 40.7128, "lng": -74.0060}},
 		{ID: 2, Name: "Midtown", Coordinates: map[string]float64{"lat": 40.7549, "lng": -73.9840}},
@@ -1244,7 +1244,7 @@ func (s *CustomerService) GetAreas(ctx context.Context) ([]models.Area, error) {
 		{ID: 4, Name: "Brooklyn", Coordinates: map[string]float64{"lat": 40.6782, "lng": -73.9442}},
 		{ID: 5, Name: "Queens", Coordinates: map[string]float64{"lat": 40.7282, "lng": -73.7949}},
 	}
-	
+
 	return areas, nil
 }
 
@@ -1272,7 +1272,7 @@ func (s *CustomerService) validateAppleToken(idToken string) (*models.OAuthUserI
 func (s *CustomerService) storeTokens(ctx context.Context, customerID, accessToken, refreshToken string, accessExpiry, refreshExpiry time.Time) error {
 	accessHash := utils.HashToken(accessToken)
 	refreshHash := utils.HashToken(refreshToken)
-	
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -1319,9 +1319,48 @@ func (s *CustomerService) AuthenticateCustomer(ctx context.Context, req models.L
 	if req.Provider != "" {
 		return s.authenticateWithOAuth(ctx, req.Provider, req.Token)
 	}
-	
+
 	// Email/password login
 	return s.authenticateWithPassword(ctx, req.Email, req.Password)
+}
+
+// UserExistsByEmail checks if a user exists by email address
+func (s *CustomerService) UserExistsByEmail(ctx context.Context, email string) (bool, error) {
+	// Validate email
+	if email == "" || !isValidEmail(email) {
+		return false, fmt.Errorf("invalid email format")
+	}
+
+	// Fetch all customers and decrypt emails to find a match
+	// This is necessary because encryption is not deterministic
+	rows, err := s.db.QueryContext(ctx, "SELECT email_encrypted FROM customers")
+	if err != nil {
+		return false, fmt.Errorf("failed to query customers: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var emailEncrypted string
+		if err := rows.Scan(&emailEncrypted); err != nil {
+			continue
+		}
+
+		decryptedEmail, err := s.encryptor.Decrypt(emailEncrypted)
+		if err != nil {
+			continue
+		}
+
+		if decryptedEmail == email {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+// isValidEmail performs basic email validation (copied from handlers for consistency)
+func isValidEmail(email string) bool {
+	return len(email) > 0 && len(email) < 256 && strings.Contains(email, "@") && strings.Contains(email, ".")
 }
 
 // ProcessSuccessfulPayment processes a successful payment from Stripe
@@ -1344,7 +1383,7 @@ func (s *CustomerService) ProcessSuccessfulPayment(ctx context.Context, paymentI
 		WHERE c.id = ? AND s.status = 'active'
 		LIMIT 1`,
 		paymentIntent.ID, float64(paymentIntent.Amount)/100, paymentIntent.Currency, customerID)
-	
+
 	return err
 }
 
@@ -1395,14 +1434,14 @@ func (s *CustomerService) ProcessInvoicePayment(ctx context.Context, invoice *st
 		VALUES (?, ?, ?, ?, ?, ?, 'completed', FROM_UNIXTIME(?))`,
 		customerID, subscriptionID, pID, invoice.ID,
 		float64(invoice.AmountPaid)/100, invoice.Currency, invoice.StatusTransitions.PaidAt)
-	
+
 	// Update next billing date
 	if err == nil {
 		_, err = s.db.ExecContext(ctx,
 			"UPDATE subscriptions SET next_billing_date = FROM_UNIXTIME(?) WHERE id = ?",
 			subscr.Items.Data[0].CurrentPeriodEnd, subscriptionID)
 	}
-	
+
 	return err
 }
 
@@ -1442,26 +1481,22 @@ func (s *CustomerService) storePaymentMethodFromStripe(ctx context.Context, tx *
 	// Extract card details
 	var lastFour, brand string
 	var expMonth, expYear int64
-	var cardholderName string
-	
+
 	if pm.Card != nil {
 		lastFour = pm.Card.Last4
 		brand = string(pm.Card.Brand)
 		expMonth = pm.Card.ExpMonth
 		expYear = pm.Card.ExpYear
-		if pm.BillingDetails != nil && pm.BillingDetails.Name != "" {
-			cardholderName = pm.BillingDetails.Name
-		}
 	}
 
 	// Insert payment method
 	_, err = tx.ExecContext(ctx,
 		`INSERT INTO payment_methods 
 		(customer_id, stripe_payment_method_id, stripe_customer_id, last_four, brand, 
-		 exp_month, exp_year, cardholder_name, is_default) 
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		customerID, pm.ID, stripeCustomerID, lastFour, brand, 
-		expMonth, expYear, cardholderName, isDefault)
+		 exp_month, exp_year, is_default) 
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		customerID, pm.ID, stripeCustomerID, lastFour, brand,
+		expMonth, expYear, isDefault)
 	return err
 }
 
@@ -1520,7 +1555,7 @@ func (s *CustomerService) SyncSubscriptionFromStripe(ctx context.Context, stripe
 	// Extract plan details from metadata or items
 	planType := stripeSub.Metadata["plan_type"]
 	billingCycle := stripeSub.Metadata["billing_cycle"]
-	
+
 	// Update or insert subscription
 	_, err = s.db.ExecContext(ctx,
 		`INSERT INTO subscriptions 
@@ -1536,10 +1571,10 @@ func (s *CustomerService) SyncSubscriptionFromStripe(ctx context.Context, stripe
 		customerID, stripeSub.ID, stripeSub.Items.Data[0].Price.ID, planType, billingCycle,
 		stripeSub.Status, stripeSub.Items.Data[0].CurrentPeriodStart, stripeSub.Items.Data[0].CurrentPeriodEnd,
 		nilableTimestamp(stripeSub.TrialEnd), stripeSub.CancelAtPeriodEnd)
-	
+
 	// Log sync operation
 	s.logStripeSync(ctx, "subscription", customerID, stripeSub.ID, "sync", err)
-	
+
 	return err
 }
 
@@ -1574,7 +1609,7 @@ func (s *CustomerService) ProcessFailedPayment(ctx context.Context, paymentInten
 		WHERE c.id = ?
 		LIMIT 1`,
 		paymentIntent.ID, float64(paymentIntent.Amount)/100, paymentIntent.Currency, failureReason, customerID)
-	
+
 	return err
 }
 
@@ -1621,9 +1656,9 @@ func (s *CustomerService) ProcessFailedInvoicePayment(ctx context.Context, invoi
 		FROM subscriptions s
 		WHERE s.customer_id = ? AND s.stripe_subscription_id = ?
 		LIMIT 1`,
-		customerID, invoice.ID, float64(invoice.AmountDue)/100, invoice.Currency, 
+		customerID, invoice.ID, float64(invoice.AmountDue)/100, invoice.Currency,
 		failureReason, customerID, subscr.ID)
-	
+
 	return err
 }
 
@@ -1635,9 +1670,9 @@ func (s *CustomerService) HandleTrialWillEnd(ctx context.Context, subscription *
 		 SET trial_end = FROM_UNIXTIME(?), updated_at = NOW() 
 		 WHERE stripe_subscription_id = ?`,
 		subscription.TrialEnd, subscription.ID)
-	
+
 	// TODO: Send email notification to customer about trial ending
-	
+
 	return err
 }
 
@@ -1655,36 +1690,31 @@ func (s *CustomerService) SyncPaymentMethodFromStripe(ctx context.Context, pm *s
 	// Extract card details
 	var lastFour, brand string
 	var expMonth, expYear int64
-	var cardholderName string
-	
+
 	if pm.Card != nil {
 		lastFour = pm.Card.Last4
 		brand = string(pm.Card.Brand)
 		expMonth = pm.Card.ExpMonth
 		expYear = pm.Card.ExpYear
-		if pm.BillingDetails != nil && pm.BillingDetails.Name != "" {
-			cardholderName = pm.BillingDetails.Name
-		}
 	}
 
 	// Insert or update payment method
 	_, err = s.db.ExecContext(ctx,
 		`INSERT INTO payment_methods 
 		(customer_id, stripe_payment_method_id, stripe_customer_id, last_four, brand, 
-		 exp_month, exp_year, cardholder_name, is_default) 
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, FALSE)
+		 exp_month, exp_year, is_default) 
+		VALUES (?, ?, ?, ?, ?, ?, ?, FALSE)
 		ON DUPLICATE KEY UPDATE 
 		last_four = VALUES(last_four),
 		brand = VALUES(brand),
 		exp_month = VALUES(exp_month),
-		exp_year = VALUES(exp_year),
-		cardholder_name = VALUES(cardholder_name)`,
-		customerID, pm.ID, pm.Customer.ID, lastFour, brand, 
-		expMonth, expYear, cardholderName)
-	
+		exp_year = VALUES(exp_year)`,
+		customerID, pm.ID, pm.Customer.ID, lastFour, brand,
+		expMonth, expYear)
+
 	// Log sync operation
 	s.logStripeSync(ctx, "payment_method", customerID, pm.ID, "sync", err)
-	
+
 	return err
 }
 
@@ -1694,16 +1724,16 @@ func (s *CustomerService) HandlePaymentMethodDetached(ctx context.Context, pm *s
 	result, err := s.db.ExecContext(ctx,
 		"DELETE FROM payment_methods WHERE stripe_payment_method_id = ?",
 		pm.ID)
-	
+
 	if err != nil {
 		return err
 	}
-	
+
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected > 0 {
 		log.Printf("Deleted payment method %s from database", pm.ID)
 	}
-	
+
 	return nil
 }
 
@@ -1714,27 +1744,27 @@ func (s *CustomerService) ProcessRefund(ctx context.Context, charge *stripelib.C
 	for _, refund := range charge.Refunds.Data {
 		refundAmount += refund.Amount
 	}
-	
+
 	// Determine refund status
 	status := "partially_refunded"
 	if refundAmount >= charge.Amount {
 		status = "refunded"
 	}
-	
+
 	// Update billing history with refund information
 	result, err := s.db.ExecContext(ctx,
 		`UPDATE billing_history 
 		 SET refund_amount = ?, status = ?
 		 WHERE stripe_charge_id = ? OR stripe_payment_intent_id = ?`,
 		float64(refundAmount)/100, status, charge.ID, charge.PaymentIntent.ID)
-	
+
 	if err != nil {
 		return err
 	}
-	
+
 	rowsAffected, _ := result.RowsAffected()
 	log.Printf("Updated %d billing records with refund amount %.2f", rowsAffected, float64(refundAmount)/100)
-	
+
 	return nil
 }
 
@@ -1749,13 +1779,13 @@ func (s *CustomerService) logStripeSync(ctx context.Context, entityType, entityI
 		errStr := err.Error()
 		errorMsg = &errStr
 	}
-	
+
 	_, logErr := s.db.ExecContext(ctx,
 		`INSERT INTO stripe_sync_log 
 		(entity_type, entity_id, stripe_id, action, status, error_message) 
 		VALUES (?, ?, ?, ?, ?, ?)`,
 		entityType, entityID, stripeID, action, status, errorMsg)
-	
+
 	if logErr != nil {
 		log.Printf("Failed to log stripe sync operation: %v", logErr)
 	}
