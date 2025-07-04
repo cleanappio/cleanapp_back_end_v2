@@ -44,7 +44,7 @@ This configuration is to be done once.
 1.  Configure the deployer user
     1.  Login to the VM as yourself, either via Cloud SSH or using its external IP address with your key.
         ```
-        ssh -i .ssh/<you>-cleanapp-io <you>_cleanapp_io@34.69.26.172
+        ssh -i .ssh/<you>-cleanapp-io <you>_cleanapp_io@<VM IP address>
         ```
 
     1.  Create the deployer user.
@@ -72,7 +72,7 @@ This configuration is to be done once.
 
     1.  Login to the VM as deployer
         ```
-        ssh -i .ssh/<you>-stxn-cloud deployer@34.69.26.172
+        ssh -i .ssh/<you>-stxn-cloud deployer@<VM IP address>
         ```
 
     1.  Configure the deployer for docker communications
