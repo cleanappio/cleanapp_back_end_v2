@@ -294,6 +294,8 @@ services:
 
 volumes:
   mysql:
+    name: eko_mysql
+    external: false
 
 COMPOSE
 
