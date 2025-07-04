@@ -33,72 +33,88 @@ SENDGRID_FROM_EMAIL="info@cleanapp.io"
 EMAIL_OPT_OUT_URL=
 CLEANAPP_MAP_URL="https://clean-app-map-4-b0150.replit.app/"
 
-
-# Choose the environment
-PS3="Please choose the environment: "
-options=("dev" "prod" "quit")
-select OPT in "${options[@]}"
-do
-  case ${OPT} in
-    "dev")
-        echo "Using dev environment"
-        SCHEDULER_HOST="dev.api.cleanapp.io"
-        ETH_NETWORK_URL_MAIN="https://sepolia.base.org"
-        CONTRACT_ADDRESS_MAIN="0xDc41655b749E8F2922A6E5e525Fc04a915aEaFAA"
-        PIPELINES_MAIN_PORT="8090"
-        REACT_APP_REF_API_ENDPOINT="http://dev.api.cleanapp.io:8080/write_referral/"
-        REACT_APP_EMAIL_CONSENT_API_ENDPOINT="http://dev.api.cleanapp.io:8080/update_consent/"
-        SOLVER_URL="http://104.154.119.169:8888/report"
-        CHAIN_ID="21363"
-        WS_CHAIN_URL="wss://service.lestnet.org:8888/"
-        LAMINATOR_ADDRESS="0x36aB7A6ad656BC19Da2D5Af5b46f3cf3fc47274D"
-        CALL_BREAKER_ADDRESS="0x23912387357621473Ff6514a2DC20Df14cd72E7f"
-        KITN_DISBURSEMENT_SCHEDULER_ADDRESS="0x7E485Fd55CEdb1C303b2f91DFE7695e72A537399"
-        DISBURSEMENT_SHADOW_SCHEDULE="0 */3 * * * *"
-        EMAIL_OPT_OUT_URL="http://dev.app.cleanapp.io:3000"
-        # Backend vars
-        CLEANAPP_IO_TRUSTED_PROXIES=127.0.0.1,::1
-        CLEANAPP_IO_BASE_URL=https://devapi.cleanapp.io
-        STRIPE_PRICE_BASE_MONTHLY=price_1ReIJJFW3SknKzLcejkfepTO
-        STRIPE_PRICE_BASE_ANNUAL=price_1ReIJJFW3SknKzLcXOje9FBb
-        STRIPE_PRICE_ADVANCED_MONTHLY=price_1ReIKiFW3SknKzLcaPTOR5Ny
-        STRIPE_PRICE_ADVANCED_ANNUAL=price_1ReIKiFW3SknKzLcVMZe6U3U
-        SEQ_START_FROM=1996
-        break
-        ;;
-    "prod")
-        echo "Using prod environment"
-        SCHEDULER_HOST="api.cleanapp.io"
-        ETH_NETWORK_URL_MAIN="https://sepolia.base.org"  # TODO: Change to the mainnet URL after we run on the base mainnet
-        CONTRACT_ADDRESS_MAIN="0xDc41655b749E8F2922A6E5e525Fc04a915aEaFAA"  # TODO: Change the contract address to the main when we run on the base mainnet
-        DISBURSEMENT_MAIN_SCHEDULE="0 20 * * *"
-        PIPELINES_MAIN_PORT="8090"
-        REACT_APP_REF_API_ENDPOINT="http://api.cleanapp.io:8080/write_referral/"
-        REACT_APP_EMAIL_CONSENT_API_ENDPOINT="http://api.cleanapp.io:8080/update_consent/"
-        SOLVER_URL="http://104.154.119.169:8888/report"
-        CHAIN_ID="21363"
-        WS_CHAIN_URL="wss://service.lestnet.org:8888/"
-        LAMINATOR_ADDRESS="0x36aB7A6ad656BC19Da2D5Af5b46f3cf3fc47274D"
-        CALL_BREAKER_ADDRESS="0x23912387357621473Ff6514a2DC20Df14cd72E7f"
-        KITN_DISBURSEMENT_SCHEDULER_ADDRESS="0x7E485Fd55CEdb1C303b2f91DFE7695e72A537399"
-        DISBURSEMENT_SHADOW_SCHEDULE="0 */3 * * * *"
-        EMAIL_OPT_OUT_URL="http://app.cleanapp.io:3000"
-        # Backend vars
-        CLEANAPP_IO_TRUSTED_PROXIES=127.0.0.1,::1
-        CLEANAPP_IO_BASE_URL=https://api.cleanapp.io
-        STRIPE_PRICE_BASE_MONTHLY=price_1Rg0hJF5CkX59Cnm9L9Z4j36
-        STRIPE_PRICE_BASE_ANNUAL=price_1Rg0hJF5CkX59CnmOyT5HZVu
-        STRIPE_PRICE_ADVANCED_MONTHLY=price_1Rg0hEF5CkX59CnmT5ZspSPK
-        STRIPE_PRICE_ADVANCED_ANNUAL=price_1Rg0hEF5CkX59CnmF40QClFx
-        SEQ_START_FROM=1000000 # TODO: Change to the prod cleanup latest report sequence number after we run on the base mainnet
-        break
-        ;;
-    "quit")
-        exit
-        ;;
-    *) echo "invalid option $REPLY";;
+OPT=""
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    "-e"|"--env")
+      OPT="$2"
+      shift 2
+      ;;
+    *)
+      echo "Unknown option: $1"
+      exit 1
+      ;;
   esac
 done
+
+# Choose the environment if not specified
+if [ -z "${OPT}" ]; then
+  # Choose the environment
+  PS3="Please choose the environment: "
+  options=("dev" "prod" "quit")
+  select OPT in "${options[@]}"
+  do
+    case ${OPT} in
+      "dev")
+          echo "Using dev environment"
+          SCHEDULER_HOST="dev.api.cleanapp.io"
+          ETH_NETWORK_URL_MAIN="https://sepolia.base.org"
+          CONTRACT_ADDRESS_MAIN="0xDc41655b749E8F2922A6E5e525Fc04a915aEaFAA"
+          PIPELINES_MAIN_PORT="8090"
+          REACT_APP_REF_API_ENDPOINT="http://dev.api.cleanapp.io:8080/write_referral/"
+          REACT_APP_EMAIL_CONSENT_API_ENDPOINT="http://dev.api.cleanapp.io:8080/update_consent/"
+          SOLVER_URL="http://104.154.119.169:8888/report"
+          CHAIN_ID="21363"
+          WS_CHAIN_URL="wss://service.lestnet.org:8888/"
+          LAMINATOR_ADDRESS="0x36aB7A6ad656BC19Da2D5Af5b46f3cf3fc47274D"
+          CALL_BREAKER_ADDRESS="0x23912387357621473Ff6514a2DC20Df14cd72E7f"
+          KITN_DISBURSEMENT_SCHEDULER_ADDRESS="0x7E485Fd55CEdb1C303b2f91DFE7695e72A537399"
+          DISBURSEMENT_SHADOW_SCHEDULE="0 */3 * * * *"
+          EMAIL_OPT_OUT_URL="http://dev.app.cleanapp.io:3000"
+          # Backend vars
+          CLEANAPP_IO_TRUSTED_PROXIES=127.0.0.1,::1
+          CLEANAPP_IO_BASE_URL=https://devapi.cleanapp.io
+          STRIPE_PRICE_BASE_MONTHLY=price_1ReIJJFW3SknKzLcejkfepTO
+          STRIPE_PRICE_BASE_ANNUAL=price_1ReIJJFW3SknKzLcXOje9FBb
+          STRIPE_PRICE_ADVANCED_MONTHLY=price_1ReIKiFW3SknKzLcaPTOR5Ny
+          STRIPE_PRICE_ADVANCED_ANNUAL=price_1ReIKiFW3SknKzLcVMZe6U3U
+          SEQ_START_FROM=1996
+          break
+          ;;
+      "prod")
+          echo "Using prod environment"
+          SCHEDULER_HOST="api.cleanapp.io"
+          ETH_NETWORK_URL_MAIN="https://sepolia.base.org"  # TODO: Change to the mainnet URL after we run on the base mainnet
+          CONTRACT_ADDRESS_MAIN="0xDc41655b749E8F2922A6E5e525Fc04a915aEaFAA"  # TODO: Change the contract address to the main when we run on the base mainnet
+          DISBURSEMENT_MAIN_SCHEDULE="0 20 * * *"
+          PIPELINES_MAIN_PORT="8090"
+          REACT_APP_REF_API_ENDPOINT="http://api.cleanapp.io:8080/write_referral/"
+          REACT_APP_EMAIL_CONSENT_API_ENDPOINT="http://api.cleanapp.io:8080/update_consent/"
+          SOLVER_URL="http://104.154.119.169:8888/report"
+          CHAIN_ID="21363"
+          WS_CHAIN_URL="wss://service.lestnet.org:8888/"
+          LAMINATOR_ADDRESS="0x36aB7A6ad656BC19Da2D5Af5b46f3cf3fc47274D"
+          CALL_BREAKER_ADDRESS="0x23912387357621473Ff6514a2DC20Df14cd72E7f"
+          KITN_DISBURSEMENT_SCHEDULER_ADDRESS="0x7E485Fd55CEdb1C303b2f91DFE7695e72A537399"
+          DISBURSEMENT_SHADOW_SCHEDULE="0 */3 * * * *"
+          EMAIL_OPT_OUT_URL="http://app.cleanapp.io:3000"
+          # Backend vars
+          CLEANAPP_IO_TRUSTED_PROXIES=127.0.0.1,::1
+          CLEANAPP_IO_BASE_URL=https://api.cleanapp.io
+          STRIPE_PRICE_BASE_MONTHLY=price_1Rg0hJF5CkX59Cnm9L9Z4j36
+          STRIPE_PRICE_BASE_ANNUAL=price_1Rg0hJF5CkX59CnmOyT5HZVu
+          STRIPE_PRICE_ADVANCED_MONTHLY=price_1Rg0hEF5CkX59CnmT5ZspSPK
+          STRIPE_PRICE_ADVANCED_ANNUAL=price_1Rg0hEF5CkX59CnmF40QClFx
+          SEQ_START_FROM=1000000 # TODO: Change to the prod cleanup latest report sequence number after we run on the base mainnet
+          break
+          ;;
+      "quit")
+          exit
+          ;;
+      *) echo "invalid option $REPLY";;
+    esac
+  done
+fi
 
 SECRET_SUFFIX=$(echo ${OPT} | tr '[a-z]' '[A-Z]')
 
