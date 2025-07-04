@@ -311,7 +311,7 @@ services:
 volumes:
   mysql:
     name: eko_mysql
-    external: false
+    external: true
 
 COMPOSE
 
