@@ -3,10 +3,15 @@
 echo "Building report-listener docker image..."
 
 OPT=""
+SSH_KEYFILE=""
 while [[ $# -gt 0 ]]; do
   case $1 in
     "-e"|"--env")
       OPT="$2"
+      shift 2
+      ;;
+    "--ssh-keyfile")
+      SSH_KEYFILE="$2"
       shift 2
       ;;
     *)
@@ -16,28 +21,25 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Choose the environment if not specified
 if [ -z "${OPT}" ]; then
-  PS3="Please choose the environment: "
-  options=("dev" "prod" "quit")
-  select OPT in "${options[@]}"
-  do
-    case ${OPT} in
-      "dev")
-          echo "Using dev environment"
-          break
-          ;;
-      "prod")
-          echo "Using prod environment"
-          break
-          ;;
-      "quit")
-          exit
-          ;;
-      *) echo "invalid option $REPLY";;
-    esac
-  done
+  echo "Usage: $0 -e|--env <dev|prod> [--ssh-keyfile <ssh_keyfile>]"
+  exit 1
 fi
+
+case ${OPT} in
+  "dev")
+    echo "Using dev environment"
+    TARGET_VM_IP="34.132.121.53"
+    ;;
+  "prod")
+    echo "Using prod environment"
+    TARGET_VM_IP="34.122.15.16"
+    ;;
+  *)
+    echo "Usage: $0 -e|--env <dev|prod> [--ssh-keyfile <ssh_keyfile>]"
+    exit 1
+    ;;
+esac
 
 test -d target && rm -rf target
 
@@ -83,4 +85,11 @@ fi
 echo "Tagging Docker image as current ${OPT}..."
 gcloud artifacts docker tags add ${DOCKER_TAG}:${BUILD_VERSION} ${DOCKER_TAG}:${OPT}
 
-echo "Report-listener docker image build completed successfully!" 
+echo "Report-listener docker image build completed successfully!"
+
+if [ -n "${SSH_KEYFILE}" ]; then
+  SETUP_SCRIPT="https://raw.githubusercontent.com/cleanappio/cleanapp_back_end_v2/refs/heads/main/setup/setup.sh"
+  
+  # Copy deployment script on target VM and run it 
+  curl ${SETUP_SCRIPT} | ssh -i ${SSH_KEYFILE} deployer@${TARGET_VM_IP} "cat > deploy.sh && chmod +x deploy.sh && ./deploy.sh -e ${OPT}"
+fi
