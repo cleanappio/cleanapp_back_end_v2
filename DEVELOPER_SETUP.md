@@ -33,9 +33,28 @@ This configuration is to be done once.
 
 ## Deploying the CleanApp component
 
+Here is a deployment documentation. Using the frontend deployment as an example.
+
+1.  Clone the frontend repository.
+    ```
+    git clone https://github.com/cleanappio/cleanapp-frontend.git
+    ```
+
+2.  Make your changes.
+
 ### Dev deployment
 
+Run the build & deploy script.
+```
+./build_image.sh -e dev --ssh-keyfile ~/.ssh/<you>-cleanapp-io
+```
+
 ### Production deployment
+
+Run the build & deploy script.
+```
+./build_image.sh -e prod --ssh-keyfile ~/.ssh/<you>-cleanapp-io
+```
 
 ## Setting up a new CleanApp VM
 
