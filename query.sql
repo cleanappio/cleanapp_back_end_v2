@@ -1,0 +1,1 @@
+SELECT r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.image, r.action_id FROM reports r LEFT JOIN report_analysis ra ON r.seq = ra.seq WHERE ra.seq IS NULL AND r.seq > 1000000 RDER BY r.seq ASC LIMIT 1000000
