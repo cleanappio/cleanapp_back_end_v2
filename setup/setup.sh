@@ -103,6 +103,7 @@ case ${OPT} in
       STRIPE_PRICE_ADVANCED_MONTHLY=price_1Rg0hEF5CkX59CnmT5ZspSPK
       STRIPE_PRICE_ADVANCED_ANNUAL=price_1Rg0hEF5CkX59CnmF40QClFx
       SEQ_START_FROM=1000000 # TODO: Change to the prod cleanup latest report sequence number after we run on the base mainnet
+      GIN_MODE=release
       ;;
   "quit")
       exit
