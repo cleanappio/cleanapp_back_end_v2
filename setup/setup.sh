@@ -187,6 +187,7 @@ services:
       - CLEANAPP_MAP_URL=${CLEANAPP_MAP_URL}
       - CLEANAPP_ANDROID_URL=${REACT_APP_PLAYSTORE_URL}
       - CLEANAPP_IOS_URL=${REACT_APP_APPSTORE_URL}
+      - GIN_MODE=${GIN_MODE}
     ports:
       - 8080:8080
 
@@ -201,6 +202,7 @@ services:
       - ETH_NETWORK_URL=${ETH_NETWORK_URL_MAIN}
       - CONTRACT_ADDRESS=${CONTRACT_ADDRESS_MAIN}
       - USERS_TABLE=users
+      - GIN_MODE=${GIN_MODE}
     ports:
       - ${PIPELINES_MAIN_PORT}:${PIPELINES_MAIN_PORT}
 
@@ -245,8 +247,8 @@ services:
     ports:
       - 3001:3000
 
-  cleanapp_backend:
-    container_name: cleanapp_backend
+  cleanapp_customer_service:
+    container_name: cleanapp_customer_service
     image: ${CLEANAPP_IO_BACKEND_DOCKER_IMAGE}
     environment:
       - TRUSTED_PROXIES=${CLEANAPP_IO_TRUSTED_PROXIES}
@@ -263,6 +265,7 @@ services:
       - DB_PORT=3306
       - DB_USER=server
       - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
+      - GIN_MODE=${GIN_MODE}
     ports:
       - 9080:8080
 
@@ -277,6 +280,7 @@ services:
       - DB_NAME=cleanapp
       - BROADCAST_INTERVAL=1s
       - LOG_LEVEL=info
+      - GIN_MODE=${GIN_MODE}
     ports:
       - 9081:8080
     depends_on:
@@ -298,6 +302,7 @@ services:
       - ANALYSIS_PROMPT=${ANALYSIS_PROMPT}
       - LOG_LEVEL=info
       - SEQ_START_FROM=${SEQ_START_FROM}
+      - GIN_MODE=${GIN_MODE}
     ports:
       - 9082:8080
     depends_on:
