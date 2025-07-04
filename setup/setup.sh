@@ -139,7 +139,7 @@ OPENAI_API_KEY=\$(gcloud secrets versions access 1 --secret="CLEANAPP_CHATGPT_AP
 
 ENV
 
-sudo docker-compose up -d --remove-orphans
+sudo docker compose up -d --remove-orphans
 
 rm -f .env
 
