@@ -159,6 +159,7 @@ WEB_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-web-image:${OPT}"
 DB_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-db-image:live"
 STXN_KICKOFF_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-stxn-kickoff-image:${OPT}"
 CLEANAPP_IO_FRONTEND_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-frontend-image:${OPT}"
+CLEANAPP_IO_FRONTEND_EMBEDDED_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-frontend-image-embedded:${OPT}"
 CLEANAPP_IO_BACKEND_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-customer-service-image:${OPT}"
 REPORT_LISTENER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-listener-image:${OPT}"
 REPORT_ANALYZE_PIPELINE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-analyze-pipeline-image:${OPT}"
@@ -247,6 +248,12 @@ services:
     ports:
       - 3001:3000
 
+  cleanapp_frontend_embedded:
+    container_name: cleanapp_frontend_embedded
+    image: ${CLEANAPP_IO_FRONTEND_EMBEDDED_DOCKER_IMAGE}
+    ports:
+      - 3002:3000
+
   cleanapp_customer_service:
     container_name: cleanapp_customer_service
     image: ${CLEANAPP_IO_BACKEND_DOCKER_IMAGE}
@@ -324,6 +331,7 @@ docker pull ${DB_DOCKER_IMAGE}
 docker pull ${WEB_DOCKER_IMAGE}
 docker pull ${STXN_KICKOFF_DOCKER_IMAGE}
 docker pull ${CLEANAPP_IO_FRONTEND_DOCKER_IMAGE}
+docker pull ${CLEANAPP_IO_FRONTEND_EMBEDDED_DOCKER_IMAGE}
 docker pull ${CLEANAPP_IO_BACKEND_DOCKER_IMAGE}
 docker pull ${REPORT_LISTENER_DOCKER_IMAGE}
 docker pull ${REPORT_ANALYZE_PIPELINE_DOCKER_IMAGE}
