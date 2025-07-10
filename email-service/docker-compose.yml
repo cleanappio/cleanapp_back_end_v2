@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  email-service:
+    build: .
+    environment:
+      - MYSQL_HOST=${MYSQL_HOST:-localhost}
+      - MYSQL_PORT=${MYSQL_PORT:-3306}
+      - MYSQL_USER=${MYSQL_USER:-server}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-secret}
+      - MYSQL_DB=${MYSQL_DB:-cleanapp}
+      - SENDGRID_API_KEY=${SENDGRID_API_KEY}
+      - SENDGRID_FROM_NAME=${SENDGRID_FROM_NAME:-CleanApp}
+      - SENDGRID_FROM_EMAIL=${SENDGRID_FROM_EMAIL:-info@cleanapp.io}
+    restart: unless-stopped
+    depends_on:
+      - mysql
+    networks:
+      - cleanapp-network
+
+  mysql:
+    image: mysql:8.0
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-rootpassword}
+      - MYSQL_DATABASE=${MYSQL_DB:-cleanapp}
+      - MYSQL_USER=${MYSQL_USER:-server}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-secret}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - cleanapp-network
+
+volumes:
+  mysql_data:
+
+networks:
+  cleanapp-network:
+    driver: bridge 

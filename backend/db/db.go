@@ -849,6 +849,7 @@ func UpdateConsent(db *sql.DB, req *api.UpdateConsentRequest) error {
 	return err
 }
 
+// TODO: Remove after the email sender microservice is launched
 func sendAffectedPolygonsEmails(report *api.ReportArgs) {
 	dbc, err := common.DBConnect()
 	if err != nil {
@@ -873,6 +874,7 @@ func sendAffectedPolygonsEmails(report *api.ReportArgs) {
 	}
 }
 
+// TODO: Remove after the email sender microservice is launched
 func findAreasForReport(db *sql.DB, report *api.ReportArgs) (map[uint64]*geojson.Feature, map[uint64][]string, error) {
 	ptWKT := area_index.PointToWKT(report.Longitue, report.Latitude)
 
@@ -951,6 +953,7 @@ func findAreasForReport(db *sql.DB, report *api.ReportArgs) (map[uint64]*geojson
 	return areaFeatures, areasEmails, nil
 }
 
+// TODO: Remove after the email sender microservice is launched
 func GetAreasCount(db *sql.DB) (uint64, error) {
 	rows, err := db.Query("SELECT COUNT(*) FROM areas")
 	if err != nil {
