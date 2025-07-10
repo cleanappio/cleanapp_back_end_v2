@@ -23,9 +23,10 @@ WORKDIR /root/
 
 # Copy the binary from builder stage
 COPY --from=builder /app/main .
+COPY --from=builder /app/OSMB-e0b412fe96a2a2c5d8e7eb33454a21d971bea620.geojson .
 
 # Expose port
 EXPOSE 8080
 
 # Run the binary
-CMD ["./main"] 
+CMD ["./main"]
