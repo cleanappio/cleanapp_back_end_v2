@@ -28,8 +28,15 @@ func main() {
 	}
 	log.Println("Areas data loaded successfully")
 
+	// Initialize database service
+	databaseService, err := services.NewDatabaseService(areasService)
+	if err != nil {
+		log.Fatalf("Failed to initialize database service: %v", err)
+	}
+	defer databaseService.Close()
+
 	// Initialize handlers
-	areasHandler := handlers.NewAreasHandler(areasService)
+	areasHandler := handlers.NewAreasHandler(areasService, databaseService)
 
 	router := mux.NewRouter()
 
@@ -39,6 +46,9 @@ func main() {
 	// Areas endpoints
 	router.HandleFunc("/areas", areasHandler.AreasByAdminLevelHandler).Methods("GET")
 	router.HandleFunc("/admin-levels", areasHandler.AvailableAdminLevelsHandler).Methods("GET")
+
+	// Reports endpoint
+	router.HandleFunc("/reports", areasHandler.ReportsHandler).Methods("GET")
 
 	// Get port from environment variable or default to 8080
 	port := os.Getenv("PORT")

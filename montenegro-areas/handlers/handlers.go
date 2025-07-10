@@ -12,13 +12,15 @@ import (
 
 // AreasHandler handles HTTP requests for areas-related endpoints
 type AreasHandler struct {
-	areasService *services.AreasService
+	areasService    *services.AreasService
+	databaseService *services.DatabaseService
 }
 
 // NewAreasHandler creates a new areas handler
-func NewAreasHandler(areasService *services.AreasService) *AreasHandler {
+func NewAreasHandler(areasService *services.AreasService, databaseService *services.DatabaseService) *AreasHandler {
 	return &AreasHandler{
-		areasService: areasService,
+		areasService:    areasService,
+		databaseService: databaseService,
 	}
 }
 
@@ -82,6 +84,60 @@ func (h *AreasHandler) AvailableAdminLevelsHandler(w http.ResponseWriter, r *htt
 	response := models.AdminLevelsResponse{
 		AdminLevels: levels,
 		Count:       len(levels),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
+}
+
+// ReportsHandler handles requests for reports within a MontenegroArea
+func (h *AreasHandler) ReportsHandler(w http.ResponseWriter, r *http.Request) {
+	// Get query parameters
+	osmIDStr := r.URL.Query().Get("osm_id")
+	nStr := r.URL.Query().Get("n")
+
+	if osmIDStr == "" {
+		http.Error(w, "osm_id parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	if nStr == "" {
+		http.Error(w, "n parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	// Parse OSM ID
+	osmID, err := strconv.ParseInt(osmIDStr, 10, 64)
+	if err != nil {
+		http.Error(w, "osm_id must be a valid integer", http.StatusBadRequest)
+		return
+	}
+
+	// Parse number of reports
+	n, err := strconv.Atoi(nStr)
+	if err != nil {
+		http.Error(w, "n must be a valid integer", http.StatusBadRequest)
+		return
+	}
+
+	if n <= 0 {
+		http.Error(w, "n must be greater than 0", http.StatusBadRequest)
+		return
+	}
+
+	// Get reports from database
+	reports, err := h.databaseService.GetReportsByMontenegroArea(osmID, n)
+	if err != nil {
+		log.Printf("Error getting reports for OSM ID %d: %v", osmID, err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Create response
+	response := models.ReportsResponse{
+		Reports: reports,
+		Count:   len(reports),
 	}
 
 	w.Header().Set("Content-Type", "application/json")

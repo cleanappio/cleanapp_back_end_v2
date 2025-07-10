@@ -47,3 +47,22 @@ type AdminLevelsResponse struct {
 	AdminLevels []int `json:"admin_levels"`
 	Count       int   `json:"count"`
 }
+
+// ReportData represents a report from the database
+type ReportData struct {
+	Seq       int      `json:"seq"`
+	Timestamp string   `json:"timestamp"`
+	ID        string   `json:"id"`
+	Team      int      `json:"team"`
+	Latitude  float64  `json:"latitude"`
+	Longitude float64  `json:"longitude"`
+	X         *float64 `json:"x,omitempty"`
+	Y         *float64 `json:"y,omitempty"`
+	ActionID  *string  `json:"action_id,omitempty"`
+}
+
+// ReportsResponse represents the response for reports within a MontenegroArea
+type ReportsResponse struct {
+	Reports []ReportData `json:"reports"`
+	Count   int          `json:"count"`
+}
