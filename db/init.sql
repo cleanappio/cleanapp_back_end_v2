@@ -73,6 +73,16 @@ SHOW COLUMNS FROM reports;
 -- Migration Statement:
 -- SELECT CONCAT('INSERT INTO reports (seq, id, team, latitude, longitude) VALUES(', seq, ',', QUOTE(id), ',', team, ',', latitude, ',', longitude, ');') AS insert_statement FROM reports;
 
+CREATE TABLE IF NOT EXISTS reports_geometry(
+  seq INT NOT NULL,
+  geom GEOMETRY NOT NULL SRID 4326,
+  PRIMARY KEY (seq),
+  SPATIAL INDEX(geom)
+);
+SHOW TABLES;
+DESCRIBE TABLE reports_geometry;
+SHOW COLUMNS FROM reports_geometry;
+
 CREATE TABLE IF NOT EXISTS referrals(
   refkey CHAR(128) NOT NULL,
   refvalue CHAR(32),

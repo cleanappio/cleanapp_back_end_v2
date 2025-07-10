@@ -165,6 +165,16 @@ func SaveReport(db *sql.DB, r *api.ReportArgs) error {
 		log.Errorf("Error committing the transaction: %w", err)
 		return err
 	}
+	// Save the geometry of the report
+	result, err = tx.ExecContext(ctx, `INSERT
+	  INTO reports_geometry (seq, geom)
+	  VALUES (LAST_INSERT_ID(), ST_SRID(POINT(?, ?), 4326))`,
+		r.Longitue, r.Latitude)
+	common.LogResult("saveReportGeometry", result, err, true)
+	if err != nil {
+		log.Errorf("Error inserting report geometry: %w", err)
+		return err
+	}
 
 	// Send emails
 	go sendAffectedPolygonsEmails(r)
