@@ -76,7 +76,7 @@ case ${OPT} in
       STRIPE_PRICE_BASE_ANNUAL=price_1ReIJJFW3SknKzLcXOje9FBb
       STRIPE_PRICE_ADVANCED_MONTHLY=price_1ReIKiFW3SknKzLcaPTOR5Ny
       STRIPE_PRICE_ADVANCED_ANNUAL=price_1ReIKiFW3SknKzLcVMZe6U3U
-      SEQ_START_FROM=1996
+      SEQ_START_FROM=0
       ;;
   "prod")
       echo "Using prod environment"
