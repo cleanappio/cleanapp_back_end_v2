@@ -40,6 +40,9 @@ func main() {
 
 	router := mux.NewRouter()
 
+	// Add CORS middleware
+	router.Use(corsMiddleware)
+
 	// Health endpoint
 	router.HandleFunc("/health", areasHandler.HealthHandler).Methods("GET")
 
@@ -64,4 +67,24 @@ func main() {
 
 	log.Printf("Starting Montenegro Areas service on %s:%s", host, port)
 	log.Fatal(http.ListenAndServe(host+":"+port, router))
+}
+
+// corsMiddleware handles CORS headers
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Set CORS headers
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
+		w.Header().Set("Access-Control-Max-Age", "86400") // 24 hours
+
+		// Handle preflight requests
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		// Call the next handler
+		next.ServeHTTP(w, r)
+	})
 }
