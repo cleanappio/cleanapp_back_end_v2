@@ -160,12 +160,7 @@ func SaveReport(db *sql.DB, r *api.ReportArgs) error {
 	}
 	// Save a copy of counters in a shadow table.
 	tx.ExecContext(ctx, `UPDATE users_shadow SET kitns_daily = kitns_daily + 1 WHERE id = ?`, r.Id)
-	err = tx.Commit()
-	if err != nil {
-		log.Errorf("Error committing the transaction: %w", err)
-		return err
-	}
-	// Save the geometry of the report
+
 	result, err = tx.ExecContext(ctx, `INSERT
 	  INTO reports_geometry (seq, geom)
 	  VALUES (LAST_INSERT_ID(), ST_SRID(POINT(?, ?), 4326))`,
@@ -175,6 +170,13 @@ func SaveReport(db *sql.DB, r *api.ReportArgs) error {
 		log.Errorf("Error inserting report geometry: %w", err)
 		return err
 	}
+
+	err = tx.Commit()
+	if err != nil {
+		log.Errorf("Error committing the transaction: %w", err)
+		return err
+	}
+	// Save the geometry of the report
 
 	// Send emails
 	go sendAffectedPolygonsEmails(r)

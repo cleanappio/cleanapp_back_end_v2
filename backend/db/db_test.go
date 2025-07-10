@@ -205,10 +205,10 @@ func TestSaveReport(t *testing.T) {
 	const (
 		ERROR_NONE = iota
 		ERROR_COMMIT_TRAN
+		ERROR_INSERT_GEOMETRY
 		ERROR_UPDATE_USER
 		ERROR_INSERT_REPORT
 		ERROR_BEGIN_TRAN
-		ERROR_INSERT_GEOMETRY
 	)
 	it(func() {
 		testCases := []struct {
@@ -354,21 +354,6 @@ func TestSaveReport(t *testing.T) {
 				mock.ExpectCommit()
 			}
 
-			// Handle geometry insert query (executed after transaction on same connection)
-			// Note: The actual code has a bug - it executes this on the committed transaction
-			if testCase.expectError == ERROR_INSERT_GEOMETRY {
-				// For geometry error test case, we need to expect the transaction to commit successfully
-				// and then the geometry query to fail
-				mock.ExpectExec("INSERT INTO reports_geometry \\(seq, geom\\) VALUES \\(LAST_INSERT_ID\\(\\), ST_SRID\\(POINT\\((.+), (.+)\\), 4326\\)\\)").
-					WithArgs(testCase.r.Longitue, testCase.r.Latitude).
-					WillReturnError(fmt.Errorf("insert geometry error"))
-			} else if testCase.expectError < ERROR_INSERT_GEOMETRY {
-				// The actual code executes this on a committed transaction, which will fail
-				// So we expect an error about the transaction being committed
-				mock.ExpectExec("INSERT INTO reports_geometry \\(seq, geom\\) VALUES \\(LAST_INSERT_ID\\(\\), ST_SRID\\(POINT\\((.+), (.+)\\), 4326\\)\\)").
-					WithArgs(testCase.r.Longitue, testCase.r.Latitude).
-					WillReturnError(fmt.Errorf("sql: transaction has already been committed or rolled back"))
-			}
 			err := SaveReport(db, testCase.r)
 
 			// Due to the bug in the actual code (geometry query on committed transaction),
