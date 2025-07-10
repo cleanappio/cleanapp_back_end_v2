@@ -163,6 +163,7 @@ CLEANAPP_IO_FRONTEND_EMBEDDED_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-frontend-i
 CLEANAPP_IO_BACKEND_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-customer-service-image:${OPT}"
 REPORT_LISTENER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-listener-image:${OPT}"
 REPORT_ANALYZE_PIPELINE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-analyze-pipeline-image:${OPT}"
+MONTENEGRO_AREAS_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-montenegro-areas-image:${OPT}"
 
 ANALYSIS_PROMPT="What kind of litter or hazard can you see on this image? Please describe the litter or hazard in detail. Also, give a probability that there is a litter or hazard on a photo in units from 0.0 to 1.0 and a severity level from 0.0 to 1.0."
 
@@ -315,6 +316,24 @@ services:
     depends_on:
       - cleanapp_db
 
+  cleanapp_montenegro_areas:
+    container_name: cleanapp_montenegro_areas
+    image: ${MONTENEGRO_AREAS_DOCKER_IMAGE}
+    environment:
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+      - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
+      - DB_NAME=cleanapp
+      - MONTENEGRO_AREAS_DOCKER_IMAGE=OSMB-e0b412fe96a2a2c5d8e7eb33454a21d971bea620.geojson
+      - LOG_LEVEL=info
+      - LOG_FORMAT=json
+      - GIN_MODE=${GIN_MODE}
+    ports:
+      - 9083:8080
+    depends_on:
+      - cleanapp_db
+
 volumes:
   mysql:
     name: eko_mysql
@@ -335,6 +354,7 @@ docker pull ${CLEANAPP_IO_FRONTEND_EMBEDDED_DOCKER_IMAGE}
 docker pull ${CLEANAPP_IO_BACKEND_DOCKER_IMAGE}
 docker pull ${REPORT_LISTENER_DOCKER_IMAGE}
 docker pull ${REPORT_ANALYZE_PIPELINE_DOCKER_IMAGE}
+docker pull ${MONTENEGRO_AREAS_DOCKER_IMAGE}
 
 # Start our docker images.
 ./up.sh
