@@ -143,7 +143,7 @@ func SaveReport(db *sql.DB, r *api.ReportArgs) error {
 	result, err := tx.ExecContext(ctx, `INSERT
 	  INTO reports (id, team, action_id, latitude, longitude, x, y, image)
 	  VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		r.Id, util.UserIdToTeam(r.Id), r.ActionId, r.Latitude, r.Longitue, r.X, r.Y, compressedImage)
+		r.Id, util.UserIdToTeam(r.Id), r.ActionId, r.Latitude, r.Longitude, r.X, r.Y, compressedImage)
 	common.LogResult("saveReport", result, err, true)
 	if err != nil {
 		log.Errorf("Error inserting report: %w", err)
@@ -164,7 +164,7 @@ func SaveReport(db *sql.DB, r *api.ReportArgs) error {
 	result, err = tx.ExecContext(ctx, `INSERT
 	  INTO reports_geometry (seq, geom)
 	  VALUES (LAST_INSERT_ID(), ST_SRID(POINT(?, ?), 4326))`,
-		r.Longitue, r.Latitude)
+		r.Longitude, r.Latitude)
 	common.LogResult("saveReportGeometry", result, err, true)
 	if err != nil {
 		log.Errorf("Error inserting report geometry: %w", err)
@@ -877,7 +877,7 @@ func sendAffectedPolygonsEmails(report *api.ReportArgs) {
 	}
 
 	for areaId, emailAddrs := range emails {
-		polyImg, err := email.GeneratePolygonImg(features[areaId], report.Latitude, report.Longitue)
+		polyImg, err := email.GeneratePolygonImg(features[areaId], report.Latitude, report.Longitude)
 		if err != nil {
 			log.Errorf("Error generating polygon image: %w", err)
 			return
@@ -888,7 +888,7 @@ func sendAffectedPolygonsEmails(report *api.ReportArgs) {
 
 // TODO: Remove after the email sender microservice is launched
 func findAreasForReport(db *sql.DB, report *api.ReportArgs) (map[uint64]*geojson.Feature, map[uint64][]string, error) {
-	ptWKT := area_index.PointToWKT(report.Longitue, report.Latitude)
+	ptWKT := area_index.PointToWKT(report.Longitude, report.Latitude)
 
 	rows, err := db.Query("SELECT area_id FROM area_index WHERE MBRWithin(ST_GeomFromText(?, 4326), geom)", ptWKT)
 	if err != nil {

@@ -113,14 +113,14 @@ type GenRefResponse struct {
 }
 
 type ReportArgs struct {
-	Version  string  `json:"version"` // Must be "2.0"
-	Id       string  `json:"id"`      // public key.
-	Latitude float64 `json:"latitude"`
-	Longitue float64 `json:"longitude"`
-	X        float64 `json:"x"` // 0.0..1.0
-	Y        float64 `json:"y"` // 0.0..1.0
-	Image    []byte  `json:"image"`
-	ActionId string  `json:"action_id"`
+	Version   string  `json:"version"` // Must be "2.0"
+	Id        string  `json:"id"`      // public key.
+	Latitude  float64 `json:"latitude"`
+	Longitude float64 `json:"longitude"`
+	X         float64 `json:"x"` // 0.0..1.0
+	Y         float64 `json:"y"` // 0.0..1.0
+	Image     []byte  `json:"image"`
+	ActionId  string  `json:"action_id"`
 }
 
 type StatsArgs struct {
