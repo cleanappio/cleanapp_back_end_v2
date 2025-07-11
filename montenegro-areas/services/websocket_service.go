@@ -112,7 +112,7 @@ func (s *WebSocketService) findMontenegroArea() error {
 		}
 	}
 
-	return fmt.Errorf("Montenegro area (OSM ID: -53296) not found")
+	return fmt.Errorf("montenegro area (OSM ID: -53296) not found")
 }
 
 // initializeLastProcessedSeq initializes the last processed sequence number
@@ -196,7 +196,7 @@ func (s *WebSocketService) processNewReports() error {
 // getReportsWithAnalysisSince retrieves reports with analysis in Montenegro since a given sequence number
 func (s *WebSocketService) getReportsWithAnalysisSince(sinceSeq int) ([]models.ReportWithAnalysis, error) {
 	if s.montenegroArea == nil {
-		return nil, fmt.Errorf("Montenegro area not found")
+		return nil, fmt.Errorf("montenegro area not found")
 	}
 
 	// Convert the Montenegro area geometry to WKT format
@@ -279,79 +279,6 @@ func (s *WebSocketService) getReportsWithAnalysisSince(sinceSeq int) ([]models.R
 
 	if err = rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating reports with analysis: %w", err)
-	}
-
-	return reports, nil
-}
-
-// getReportsSince retrieves reports in Montenegro since a given sequence number
-func (s *WebSocketService) getReportsSince(sinceSeq int) ([]models.ReportData, error) {
-	if s.montenegroArea == nil {
-		return nil, fmt.Errorf("Montenegro area not found")
-	}
-
-	// Convert the Montenegro area geometry to WKT format
-	areaWKT, err := s.db.wktConverter.ConvertGeoJSONToWKT(s.montenegroArea.Area)
-	if err != nil {
-		return nil, fmt.Errorf("failed to convert Montenegro area geometry to WKT: %w", err)
-	}
-
-	// Query to get new reports within Montenegro
-	query := `
-		SELECT r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.action_id
-		FROM reports r
-		JOIN reports_geometry rg ON r.seq = rg.seq
-		WHERE r.seq > ? AND ST_Within(rg.geom, ST_GeomFromText(?, 4326))
-		ORDER BY r.seq ASC
-	`
-
-	rows, err := s.db.db.Query(query, sinceSeq, areaWKT)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query reports in Montenegro: %w", err)
-	}
-	defer rows.Close()
-
-	var reports []models.ReportData
-	for rows.Next() {
-		var report models.ReportData
-		var timestamp time.Time
-		var x, y sql.NullFloat64
-		var actionID sql.NullString
-
-		err := rows.Scan(
-			&report.Seq,
-			&timestamp,
-			&report.ID,
-			&report.Team,
-			&report.Latitude,
-			&report.Longitude,
-			&x,
-			&y,
-			&actionID,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan report: %w", err)
-		}
-
-		// Convert timestamp to string
-		report.Timestamp = timestamp.Format(time.RFC3339)
-
-		// Handle nullable fields
-		if x.Valid {
-			report.X = &x.Float64
-		}
-		if y.Valid {
-			report.Y = &y.Float64
-		}
-		if actionID.Valid {
-			report.ActionID = &actionID.String
-		}
-
-		reports = append(reports, report)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating reports: %w", err)
 	}
 
 	return reports, nil
