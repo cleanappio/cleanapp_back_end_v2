@@ -161,14 +161,14 @@ func (s *WebSocketService) broadcastLoop() {
 	}
 }
 
-// processNewReports fetches and broadcasts new reports in Montenegro
+// processNewReports fetches and broadcasts new reports with analysis in Montenegro
 func (s *WebSocketService) processNewReports() error {
 	s.mu.RLock()
 	lastSeq := s.lastProcessedSeq
 	s.mu.RUnlock()
 
-	// Fetch new reports in Montenegro
-	reports, err := s.getReportsSince(lastSeq)
+	// Fetch new reports with analysis in Montenegro
+	reports, err := s.getReportsWithAnalysisSince(lastSeq)
 	if err != nil {
 		return err
 	}
@@ -181,16 +181,107 @@ func (s *WebSocketService) processNewReports() error {
 	s.hub.BroadcastReports(reports)
 
 	// Update last processed sequence in memory
-	newLastSeq := reports[len(reports)-1].Seq
+	newLastSeq := reports[len(reports)-1].Report.Seq
 
 	s.mu.Lock()
 	s.lastProcessedSeq = newLastSeq
 	s.mu.Unlock()
 
-	log.Printf("Processed %d new reports in Montenegro (seq %d-%d)",
-		len(reports), reports[0].Seq, reports[len(reports)-1].Seq)
+	log.Printf("Processed %d new reports with analysis in Montenegro (seq %d-%d)",
+		len(reports), reports[0].Report.Seq, reports[len(reports)-1].Report.Seq)
 
 	return nil
+}
+
+// getReportsWithAnalysisSince retrieves reports with analysis in Montenegro since a given sequence number
+func (s *WebSocketService) getReportsWithAnalysisSince(sinceSeq int) ([]models.ReportWithAnalysis, error) {
+	if s.montenegroArea == nil {
+		return nil, fmt.Errorf("Montenegro area not found")
+	}
+
+	// Convert the Montenegro area geometry to WKT format
+	areaWKT, err := s.db.wktConverter.ConvertGeoJSONToWKT(s.montenegroArea.Area)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert Montenegro area geometry to WKT: %w", err)
+	}
+
+	// Query to get new reports with analysis within Montenegro
+	query := `
+		SELECT 
+			r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.action_id,
+			ra.seq as analysis_seq, ra.source, ra.analysis_text, 
+			ra.title, ra.description,
+			ra.litter_probability, ra.hazard_probability, 
+			ra.severity_level, ra.summary, ra.created_at
+		FROM reports r
+		JOIN reports_geometry rg ON r.seq = rg.seq
+		INNER JOIN report_analysis ra ON r.seq = ra.seq
+		WHERE r.seq > ? AND ST_Within(rg.geom, ST_GeomFromText(?, 4326))
+		ORDER BY r.seq ASC
+	`
+
+	rows, err := s.db.db.Query(query, sinceSeq, areaWKT)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query reports with analysis in Montenegro: %w", err)
+	}
+	defer rows.Close()
+
+	var reports []models.ReportWithAnalysis
+	for rows.Next() {
+		var reportWithAnalysis models.ReportWithAnalysis
+		var timestamp time.Time
+		var x, y sql.NullFloat64
+		var actionID sql.NullString
+		var analysisCreatedAt time.Time
+
+		err := rows.Scan(
+			&reportWithAnalysis.Report.Seq,
+			&timestamp,
+			&reportWithAnalysis.Report.ID,
+			&reportWithAnalysis.Report.Team,
+			&reportWithAnalysis.Report.Latitude,
+			&reportWithAnalysis.Report.Longitude,
+			&x,
+			&y,
+			&actionID,
+			&reportWithAnalysis.Analysis.Seq,
+			&reportWithAnalysis.Analysis.Source,
+			&reportWithAnalysis.Analysis.AnalysisText,
+			&reportWithAnalysis.Analysis.Title,
+			&reportWithAnalysis.Analysis.Description,
+			&reportWithAnalysis.Analysis.LitterProbability,
+			&reportWithAnalysis.Analysis.HazardProbability,
+			&reportWithAnalysis.Analysis.SeverityLevel,
+			&reportWithAnalysis.Analysis.Summary,
+			&analysisCreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan report with analysis: %w", err)
+		}
+
+		// Convert timestamps to string
+		reportWithAnalysis.Report.Timestamp = timestamp.Format(time.RFC3339)
+		reportWithAnalysis.Analysis.CreatedAt = analysisCreatedAt.Format(time.RFC3339)
+
+		// Handle nullable fields
+		if x.Valid {
+			reportWithAnalysis.Report.X = &x.Float64
+		}
+		if y.Valid {
+			reportWithAnalysis.Report.Y = &y.Float64
+		}
+		if actionID.Valid {
+			reportWithAnalysis.Report.ActionID = &actionID.String
+		}
+
+		reports = append(reports, reportWithAnalysis)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating reports with analysis: %w", err)
+	}
+
+	return reports, nil
 }
 
 // getReportsSince retrieves reports in Montenegro since a given sequence number

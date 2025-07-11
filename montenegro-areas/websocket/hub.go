@@ -78,22 +78,22 @@ func (h *Hub) Run() {
 	}
 }
 
-// BroadcastReports broadcasts a batch of reports to all connected clients
-func (h *Hub) BroadcastReports(reports []models.ReportData) {
+// BroadcastReports broadcasts a batch of reports with analysis to all connected clients
+func (h *Hub) BroadcastReports(reports []models.ReportWithAnalysis) {
 	if len(reports) == 0 {
 		return
 	}
 
 	// Update last broadcast sequence
 	if len(reports) > 0 {
-		h.lastBroadcastSeq = reports[len(reports)-1].Seq
+		h.lastBroadcastSeq = reports[len(reports)-1].Report.Seq
 	}
 
 	batch := models.ReportBatch{
 		Reports: reports,
 		Count:   len(reports),
-		FromSeq: reports[0].Seq,
-		ToSeq:   reports[len(reports)-1].Seq,
+		FromSeq: reports[0].Report.Seq,
+		ToSeq:   reports[len(reports)-1].Report.Seq,
 	}
 
 	message := models.BroadcastMessage{

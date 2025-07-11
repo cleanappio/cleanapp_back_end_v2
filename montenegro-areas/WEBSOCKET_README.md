@@ -4,9 +4,10 @@ This service now includes a WebSocket endpoint that listens to new reports speci
 
 ## Features
 
-- **Real-time Report Monitoring**: Continuously monitors for new reports in Montenegro
-- **WebSocket Broadcasting**: Broadcasts new reports to all connected clients in real-time
+- **Real-time Report Monitoring**: Continuously monitors for new reports with analysis in Montenegro
+- **WebSocket Broadcasting**: Broadcasts new reports with analysis to all connected clients in real-time
 - **Spatial Filtering**: Uses WKT conversion to filter reports within Montenegro's geographic boundaries
+- **Analysis Integration**: Joins reports with report_analysis table to provide complete analysis data
 - **Connection Management**: Handles multiple WebSocket connections with proper cleanup
 - **Health Monitoring**: Provides health endpoints with connection statistics
 
@@ -31,15 +32,29 @@ This service now includes a WebSocket endpoint that listens to new reports speci
   "data": {
     "reports": [
       {
-        "seq": 12345,
-        "timestamp": "2024-01-15T10:30:00Z",
-        "id": "user123",
-        "team": 1,
-        "latitude": 42.123456,
-        "longitude": 19.123456,
-        "x": 0.5,
-        "y": 0.3,
-        "action_id": "action_123"
+        "report": {
+          "seq": 12345,
+          "timestamp": "2024-01-15T10:30:00Z",
+          "id": "user123",
+          "team": 1,
+          "latitude": 42.123456,
+          "longitude": 19.123456,
+          "x": 0.5,
+          "y": 0.3,
+          "action_id": "action_123"
+        },
+        "analysis": {
+          "seq": 12345,
+          "source": "ai_analysis",
+          "analysis_text": "Detailed analysis text...",
+          "title": "Litter Detection",
+          "description": "Multiple pieces of litter detected",
+          "litter_probability": 0.85,
+          "hazard_probability": 0.12,
+          "severity_level": 3.5,
+          "summary": "Moderate litter detected",
+          "created_at": "2024-01-15T10:30:00Z"
+        }
       }
     ],
     "count": 1,
@@ -74,7 +89,11 @@ ws.onopen = function(event) {
 ws.onmessage = function(event) {
     const message = JSON.parse(event.data);
     if (message.type === 'reports') {
-        console.log('Received reports:', message.data.reports);
+        console.log('Received reports with analysis:', message.data.reports);
+        message.data.reports.forEach(reportWithAnalysis => {
+            console.log('Report:', reportWithAnalysis.report);
+            console.log('Analysis:', reportWithAnalysis.analysis);
+        });
     }
 };
 
@@ -121,9 +140,10 @@ curl http://localhost:8080/ws/health
    - Initializes last processed sequence number
 
 2. **Monitoring Loop**:
-   - Polls database every 5 seconds for new reports
+   - Polls database every 5 seconds for new reports with analysis
    - Filters reports using spatial query with Montenegro WKT
-   - Broadcasts new reports to all connected WebSocket clients
+   - Joins with report_analysis table to get complete analysis data
+   - Broadcasts new reports with analysis to all connected WebSocket clients
 
 3. **WebSocket Broadcasting**:
    - Converts reports to JSON format

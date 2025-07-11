@@ -66,10 +66,30 @@ type ReportData struct {
 	ActionID  *string  `json:"action_id,omitempty"`
 }
 
+// ReportAnalysis represents an analysis result
+type ReportAnalysis struct {
+	Seq               int     `json:"seq"`
+	Source            string  `json:"source"`
+	AnalysisText      string  `json:"analysis_text"`
+	Title             string  `json:"title"`
+	Description       string  `json:"description"`
+	LitterProbability float64 `json:"litter_probability"`
+	HazardProbability float64 `json:"hazard_probability"`
+	SeverityLevel     float64 `json:"severity_level"`
+	Summary           string  `json:"summary"`
+	CreatedAt         string  `json:"created_at"`
+}
+
+// ReportWithAnalysis represents a report with its corresponding analysis
+type ReportWithAnalysis struct {
+	Report   ReportData     `json:"report"`
+	Analysis ReportAnalysis `json:"analysis"`
+}
+
 // ReportsResponse represents the response for reports within a MontenegroArea
 type ReportsResponse struct {
-	Reports []ReportData `json:"reports"`
-	Count   int          `json:"count"`
+	Reports []ReportWithAnalysis `json:"reports"`
+	Count   int                  `json:"count"`
 }
 
 // AreaAggrData represents aggregated data for a single area
@@ -91,10 +111,10 @@ type ReportsAggrResponse struct {
 
 // ReportBatch represents a batch of reports to be broadcasted
 type ReportBatch struct {
-	Reports []ReportData `json:"reports"`
-	Count   int          `json:"count"`
-	FromSeq int          `json:"from_seq"`
-	ToSeq   int          `json:"to_seq"`
+	Reports []ReportWithAnalysis `json:"reports"`
+	Count   int                  `json:"count"`
+	FromSeq int                  `json:"from_seq"`
+	ToSeq   int                  `json:"to_seq"`
 }
 
 // BroadcastMessage represents a message sent to WebSocket clients

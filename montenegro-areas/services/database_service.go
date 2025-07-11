@@ -59,8 +59,8 @@ func (s *DatabaseService) Close() error {
 	return s.db.Close()
 }
 
-// GetReportsByMontenegroArea gets the last n reports that are contained within a given MontenegroArea
-func (s *DatabaseService) GetReportsByMontenegroArea(osmID int64, n int) ([]models.ReportData, error) {
+// GetReportsByMontenegroArea gets the last n reports with analysis that are contained within a given MontenegroArea
+func (s *DatabaseService) GetReportsByMontenegroArea(osmID int64, n int) ([]models.ReportWithAnalysis, error) {
 	// Find the MontenegroArea by OSM ID
 	var targetArea *models.MontenegroArea
 	for _, areas := range s.areasService.areas {
@@ -86,11 +86,17 @@ func (s *DatabaseService) GetReportsByMontenegroArea(osmID int64, n int) ([]mode
 		return nil, fmt.Errorf("failed to convert area geometry to WKT: %w", err)
 	}
 
-	// Query to get reports within the area using spatial functions
+	// Query to get reports with analysis within the area using spatial functions
 	query := `
-		SELECT r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.action_id
+		SELECT 
+			r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.action_id,
+			ra.seq as analysis_seq, ra.source, ra.analysis_text, 
+			ra.title, ra.description,
+			ra.litter_probability, ra.hazard_probability, 
+			ra.severity_level, ra.summary, ra.created_at
 		FROM reports r
 		JOIN reports_geometry rg ON r.seq = rg.seq
+		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		WHERE ST_Within(rg.geom, ST_GeomFromText(?, 4326))
 		ORDER BY r.ts DESC
 		LIMIT ?
@@ -98,51 +104,63 @@ func (s *DatabaseService) GetReportsByMontenegroArea(osmID int64, n int) ([]mode
 
 	rows, err := s.db.Query(query, areaWKT, n)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query reports: %w", err)
+		return nil, fmt.Errorf("failed to query reports with analysis: %w", err)
 	}
 	defer rows.Close()
 
-	var reports []models.ReportData
+	var reports []models.ReportWithAnalysis
 	for rows.Next() {
-		var report models.ReportData
+		var reportWithAnalysis models.ReportWithAnalysis
 		var timestamp time.Time
 		var x, y sql.NullFloat64
 		var actionID sql.NullString
+		var analysisCreatedAt time.Time
 
 		err := rows.Scan(
-			&report.Seq,
+			&reportWithAnalysis.Report.Seq,
 			&timestamp,
-			&report.ID,
-			&report.Team,
-			&report.Latitude,
-			&report.Longitude,
+			&reportWithAnalysis.Report.ID,
+			&reportWithAnalysis.Report.Team,
+			&reportWithAnalysis.Report.Latitude,
+			&reportWithAnalysis.Report.Longitude,
 			&x,
 			&y,
 			&actionID,
+			&reportWithAnalysis.Analysis.Seq,
+			&reportWithAnalysis.Analysis.Source,
+			&reportWithAnalysis.Analysis.AnalysisText,
+			&reportWithAnalysis.Analysis.Title,
+			&reportWithAnalysis.Analysis.Description,
+			&reportWithAnalysis.Analysis.LitterProbability,
+			&reportWithAnalysis.Analysis.HazardProbability,
+			&reportWithAnalysis.Analysis.SeverityLevel,
+			&reportWithAnalysis.Analysis.Summary,
+			&analysisCreatedAt,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("failed to scan report: %w", err)
+			return nil, fmt.Errorf("failed to scan report with analysis: %w", err)
 		}
 
-		// Convert timestamp to string
-		report.Timestamp = timestamp.Format(time.RFC3339)
+		// Convert timestamps to string
+		reportWithAnalysis.Report.Timestamp = timestamp.Format(time.RFC3339)
+		reportWithAnalysis.Analysis.CreatedAt = analysisCreatedAt.Format(time.RFC3339)
 
 		// Handle nullable fields
 		if x.Valid {
-			report.X = &x.Float64
+			reportWithAnalysis.Report.X = &x.Float64
 		}
 		if y.Valid {
-			report.Y = &y.Float64
+			reportWithAnalysis.Report.Y = &y.Float64
 		}
 		if actionID.Valid {
-			report.ActionID = &actionID.String
+			reportWithAnalysis.Report.ActionID = &actionID.String
 		}
 
-		reports = append(reports, report)
+		reports = append(reports, reportWithAnalysis)
 	}
 
 	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating reports: %w", err)
+		return nil, fmt.Errorf("error iterating reports with analysis: %w", err)
 	}
 
 	return reports, nil
