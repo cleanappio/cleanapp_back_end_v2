@@ -2,12 +2,10 @@ package services
 
 import (
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"sort"
-	"strings"
 	"time"
 
 	"montenegro-areas/models"
@@ -19,6 +17,7 @@ import (
 type DatabaseService struct {
 	db           *sql.DB
 	areasService *AreasService
+	wktConverter *WKTConverter
 }
 
 // NewDatabaseService creates a new database service
@@ -52,7 +51,7 @@ func NewDatabaseService(areasService *AreasService) (*DatabaseService, error) {
 
 	log.Printf("Database connection established to %s:%s/%s", dbHost, dbPort, dbName)
 
-	return &DatabaseService{db: db, areasService: areasService}, nil
+	return &DatabaseService{db: db, areasService: areasService, wktConverter: NewWKTConverter()}, nil
 }
 
 // Close closes the database connection
@@ -82,7 +81,7 @@ func (s *DatabaseService) GetReportsByMontenegroArea(osmID int64, n int) ([]mode
 
 	// Convert the area geometry to WKT format for spatial query
 	// The area.Area contains the raw GeoJSON geometry, we need to convert it to WKT
-	areaWKT, err := s.convertGeoJSONToWKT(targetArea.Area)
+	areaWKT, err := s.wktConverter.ConvertGeoJSONToWKT(targetArea.Area)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert area geometry to WKT: %w", err)
 	}
@@ -165,7 +164,7 @@ func (s *DatabaseService) GetReportsAggregatedData() ([]models.AreaAggrData, err
 	// First, get all report counts for each area
 	var reportCounts []int
 	for _, area := range areas {
-		areaWKT, err := s.convertGeoJSONToWKT(area.Area)
+		areaWKT, err := s.wktConverter.ConvertGeoJSONToWKT(area.Area)
 		if err != nil {
 			log.Printf("Warning: failed to convert area geometry for OSM ID %d: %v", area.OSMID, err)
 			continue
@@ -204,7 +203,7 @@ func (s *DatabaseService) GetReportsAggregatedData() ([]models.AreaAggrData, err
 	// Get aggregated data for each area
 	var areasData []models.AreaAggrData
 	for _, area := range areas {
-		areaWKT, err := s.convertGeoJSONToWKT(area.Area)
+		areaWKT, err := s.wktConverter.ConvertGeoJSONToWKT(area.Area)
 		if err != nil {
 			log.Printf("Warning: failed to convert area geometry for OSM ID %d: %v", area.OSMID, err)
 			continue
@@ -256,82 +255,4 @@ func getEnvOrDefault(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
-}
-
-// convertGeoJSONToWKT converts a GeoJSON geometry to WKT format
-func (s *DatabaseService) convertGeoJSONToWKT(geometry json.RawMessage) (string, error) {
-	// Parse the GeoJSON geometry
-	var geom models.Geometry
-	if err := json.Unmarshal(geometry, &geom); err != nil {
-		return "", fmt.Errorf("failed to unmarshal geometry: %w", err)
-	}
-
-	// Convert based on geometry type
-	switch geom.Type {
-	case "Polygon":
-		return s.convertPolygonToWKT(geom.Coordinates)
-	case "MultiPolygon":
-		return s.convertMultiPolygonToWKT(geom.Coordinates)
-	default:
-		return "", fmt.Errorf("unsupported geometry type: %s", geom.Type)
-	}
-}
-
-// convertPolygonToWKT converts a GeoJSON polygon to WKT format
-func (s *DatabaseService) convertPolygonToWKT(coordinates json.RawMessage) (string, error) {
-	var coords [][][]float64
-	if err := json.Unmarshal(coordinates, &coords); err != nil {
-		return "", fmt.Errorf("failed to unmarshal polygon coordinates: %w", err)
-	}
-
-	if len(coords) == 0 {
-		return "", fmt.Errorf("empty polygon coordinates")
-	}
-
-	// Convert to WKT format
-	var rings []string
-	for _, ring := range coords {
-		var points []string
-		for _, point := range ring {
-			if len(point) >= 2 {
-				// WKT format: longitude latitude (note the order)
-				points = append(points, fmt.Sprintf("%g %g", point[0], point[1]))
-			}
-		}
-		rings = append(rings, fmt.Sprintf("(%s)", strings.Join(points, ",")))
-	}
-
-	return fmt.Sprintf("POLYGON(%s)", strings.Join(rings, ",")), nil
-}
-
-// convertMultiPolygonToWKT converts a GeoJSON multi-polygon to WKT format
-func (s *DatabaseService) convertMultiPolygonToWKT(coordinates json.RawMessage) (string, error) {
-	var coords [][][][]float64
-	if err := json.Unmarshal(coordinates, &coords); err != nil {
-		return "", fmt.Errorf("failed to unmarshal multi-polygon coordinates: %w", err)
-	}
-
-	if len(coords) == 0 {
-		return "", fmt.Errorf("empty multi-polygon coordinates")
-	}
-
-	// Convert each polygon
-	var polygons []string
-	for _, polygon := range coords {
-		// Convert polygon to JSON and then to WKT
-		polygonJSON, err := json.Marshal(polygon)
-		if err != nil {
-			return "", fmt.Errorf("failed to marshal polygon: %w", err)
-		}
-		polygonWKT, err := s.convertPolygonToWKT(polygonJSON)
-		if err != nil {
-			return "", fmt.Errorf("failed to convert polygon: %w", err)
-		}
-		// Remove the POLYGON wrapper and add to the list
-		polygonWKT = strings.TrimPrefix(polygonWKT, "POLYGON(")
-		polygonWKT = strings.TrimSuffix(polygonWKT, ")")
-		polygons = append(polygons, fmt.Sprintf("(%s)", polygonWKT))
-	}
-
-	return fmt.Sprintf("MULTIPOLYGON(%s)", strings.Join(polygons, ",")), nil
 }
