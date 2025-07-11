@@ -50,8 +50,9 @@ func main() {
 	router.HandleFunc("/areas", areasHandler.AreasByAdminLevelHandler).Methods("GET")
 	router.HandleFunc("/admin-levels", areasHandler.AvailableAdminLevelsHandler).Methods("GET")
 
-	// Reports endpoint
+	// Reports endpoints
 	router.HandleFunc("/reports", areasHandler.ReportsHandler).Methods("GET")
+	router.HandleFunc("/reports_aggr", areasHandler.ReportsAggrHandler).Methods("GET")
 
 	// Get port from environment variable or default to 8080
 	port := os.Getenv("PORT")

@@ -144,3 +144,24 @@ func (h *AreasHandler) ReportsHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(response)
 }
+
+// ReportsAggrHandler handles requests for aggregated reports data for admin level 6 areas
+func (h *AreasHandler) ReportsAggrHandler(w http.ResponseWriter, r *http.Request) {
+	// Get aggregated reports data for all areas of admin level 6
+	areasData, err := h.databaseService.GetReportsAggregatedData()
+	if err != nil {
+		log.Printf("Error getting aggregated reports data: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Create response
+	response := models.ReportsAggrResponse{
+		Areas: areasData,
+		Count: len(areasData),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
+}

@@ -66,3 +66,20 @@ type ReportsResponse struct {
 	Reports []ReportData `json:"reports"`
 	Count   int          `json:"count"`
 }
+
+// AreaAggrData represents aggregated data for a single area
+type AreaAggrData struct {
+	OSMID                 int64   `json:"osm_id"`
+	Name                  string  `json:"name"`
+	ReportsCount          int     `json:"reports_count"`
+	ReportsMedian         float64 `json:"reports_median"`
+	MeanSeverity          float64 `json:"mean_severity"`
+	MeanLitterProbability float64 `json:"mean_litter_probability"`
+	MeanHazardProbability float64 `json:"mean_hazard_probability"`
+}
+
+// ReportsAggrResponse represents the response for aggregated reports data
+type ReportsAggrResponse struct {
+	Areas []AreaAggrData `json:"areas"`
+	Count int            `json:"count"`
+}

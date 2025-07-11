@@ -109,6 +109,65 @@ Returns all available administrative levels in the dataset.
 }
 ```
 
+### GET /reports?osm_id={id}&n={number}
+
+Returns the last N reports within a specific Montenegro area.
+
+**Parameters:**
+- `osm_id` (required): The OSM ID of the area (integer)
+- `n` (required): Number of reports to return (integer, 1-100)
+
+**Response:**
+```json
+{
+  "reports": [
+    {
+      "seq": 123,
+      "timestamp": "2024-01-01T12:00:00Z",
+      "id": "user123",
+      "team": 1,
+      "latitude": 42.2580593,
+      "longitude": 18.8975984,
+      "x": 0.5,
+      "y": 0.3,
+      "action_id": "action123"
+    }
+  ],
+  "count": 1
+}
+```
+
+### GET /reports_aggr
+
+Returns aggregated reports data for all areas of AdminLevel 6.
+
+**Response:**
+```json
+{
+  "areas": [
+    {
+      "osm_id": -18945986,
+      "name": "Đenjaši Česminovo",
+      "reports_count": 15,
+      "reports_median": 12.5,
+      "mean_severity": 0.7,
+      "mean_litter_probability": 0.8,
+      "mean_hazard_probability": 0.2
+    }
+  ],
+  "count": 1
+}
+```
+
+**Response Fields:**
+- `osm_id`: The OSM ID of the area
+- `name`: The name of the area
+- `reports_count`: Number of reports in this area
+- `reports_median`: Median reports count across all AdminLevel 6 areas
+- `mean_severity`: Mean severity level (0.0-1.0) for all reports in this area
+- `mean_litter_probability`: Mean litter probability (0.0-1.0) for all reports in this area
+- `mean_hazard_probability`: Mean hazard probability (0.0-1.0) for all reports in this area
+
 ## Docker
 
 ### Build the image:

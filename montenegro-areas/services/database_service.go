@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -91,7 +92,7 @@ func (s *DatabaseService) GetReportsByMontenegroArea(osmID int64, n int) ([]mode
 		SELECT r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.action_id
 		FROM reports r
 		JOIN reports_geometry rg ON r.seq = rg.seq
-		WHERE ST_Contains(ST_GeomFromText(?, 4326), rg.geom)
+		WHERE ST_Within(rg.geom, ST_GeomFromText(?, 4326))
 		ORDER BY r.ts DESC
 		LIMIT ?
 	`
@@ -146,6 +147,107 @@ func (s *DatabaseService) GetReportsByMontenegroArea(osmID int64, n int) ([]mode
 	}
 
 	return reports, nil
+}
+
+// GetReportsAggregatedData returns aggregated reports data for all areas of admin level 6
+func (s *DatabaseService) GetReportsAggregatedData() ([]models.AreaAggrData, error) {
+	// Get all areas of admin level 6
+	areas, err := s.areasService.GetAreasByAdminLevel(6)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get areas for admin level 6: %w", err)
+	}
+
+	if len(areas) == 0 {
+		return []models.AreaAggrData{}, nil
+	}
+
+	// Calculate median reports count across all areas
+	// First, get all report counts for each area
+	var reportCounts []int
+	for _, area := range areas {
+		areaWKT, err := s.convertGeoJSONToWKT(area.Area)
+		if err != nil {
+			log.Printf("Warning: failed to convert area geometry for OSM ID %d: %v", area.OSMID, err)
+			continue
+		}
+
+		query := `SELECT COUNT(r.seq) as reports_count
+			FROM reports r
+			JOIN reports_geometry rg ON r.seq = rg.seq
+			WHERE ST_Within(rg.geom, ST_GeomFromText(?, 4326))`
+
+		var count int
+		err = s.db.QueryRow(query, areaWKT).Scan(&count)
+		if err != nil {
+			log.Printf("Warning: failed to get report count for OSM ID %d: %v", area.OSMID, err)
+			count = 0
+		}
+		reportCounts = append(reportCounts, count)
+	}
+
+	// Calculate median from the collected counts
+	var medianCount float64
+	if len(reportCounts) > 0 {
+		// Sort the counts to find median
+		sort.Ints(reportCounts)
+		if len(reportCounts)%2 == 0 {
+			// Even number of elements, take average of middle two
+			mid := len(reportCounts) / 2
+			medianCount = float64(reportCounts[mid-1]+reportCounts[mid]) / 2.0
+		} else {
+			// Odd number of elements, take middle element
+			mid := len(reportCounts) / 2
+			medianCount = float64(reportCounts[mid])
+		}
+	}
+
+	// Get aggregated data for each area
+	var areasData []models.AreaAggrData
+	for _, area := range areas {
+		areaWKT, err := s.convertGeoJSONToWKT(area.Area)
+		if err != nil {
+			log.Printf("Warning: failed to convert area geometry for OSM ID %d: %v", area.OSMID, err)
+			continue
+		}
+
+		// Query to get aggregated data for this area
+		query := `
+			SELECT 
+				COUNT(r.seq) as reports_count,
+				COALESCE(AVG(ra.severity_level), 0.0) as mean_severity,
+				COALESCE(AVG(ra.litter_probability), 0.0) as mean_litter_probability,
+				COALESCE(AVG(ra.hazard_probability), 0.0) as mean_hazard_probability
+			FROM reports r
+			JOIN reports_geometry rg ON r.seq = rg.seq
+			LEFT JOIN report_analysis ra ON r.seq = ra.seq
+			WHERE ST_Within(rg.geom, ST_GeomFromText(?, 4326))
+		`
+
+		var areaData models.AreaAggrData
+		err = s.db.QueryRow(query, areaWKT).Scan(
+			&areaData.ReportsCount,
+			&areaData.MeanSeverity,
+			&areaData.MeanLitterProbability,
+			&areaData.MeanHazardProbability,
+		)
+		if err != nil {
+			log.Printf("Warning: failed to get aggregated data for OSM ID %d: %v", area.OSMID, err)
+			// Set default values for this area
+			areaData.ReportsCount = 0
+			areaData.MeanSeverity = 0.0
+			areaData.MeanLitterProbability = 0.0
+			areaData.MeanHazardProbability = 0.0
+		}
+
+		// Set the area metadata
+		areaData.OSMID = area.OSMID
+		areaData.Name = area.Name
+		areaData.ReportsMedian = medianCount
+
+		areasData = append(areasData, areaData)
+	}
+
+	return areasData, nil
 }
 
 // getEnvOrDefault gets an environment variable or returns a default value
