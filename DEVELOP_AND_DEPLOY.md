@@ -102,7 +102,7 @@ Run the build & deploy script.
 
     1.  Configure the service account
         ```
-        deployer@vampfun-dev:~$ gcloud config set account cleanapp@cleanup-mysql-v2.iam.gserviceaccount.com
+        gcloud config set account cleanapp@cleanup-mysql-v2.iam.gserviceaccount.com
         ```
 
     1. Activate the service account
@@ -113,3 +113,23 @@ Run the build & deploy script.
             gcloud auth activate-service-account cleanapp@cleanup-mysql-v2.iam.gserviceaccount.com --key-file=<keypair file>
             ```
         *   Delete the keypair file after activation
+
+## Installing Docker
+
+1.  Copy the installing script to the VM
+    ```
+    scp -i ~/.ssh/eko-cleanapp-io setup/install_docker.sh deployer@34.132.121.53:install_docker.sh
+    ```
+1.  Login to the VM and run the install script
+    ```
+    ssh -i ~/.ssh/<you>-cleanapp-io deployer@34.132.121.53
+    ```
+    ```
+    chmod a+x ./install_docker.sh
+    ./install_docker.sh
+    ```
+1.  Add the `deployer` to the `docker` group
+    ```
+    sudo usermod -aG docker $USER
+    ```
+1.  Logout from the VM and login again
