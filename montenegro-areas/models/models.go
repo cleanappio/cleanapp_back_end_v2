@@ -2,6 +2,7 @@ package models
 
 import (
 	"encoding/json"
+	"time"
 )
 
 // GeoJSON structures
@@ -38,8 +39,12 @@ type AreasByAdminLevelResponse struct {
 
 // HealthResponse represents the health check response
 type HealthResponse struct {
-	Status  string `json:"status"`
-	Message string `json:"message"`
+	Status           string `json:"status"`
+	Message          string `json:"message,omitempty"`
+	Service          string `json:"service,omitempty"`
+	Timestamp        string `json:"timestamp,omitempty"`
+	ConnectedClients int    `json:"connected_clients,omitempty"`
+	LastBroadcastSeq int    `json:"last_broadcast_seq,omitempty"`
 }
 
 // AdminLevelsResponse represents the response for available admin levels
@@ -82,4 +87,19 @@ type AreaAggrData struct {
 type ReportsAggrResponse struct {
 	Areas []AreaAggrData `json:"areas"`
 	Count int            `json:"count"`
+}
+
+// ReportBatch represents a batch of reports to be broadcasted
+type ReportBatch struct {
+	Reports []ReportData `json:"reports"`
+	Count   int          `json:"count"`
+	FromSeq int          `json:"from_seq"`
+	ToSeq   int          `json:"to_seq"`
+}
+
+// BroadcastMessage represents a message sent to WebSocket clients
+type BroadcastMessage struct {
+	Type      string      `json:"type"`
+	Data      interface{} `json:"data"`
+	Timestamp time.Time   `json:"timestamp"`
 }

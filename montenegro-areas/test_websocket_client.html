@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Montenegro Reports WebSocket Client</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .connected {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .connecting {
+            background-color: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .stat-card {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            border-left: 4px solid #007bff;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #007bff;
+        }
+        .stat-label {
+            color: #6c757d;
+            font-size: 14px;
+        }
+        .reports-container {
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 10px;
+        }
+        .report-item {
+            background-color: #f8f9fa;
+            margin: 10px 0;
+            padding: 15px;
+            border-radius: 4px;
+            border-left: 4px solid #28a745;
+        }
+        .report-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .report-seq {
+            font-weight: bold;
+            color: #007bff;
+        }
+        .report-timestamp {
+            color: #6c757d;
+            font-size: 14px;
+        }
+        .report-details {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            font-size: 14px;
+        }
+        .report-detail {
+            display: flex;
+            justify-content: space-between;
+        }
+        .report-detail-label {
+            font-weight: bold;
+            color: #495057;
+        }
+        .report-detail-value {
+            color: #6c757d;
+        }
+        .controls {
+            margin: 20px 0;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        .log {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 10px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Montenegro Reports WebSocket Client</h1>
+        
+        <div id="status" class="status disconnected">Disconnected</div>
+        
+        <div class="controls">
+            <button id="connectBtn" onclick="connect()">Connect</button>
+            <button id="disconnectBtn" onclick="disconnect()" disabled>Disconnect</button>
+            <button onclick="clearReports()">Clear Reports</button>
+            <button onclick="clearLog()">Clear Log</button>
+        </div>
+        
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-value" id="connectedClients">0</div>
+                <div class="stat-label">Connected Clients</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="lastBroadcastSeq">0</div>
+                <div class="stat-label">Last Broadcast Seq</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="totalReports">0</div>
+                <div class="stat-label">Total Reports Received</div>
+            </div>
+        </div>
+        
+        <h3>Reports in Montenegro</h3>
+        <div id="reports" class="reports-container">
+            <p>No reports received yet. Connect to start receiving real-time reports from Montenegro.</p>
+        </div>
+        
+        <h3>Connection Log</h3>
+        <div id="log" class="log"></div>
+    </div>
+
+    <script>
+        let ws = null;
+        let totalReports = 0;
+        
+        // Get the base URL from the current page
+        const baseUrl = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = baseUrl + '//' + window.location.host + '/ws/montenegro-reports';
+        
+        function log(message) {
+            const logElement = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            logElement.innerHTML += `[${timestamp}] ${message}\n`;
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+        
+        function updateStatus(status, className) {
+            const statusElement = document.getElementById('status');
+            statusElement.textContent = status;
+            statusElement.className = 'status ' + className;
+        }
+        
+        function updateStats() {
+            // Update stats from health endpoint
+            fetch('/ws/health')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('connectedClients').textContent = data.connected_clients || 0;
+                    document.getElementById('lastBroadcastSeq').textContent = data.last_broadcast_seq || 0;
+                })
+                .catch(error => {
+                    log('Error fetching stats: ' + error.message);
+                });
+        }
+        
+        function connect() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                log('Already connected');
+                return;
+            }
+            
+            updateStatus('Connecting...', 'connecting');
+            log('Connecting to ' + wsUrl);
+            
+            ws = new WebSocket(wsUrl);
+            
+            ws.onopen = function(event) {
+                updateStatus('Connected', 'connected');
+                log('WebSocket connection established');
+                document.getElementById('connectBtn').disabled = true;
+                document.getElementById('disconnectBtn').disabled = false;
+                updateStats();
+            };
+            
+            ws.onmessage = function(event) {
+                try {
+                    const message = JSON.parse(event.data);
+                    log('Received message: ' + JSON.stringify(message, null, 2));
+                    
+                    if (message.type === 'reports' && message.data && message.data.reports) {
+                        displayReports(message.data.reports);
+                        totalReports += message.data.reports.length;
+                        document.getElementById('totalReports').textContent = totalReports;
+                    }
+                } catch (error) {
+                    log('Error parsing message: ' + error.message);
+                }
+            };
+            
+            ws.onclose = function(event) {
+                updateStatus('Disconnected', 'disconnected');
+                log('WebSocket connection closed: ' + event.code + ' ' + event.reason);
+                document.getElementById('connectBtn').disabled = false;
+                document.getElementById('disconnectBtn').disabled = true;
+            };
+            
+            ws.onerror = function(error) {
+                updateStatus('Error', 'disconnected');
+                log('WebSocket error: ' + error.message);
+                document.getElementById('connectBtn').disabled = false;
+                document.getElementById('disconnectBtn').disabled = true;
+            };
+        }
+        
+        function disconnect() {
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+        }
+        
+        function displayReports(reports) {
+            const reportsContainer = document.getElementById('reports');
+            
+            if (reports.length === 0) {
+                reportsContainer.innerHTML = '<p>No new reports in this batch.</p>';
+                return;
+            }
+            
+            // Clear the "no reports" message if it exists
+            if (reportsContainer.querySelector('p')) {
+                reportsContainer.innerHTML = '';
+            }
+            
+            reports.forEach(report => {
+                const reportElement = document.createElement('div');
+                reportElement.className = 'report-item';
+                
+                const timestamp = new Date(report.timestamp).toLocaleString();
+                
+                reportElement.innerHTML = `
+                    <div class="report-header">
+                        <span class="report-seq">Report #${report.seq}</span>
+                        <span class="report-timestamp">${timestamp}</span>
+                    </div>
+                    <div class="report-details">
+                        <div class="report-detail">
+                            <span class="report-detail-label">ID:</span>
+                            <span class="report-detail-value">${report.id}</span>
+                        </div>
+                        <div class="report-detail">
+                            <span class="report-detail-label">Team:</span>
+                            <span class="report-detail-value">${report.team}</span>
+                        </div>
+                        <div class="report-detail">
+                            <span class="report-detail-label">Latitude:</span>
+                            <span class="report-detail-value">${report.latitude.toFixed(6)}</span>
+                        </div>
+                        <div class="report-detail">
+                            <span class="report-detail-label">Longitude:</span>
+                            <span class="report-detail-value">${report.longitude.toFixed(6)}</span>
+                        </div>
+                        ${report.action_id ? `
+                        <div class="report-detail">
+                            <span class="report-detail-label">Action ID:</span>
+                            <span class="report-detail-value">${report.action_id}</span>
+                        </div>
+                        ` : ''}
+                    </div>
+                `;
+                
+                reportsContainer.insertBefore(reportElement, reportsContainer.firstChild);
+            });
+        }
+        
+        function clearReports() {
+            document.getElementById('reports').innerHTML = '<p>No reports received yet. Connect to start receiving real-time reports from Montenegro.</p>';
+            totalReports = 0;
+            document.getElementById('totalReports').textContent = '0';
+        }
+        
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+        
+        // Update stats periodically when connected
+        setInterval(() => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                updateStats();
+            }
+        }, 5000);
+        
+        // Initial stats update
+        updateStats();
+    </script>
+</body>
+</html> 

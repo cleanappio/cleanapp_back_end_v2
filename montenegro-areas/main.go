@@ -35,8 +35,21 @@ func main() {
 	}
 	defer databaseService.Close()
 
+	// Initialize WebSocket service
+	websocketService, err := services.NewWebSocketService(databaseService, areasService)
+	if err != nil {
+		log.Fatalf("Failed to initialize WebSocket service: %v", err)
+	}
+
+	// Start WebSocket service
+	if err := websocketService.Start(); err != nil {
+		log.Fatalf("Failed to start WebSocket service: %v", err)
+	}
+	defer websocketService.Stop()
+
 	// Initialize handlers
 	areasHandler := handlers.NewAreasHandler(areasService, databaseService)
+	websocketHandler := handlers.NewWebSocketHandler(websocketService.GetHub())
 
 	router := mux.NewRouter()
 
@@ -53,6 +66,10 @@ func main() {
 	// Reports endpoints
 	router.HandleFunc("/reports", areasHandler.ReportsHandler).Methods("GET")
 	router.HandleFunc("/reports_aggr", areasHandler.ReportsAggrHandler).Methods("GET")
+
+	// WebSocket endpoints
+	router.HandleFunc("/ws/montenegro-reports", websocketHandler.ListenMontenegroReports).Methods("GET")
+	router.HandleFunc("/ws/health", websocketHandler.HealthCheck).Methods("GET")
 
 	// Get port from environment variable or default to 8080
 	port := os.Getenv("PORT")
