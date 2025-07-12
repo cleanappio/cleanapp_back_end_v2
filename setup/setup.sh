@@ -339,6 +339,7 @@ services:
   cleanapp_auth_service:
     container_name: cleanapp_auth_service
     image: ${AUTH_SERVICE_DOCKER_IMAGE}
+    environment:
       - TRUSTED_PROXIES=${CLEANAPP_IO_TRUSTED_PROXIES}
       - ENCRYPTION_KEY=\${CLEANAPP_IO_ENCRYPTION_KEY}
       - JWT_SECRET=\${CLEANAPP_IO_JWT_SECRET}
