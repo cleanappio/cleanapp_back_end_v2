@@ -5,10 +5,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
 	"customer-service/models"
+	"customer-service/utils/encryption"
 	"customer-service/utils/stripe"
 
 	stripego "github.com/stripe/stripe-go/v82"
@@ -18,13 +20,15 @@ import (
 type CustomerService struct {
 	db           *sql.DB
 	stripeClient *stripe.Client
+	syncService  *SyncService
 }
 
 // NewCustomerService creates a new customer service instance
-func NewCustomerService(db *sql.DB, stripeClient *stripe.Client) *CustomerService {
+func NewCustomerService(db *sql.DB, stripeClient *stripe.Client, authURL string, encryptor *encryption.Encryptor) *CustomerService {
 	return &CustomerService{
 		db:           db,
 		stripeClient: stripeClient,
+		syncService:  NewSyncService(db, encryptor, authURL),
 	}
 }
 
@@ -63,14 +67,23 @@ func (s *CustomerService) CreateCustomer(ctx context.Context, req models.CreateC
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	// Return customer
-	return &models.Customer{
+	// Create customer object for sync
+	customer := &models.Customer{
 		ID:        customerID,
 		Name:      req.Name,
 		Email:     req.Email,
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
-	}, nil
+	}
+
+	// Trigger automatic sync to auth service
+	go func() {
+		if err := s.syncService.SyncToAuthService(context.Background()); err != nil {
+			log.Printf("Failed to sync new customer %s to auth service: %v", customerID, err)
+		}
+	}()
+
+	return customer, nil
 }
 
 // GetCustomer retrieves a customer by ID
@@ -137,19 +150,46 @@ func (s *CustomerService) UpdateCustomer(ctx context.Context, customerID string,
 	// Add customer ID to args
 	args = append(args, customerID)
 
+	// Start transaction
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
 	// Execute update
 	query := fmt.Sprintf("UPDATE customers SET %s, updated_at = CURRENT_TIMESTAMP WHERE id = ?", strings.Join(updates, ", "))
-	_, err = s.db.ExecContext(ctx, query, args...)
+	_, err = tx.ExecContext(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("failed to update customer: %w", err)
 	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	// Trigger automatic sync to auth service
+	go func() {
+		if err := s.syncService.SyncToAuthService(context.Background()); err != nil {
+			log.Printf("Failed to sync updated customer %s to auth service: %v", customerID, err)
+		}
+	}()
 
 	return nil
 }
 
 // DeleteCustomer deletes a customer and all associated data
 func (s *CustomerService) DeleteCustomer(ctx context.Context, customerID string) error {
-	result, err := s.db.ExecContext(ctx, "DELETE FROM customers WHERE id = ?", customerID)
+	// Start transaction
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Delete customer
+	result, err := tx.ExecContext(ctx, "DELETE FROM customers WHERE id = ?", customerID)
 	if err != nil {
 		return fmt.Errorf("failed to delete customer: %w", err)
 	}
@@ -162,6 +202,18 @@ func (s *CustomerService) DeleteCustomer(ctx context.Context, customerID string)
 	if rowsAffected == 0 {
 		return errors.New("customer not found")
 	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	// Trigger automatic sync to auth service
+	go func() {
+		if err := s.syncService.SyncToAuthService(context.Background()); err != nil {
+			log.Printf("Failed to sync deleted customer %s to auth service: %v", customerID, err)
+		}
+	}()
 
 	return nil
 }

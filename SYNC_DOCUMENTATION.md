@@ -2,225 +2,320 @@
 
 ## Overview
 
-The synchronization system ensures data consistency between the `client_auth` table in the auth-service and the `customers` table in the customer-service. This is critical for maintaining a unified user experience across both microservices.
+The synchronization system ensures data consistency between the `client_auth` table in the auth-service and the `customers` table in the customer-service. The system supports both manual synchronization via API endpoints and automatic synchronization during regular CRUD operations.
 
 ## Architecture
 
-### Data Flow
+### Tables Structure
 
+Both services maintain synchronized tables with the following structure:
+
+**Auth Service (`client_auth` table):**
+```sql
+CREATE TABLE client_auth (
+    id VARCHAR(255) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    email_encrypted TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    sync_version INT DEFAULT 1,
+    last_sync_at TIMESTAMP NULL
+);
 ```
-┌─────────────────┐    HTTP API    ┌─────────────────┐
-│   Auth Service  │ ◄────────────► │ Customer Service│
-│                 │                │                 │
-│ client_auth     │                │ customers       │
-│ table           │                │ table           │
-└─────────────────┘                └─────────────────┘
+
+**Customer Service (`customers` table):**
+```sql
+CREATE TABLE customers (
+    id VARCHAR(255) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    stripe_customer_id VARCHAR(255),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    sync_version INT DEFAULT 1,
+    last_sync_at TIMESTAMP NULL
+);
 ```
 
 ### Synchronization Fields
 
-Both tables now include synchronization fields:
+- `sync_version`: Incremented on each update to track changes
+- `last_sync_at`: Timestamp of the last successful synchronization
 
-- `sync_version`: Incremental version number for conflict resolution
-- `last_sync_at`: Timestamp of last successful synchronization
-- `updated_at`: Standard timestamp for tracking changes
+## Automatic Synchronization
 
-## Database Schema Changes
+### How It Works
 
-### Auth Service (client_auth table)
+The system automatically triggers synchronization during regular CRUD operations:
 
-```sql
-CREATE TABLE IF NOT EXISTS client_auth (
-    id VARCHAR(256) PRIMARY KEY,
-    name VARCHAR(256) NOT NULL,
-    email_encrypted TEXT NOT NULL,
-    sync_version INT DEFAULT 1,
-    last_sync_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_email_encrypted (email_encrypted(255)),
-    INDEX idx_sync_version (sync_version)
-);
+1. **Create Operations**: When a new user/customer is created, the system automatically syncs the data to the other service
+2. **Update Operations**: When user/customer data is updated, the system automatically syncs the changes
+3. **Delete Operations**: When a user/customer is deleted, the system automatically syncs the deletion
+
+### Implementation Details
+
+#### Auth Service Automatic Sync
+
+All CRUD operations in the auth-service automatically trigger sync to customer-service:
+
+```go
+// CreateUser - automatically syncs to customer-service
+func (s *AuthService) CreateUser(ctx context.Context, req models.CreateUserRequest) (*models.ClientAuth, error) {
+    // ... database operations within transaction ...
+    
+    // Trigger automatic sync to customer service
+    go func() {
+        if err := s.syncService.SyncToCustomerService(context.Background()); err != nil {
+            log.Printf("Failed to sync new user %s to customer service: %v", userID, err)
+        }
+    }()
+    
+    return user, nil
+}
 ```
 
-### Customer Service (customers table)
+#### Customer Service Automatic Sync
 
-```sql
-CREATE TABLE IF NOT EXISTS customers (
-    id VARCHAR(256) PRIMARY KEY,
-    name VARCHAR(256) NOT NULL,
-    email_encrypted TEXT NOT NULL,
-    stripe_customer_id VARCHAR(256),
-    sync_version INT DEFAULT 1,
-    last_sync_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_stripe_customer (stripe_customer_id),
-    INDEX idx_sync_version (sync_version)
-);
+All CRUD operations in the customer-service automatically trigger sync to auth-service:
+
+```go
+// CreateCustomer - automatically syncs to auth-service
+func (s *CustomerService) CreateCustomer(ctx context.Context, req models.CreateCustomerRequest) (*models.Customer, error) {
+    // ... database operations within transaction ...
+    
+    // Trigger automatic sync to auth service
+    go func() {
+        if err := s.syncService.SyncToAuthService(context.Background()); err != nil {
+            log.Printf("Failed to sync new customer %s to auth service: %v", customerID, err)
+        }
+    }()
+    
+    return customer, nil
+}
 ```
 
-## API Endpoints
+### Transaction Safety
 
-### Auth Service Sync Endpoints
+All database operations that trigger synchronization are wrapped in database transactions:
 
-- `GET /api/v3/auth/sync` - Get all client_auth data for synchronization
-- `POST /api/v3/auth/sync` - Receive customer data and sync to client_auth
-- `POST /api/v3/auth/sync/trigger` - Trigger full bidirectional sync
+```go
+// Start transaction
+tx, err := s.db.BeginTx(ctx, nil)
+if err != nil {
+    return fmt.Errorf("failed to begin transaction: %w", err)
+}
+defer tx.Rollback()
 
-### Customer Service Sync Endpoints
+// ... perform database operations ...
 
-- `GET /api/v3/customers/sync` - Get all customer data for synchronization
-- `POST /api/v3/customers/sync` - Receive auth data and sync to customers
-- `POST /api/v3/customers/sync/trigger` - Trigger full bidirectional sync
+// Commit transaction
+if err := tx.Commit(); err != nil {
+    return fmt.Errorf("failed to commit transaction: %w", err)
+}
 
-## Synchronization Logic
+// Trigger automatic sync (after successful commit)
+go func() {
+    if err := s.syncService.SyncToCustomerService(context.Background()); err != nil {
+        log.Printf("Failed to sync: %v", err)
+    }
+}()
+```
 
-### Conflict Resolution
+### Asynchronous Sync
 
-The system uses a version-based conflict resolution strategy:
+Synchronization is performed asynchronously using goroutines to avoid blocking the main operation:
 
-1. **Version Comparison**: When syncing, compare `sync_version` fields
-2. **Newer Wins**: The record with the higher `sync_version` takes precedence
-3. **Incremental Updates**: Each successful sync increments the `sync_version`
+- Sync operations run in the background
+- Failures are logged but don't affect the main operation
+- This ensures that CRUD operations remain fast and responsive
 
-### Sync Process
+## Manual Synchronization
 
-1. **Fetch Data**: Service A fetches data from Service B via HTTP API
-2. **Compare Versions**: For each record, compare `sync_version` values
-3. **Update if Newer**: Only update if the source version is higher
-4. **Increment Version**: After successful sync, increment local `sync_version`
-5. **Update Timestamp**: Set `last_sync_at` to current time
+### API Endpoints
 
-### Bidirectional Sync
+Both services provide manual sync endpoints:
 
-The system supports bidirectional synchronization:
+**Auth Service:**
+- `POST /sync/trigger` - Triggers sync from auth-service to customer-service
 
-- **Auth → Customer**: Sync client_auth records to customers table
-- **Customer → Auth**: Sync customer records to client_auth table
-- **Conflict Resolution**: Version-based resolution prevents data loss
+**Customer Service:**
+- `POST /sync/trigger` - Triggers sync from customer-service to auth-service
+
+### Usage
+
+```bash
+# Trigger sync from auth-service to customer-service
+curl -X POST http://auth-service:8080/sync/trigger
+
+# Trigger sync from customer-service to auth-service
+curl -X POST http://customer-service:8080/sync/trigger
+```
+
+## Conflict Resolution
+
+The system uses version-based conflict resolution:
+
+1. **Version Comparison**: Each record has a `sync_version` field that increments on updates
+2. **Latest Wins**: The record with the higher version number takes precedence
+3. **Timestamp Fallback**: If versions are equal, the record with the later `updated_at` timestamp wins
+
+### Conflict Resolution Logic
+
+```go
+func (s *SyncService) resolveConflict(local, remote *models.ClientAuth) *models.ClientAuth {
+    if local.SyncVersion > remote.SyncVersion {
+        return local
+    } else if remote.SyncVersion > local.SyncVersion {
+        return remote
+    } else {
+        // Versions are equal, use timestamp
+        if local.UpdatedAt.After(remote.UpdatedAt) {
+            return local
+        }
+        return remote
+    }
+}
+```
+
+## Data Encryption
+
+### Auth Service Encryption
+
+The auth-service encrypts sensitive data before storage:
+
+- **Email**: Encrypted using AES-256-GCM
+- **Passwords**: Hashed using bcrypt
+
+### Customer Service Encryption
+
+The customer-service stores data in plain text but uses encryption for sync communication:
+
+- **Sync Payload**: Encrypted using AES-256-GCM for secure transmission
+- **API Communication**: Uses HTTPS for secure communication
+
+## Error Handling
+
+### Sync Failures
+
+When automatic sync fails:
+
+1. **Logging**: Errors are logged with context
+2. **Non-blocking**: Main operations continue unaffected
+3. **Retry**: Manual sync can be triggered to retry failed operations
+
+### Common Error Scenarios
+
+- **Network Issues**: Service unavailable or timeout
+- **Data Conflicts**: Version conflicts during sync
+- **Encryption Errors**: Key mismatches or corrupted data
+- **Database Errors**: Constraint violations or connection issues
+
+## Monitoring and Debugging
+
+### Logging
+
+Both services log sync operations:
+
+```
+2024/01/15 10:30:45 Failed to sync new user abc123 to customer service: connection refused
+2024/01/15 10:30:46 Successfully synced updated user def456 to customer service
+```
+
+### Health Checks
+
+Monitor sync health by checking:
+
+1. **Sync Endpoints**: Verify both services are reachable
+2. **Database Consistency**: Compare record counts and versions
+3. **Error Logs**: Monitor for sync failures
+
+### Debugging Tips
+
+1. **Check Service URLs**: Ensure `AUTH_SERVICE_URL` and `CUSTOMER_SERVICE_URL` are correct
+2. **Verify Encryption Keys**: Ensure both services use the same encryption key
+3. **Monitor Network**: Check connectivity between services
+4. **Review Logs**: Look for sync-related error messages
 
 ## Configuration
 
 ### Environment Variables
 
-#### Auth Service
-```env
-CUSTOMER_SERVICE_URL=http://customer-service:8081
-ENCRYPTION_KEY=your_64_character_hex_string
+**Auth Service:**
+```bash
+CUSTOMER_SERVICE_URL=http://customer-service:8080
+ENCRYPTION_KEY=your-32-byte-encryption-key
 ```
 
-#### Customer Service
-```env
+**Customer Service:**
+```bash
 AUTH_SERVICE_URL=http://auth-service:8080
-ENCRYPTION_KEY=your_64_character_hex_string
+ENCRYPTION_KEY=your-32-byte-encryption-key
 ```
-
-### Encryption
-
-Both services use AES-256-GCM encryption with the same key to ensure:
-- Email addresses are encrypted consistently
-- Data can be decrypted by both services
-- Security is maintained during transmission
-
-## Implementation Details
-
-### SyncService
-
-Each service includes a `SyncService` that handles:
-
-- **HTTP Communication**: RESTful API calls between services
-- **Data Transformation**: Encryption/decryption of sensitive data
-- **Version Management**: Incrementing sync versions
-- **Error Handling**: Graceful handling of sync failures
-
-### Error Handling
-
-- **Network Failures**: Retry logic with exponential backoff
-- **Data Corruption**: Skip corrupted records and log errors
-- **Version Conflicts**: Log conflicts for manual resolution
-- **Partial Failures**: Continue syncing other records
-
-## Deployment Considerations
 
 ### Database Migrations
 
-Run migrations in order:
-
-1. **Auth Service**: `002_add_sync_fields.sql`
-2. **Customer Service**: `003_add_sync_fields.sql`
-
-### Service Dependencies
-
-- Both services must be running for sync to work
-- Services should be accessible via configured URLs
-- Encryption keys must be identical across services
-
-### Monitoring
-
-Monitor sync health via:
-
-- Sync endpoint responses
-- Database sync_version increments
-- last_sync_at timestamp updates
-- Error logs for failed syncs
-
-## Usage Examples
-
-### Manual Sync Trigger
+Run migrations to add sync fields:
 
 ```bash
-# Trigger full sync from auth service
-curl -X POST http://auth-service:8080/api/v3/auth/sync/trigger
+# Auth service
+mysql -u root -p auth_db < database/migrations/002_add_sync_fields.sql
 
-# Trigger full sync from customer service
-curl -X POST http://customer-service:8081/api/v3/customers/sync/trigger
+# Customer service
+mysql -u root -p customer_db < database/migrations/003_add_sync_fields.sql
 ```
 
-### Check Sync Status
+## Best Practices
 
-```bash
-# Check unsynced records in auth service
-curl http://auth-service:8080/api/v3/auth/sync
+### Development
 
-# Check unsynced records in customer service
-curl http://customer-service:8081/api/v3/customers/sync
-```
+1. **Always Use Transactions**: Wrap all database operations in transactions
+2. **Handle Sync Errors**: Log sync failures but don't block main operations
+3. **Test Sync Scenarios**: Test both automatic and manual sync
+4. **Monitor Performance**: Ensure sync doesn't impact response times
+
+### Production
+
+1. **Monitor Sync Health**: Set up alerts for sync failures
+2. **Regular Manual Sync**: Schedule periodic manual syncs as backup
+3. **Backup Strategies**: Ensure both databases are backed up
+4. **Load Testing**: Test sync performance under load
+
+### Security
+
+1. **Secure Communication**: Use HTTPS between services
+2. **Encryption Keys**: Rotate encryption keys regularly
+3. **Access Control**: Restrict sync endpoints to internal network
+4. **Audit Logging**: Log all sync operations for audit purposes
 
 ## Troubleshooting
 
 ### Common Issues
 
 1. **Sync Not Working**: Check service URLs and network connectivity
-2. **Encryption Errors**: Verify encryption keys are identical
-3. **Version Conflicts**: Check sync_version values in both databases
-4. **Data Inconsistency**: Trigger manual sync and check logs
+2. **Data Inconsistencies**: Run manual sync to resolve conflicts
+3. **Performance Issues**: Monitor sync frequency and optimize if needed
+4. **Encryption Errors**: Verify encryption keys are identical
 
-### Debug Commands
+### Recovery Procedures
 
-```sql
--- Check sync status in auth service
-SELECT id, name, sync_version, last_sync_at, updated_at 
-FROM client_auth 
-ORDER BY updated_at DESC;
-
--- Check sync status in customer service
-SELECT id, name, sync_version, last_sync_at, updated_at 
-FROM customers 
-ORDER BY updated_at DESC;
-```
-
-## Security Considerations
-
-- All sensitive data (emails) is encrypted at rest
-- HTTP communication should use HTTPS in production
-- Encryption keys should be rotated regularly
-- Access to sync endpoints should be restricted in production
+1. **Manual Sync**: Use API endpoints to trigger manual sync
+2. **Database Reset**: In extreme cases, reset sync versions and re-sync
+3. **Service Restart**: Restart services if sync gets stuck
+4. **Log Analysis**: Review logs to identify root causes
 
 ## Future Enhancements
 
-- **Automated Sync**: Scheduled background sync jobs
-- **Real-time Sync**: Event-driven synchronization
-- **Conflict Resolution UI**: Web interface for manual conflict resolution
-- **Sync Analytics**: Metrics and monitoring dashboard
-- **Multi-region Support**: Cross-region synchronization 
+### Planned Features
+
+1. **Real-time Sync**: WebSocket-based real-time synchronization
+2. **Batch Sync**: Optimize for large datasets
+3. **Sync Metrics**: Detailed metrics and monitoring
+4. **Conflict Resolution UI**: Web interface for resolving conflicts
+5. **Multi-service Sync**: Extend to support more services
+
+### Performance Optimizations
+
+1. **Incremental Sync**: Only sync changed records
+2. **Compression**: Compress sync payloads
+3. **Connection Pooling**: Optimize database connections
+4. **Caching**: Cache frequently accessed data 

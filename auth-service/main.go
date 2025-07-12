@@ -39,7 +39,7 @@ func main() {
 	}
 
 	// Initialize service
-	service := database.NewAuthService(db, encryptor, cfg.JWTSecret)
+	service := database.NewAuthService(db, encryptor, cfg.JWTSecret, cfg.CustomerServiceURL)
 
 	// Initialize sync service
 	syncService := database.NewSyncService(db, encryptor, cfg.CustomerServiceURL)

@@ -36,14 +36,14 @@ func main() {
 	// Initialize Stripe client
 	stripeClient := stripe.NewClient(cfg)
 
-	// Initialize service with Stripe client
-	service := database.NewCustomerService(db, stripeClient)
-
 	// Initialize encryptor for sync
 	encryptor, err := encryption.NewEncryptor(cfg.EncryptionKey)
 	if err != nil {
 		log.Fatal("Failed to initialize encryptor:", err)
 	}
+
+	// Initialize service with Stripe client
+	service := database.NewCustomerService(db, stripeClient, cfg.AuthServiceURL, encryptor)
 
 	// Initialize sync service
 	syncService := database.NewSyncService(db, encryptor, cfg.AuthServiceURL)

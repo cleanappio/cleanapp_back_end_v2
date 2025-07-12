@@ -18,17 +18,19 @@ import (
 
 // AuthService handles all authentication-related database operations
 type AuthService struct {
-	db        *sql.DB
-	encryptor *encryption.Encryptor
-	jwtSecret []byte
+	db          *sql.DB
+	encryptor   *encryption.Encryptor
+	jwtSecret   []byte
+	syncService *SyncService
 }
 
 // NewAuthService creates a new authentication service instance
-func NewAuthService(db *sql.DB, encryptor *encryption.Encryptor, jwtSecret string) *AuthService {
+func NewAuthService(db *sql.DB, encryptor *encryption.Encryptor, jwtSecret string, customerURL string) *AuthService {
 	return &AuthService{
-		db:        db,
-		encryptor: encryptor,
-		jwtSecret: []byte(jwtSecret),
+		db:          db,
+		encryptor:   encryptor,
+		jwtSecret:   []byte(jwtSecret),
+		syncService: NewSyncService(db, encryptor, customerURL),
 	}
 }
 
@@ -80,14 +82,23 @@ func (s *AuthService) CreateUser(ctx context.Context, req models.CreateUserReque
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	// Return user
-	return &models.ClientAuth{
+	// Create user object for sync
+	user := &models.ClientAuth{
 		ID:        userID,
 		Name:      req.Name,
 		Email:     req.Email,
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
-	}, nil
+	}
+
+	// Trigger automatic sync to customer service
+	go func() {
+		if err := s.syncService.SyncToCustomerService(context.Background()); err != nil {
+			log.Printf("Failed to sync new user %s to customer service: %v", userID, err)
+		}
+	}()
+
+	return user, nil
 }
 
 // GetUser retrieves a user by ID
@@ -166,20 +177,48 @@ func (s *AuthService) UpdateUser(ctx context.Context, userID string, req models.
 	// Add user ID to args
 	args = append(args, userID)
 
+	// Start transaction
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
 	// Execute update
 	query := fmt.Sprintf("UPDATE client_auth SET %s, updated_at = CURRENT_TIMESTAMP WHERE id = ?", strings.Join(updates, ", "))
-	_, err = s.db.ExecContext(ctx, query, args...)
+	_, err = tx.ExecContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update user: %w", err)
 	}
 
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
 	user.UpdatedAt = time.Now()
+
+	// Trigger automatic sync to customer service
+	go func() {
+		if err := s.syncService.SyncToCustomerService(context.Background()); err != nil {
+			log.Printf("Failed to sync updated user %s to customer service: %v", userID, err)
+		}
+	}()
+
 	return user, nil
 }
 
 // DeleteUser deletes a user and all associated data
 func (s *AuthService) DeleteUser(ctx context.Context, userID string) error {
-	result, err := s.db.ExecContext(ctx, "DELETE FROM client_auth WHERE id = ?", userID)
+	// Start transaction
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Delete user
+	result, err := tx.ExecContext(ctx, "DELETE FROM client_auth WHERE id = ?", userID)
 	if err != nil {
 		return fmt.Errorf("failed to delete user: %w", err)
 	}
@@ -192,6 +231,18 @@ func (s *AuthService) DeleteUser(ctx context.Context, userID string) error {
 	if rowsAffected == 0 {
 		return errors.New("user not found")
 	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	// Trigger automatic sync to customer service
+	go func() {
+		if err := s.syncService.SyncToCustomerService(context.Background()); err != nil {
+			log.Printf("Failed to sync deleted user %s to customer service: %v", userID, err)
+		}
+	}()
 
 	return nil
 }
