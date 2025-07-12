@@ -33,7 +33,7 @@ func NewAuthService(db *sql.DB, encryptor *encryption.Encryptor, jwtSecret strin
 }
 
 // CreateUser creates a new user with email/password authentication
-func (s *AuthService) CreateUser(ctx context.Context, req models.CreateUserRequest) (*models.User, error) {
+func (s *AuthService) CreateUser(ctx context.Context, req models.CreateUserRequest) (*models.ClientAuth, error) {
 	// Check if user already exists
 	exists, err := s.UserExistsByEmail(ctx, req.Email)
 	if err != nil {
@@ -81,7 +81,7 @@ func (s *AuthService) CreateUser(ctx context.Context, req models.CreateUserReque
 	}
 
 	// Return user
-	return &models.User{
+	return &models.ClientAuth{
 		ID:        userID,
 		Name:      req.Name,
 		Email:     req.Email,
@@ -91,12 +91,12 @@ func (s *AuthService) CreateUser(ctx context.Context, req models.CreateUserReque
 }
 
 // GetUser retrieves a user by ID
-func (s *AuthService) GetUser(ctx context.Context, userID string) (*models.User, error) {
+func (s *AuthService) GetUser(ctx context.Context, userID string) (*models.ClientAuth, error) {
 	var name, emailEncrypted string
 	var createdAt, updatedAt time.Time
 
 	err := s.db.QueryRowContext(ctx,
-		"SELECT name, email_encrypted, created_at, updated_at FROM users WHERE id = ?",
+		"SELECT name, email_encrypted, created_at, updated_at FROM client_auth WHERE id = ?",
 		userID).Scan(&name, &emailEncrypted, &createdAt, &updatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -111,7 +111,7 @@ func (s *AuthService) GetUser(ctx context.Context, userID string) (*models.User,
 		return nil, fmt.Errorf("failed to decrypt email: %w", err)
 	}
 
-	return &models.User{
+	return &models.ClientAuth{
 		ID:        userID,
 		Name:      name,
 		Email:     email,
@@ -121,7 +121,7 @@ func (s *AuthService) GetUser(ctx context.Context, userID string) (*models.User,
 }
 
 // UpdateUser updates user information
-func (s *AuthService) UpdateUser(ctx context.Context, userID string, req models.UpdateUserRequest) (*models.User, error) {
+func (s *AuthService) UpdateUser(ctx context.Context, userID string, req models.UpdateUserRequest) (*models.ClientAuth, error) {
 	// Get current user
 	user, err := s.GetUser(ctx, userID)
 	if err != nil {
@@ -167,7 +167,7 @@ func (s *AuthService) UpdateUser(ctx context.Context, userID string, req models.
 	args = append(args, userID)
 
 	// Execute update
-	query := fmt.Sprintf("UPDATE users SET %s, updated_at = CURRENT_TIMESTAMP WHERE id = ?", strings.Join(updates, ", "))
+	query := fmt.Sprintf("UPDATE client_auth SET %s, updated_at = CURRENT_TIMESTAMP WHERE id = ?", strings.Join(updates, ", "))
 	_, err = s.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update user: %w", err)
@@ -179,7 +179,7 @@ func (s *AuthService) UpdateUser(ctx context.Context, userID string, req models.
 
 // DeleteUser deletes a user and all associated data
 func (s *AuthService) DeleteUser(ctx context.Context, userID string) error {
-	result, err := s.db.ExecContext(ctx, "DELETE FROM users WHERE id = ?", userID)
+	result, err := s.db.ExecContext(ctx, "DELETE FROM client_auth WHERE id = ?", userID)
 	if err != nil {
 		return fmt.Errorf("failed to delete user: %w", err)
 	}
@@ -360,7 +360,7 @@ func (s *AuthService) UserExistsByEmail(ctx context.Context, email string) (bool
 
 	// Fetch all users and decrypt emails to find a match
 	// This is necessary because encryption is not deterministic
-	rows, err := s.db.QueryContext(ctx, "SELECT email_encrypted FROM users")
+	rows, err := s.db.QueryContext(ctx, "SELECT email_encrypted FROM client_auth")
 	if err != nil {
 		return false, fmt.Errorf("failed to query users: %w", err)
 	}
@@ -389,7 +389,7 @@ func (s *AuthService) UserExistsByEmail(ctx context.Context, email string) (bool
 
 func (s *AuthService) insertUser(ctx context.Context, tx *sql.Tx, id, name, emailEncrypted string) error {
 	_, err := tx.ExecContext(ctx,
-		"INSERT INTO users (id, name, email_encrypted) VALUES (?, ?, ?)",
+		"INSERT INTO client_auth (id, name, email_encrypted) VALUES (?, ?, ?)",
 		id, name, emailEncrypted)
 	return err
 }
@@ -407,7 +407,7 @@ func (s *AuthService) authenticateWithPassword(ctx context.Context, email, passw
 
 	// First, find the user by decrypting emails
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, email_encrypted FROM users")
+		"SELECT id, email_encrypted FROM client_auth")
 	if err != nil {
 		return "", errors.New("authentication failed")
 	}

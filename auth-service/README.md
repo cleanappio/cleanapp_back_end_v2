@@ -27,7 +27,7 @@ A secure Go microservice for handling user authentication, JWT token management,
 ### Database Schema
 
 The service uses MySQL with the following tables:
-- `users`: Core user information with encrypted email
+- `client_auth`: Core user information with encrypted email (renamed from `users` to avoid conflicts)
 - `login_methods`: Authentication methods (email/password, OAuth)
 - `auth_tokens`: JWT token management with access/refresh token types
 - `schema_migrations`: Tracks applied database migrations
@@ -226,6 +226,16 @@ Migrations are automatically applied on service startup. To add a new migration:
 
 1. Add a new migration to `database/schema.go`
 2. The service will automatically apply it on startup
+
+#### Important: Table Renaming Migration
+If you're upgrading from a previous version that used the `users` table, you'll need to run the migration to rename it to `client_auth`:
+
+```sql
+-- Run this migration on existing deployments
+RENAME TABLE users TO client_auth;
+```
+
+See `database/migrations/001_rename_users_to_client_auth.sql` for the complete migration script.
 
 ### Building for Production
 ```bash

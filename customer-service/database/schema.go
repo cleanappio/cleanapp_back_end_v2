@@ -16,9 +16,12 @@ CREATE TABLE IF NOT EXISTS customers (
     name VARCHAR(256) NOT NULL,
     email_encrypted TEXT NOT NULL,
     stripe_customer_id VARCHAR(256),
+    sync_version INT DEFAULT 1,
+    last_sync_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_stripe_customer (stripe_customer_id)
+    INDEX idx_stripe_customer (stripe_customer_id),
+    INDEX idx_sync_version (sync_version)
 );
 
 CREATE TABLE IF NOT EXISTS customer_areas (

@@ -20,8 +20,9 @@ type Config struct {
 	JWTSecret     string
 
 	// Server
-	Port           string
-	TrustedProxies []string
+	Port               string
+	CustomerServiceURL string
+	TrustedProxies     []string
 
 	// OAuth Configuration
 	GoogleClientID     string
@@ -42,6 +43,7 @@ func Load() *Config {
 		DBPort:             getEnv("DB_PORT", "3306"),
 		JWTSecret:          getEnv("JWT_SECRET", "your-secret-key-here"),
 		Port:               getEnv("PORT", "8080"),
+		CustomerServiceURL: getEnv("CUSTOMER_SERVICE_URL", "http://localhost:8081"),
 		GoogleClientID:     getEnv("GOOGLE_CLIENT_ID", ""),
 		GoogleClientSecret: getEnv("GOOGLE_CLIENT_SECRET", ""),
 		FacebookAppID:      getEnv("FACEBOOK_APP_ID", ""),

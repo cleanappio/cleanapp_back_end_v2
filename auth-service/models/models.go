@@ -2,8 +2,8 @@ package models
 
 import "time"
 
-// User represents a user in the authentication system
-type User struct {
+// ClientAuth represents a user in the authentication system
+type ClientAuth struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
 	Email     string    `json:"email"`
@@ -45,11 +45,11 @@ type LoginRequest struct {
 
 // TokenResponse represents the authentication response
 type TokenResponse struct {
-	Token        string `json:"token"`
-	RefreshToken string `json:"refresh_token,omitempty"`
-	TokenType    string `json:"token_type,omitempty"`
-	ExpiresIn    int    `json:"expires_in,omitempty"`
-	User         *User  `json:"user,omitempty"` // Only for new OAuth registrations
+	Token        string      `json:"token"`
+	RefreshToken string      `json:"refresh_token,omitempty"`
+	TokenType    string      `json:"token_type,omitempty"`
+	ExpiresIn    int         `json:"expires_in,omitempty"`
+	User         *ClientAuth `json:"user,omitempty"` // Only for new OAuth registrations
 }
 
 // OAuthLoginRequest represents an OAuth authentication request

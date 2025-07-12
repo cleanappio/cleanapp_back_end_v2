@@ -16,6 +16,9 @@ type Config struct {
 	Port           string
 	TrustedProxies []string
 
+	// Security
+	EncryptionKey string
+
 	// Auth Service
 	AuthServiceURL string
 
@@ -32,6 +35,7 @@ func Load() *Config {
 		DBHost:              getEnv("DB_HOST", "localhost"),
 		DBPort:              getEnv("DB_PORT", "3306"),
 		Port:                getEnv("PORT", "8080"),
+		EncryptionKey:       getEnv("ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"),
 		AuthServiceURL:      getEnv("AUTH_SERVICE_URL", "http://auth-service:8080"),
 		StripeSecretKey:     getEnv("STRIPE_SECRET_KEY", ""),
 		StripeWebhookSecret: getEnv("STRIPE_WEBHOOK_SECRET", ""),

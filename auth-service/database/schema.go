@@ -11,13 +11,16 @@ const Schema = `
 CREATE DATABASE IF NOT EXISTS cleanapp;
 USE cleanapp;
 
-CREATE TABLE IF NOT EXISTS users (
+CREATE TABLE IF NOT EXISTS client_auth (
     id VARCHAR(256) PRIMARY KEY,
     name VARCHAR(256) NOT NULL,
     email_encrypted TEXT NOT NULL,
+    sync_version INT DEFAULT 1,
+    last_sync_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_email_encrypted (email_encrypted(255))
+    INDEX idx_email_encrypted (email_encrypted(255)),
+    INDEX idx_sync_version (sync_version)
 );
 
 CREATE TABLE IF NOT EXISTS login_methods (
@@ -27,7 +30,7 @@ CREATE TABLE IF NOT EXISTS login_methods (
     password_hash VARCHAR(256),
     oauth_id VARCHAR(256),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES client_auth(id) ON DELETE CASCADE,
     UNIQUE KEY unique_user_method (user_id, method_type),
     INDEX idx_oauth (method_type, oauth_id)
 );
@@ -39,8 +42,7 @@ CREATE TABLE IF NOT EXISTS auth_tokens (
     token_type ENUM('access', 'refresh') DEFAULT 'access',
     expires_at TIMESTAMP NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    INDEX idx_token_hash (token_hash),
+    FOREIGN KEY (user_id) REFERENCES client_auth(id) ON DELETE CASCADE,
     INDEX idx_user_token_type (user_id, token_type)
 );
 
