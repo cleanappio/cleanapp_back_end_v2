@@ -164,6 +164,7 @@ CLEANAPP_IO_BACKEND_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-customer-service-ima
 REPORT_LISTENER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-listener-image:${OPT}"
 REPORT_ANALYZE_PIPELINE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-analyze-pipeline-image:${OPT}"
 MONTENEGRO_AREAS_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-montenegro-areas-image:${OPT}"
+AUTH_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-auth-service-image:${OPT}"
 
 ANALYSIS_PROMPT="What kind of litter or hazard can you see on this image? Please describe the litter or hazard in detail. Also, give a probability that there is a litter or hazard on a photo in units from 0.0 to 1.0 and a severity level from 0.0 to 1.0."
 
@@ -273,6 +274,7 @@ services:
       - DB_PORT=3306
       - DB_USER=server
       - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
+      - AUTH_SERVICE_URL=http://cleanapp_auth_service:9084
       - GIN_MODE=${GIN_MODE}
     ports:
       - 9080:8080
@@ -331,6 +333,22 @@ services:
       - GIN_MODE=${GIN_MODE}
     ports:
       - 9083:8080
+    depends_on:
+      - cleanapp_db
+
+  cleanapp_auth_service:
+    container_name: cleanapp_auth_service
+    image: ${AUTH_SERVICE_DOCKER_IMAGE}
+      - TRUSTED_PROXIES=${CLEANAPP_IO_TRUSTED_PROXIES}
+      - ENCRYPTION_KEY=\${CLEANAPP_IO_ENCRYPTION_KEY}
+      - JWT_SECRET=\${CLEANAPP_IO_JWT_SECRET}
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+      - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
+      - GIN_MODE=${GIN_MODE}
+    ports:
+      - 9084:8080
     depends_on:
       - cleanapp_db
 
