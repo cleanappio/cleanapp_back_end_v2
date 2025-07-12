@@ -374,6 +374,7 @@ docker pull ${CLEANAPP_IO_BACKEND_DOCKER_IMAGE}
 docker pull ${REPORT_LISTENER_DOCKER_IMAGE}
 docker pull ${REPORT_ANALYZE_PIPELINE_DOCKER_IMAGE}
 docker pull ${MONTENEGRO_AREAS_DOCKER_IMAGE}
+docker pull ${AUTH_SERVICE_DOCKER_IMAGE}
 
 # Start our docker images.
 ./up.sh
