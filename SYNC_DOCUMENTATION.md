@@ -1,14 +1,23 @@
-# Synchronization System Documentation
+# Normalized Database Architecture Documentation
 
 ## Overview
 
-The synchronization system ensures data consistency between the `client_auth` table in the auth-service and the `customers` table in the customer-service. The system supports both manual synchronization via API endpoints and automatic synchronization during regular CRUD operations.
+The system has been normalized to eliminate data duplication and synchronization complexity. The `client_auth` table in the auth-service now exclusively manages authentication data (name, email, password), while the `customers` table in the customer-service focuses solely on subscription and billing data.
 
 ## Architecture
 
-### Tables Structure
+### Data Flow
 
-Both services maintain synchronized tables with the following structure:
+```
+┌─────────────────┐    HTTP API    ┌─────────────────┐
+│   Auth Service  │ ◄────────────► │ Customer Service│
+│                 │                │                 │
+│ client_auth     │                │ customers       │
+│ (auth data)     │                │ (billing data)  │
+└─────────────────┘                └─────────────────┘
+```
+
+### Table Structure
 
 **Auth Service (`client_auth` table):**
 ```sql
@@ -18,8 +27,7 @@ CREATE TABLE client_auth (
     email_encrypted TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    sync_version INT DEFAULT 1,
-    last_sync_at TIMESTAMP NULL
+    INDEX idx_email_encrypted (email_encrypted(255))
 );
 ```
 
@@ -27,214 +35,194 @@ CREATE TABLE client_auth (
 ```sql
 CREATE TABLE customers (
     id VARCHAR(255) PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    email VARCHAR(255) NOT NULL UNIQUE,
     stripe_customer_id VARCHAR(255),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    sync_version INT DEFAULT 1,
-    last_sync_at TIMESTAMP NULL
+    INDEX idx_stripe_customer (stripe_customer_id)
 );
 ```
 
-### Synchronization Fields
+## Key Benefits
 
-- `sync_version`: Incremented on each update to track changes
-- `last_sync_at`: Timestamp of the last successful synchronization
+### 1. **No Data Duplication**
+- Authentication data (name, email) is stored only in `client_auth`
+- Billing data is stored only in `customers`
+- No synchronization required between services
 
-## Automatic Synchronization
+### 2. **Clear Separation of Concerns**
+- **Auth Service**: Handles user authentication, registration, and profile management
+- **Customer Service**: Handles subscriptions, billing, and payment processing
 
-### How It Works
+### 3. **Simplified Architecture**
+- No complex synchronization logic
+- No version conflict resolution
+- No data consistency issues
 
-The system automatically triggers synchronization during regular CRUD operations:
+### 4. **Flexible User States**
+- Users can exist in `client_auth` without having a `customers` record
+- Customer records are created only when subscription is needed
+- Supports free users who don't need billing
 
-1. **Create Operations**: When a new user/customer is created, the system automatically syncs the data to the other service
-2. **Update Operations**: When user/customer data is updated, the system automatically syncs the changes
-3. **Delete Operations**: When a user/customer is deleted, the system automatically syncs the deletion
+## Data Relationships
 
-### Implementation Details
+### User Registration Flow
 
-#### Auth Service Automatic Sync
+1. **User registers** → Record created in `client_auth` (auth-service)
+2. **User subscribes** → Record created in `customers` (customer-service)
+3. **Both records share the same `id`** for relationship
 
-All CRUD operations in the auth-service automatically trigger sync to customer-service:
+### API Integration
 
-```go
-// CreateUser - automatically syncs to customer-service
-func (s *AuthService) CreateUser(ctx context.Context, req models.CreateUserRequest) (*models.ClientAuth, error) {
-    // ... database operations within transaction ...
-    
-    // Trigger automatic sync to customer service
-    go func() {
-        if err := s.syncService.SyncToCustomerService(context.Background()); err != nil {
-            log.Printf("Failed to sync new user %s to customer service: %v", userID, err)
-        }
-    }()
-    
-    return user, nil
-}
-```
-
-#### Customer Service Automatic Sync
-
-All CRUD operations in the customer-service automatically trigger sync to auth-service:
+The customer-service can fetch user data from auth-service when needed:
 
 ```go
-// CreateCustomer - automatically syncs to auth-service
-func (s *CustomerService) CreateCustomer(ctx context.Context, req models.CreateCustomerRequest) (*models.Customer, error) {
-    // ... database operations within transaction ...
-    
-    // Trigger automatic sync to auth service
-    go func() {
-        if err := s.syncService.SyncToAuthService(context.Background()); err != nil {
-            log.Printf("Failed to sync new customer %s to auth service: %v", customerID, err)
-        }
-    }()
-    
-    return customer, nil
-}
-```
-
-### Transaction Safety
-
-All database operations that trigger synchronization are wrapped in database transactions:
-
-```go
-// Start transaction
-tx, err := s.db.BeginTx(ctx, nil)
-if err != nil {
-    return fmt.Errorf("failed to begin transaction: %w", err)
-}
-defer tx.Rollback()
-
-// ... perform database operations ...
-
-// Commit transaction
-if err := tx.Commit(); err != nil {
-    return fmt.Errorf("failed to commit transaction: %w", err)
-}
-
-// Trigger automatic sync (after successful commit)
-go func() {
-    if err := s.syncService.SyncToCustomerService(context.Background()); err != nil {
-        log.Printf("Failed to sync: %v", err)
+// Example: Get user profile for billing
+func (s *CustomerService) GetCustomerWithProfile(ctx context.Context, customerID string) (*CustomerWithProfile, error) {
+    // Get customer data from local database
+    customer, err := s.GetCustomer(ctx, customerID)
+    if err != nil {
+        return nil, err
     }
-}()
-```
-
-### Asynchronous Sync
-
-Synchronization is performed asynchronously using goroutines to avoid blocking the main operation:
-
-- Sync operations run in the background
-- Failures are logged but don't affect the main operation
-- This ensures that CRUD operations remain fast and responsive
-
-## Manual Synchronization
-
-### API Endpoints
-
-Both services provide manual sync endpoints:
-
-**Auth Service:**
-- `POST /sync/trigger` - Triggers sync from auth-service to customer-service
-
-**Customer Service:**
-- `POST /sync/trigger` - Triggers sync from customer-service to auth-service
-
-### Usage
-
-```bash
-# Trigger sync from auth-service to customer-service
-curl -X POST http://auth-service:8080/sync/trigger
-
-# Trigger sync from customer-service to auth-service
-curl -X POST http://customer-service:8080/sync/trigger
-```
-
-## Conflict Resolution
-
-The system uses version-based conflict resolution:
-
-1. **Version Comparison**: Each record has a `sync_version` field that increments on updates
-2. **Latest Wins**: The record with the higher version number takes precedence
-3. **Timestamp Fallback**: If versions are equal, the record with the later `updated_at` timestamp wins
-
-### Conflict Resolution Logic
-
-```go
-func (s *SyncService) resolveConflict(local, remote *models.ClientAuth) *models.ClientAuth {
-    if local.SyncVersion > remote.SyncVersion {
-        return local
-    } else if remote.SyncVersion > local.SyncVersion {
-        return remote
-    } else {
-        // Versions are equal, use timestamp
-        if local.UpdatedAt.After(remote.UpdatedAt) {
-            return local
-        }
-        return remote
+    
+    // Get user profile from auth-service
+    userProfile, err := s.fetchUserProfileFromAuthService(ctx, customerID)
+    if err != nil {
+        return nil, err
     }
+    
+    return &CustomerWithProfile{
+        Customer: customer,
+        Profile:  userProfile,
+    }, nil
 }
 ```
 
-## Data Encryption
+## Database Migrations
 
-### Auth Service Encryption
+### Auth Service Migration
 
-The auth-service encrypts sensitive data before storage:
+The auth-service maintains its original structure with authentication data:
 
-- **Email**: Encrypted using AES-256-GCM
-- **Passwords**: Hashed using bcrypt
-
-### Customer Service Encryption
-
-The customer-service stores data in plain text but uses encryption for sync communication:
-
-- **Sync Payload**: Encrypted using AES-256-GCM for secure transmission
-- **API Communication**: Uses HTTPS for secure communication
-
-## Error Handling
-
-### Sync Failures
-
-When automatic sync fails:
-
-1. **Logging**: Errors are logged with context
-2. **Non-blocking**: Main operations continue unaffected
-3. **Retry**: Manual sync can be triggered to retry failed operations
-
-### Common Error Scenarios
-
-- **Network Issues**: Service unavailable or timeout
-- **Data Conflicts**: Version conflicts during sync
-- **Encryption Errors**: Key mismatches or corrupted data
-- **Database Errors**: Constraint violations or connection issues
-
-## Monitoring and Debugging
-
-### Logging
-
-Both services log sync operations:
-
-```
-2024/01/15 10:30:45 Failed to sync new user abc123 to customer service: connection refused
-2024/01/15 10:30:46 Successfully synced updated user def456 to customer service
+```sql
+-- No changes needed - auth-service keeps its structure
+-- client_auth table remains focused on authentication
 ```
 
-### Health Checks
+### Customer Service Migration
 
-Monitor sync health by checking:
+The customer-service has been normalized to remove redundant fields:
 
-1. **Sync Endpoints**: Verify both services are reachable
-2. **Database Consistency**: Compare record counts and versions
-3. **Error Logs**: Monitor for sync failures
+```sql
+-- Migration 6: Normalize customers table
+-- Remove redundant fields (name, email_encrypted) from customers table
+-- These fields are now managed by the auth-service in client_auth table
 
-### Debugging Tips
+-- Remove name column from customers table
+ALTER TABLE customers DROP COLUMN IF EXISTS name;
 
-1. **Check Service URLs**: Ensure `AUTH_SERVICE_URL` and `CUSTOMER_SERVICE_URL` are correct
-2. **Verify Encryption Keys**: Ensure both services use the same encryption key
-3. **Monitor Network**: Check connectivity between services
-4. **Review Logs**: Look for sync-related error messages
+-- Remove email_encrypted column from customers table  
+ALTER TABLE customers DROP COLUMN IF EXISTS email_encrypted;
+
+-- Remove sync-related columns
+ALTER TABLE customers DROP COLUMN IF EXISTS sync_version;
+ALTER TABLE customers DROP COLUMN IF EXISTS last_sync_at;
+
+-- Remove sync-related indexes
+DROP INDEX IF EXISTS idx_sync_version ON customers;
+```
+
+## API Changes
+
+### Customer Service API Updates
+
+**Create Customer:**
+```go
+// Before: Required name, email, password
+type CreateCustomerRequest struct {
+    Name     string `json:"name" binding:"required,max=256"`
+    Email    string `json:"email" binding:"required,email"`
+    Password string `json:"password" binding:"required,min=8"`
+    AreaIDs  []int  `json:"area_ids" binding:"required,min=1"`
+}
+
+// After: Only requires area IDs (auth data handled by auth-service)
+type CreateCustomerRequest struct {
+    AreaIDs []int `json:"area_ids" binding:"required,min=1"`
+}
+```
+
+**Update Customer:**
+```go
+// Before: Could update name and email
+type UpdateCustomerRequest struct {
+    Name    *string `json:"name,omitempty" binding:"omitempty,max=256"`
+    Email   *string `json:"email,omitempty" binding:"omitempty,email"`
+    AreaIDs []int   `json:"area_ids,omitempty"`
+}
+
+// After: Only area updates (name/email handled by auth-service)
+type UpdateCustomerRequest struct {
+    AreaIDs []int `json:"area_ids,omitempty"`
+}
+```
+
+### Customer Model Updates
+
+```go
+// Before: Included name and email
+type Customer struct {
+    ID        string    `json:"id"`
+    Name      string    `json:"name"`
+    Email     string    `json:"email"`
+    CreatedAt time.Time `json:"created_at"`
+    UpdatedAt time.Time `json:"updated_at"`
+}
+
+// After: Focused on subscription data
+type Customer struct {
+    ID        string    `json:"id"`
+    CreatedAt time.Time `json:"created_at"`
+    UpdatedAt time.Time `json:"updated_at"`
+}
+```
+
+## Service Integration
+
+### Cross-Service Data Access
+
+When the customer-service needs user profile data, it can make HTTP requests to the auth-service:
+
+```go
+// Example: Get user profile for invoice generation
+func (s *CustomerService) GetUserProfileForInvoice(ctx context.Context, customerID string) (*UserProfile, error) {
+    resp, err := http.Get(fmt.Sprintf("%s/api/v3/users/%s", s.authServiceURL, customerID))
+    if err != nil {
+        return nil, fmt.Errorf("failed to fetch user profile: %w", err)
+    }
+    defer resp.Body.Close()
+    
+    var profile UserProfile
+    if err := json.NewDecoder(resp.Body).Decode(&profile); err != nil {
+        return nil, fmt.Errorf("failed to decode user profile: %w", err)
+    }
+    
+    return &profile, nil
+}
+```
+
+### Authentication Integration
+
+The customer-service continues to proxy authentication requests to the auth-service:
+
+```go
+// Login is proxied to auth-service
+func (h *Handlers) Login(c *gin.Context) {
+    // Forward request to auth-service
+    resp, err := http.Post(fmt.Sprintf("%s/api/v3/auth/login", h.authServiceURL), 
+        "application/json", c.Request.Body)
+    // ... handle response
+}
+```
 
 ## Configuration
 
@@ -242,80 +230,126 @@ Monitor sync health by checking:
 
 **Auth Service:**
 ```bash
-CUSTOMER_SERVICE_URL=http://customer-service:8080
+# Database
+DB_USER=root
+DB_PASSWORD=password
+DB_HOST=localhost
+DB_PORT=3306
+
+# Security
+JWT_SECRET=your-secret-key-here
 ENCRYPTION_KEY=your-32-byte-encryption-key
+
+# Server
+PORT=8080
 ```
 
 **Customer Service:**
 ```bash
+# Database
+DB_USER=root
+DB_PASSWORD=password
+DB_HOST=localhost
+DB_PORT=3306
+
+# Server
+PORT=8081
+
+# Auth Service Integration
 AUTH_SERVICE_URL=http://auth-service:8080
-ENCRYPTION_KEY=your-32-byte-encryption-key
+
+# Stripe
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...
 ```
 
-### Database Migrations
+## Migration Strategy
 
-Run migrations to add sync fields:
+### Production Migration
 
-```bash
-# Auth service
-mysql -u root -p auth_db < database/migrations/002_add_sync_fields.sql
+1. **Backup both databases**
+2. **Run customer-service migration** to remove redundant fields
+3. **Update application code** to use new API structure
+4. **Deploy updated services**
+5. **Verify data integrity**
 
-# Customer service
-mysql -u root -p customer_db < database/migrations/003_add_sync_fields.sql
+### Rollback Plan
+
+If issues arise, the migration can be rolled back:
+
+```sql
+-- Rollback: Add back the removed columns
+ALTER TABLE customers 
+    ADD COLUMN name VARCHAR(256) NOT NULL DEFAULT '',
+    ADD COLUMN email_encrypted TEXT NOT NULL DEFAULT '',
+    ADD COLUMN sync_version INT DEFAULT 1,
+    ADD COLUMN last_sync_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    ADD INDEX idx_sync_version (sync_version);
 ```
 
 ## Best Practices
 
 ### Development
 
-1. **Always Use Transactions**: Wrap all database operations in transactions
-2. **Handle Sync Errors**: Log sync failures but don't block main operations
-3. **Test Sync Scenarios**: Test both automatic and manual sync
-4. **Monitor Performance**: Ensure sync doesn't impact response times
+1. **Clear API Boundaries**: Keep auth and billing concerns separate
+2. **Cross-Service Calls**: Use HTTP APIs for data that spans services
+3. **Error Handling**: Handle network failures gracefully
+4. **Caching**: Consider caching frequently accessed user data
 
 ### Production
 
-1. **Monitor Sync Health**: Set up alerts for sync failures
-2. **Regular Manual Sync**: Schedule periodic manual syncs as backup
-3. **Backup Strategies**: Ensure both databases are backed up
-4. **Load Testing**: Test sync performance under load
+1. **Service Discovery**: Use proper service discovery for inter-service communication
+2. **Circuit Breakers**: Implement circuit breakers for cross-service calls
+3. **Monitoring**: Monitor cross-service API calls and response times
+4. **Caching**: Implement caching strategies for user profile data
 
 ### Security
 
-1. **Secure Communication**: Use HTTPS between services
-2. **Encryption Keys**: Rotate encryption keys regularly
-3. **Access Control**: Restrict sync endpoints to internal network
-4. **Audit Logging**: Log all sync operations for audit purposes
+1. **Service-to-Service Auth**: Implement proper authentication between services
+2. **Data Validation**: Validate all data received from other services
+3. **Rate Limiting**: Apply rate limits to cross-service API calls
+4. **Audit Logging**: Log all cross-service data access
 
 ## Troubleshooting
 
 ### Common Issues
 
-1. **Sync Not Working**: Check service URLs and network connectivity
-2. **Data Inconsistencies**: Run manual sync to resolve conflicts
-3. **Performance Issues**: Monitor sync frequency and optimize if needed
-4. **Encryption Errors**: Verify encryption keys are identical
+1. **Service Unavailable**: Handle auth-service downtime gracefully
+2. **Data Inconsistency**: Ensure proper error handling for missing user data
+3. **Performance**: Monitor cross-service API call performance
+4. **Authentication**: Verify service-to-service authentication
 
-### Recovery Procedures
+### Debugging Tips
 
-1. **Manual Sync**: Use API endpoints to trigger manual sync
-2. **Database Reset**: In extreme cases, reset sync versions and re-sync
-3. **Service Restart**: Restart services if sync gets stuck
-4. **Log Analysis**: Review logs to identify root causes
+1. **Check Service URLs**: Ensure `AUTH_SERVICE_URL` is correct
+2. **Monitor Logs**: Check for cross-service API call errors
+3. **Verify Data**: Ensure user IDs match between services
+4. **Test APIs**: Verify auth-service APIs are accessible
 
 ## Future Enhancements
 
 ### Planned Features
 
-1. **Real-time Sync**: WebSocket-based real-time synchronization
-2. **Batch Sync**: Optimize for large datasets
-3. **Sync Metrics**: Detailed metrics and monitoring
-4. **Conflict Resolution UI**: Web interface for resolving conflicts
-5. **Multi-service Sync**: Extend to support more services
+1. **Caching Layer**: Implement Redis caching for user profiles
+2. **Event-Driven Updates**: Use message queues for real-time updates
+3. **GraphQL Federation**: Consider GraphQL for unified data access
+4. **Service Mesh**: Implement service mesh for better inter-service communication
 
 ### Performance Optimizations
 
-1. **Incremental Sync**: Only sync changed records
-2. **Compression**: Compress sync payloads
-3. **Connection Pooling**: Optimize database connections
-4. **Caching**: Cache frequently accessed data 
+1. **Connection Pooling**: Optimize HTTP client connection pools
+2. **Batch Requests**: Implement batch API calls where possible
+3. **Compression**: Enable HTTP compression for cross-service calls
+4. **CDN**: Use CDN for static user profile data
+
+## Conclusion
+
+The normalized architecture provides:
+
+- **Simplified Data Management**: No synchronization complexity
+- **Clear Service Boundaries**: Each service has a focused responsibility
+- **Better Scalability**: Services can scale independently
+- **Reduced Maintenance**: Less complex codebase to maintain
+- **Flexible User States**: Supports users with and without subscriptions
+
+This architecture is more maintainable, scalable, and follows microservices best practices by eliminating data duplication and complex synchronization logic. 

@@ -13,15 +13,10 @@ USE cleanapp;
 
 CREATE TABLE IF NOT EXISTS customers (
     id VARCHAR(256) PRIMARY KEY,
-    name VARCHAR(256) NOT NULL,
-    email_encrypted TEXT NOT NULL,
     stripe_customer_id VARCHAR(256),
-    sync_version INT DEFAULT 1,
-    last_sync_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_stripe_customer (stripe_customer_id),
-    INDEX idx_sync_version (sync_version)
+    INDEX idx_stripe_customer (stripe_customer_id)
 );
 
 CREATE TABLE IF NOT EXISTS customer_areas (
@@ -405,6 +400,42 @@ var Migrations = []Migration{
 		`,
 		Down: `
 				ALTER TABLE subscriptions CHANGE COLUMN status status ENUM('active', 'incomplete', 'suspended', 'cancelled') DEFAULT 'active';
+		`,
+	},
+	{
+		Version: 6,
+		Name:    "normalize_customers_table",
+		Up: `
+        -- Migration 6: Normalize customers table
+        -- Remove redundant fields (name, email_encrypted) from customers table
+        -- These fields are now managed by the auth-service in client_auth table
+        -- Remove sync fields as they are no longer needed
+
+        -- Remove name column from customers table
+        ALTER TABLE customers DROP COLUMN IF EXISTS name;
+
+        -- Remove email_encrypted column from customers table  
+        ALTER TABLE customers DROP COLUMN IF EXISTS email_encrypted;
+
+        -- Remove sync-related columns
+        ALTER TABLE customers DROP COLUMN IF EXISTS sync_version;
+        ALTER TABLE customers DROP COLUMN IF EXISTS last_sync_at;
+
+        -- Remove sync-related indexes
+        DROP INDEX IF EXISTS idx_sync_version ON customers;
+
+        -- Update customers table structure to be subscription-focused
+        -- Now customers table only contains subscription-related data
+        -- The relationship with auth data is maintained via the id field
+		`,
+		Down: `
+        -- Add back the removed columns (for rollback purposes)
+        ALTER TABLE customers 
+            ADD COLUMN name VARCHAR(256) NOT NULL DEFAULT '',
+            ADD COLUMN email_encrypted TEXT NOT NULL DEFAULT '',
+            ADD COLUMN sync_version INT DEFAULT 1,
+            ADD COLUMN last_sync_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            ADD INDEX idx_sync_version (sync_version);
 		`,
 	},
 }

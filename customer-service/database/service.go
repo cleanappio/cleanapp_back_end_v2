@@ -5,12 +5,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
 	"customer-service/models"
-	"customer-service/utils/encryption"
 	"customer-service/utils/stripe"
 
 	stripego "github.com/stripe/stripe-go/v82"
@@ -20,23 +18,19 @@ import (
 type CustomerService struct {
 	db           *sql.DB
 	stripeClient *stripe.Client
-	syncService  *SyncService
 }
 
 // NewCustomerService creates a new customer service instance
-func NewCustomerService(db *sql.DB, stripeClient *stripe.Client, authURL string, encryptor *encryption.Encryptor) *CustomerService {
+func NewCustomerService(db *sql.DB, stripeClient *stripe.Client) *CustomerService {
 	return &CustomerService{
 		db:           db,
 		stripeClient: stripeClient,
-		syncService:  NewSyncService(db, encryptor, authURL),
 	}
 }
 
-// CreateCustomer creates a new customer with all related data
-func (s *CustomerService) CreateCustomer(ctx context.Context, req models.CreateCustomerRequest) (*models.Customer, error) {
-	// Generate customer ID
-	customerID := generateCustomerID()
-
+// CreateCustomer creates a new customer record for subscription purposes
+// Note: Auth data (name, email) is managed by the auth-service
+func (s *CustomerService) CreateCustomer(ctx context.Context, customerID string, req models.CreateCustomerRequest) (*models.Customer, error) {
 	// Start transaction
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -44,14 +38,8 @@ func (s *CustomerService) CreateCustomer(ctx context.Context, req models.CreateC
 	}
 	defer tx.Rollback()
 
-	// Create Stripe customer
-	stripeCustomer, err := s.stripeClient.CreateCustomer(req.Email, req.Name, customerID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create stripe customer: %w", err)
-	}
-
-	// Insert customer
-	if err := s.insertCustomer(ctx, tx, customerID, req.Name, req.Email, stripeCustomer.ID); err != nil {
+	// Insert customer (no name/email - managed by auth-service)
+	if err := s.insertCustomer(ctx, tx, customerID); err != nil {
 		return nil, fmt.Errorf("failed to insert customer: %w", err)
 	}
 
@@ -67,33 +55,23 @@ func (s *CustomerService) CreateCustomer(ctx context.Context, req models.CreateC
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	// Create customer object for sync
+	// Create customer object
 	customer := &models.Customer{
 		ID:        customerID,
-		Name:      req.Name,
-		Email:     req.Email,
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
-
-	// Trigger automatic sync to auth service
-	go func() {
-		if err := s.syncService.SyncToAuthService(context.Background()); err != nil {
-			log.Printf("Failed to sync new customer %s to auth service: %v", customerID, err)
-		}
-	}()
 
 	return customer, nil
 }
 
 // GetCustomer retrieves a customer by ID
 func (s *CustomerService) GetCustomer(ctx context.Context, customerID string) (*models.Customer, error) {
-	var name, email string
 	var createdAt, updatedAt time.Time
 
 	err := s.db.QueryRowContext(ctx,
-		"SELECT name, email, created_at, updated_at FROM customers WHERE id = ?",
-		customerID).Scan(&name, &email, &createdAt, &updatedAt)
+		"SELECT created_at, updated_at FROM customers WHERE id = ?",
+		customerID).Scan(&createdAt, &updatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, errors.New("customer not found")
@@ -103,52 +81,25 @@ func (s *CustomerService) GetCustomer(ctx context.Context, customerID string) (*
 
 	return &models.Customer{
 		ID:        customerID,
-		Name:      name,
-		Email:     email,
 		CreatedAt: createdAt,
 		UpdatedAt: updatedAt,
 	}, nil
 }
 
 // UpdateCustomer updates customer information
+// Note: name and email are managed by auth-service
 func (s *CustomerService) UpdateCustomer(ctx context.Context, customerID string, req models.UpdateCustomerRequest) error {
-	// Get current customer
-	customer, err := s.GetCustomer(ctx, customerID)
+	// Check if customer exists
+	_, err := s.GetCustomer(ctx, customerID)
 	if err != nil {
 		return err
 	}
 
-	// Build update query
-	updates := []string{}
-	args := []interface{}{}
-
-	if req.Name != nil {
-		updates = append(updates, "name = ?")
-		args = append(args, *req.Name)
-		customer.Name = *req.Name
-	}
-
-	if req.Email != nil {
-		// Check if email is already taken
-		exists, err := s.CustomerExistsByEmail(ctx, *req.Email)
-		if err != nil {
-			return fmt.Errorf("failed to check email existence: %w", err)
-		}
-		if exists && *req.Email != customer.Email {
-			return errors.New("email already taken")
-		}
-
-		updates = append(updates, "email = ?")
-		args = append(args, *req.Email)
-		customer.Email = *req.Email
-	}
-
-	if len(updates) == 0 {
+	// For now, only area updates are supported
+	// Name and email updates should be done through auth-service
+	if len(req.AreaIDs) == 0 {
 		return nil
 	}
-
-	// Add customer ID to args
-	args = append(args, customerID)
 
 	// Start transaction
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -157,24 +108,29 @@ func (s *CustomerService) UpdateCustomer(ctx context.Context, customerID string,
 	}
 	defer tx.Rollback()
 
-	// Execute update
-	query := fmt.Sprintf("UPDATE customers SET %s, updated_at = CURRENT_TIMESTAMP WHERE id = ?", strings.Join(updates, ", "))
-	_, err = tx.ExecContext(ctx, query, args...)
+	// Remove existing areas
+	_, err = tx.ExecContext(ctx, "DELETE FROM customer_areas WHERE customer_id = ?", customerID)
 	if err != nil {
-		return fmt.Errorf("failed to update customer: %w", err)
+		return fmt.Errorf("failed to remove existing areas: %w", err)
+	}
+
+	// Insert new areas
+	for _, areaID := range req.AreaIDs {
+		if err := s.insertCustomerArea(ctx, tx, customerID, areaID); err != nil {
+			return fmt.Errorf("failed to insert customer area: %w", err)
+		}
+	}
+
+	// Update customer timestamp
+	_, err = tx.ExecContext(ctx, "UPDATE customers SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", customerID)
+	if err != nil {
+		return fmt.Errorf("failed to update customer timestamp: %w", err)
 	}
 
 	// Commit transaction
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
-
-	// Trigger automatic sync to auth service
-	go func() {
-		if err := s.syncService.SyncToAuthService(context.Background()); err != nil {
-			log.Printf("Failed to sync updated customer %s to auth service: %v", customerID, err)
-		}
-	}()
 
 	return nil
 }
@@ -208,27 +164,15 @@ func (s *CustomerService) DeleteCustomer(ctx context.Context, customerID string)
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	// Trigger automatic sync to auth service
-	go func() {
-		if err := s.syncService.SyncToAuthService(context.Background()); err != nil {
-			log.Printf("Failed to sync deleted customer %s to auth service: %v", customerID, err)
-		}
-	}()
-
 	return nil
 }
 
-// CustomerExistsByEmail checks if a customer exists by email address
-func (s *CustomerService) CustomerExistsByEmail(ctx context.Context, email string) (bool, error) {
-	// Validate email
-	if email == "" || !isValidEmail(email) {
-		return false, fmt.Errorf("invalid email format")
-	}
-
+// CustomerExists checks if a customer exists by ID
+func (s *CustomerService) CustomerExists(ctx context.Context, customerID string) (bool, error) {
 	var exists bool
 	err := s.db.QueryRowContext(ctx,
-		"SELECT EXISTS(SELECT 1 FROM customers WHERE email = ?)",
-		email).Scan(&exists)
+		"SELECT EXISTS(SELECT 1 FROM customers WHERE id = ?)",
+		customerID).Scan(&exists)
 	if err != nil {
 		return false, fmt.Errorf("failed to query customer existence: %w", err)
 	}
@@ -678,10 +622,10 @@ func (s *CustomerService) HandlePaymentMethodDetached(ctx context.Context, payme
 
 // Helper methods
 
-func (s *CustomerService) insertCustomer(ctx context.Context, tx *sql.Tx, id, name, email, stripeCustomerID string) error {
+func (s *CustomerService) insertCustomer(ctx context.Context, tx *sql.Tx, id string) error {
 	_, err := tx.ExecContext(ctx,
-		"INSERT INTO customers (id, name, email, stripe_customer_id) VALUES (?, ?, ?, ?)",
-		id, name, email, stripeCustomerID)
+		"INSERT INTO customers (id) VALUES (?)",
+		id)
 	return err
 }
 

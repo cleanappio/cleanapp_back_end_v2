@@ -39,13 +39,10 @@ func main() {
 	}
 
 	// Initialize service
-	service := database.NewAuthService(db, encryptor, cfg.JWTSecret, cfg.CustomerServiceURL)
-
-	// Initialize sync service
-	syncService := database.NewSyncService(db, encryptor, cfg.CustomerServiceURL)
+	service := database.NewAuthService(db, encryptor, cfg.JWTSecret)
 
 	// Setup Gin router
-	router := setupRouter(service, syncService, cfg)
+	router := setupRouter(service, cfg)
 
 	// Start server
 	log.Printf("Auth service starting on port %s", cfg.Port)
@@ -71,7 +68,7 @@ func setupDatabase(cfg *config.Config) (*sql.DB, error) {
 	return db, nil
 }
 
-func setupRouter(service *database.AuthService, syncService *database.SyncService, cfg *config.Config) *gin.Engine {
+func setupRouter(service *database.AuthService, cfg *config.Config) *gin.Engine {
 	router := gin.Default()
 
 	// Set trusted proxies from config
@@ -84,7 +81,6 @@ func setupRouter(service *database.AuthService, syncService *database.SyncServic
 
 	// Initialize handlers
 	h := handlers.NewHandlers(service)
-	syncH := handlers.NewSyncHandlers(syncService)
 
 	// Root level health check (not under /api/v3)
 	router.GET("/health", h.RootHealthCheck)
@@ -105,11 +101,6 @@ func setupRouter(service *database.AuthService, syncService *database.SyncServic
 
 		// Token validation (for other services)
 		public.POST("/validate-token", h.ValidateToken)
-
-		// Sync endpoints
-		public.GET("/auth/sync", syncH.GetSyncData)
-		public.POST("/auth/sync", syncH.PostSyncData)
-		public.POST("/auth/sync/trigger", syncH.TriggerSync)
 
 		// API health check
 		public.GET("/health", h.HealthCheck)

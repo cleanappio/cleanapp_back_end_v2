@@ -12,11 +12,10 @@ const (
 	BillingAnnual  = "annual"
 )
 
-// Customer represents a CleanApp customer
+// Customer represents a CleanApp customer (subscription-focused)
+// Auth data (name, email) is managed by the auth-service
 type Customer struct {
 	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Email     string    `json:"email"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -64,18 +63,16 @@ type Area struct {
 }
 
 // CreateCustomerRequest represents the request to create a new customer
+// Note: name, email, and password are handled by auth-service
+// This request is for creating a customer record for subscription purposes
 type CreateCustomerRequest struct {
-	Name     string `json:"name" binding:"required,max=256"`
-	Email    string `json:"email" binding:"required,email"`
-	Password string `json:"password" binding:"required,min=8"`
-	AreaIDs  []int  `json:"area_ids" binding:"required,min=1"`
+	AreaIDs []int `json:"area_ids" binding:"required,min=1"`
 }
 
 // UpdateCustomerRequest represents the request to update customer information
+// Note: name and email are handled by auth-service
 type UpdateCustomerRequest struct {
-	Name    *string `json:"name,omitempty" binding:"omitempty,max=256"`
-	Email   *string `json:"email,omitempty" binding:"omitempty,email"`
-	AreaIDs []int   `json:"area_ids,omitempty"`
+	AreaIDs []int `json:"area_ids,omitempty"`
 }
 
 // CreateSubscriptionRequest represents the request to create a subscription

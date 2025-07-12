@@ -9,7 +9,6 @@ import (
 	"customer-service/database"
 	"customer-service/handlers"
 	"customer-service/middleware"
-	"customer-service/utils/encryption"
 	"customer-service/utils/stripe"
 
 	"github.com/gin-gonic/gin"
@@ -36,20 +35,11 @@ func main() {
 	// Initialize Stripe client
 	stripeClient := stripe.NewClient(cfg)
 
-	// Initialize encryptor for sync
-	encryptor, err := encryption.NewEncryptor(cfg.EncryptionKey)
-	if err != nil {
-		log.Fatal("Failed to initialize encryptor:", err)
-	}
-
 	// Initialize service with Stripe client
-	service := database.NewCustomerService(db, stripeClient, cfg.AuthServiceURL, encryptor)
-
-	// Initialize sync service
-	syncService := database.NewSyncService(db, encryptor, cfg.AuthServiceURL)
+	service := database.NewCustomerService(db, stripeClient)
 
 	// Setup Gin router
-	router := setupRouter(service, stripeClient, syncService, cfg)
+	router := setupRouter(service, stripeClient, cfg)
 
 	// Start server
 	log.Printf("Server starting on port %s", cfg.Port)
@@ -75,7 +65,7 @@ func setupDatabase(cfg *config.Config) (*sql.DB, error) {
 	return db, nil
 }
 
-func setupRouter(service *database.CustomerService, stripeClient *stripe.Client, syncService *database.SyncService, cfg *config.Config) *gin.Engine {
+func setupRouter(service *database.CustomerService, stripeClient *stripe.Client, cfg *config.Config) *gin.Engine {
 	router := gin.Default()
 
 	// Set trusted proxies from config
@@ -88,7 +78,6 @@ func setupRouter(service *database.CustomerService, stripeClient *stripe.Client,
 
 	// Initialize handlers with Stripe client and config
 	h := handlers.NewHandlers(service, stripeClient, cfg)
-	syncH := handlers.NewSyncHandlers(syncService)
 
 	// Root level health check (not under /api/v3)
 	router.GET("/health", h.RootHealthCheck)
@@ -114,11 +103,6 @@ func setupRouter(service *database.CustomerService, stripeClient *stripe.Client,
 
 		// Prices and plans
 		public.GET("/prices", h.GetPrices)
-
-		// Sync endpoints
-		public.GET("/customers/sync", syncH.GetSyncData)
-		public.POST("/customers/sync", syncH.PostSyncData)
-		public.POST("/customers/sync/trigger", syncH.TriggerSync)
 
 		// API health check
 		public.GET("/health", h.HealthCheck)

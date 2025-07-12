@@ -18,19 +18,17 @@ import (
 
 // AuthService handles all authentication-related database operations
 type AuthService struct {
-	db          *sql.DB
-	encryptor   *encryption.Encryptor
-	jwtSecret   []byte
-	syncService *SyncService
+	db        *sql.DB
+	encryptor *encryption.Encryptor
+	jwtSecret []byte
 }
 
 // NewAuthService creates a new authentication service instance
-func NewAuthService(db *sql.DB, encryptor *encryption.Encryptor, jwtSecret string, customerURL string) *AuthService {
+func NewAuthService(db *sql.DB, encryptor *encryption.Encryptor, jwtSecret string) *AuthService {
 	return &AuthService{
-		db:          db,
-		encryptor:   encryptor,
-		jwtSecret:   []byte(jwtSecret),
-		syncService: NewSyncService(db, encryptor, customerURL),
+		db:        db,
+		encryptor: encryptor,
+		jwtSecret: []byte(jwtSecret),
 	}
 }
 
@@ -90,13 +88,6 @@ func (s *AuthService) CreateUser(ctx context.Context, req models.CreateUserReque
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
-
-	// Trigger automatic sync to customer service
-	go func() {
-		if err := s.syncService.SyncToCustomerService(context.Background()); err != nil {
-			log.Printf("Failed to sync new user %s to customer service: %v", userID, err)
-		}
-	}()
 
 	return user, nil
 }
@@ -198,13 +189,6 @@ func (s *AuthService) UpdateUser(ctx context.Context, userID string, req models.
 
 	user.UpdatedAt = time.Now()
 
-	// Trigger automatic sync to customer service
-	go func() {
-		if err := s.syncService.SyncToCustomerService(context.Background()); err != nil {
-			log.Printf("Failed to sync updated user %s to customer service: %v", userID, err)
-		}
-	}()
-
 	return user, nil
 }
 
@@ -236,13 +220,6 @@ func (s *AuthService) DeleteUser(ctx context.Context, userID string) error {
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
-
-	// Trigger automatic sync to customer service
-	go func() {
-		if err := s.syncService.SyncToCustomerService(context.Background()); err != nil {
-			log.Printf("Failed to sync deleted user %s to customer service: %v", userID, err)
-		}
-	}()
 
 	return nil
 }
