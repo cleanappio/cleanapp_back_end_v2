@@ -21,18 +21,6 @@ CREATE TABLE IF NOT EXISTS customers (
     INDEX idx_stripe_customer (stripe_customer_id)
 );
 
-CREATE TABLE IF NOT EXISTS login_methods (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    customer_id VARCHAR(256) NOT NULL,
-    method_type ENUM('email', 'google', 'apple', 'facebook') NOT NULL,
-    password_hash VARCHAR(256),
-    oauth_id VARCHAR(256),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
-    UNIQUE KEY unique_customer_method (customer_id, method_type),
-    INDEX idx_oauth (method_type, oauth_id)
-);
-
 CREATE TABLE IF NOT EXISTS customer_areas (
     customer_id VARCHAR(256) NOT NULL,
     area_id INT NOT NULL,
@@ -89,16 +77,6 @@ CREATE TABLE IF NOT EXISTS billing_history (
     INDEX idx_stripe_invoice (stripe_invoice_id)
 );
 
-CREATE TABLE IF NOT EXISTS auth_tokens (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    customer_id VARCHAR(256) NOT NULL,
-    token_hash VARCHAR(256) NOT NULL,
-    expires_at TIMESTAMP NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
-    INDEX idx_token_hash (token_hash)
-);
-
 CREATE TABLE IF NOT EXISTS schema_migrations (
     version INT PRIMARY KEY,
     applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -117,92 +95,9 @@ type Migration struct {
 var Migrations = []Migration{
 	{
 		Version: 1,
-		Name:    "remove_method_id_from_login_methods",
-		Up: `
-			-- Migration 1: Remove redundant method_id field
-			-- The method_id field was storing duplicate data:
-			-- - For email auth: it stored the email (already in customers table)
-			-- - For OAuth: it should be oauth_id instead
-			
-			-- Check if method_id column exists before trying to drop it
-			SET @dbname = DATABASE();
-			SET @tablename = 'login_methods';
-			SET @columnname = 'method_id';
-			SET @preparedStatement = (SELECT IF(
-				(SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
-				WHERE TABLE_SCHEMA = @dbname
-				AND TABLE_NAME = @tablename
-				AND COLUMN_NAME = @columnname) > 0,
-				CONCAT('ALTER TABLE login_methods DROP COLUMN method_id;'),
-				'SELECT 1;'
-			));
-			PREPARE alterIfExists FROM @preparedStatement;
-			EXECUTE alterIfExists;
-			DEALLOCATE PREPARE alterIfExists;
-
-			-- Add oauth_id column if it doesn't exist
-			SET @preparedStatement = (SELECT IF(
-				(SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
-				WHERE TABLE_SCHEMA = @dbname
-				AND TABLE_NAME = @tablename
-				AND COLUMN_NAME = 'oauth_id') = 0,
-				'ALTER TABLE login_methods ADD COLUMN oauth_id VARCHAR(256);',
-				'SELECT 1;'
-			));
-			PREPARE alterIfNotExists FROM @preparedStatement;
-			EXECUTE alterIfNotExists;
-			DEALLOCATE PREPARE alterIfNotExists;
-
-			-- Drop old unique constraint if it exists
-			SET @preparedStatement = (SELECT IF(
-				(SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS
-				WHERE TABLE_SCHEMA = @dbname
-				AND TABLE_NAME = @tablename
-				AND INDEX_NAME = 'unique_method') > 0,
-				'ALTER TABLE login_methods DROP INDEX unique_method;',
-				'SELECT 1;'
-			));
-			PREPARE dropIndexIfExists FROM @preparedStatement;
-			EXECUTE dropIndexIfExists;
-			DEALLOCATE PREPARE dropIndexIfExists;
-
-			-- Add new unique constraint if it doesn't exist
-			SET @preparedStatement = (SELECT IF(
-				(SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS
-				WHERE TABLE_SCHEMA = @dbname
-				AND TABLE_NAME = @tablename
-				AND INDEX_NAME = 'unique_customer_method') = 0,
-				'ALTER TABLE login_methods ADD UNIQUE KEY unique_customer_method (customer_id, method_type);',
-				'SELECT 1;'
-			));
-			PREPARE addIndexIfNotExists FROM @preparedStatement;
-			EXECUTE addIndexIfNotExists;
-			DEALLOCATE PREPARE addIndexIfNotExists;
-
-			-- Add oauth index if it doesn't exist
-			SET @preparedStatement = (SELECT IF(
-				(SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS
-				WHERE TABLE_SCHEMA = @dbname
-				AND TABLE_NAME = @tablename
-				AND INDEX_NAME = 'idx_oauth') = 0,
-				'ALTER TABLE login_methods ADD INDEX idx_oauth (method_type, oauth_id);',
-				'SELECT 1;'
-			));
-			PREPARE addOAuthIndexIfNotExists FROM @preparedStatement;
-			EXECUTE addOAuthIndexIfNotExists;
-			DEALLOCATE PREPARE addOAuthIndexIfNotExists;
-		`,
-		Down: `
-			-- This migration is not reversible as we're removing redundant data
-			-- The method_id column contained duplicate information
-			SELECT 1;
-		`,
-	},
-	{
-		Version: 2,
 		Name:    "migrate_to_stripe_payment_methods",
 		Up: `
-			-- Migration 2: Convert payment methods to use Stripe
+			-- Migration 1: Convert payment methods to use Stripe
 			-- This migration transforms the payment_methods table to store Stripe data
 			-- instead of encrypted credit card information
 			
@@ -280,57 +175,11 @@ var Migrations = []Migration{
 			SELECT 1;
 		`,
 	},
-	// Add this migration to the Migrations slice in database/schema.go
 	{
-		Version: 3,
-		Name:    "add_token_type_and_areas",
-		Up: `
-			-- Migration 3: Add token type to auth_tokens and create areas table
-			
-			-- Add token_type column to auth_tokens if it doesn't exist
-			SET @dbname = DATABASE();
-			SET @tablename = 'auth_tokens';
-			SET @columnname = 'token_type';
-			SET @preparedStatement = (SELECT IF(
-				(SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
-				WHERE TABLE_SCHEMA = @dbname
-				AND TABLE_NAME = @tablename
-				AND COLUMN_NAME = @columnname) = 0,
-				'ALTER TABLE auth_tokens ADD COLUMN token_type ENUM(''access'', ''refresh'') DEFAULT ''access'' AFTER token_hash;',
-				'SELECT 1;'
-			));
-			PREPARE alterIfNotExists FROM @preparedStatement;
-			EXECUTE alterIfNotExists;
-			DEALLOCATE PREPARE alterIfNotExists;
-
-			-- Add index on token_type
-			SET @preparedStatement = (SELECT IF(
-				(SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS
-				WHERE TABLE_SCHEMA = @dbname
-				AND TABLE_NAME = @tablename
-				AND INDEX_NAME = 'idx_token_type') = 0,
-				'ALTER TABLE auth_tokens ADD INDEX idx_token_type (token_type, expires_at);',
-				'SELECT 1;'
-			));
-			PREPARE addIndexIfNotExists FROM @preparedStatement;
-			EXECUTE addIndexIfNotExists;
-			DEALLOCATE PREPARE addIndexIfNotExists;
-		`,
-		Down: `
-			-- Remove token_type column
-			ALTER TABLE auth_tokens DROP COLUMN IF EXISTS token_type;
-			
-			-- Remove areas table (be careful, this will delete area data)
-			DROP TABLE IF EXISTS areas;
-		`,
-	},
-	// Add this to the Migrations slice in database/schema.go after migration 3:
-
-	{
-		Version: 4,
+		Version: 2,
 		Name:    "add_stripe_integration_support",
 		Up: `
-        -- Migration 4: Add full Stripe integration support
+        -- Migration 2: Add full Stripe integration support
         
         -- Add trial and cancellation fields to subscriptions
         SET @dbname = DATABASE();
@@ -489,7 +338,7 @@ var Migrations = []Migration{
     `,
 	},
 	{
-		Version: 5,
+		Version: 3,
 		Name:    "change_subscription_status_enum_field",
 		Up: `
         SET @tablename = 'subscriptions';
@@ -505,7 +354,7 @@ var Migrations = []Migration{
 		`,
 	},
 	{
-		Version: 6,
+		Version: 4,
 		Name:    "add_subscription_stripe_id_unique_index",
 		Up: `
 				SET @dbname = DATABASE();
@@ -540,7 +389,7 @@ var Migrations = []Migration{
 		`,
 	},
 	{
-		Version: 7,
+		Version: 5,
 		Name:    "fix_subscription_status_enum",
 		Up: `
         SET @tablename = 'subscriptions';
@@ -559,7 +408,7 @@ var Migrations = []Migration{
 
 // InitializeSchema creates the database schema and runs migrations
 func InitializeSchema(db *sql.DB) error {
-	// Create initial schema
+	// Create tables
 	if _, err := db.Exec(Schema); err != nil {
 		return fmt.Errorf("failed to create schema: %w", err)
 	}
@@ -569,53 +418,53 @@ func InitializeSchema(db *sql.DB) error {
 		return fmt.Errorf("failed to run migrations: %w", err)
 	}
 
+	log.Println("Database schema initialized successfully")
 	return nil
 }
 
-// RunMigrations executes all pending migrations
+// RunMigrations applies all pending database migrations
 func RunMigrations(db *sql.DB) error {
-	// Ensure migrations table exists
-	if _, err := db.Exec("USE cleanapp"); err != nil {
-		return err
-	}
-
-	// Get current schema version
-	var currentVersion int
-	err := db.QueryRow("SELECT COALESCE(MAX(version), 0) FROM schema_migrations").Scan(&currentVersion)
+	// Create migrations table if it doesn't exist
+	_, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS schema_migrations (
+			version INT PRIMARY KEY,
+			applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)
+	`)
 	if err != nil {
-		// Table might not exist in fresh installations, that's ok
-		currentVersion = 0
+		return fmt.Errorf("failed to create migrations table: %w", err)
 	}
 
-	// Run pending migrations
+	// Get applied migrations
+	rows, err := db.Query("SELECT version FROM schema_migrations ORDER BY version")
+	if err != nil {
+		return fmt.Errorf("failed to query applied migrations: %w", err)
+	}
+	defer rows.Close()
+
+	applied := make(map[int]bool)
+	for rows.Next() {
+		var version int
+		if err := rows.Scan(&version); err != nil {
+			return fmt.Errorf("failed to scan migration version: %w", err)
+		}
+		applied[version] = true
+	}
+
+	// Apply pending migrations
 	for _, migration := range Migrations {
-		if migration.Version > currentVersion {
-			log.Printf("Running migration %d: %s", migration.Version, migration.Name)
+		if !applied[migration.Version] {
+			log.Printf("Applying migration %d: %s", migration.Version, migration.Name)
 
-			// Start transaction
-			tx, err := db.Begin()
-			if err != nil {
-				return fmt.Errorf("failed to start transaction for migration %d: %w", migration.Version, err)
+			if _, err := db.Exec(migration.Up); err != nil {
+				return fmt.Errorf("failed to apply migration %d: %w", migration.Version, err)
 			}
 
-			// Execute migration
-			if _, err := tx.Exec(migration.Up); err != nil {
-				tx.Rollback()
-				return fmt.Errorf("failed to execute migration %d: %w", migration.Version, err)
-			}
-
-			// Record migration
-			if _, err := tx.Exec("INSERT INTO schema_migrations (version) VALUES (?)", migration.Version); err != nil {
-				tx.Rollback()
+			if _, err := db.Exec("INSERT INTO schema_migrations (version) VALUES (?)", migration.Version); err != nil {
 				return fmt.Errorf("failed to record migration %d: %w", migration.Version, err)
 			}
 
-			// Commit transaction
-			if err := tx.Commit(); err != nil {
-				return fmt.Errorf("failed to commit migration %d: %w", migration.Version, err)
-			}
-
-			log.Printf("Migration %d completed successfully", migration.Version)
+			log.Printf("Applied migration %d: %s", migration.Version, migration.Name)
 		}
 	}
 

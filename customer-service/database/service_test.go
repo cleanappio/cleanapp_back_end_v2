@@ -3,38 +3,36 @@ package database
 import (
 	"context"
 	"testing"
-
-	"customer-service/utils/encryption"
 )
 
-func TestUserExistsByEmail(t *testing.T) {
+func TestCustomerService(t *testing.T) {
 	// This is a basic test structure - in a real environment you'd use a test database
 	// or mock the database connection
 
-	// Test cases
+	// Test cases for customer service functionality
 	tests := []struct {
-		name     string
-		email    string
-		expected bool
-		hasError bool
+		name       string
+		customerID string
+		expected   bool
+		hasError   bool
 	}{
 		{
-			name:     "valid email format",
-			email:    "test@example.com",
-			expected: false, // Assuming no user exists in test
-			hasError: false,
+			name:       "valid customer ID",
+			customerID: "test-customer-123",
+			expected:   false, // Assuming no customer exists in test
+			hasError:   false,
 		},
 		{
-			name:     "empty email",
-			email:    "",
-			expected: false,
-			hasError: true,
+			name:       "empty customer ID",
+			customerID: "",
+			expected:   false,
+			hasError:   true,
 		},
 		{
-			name:     "invalid email format",
-			email:    "invalid-email",
-			expected: false,
-			hasError: true,
+			name:       "invalid customer ID format",
+			customerID: "invalid",
+			expected:   false,
+			hasError:   false,
 		},
 	}
 
@@ -42,41 +40,25 @@ func TestUserExistsByEmail(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create a mock service with nil database for testing structure
 			// In a real test, you'd use a test database or mock
-			encryptor, err := encryption.NewEncryptor("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
-			if err != nil {
-				t.Fatalf("Failed to create encryptor: %v", err)
-			}
-
 			service := &CustomerService{
-				db:        nil, // Would be a test database in real test
-				encryptor: encryptor,
-				jwtSecret: []byte("test-secret"),
+				db: nil, // Would be a test database in real test
 			}
 
-			// Test the email validation logic
-			if tt.email == "" {
-				// Test empty email handling
-				_, err := service.UserExistsByEmail(context.Background(), tt.email)
+			// Test the customer ID validation logic
+			if tt.customerID == "" {
+				// Test empty customer ID handling
+				_, err := service.GetCustomer(context.Background(), tt.customerID)
 				if !tt.hasError && err == nil {
-					t.Errorf("Expected error for empty email, got none")
+					t.Errorf("Expected error for empty customer ID, got none")
 				}
 				return
 			}
 
-			// Test email format validation
-			if !isValidEmail(tt.email) {
-				_, err := service.UserExistsByEmail(context.Background(), tt.email)
-				if !tt.hasError && err == nil {
-					t.Errorf("Expected error for invalid email format, got none")
-				}
-				return
-			}
-
-			// For valid emails, we can't test the actual database query without a test database
+			// For valid customer IDs, we can't test the actual database query without a test database
 			// but we can test that the function doesn't panic
-			if tt.email != "" && isValidEmail(tt.email) {
+			if tt.customerID != "" {
 				// This would fail with a real database connection, but we're testing structure
-				_, err := service.UserExistsByEmail(context.Background(), tt.email)
+				_, err := service.GetCustomer(context.Background(), tt.customerID)
 				// We expect an error since we're using a nil database
 				if err == nil {
 					t.Logf("Note: Expected database error for test with nil database")

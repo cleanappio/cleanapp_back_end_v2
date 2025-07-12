@@ -19,9 +19,9 @@ services:
       timeout: 20s
       retries: 10
 
-  app:
+  auth-service:
     build: .
-    container_name: customer_service
+    container_name: auth_service
     restart: always
     ports:
       - "8080:8080"
@@ -30,16 +30,14 @@ services:
       DB_PASSWORD: cleanapp_password
       DB_HOST: mysql
       DB_PORT: 3306
+      ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      JWT_SECRET: "your-super-secret-jwt-key-replace-in-production"
       PORT: 8080
       TRUSTED_PROXIES: "127.0.0.1,::1"
-      AUTH_SERVICE_URL: "http://auth-service:8080"
-      # Stripe Configuration (use test keys for development)
-      STRIPE_SECRET_KEY: "sk_test_your_stripe_test_key"
-      STRIPE_WEBHOOK_SECRET: "whsec_your_webhook_secret"
     depends_on:
       mysql:
         condition: service_healthy
-    command: go run main.go
+    command: ./main
 
 volumes:
-  mysql_data:
+  mysql_data: 

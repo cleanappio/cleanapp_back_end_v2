@@ -1,14 +1,14 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
-	"strconv"
-	"encoding/json"
-	"io"
 
 	"customer-service/models"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stripe/stripe-go/v82"
 	"github.com/stripe/stripe-go/v82/invoice"
@@ -61,11 +61,7 @@ func (h *Handlers) UpdatePaymentMethod(c *gin.Context) {
 		return
 	}
 
-	paymentMethodID, err := strconv.Atoi(c.Param("id"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "invalid payment method id"})
-		return
-	}
+	paymentMethodID := c.Param("id")
 
 	var req struct {
 		IsDefault bool `json:"is_default"`
@@ -96,11 +92,7 @@ func (h *Handlers) DeletePaymentMethod(c *gin.Context) {
 		return
 	}
 
-	paymentMethodID, err := strconv.Atoi(c.Param("id"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "invalid payment method id"})
-		return
-	}
+	paymentMethodID := c.Param("id")
 
 	if err := h.service.DeletePaymentMethod(c.Request.Context(), customerID, paymentMethodID); err != nil {
 		if err.Error() == "payment method not found" {
@@ -185,7 +177,7 @@ func (h *Handlers) ProcessPayment(c *gin.Context) {
 				Expand: []*string{stripe.String("payments")},
 			})
 			if err != nil {
-					log.Printf("Failed to retrieve invoice %s: %v", inv.ID, err)
+				log.Printf("Failed to retrieve invoice %s: %v", inv.ID, err)
 			}
 
 			processingError = h.service.ProcessInvoicePayment(c.Request.Context(), inv)
@@ -273,10 +265,11 @@ func (h *Handlers) ProcessPayment(c *gin.Context) {
 		return
 	}
 
-	// Mark as successfully processed
+	// Mark event as successfully processed
 	if err := h.service.MarkWebhookEventProcessed(c.Request.Context(), event.ID); err != nil {
 		log.Printf("Error marking webhook event as processed: %v", err)
+		// Don't fail the request, just log the error
 	}
 
-	c.JSON(http.StatusOK, models.MessageResponse{Message: "webhook processed"})
+	c.JSON(http.StatusOK, models.MessageResponse{Message: "event processed successfully"})
 }

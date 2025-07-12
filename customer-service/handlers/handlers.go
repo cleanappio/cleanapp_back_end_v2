@@ -1,11 +1,14 @@
 package handlers
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
 
+	"customer-service/config"
 	"customer-service/database"
 	"customer-service/models"
 	"customer-service/utils/stripe"
@@ -16,32 +19,22 @@ import (
 // Handlers contains all HTTP handlers
 type Handlers struct {
 	service      *database.CustomerService
-	stripeClient *stripe.Client // Add this field
+	stripeClient *stripe.Client
+	config       *config.Config
 }
 
 // NewHandlers creates a new handlers instance
-func NewHandlers(service *database.CustomerService, stripeClient *stripe.Client) *Handlers {
+func NewHandlers(service *database.CustomerService, stripeClient *stripe.Client, cfg *config.Config) *Handlers {
 	return &Handlers{
 		service:      service,
 		stripeClient: stripeClient,
+		config:       cfg,
 	}
 }
 
 // CreateCustomer handles customer registration
 func (h *Handlers) CreateCustomer(c *gin.Context) {
-	var req models.CreateCustomerRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
-		return
-	}
-
-	customer, err := h.service.CreateCustomer(c.Request.Context(), req)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to create customer"})
-		return
-	}
-
-	c.JSON(http.StatusCreated, customer)
+	proxyToAuthService(c, "/api/v3/auth/register", h.config.AuthServiceURL)
 }
 
 // UpdateCustomer handles customer information updates
@@ -101,32 +94,7 @@ func (h *Handlers) GetCustomer(c *gin.Context) {
 
 // Login handles customer authentication
 func (h *Handlers) Login(c *gin.Context) {
-	var req models.LoginRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
-		return
-	}
-
-	// Authenticate and get customer ID
-	customerID, err := h.service.AuthenticateCustomer(c.Request.Context(), req)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, models.ErrorResponse{Error: err.Error()})
-		return
-	}
-
-	// Generate token pair
-	token, refreshToken, err := h.service.GenerateTokenPair(c.Request.Context(), customerID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to generate tokens"})
-		return
-	}
-
-	c.JSON(http.StatusOK, models.TokenResponse{
-		Token:        token,
-		RefreshToken: refreshToken,
-		TokenType:    "Bearer",
-		ExpiresIn:    3600, // 1 hour
-	})
+	proxyToAuthService(c, "/api/v3/auth/login", h.config.AuthServiceURL)
 }
 
 // HealthCheck returns the service health status
@@ -139,123 +107,15 @@ func (h *Handlers) HealthCheck(c *gin.Context) {
 
 // RefreshToken handles token refresh
 func (h *Handlers) RefreshToken(c *gin.Context) {
-	var req struct {
-		RefreshToken string `json:"refresh_token" binding:"required"`
-	}
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
-		return
-	}
-
-	// Validate refresh token and get customer ID
-	customerID, err := h.service.ValidateRefreshToken(req.RefreshToken)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, models.ErrorResponse{Error: "invalid refresh token"})
-		return
-	}
-
-	// Generate new access token
-	token, refreshToken, err := h.service.GenerateTokenPair(c.Request.Context(), customerID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to generate token"})
-		return
-	}
-
-	c.JSON(http.StatusOK, models.TokenResponse{
-		Token:        token,
-		RefreshToken: refreshToken,
-		TokenType:    "Bearer",
-		ExpiresIn:    3600, // 1 hour
-	})
+	proxyToAuthService(c, "/api/v3/auth/refresh", h.config.AuthServiceURL)
 }
 
 // Logout handles customer logout
 func (h *Handlers) Logout(c *gin.Context) {
-	customerID := c.GetString("customer_id")
-	token := c.GetString("token")
-
-	if customerID == "" || token == "" {
-		c.JSON(http.StatusUnauthorized, models.ErrorResponse{Error: "unauthorized"})
-		return
-	}
-
-	// Invalidate the token
-	if err := h.service.InvalidateToken(c.Request.Context(), customerID, token); err != nil {
-		// Log error but still return success to client
-		c.JSON(http.StatusOK, models.MessageResponse{Message: "logged out successfully"})
-		return
-	}
-
-	c.JSON(http.StatusOK, models.MessageResponse{Message: "logged out successfully"})
+	proxyToAuthServiceWithAuth(c, "/api/v3/auth/logout", h.config.AuthServiceURL)
 }
 
-// OAuthLogin handles OAuth authentication
-func (h *Handlers) OAuthLogin(c *gin.Context) {
-	var req models.OAuthLoginRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
-		return
-	}
-
-	// Validate OAuth token with provider
-	userInfo, err := h.service.ValidateOAuthToken(c.Request.Context(), req.Provider, req.IDToken, req.AccessToken)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, models.ErrorResponse{Error: "invalid oauth token"})
-		return
-	}
-
-	// Check if customer exists or create new one
-	customer, isNew, err := h.service.GetOrCreateOAuthCustomer(c.Request.Context(), req.Provider, userInfo)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to process oauth login"})
-		return
-	}
-
-	// Generate tokens
-	token, refreshToken, err := h.service.GenerateTokenPair(c.Request.Context(), customer.ID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to generate token"})
-		return
-	}
-
-	response := models.TokenResponse{
-		Token:        token,
-		RefreshToken: refreshToken,
-		TokenType:    "Bearer",
-		ExpiresIn:    3600,
-	}
-
-	// Add customer info for new registrations
-	if isNew {
-		response.Customer = customer
-	}
-
-	c.JSON(http.StatusOK, response)
-}
-
-// GetOAuthURL returns the OAuth provider URL for authentication
-func (h *Handlers) GetOAuthURL(c *gin.Context) {
-	provider := c.Param("provider")
-
-	// Validate provider
-	if provider != "google" && provider != "facebook" && provider != "apple" {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "invalid provider"})
-		return
-	}
-
-	// Generate OAuth URL based on provider
-	url, state, err := h.service.GenerateOAuthURL(provider)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to generate oauth url"})
-		return
-	}
-
-	c.JSON(http.StatusOK, models.OAuthURLResponse{
-		URL:   url,
-		State: state,
-	})
-}
+// Remove OAuthLogin and GetOAuthURL handlers (not supported by new auth-service)
 
 // ReactivateSubscription reactivates a canceled subscription
 func (h *Handlers) ReactivateSubscription(c *gin.Context) {
@@ -355,29 +215,60 @@ func (h *Handlers) RootHealthCheck(c *gin.Context) {
 
 // CheckUserExists checks if a user exists by email
 func (h *Handlers) CheckUserExists(c *gin.Context) {
-	email := c.Query("email")
-	if email == "" {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "email parameter is required"})
-		return
-	}
-
-	// Validate email format
-	if !isValidEmail(email) {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "invalid email format"})
-		return
-	}
-
-	exists, err := h.service.UserExistsByEmail(c.Request.Context(), email)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to check user existence"})
-		return
-	}
-
-	c.JSON(http.StatusOK, models.UserExistsResponse{UserExists: exists})
+	proxyToAuthServiceQuery(c, "/api/v3/users/exists", h.config.AuthServiceURL)
 }
 
-// isValidEmail performs basic email validation
-func isValidEmail(email string) bool {
-	// Simple email validation - you might want to use a more robust library
-	return len(email) > 0 && len(email) < 256 && strings.Contains(email, "@") && strings.Contains(email, ".")
+// Utility: Proxy POST/PUT requests with JSON body to auth-service
+func proxyToAuthService(c *gin.Context, path string, authServiceURL string) {
+	url := authServiceURL + path
+	body, _ := io.ReadAll(c.Request.Body)
+	resp, err := http.Post(url, "application/json", bytes.NewBuffer(body))
+	if err != nil {
+		c.JSON(http.StatusBadGateway, models.ErrorResponse{Error: "auth-service unavailable"})
+		return
+	}
+	defer resp.Body.Close()
+	copyResponse(c, resp)
+}
+
+// Utility: Proxy POST requests with Authorization header to auth-service
+func proxyToAuthServiceWithAuth(c *gin.Context, path string, authServiceURL string) {
+	url := authServiceURL + path
+	body, _ := io.ReadAll(c.Request.Body)
+	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	if auth := c.GetHeader("Authorization"); auth != "" {
+		req.Header.Set("Authorization", auth)
+	}
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, models.ErrorResponse{Error: "auth-service unavailable"})
+		return
+	}
+	defer resp.Body.Close()
+	copyResponse(c, resp)
+}
+
+// Utility: Proxy GET requests with query params to auth-service
+func proxyToAuthServiceQuery(c *gin.Context, path string, authServiceURL string) {
+	url := authServiceURL + path + "?" + c.Request.URL.RawQuery
+	resp, err := http.Get(url)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, models.ErrorResponse{Error: "auth-service unavailable"})
+		return
+	}
+	defer resp.Body.Close()
+	copyResponse(c, resp)
+}
+
+// Utility: Copy response from auth-service to client
+func copyResponse(c *gin.Context, resp *http.Response) {
+	c.Status(resp.StatusCode)
+	for k, v := range resp.Header {
+		for _, vv := range v {
+			c.Writer.Header().Add(k, vv)
+		}
+	}
+	io.Copy(c.Writer, resp.Body)
 }

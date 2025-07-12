@@ -9,7 +9,6 @@ import (
 	"customer-service/database"
 	"customer-service/handlers"
 	"customer-service/middleware"
-	"customer-service/utils/encryption"
 	"customer-service/utils/stripe"
 
 	"github.com/gin-gonic/gin"
@@ -33,17 +32,11 @@ func main() {
 		log.Fatal("Failed to initialize database schema:", err)
 	}
 
-	// Initialize encryptor
-	encryptor, err := encryption.NewEncryptor(cfg.EncryptionKey)
-	if err != nil {
-		log.Fatal("Failed to initialize encryptor:", err)
-	}
-
 	// Initialize Stripe client
 	stripeClient := stripe.NewClient(cfg)
 
 	// Initialize service with Stripe client
-	service := database.NewCustomerService(db, encryptor, cfg.JWTSecret, stripeClient)
+	service := database.NewCustomerService(db, stripeClient)
 
 	// Setup Gin router
 	router := setupRouter(service, stripeClient, cfg)
@@ -83,8 +76,8 @@ func setupRouter(service *database.CustomerService, stripeClient *stripe.Client,
 	router.Use(middleware.SecurityHeaders())
 	router.Use(middleware.RateLimitMiddleware())
 
-	// Initialize handlers with Stripe client
-	h := handlers.NewHandlers(service, stripeClient)
+	// Initialize handlers with Stripe client and config
+	h := handlers.NewHandlers(service, stripeClient, cfg)
 
 	// Root level health check (not under /api/v3)
 	router.GET("/health", h.RootHealthCheck)
@@ -92,20 +85,17 @@ func setupRouter(service *database.CustomerService, stripeClient *stripe.Client,
 	// Public routes
 	public := router.Group("/api/v3")
 	{
-		// Authentication routes
-		// Authentication routes
+		// Authentication routes (proxied to auth-service)
 		auth := public.Group("/auth")
 		{
 			auth.POST("/login", h.Login)
 			auth.POST("/refresh", h.RefreshToken)
-			auth.POST("/oauth", h.OAuthLogin)
-			auth.GET("/oauth/:provider", h.GetOAuthURL)
 		}
 
-		// Customer registration
+		// Customer registration (proxied to auth-service)
 		public.POST("/customers", h.CreateCustomer)
 
-		// User existence check
+		// User existence check (proxied to auth-service)
 		public.GET("/users/exists", h.CheckUserExists)
 
 		// Public data
@@ -120,9 +110,9 @@ func setupRouter(service *database.CustomerService, stripeClient *stripe.Client,
 
 	// Protected routes
 	protected := router.Group("/api/v3")
-	protected.Use(middleware.AuthMiddleware(service))
+	protected.Use(middleware.AuthMiddleware(cfg))
 	{
-		// Authentication
+		// Authentication (proxied to auth-service)
 		protected.POST("/auth/logout", h.Logout)
 
 		// Customer routes

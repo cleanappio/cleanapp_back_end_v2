@@ -1,19 +1,18 @@
 package middleware
 
 import (
-	"bytes"
-	"customer-service/config"
-	"customer-service/database"
-	"encoding/json"
 	"net/http"
 	"strings"
+
+	"auth-service/database"
 
 	"github.com/gin-gonic/gin"
 )
 
-// AuthMiddleware validates JWT tokens for protected routes by calling auth-service
-func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
+// AuthMiddleware validates JWT tokens for protected routes
+func AuthMiddleware(service *database.AuthService) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Get token from Authorization header
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "missing authorization header"})
@@ -21,6 +20,7 @@ func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
+		// Extract token from Bearer scheme
 		tokenString := extractToken(authHeader)
 		if tokenString == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid authorization format"})
@@ -28,78 +28,29 @@ func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		// Call auth-service to validate token
-		valid, customerID, err := validateTokenWithAuthService(tokenString, cfg.AuthServiceURL)
-		if err != nil || !valid {
+		// Validate token
+		userID, err := service.ValidateToken(tokenString)
+		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
 			c.Abort()
 			return
 		}
 
-		c.Set("customer_id", customerID)
+		// Set user ID in context for use in handlers
+		c.Set("user_id", userID)
 		c.Set("token", tokenString)
 		c.Next()
 	}
 }
 
+// extractToken extracts the token from the Authorization header
 func extractToken(authHeader string) string {
+	// Check for Bearer scheme
 	parts := strings.SplitN(authHeader, " ", 2)
 	if len(parts) != 2 || parts[0] != "Bearer" {
 		return ""
 	}
 	return parts[1]
-}
-
-func validateTokenWithAuthService(token string, authServiceURL string) (bool, string, error) {
-	url := authServiceURL + "/api/v3/validate-token"
-	payload := map[string]string{"token": token}
-	body, _ := json.Marshal(payload)
-
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer(body))
-	if err != nil {
-		return false, "", err
-	}
-	defer resp.Body.Close()
-
-	var result struct {
-		Valid      bool   `json:"valid"`
-		UserID     string `json:"user_id"`
-		CustomerID string `json:"customer_id"`
-		Error      string `json:"error"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return false, "", err
-	}
-
-	// Accept either user_id or customer_id for compatibility
-	id := result.CustomerID
-	if id == "" {
-		id = result.UserID
-	}
-
-	return result.Valid, id, nil
-}
-
-// RequireSubscription middleware checks if customer has active subscription
-func RequireSubscription(service *database.CustomerService) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		customerID := c.GetString("customer_id")
-		if customerID == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
-			c.Abort()
-			return
-		}
-
-		// Check subscription status (implement this method in service)
-		// hasActive := service.HasActiveSubscription(c.Request.Context(), customerID)
-		// if !hasActive {
-		//     c.JSON(http.StatusPaymentRequired, gin.H{"error": "active subscription required"})
-		//     c.Abort()
-		//     return
-		// }
-
-		c.Next()
-	}
 }
 
 // RateLimitMiddleware implements basic rate limiting
