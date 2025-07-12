@@ -99,6 +99,9 @@ func setupRouter(service *database.AuthService, cfg *config.Config) *gin.Engine 
 		// User existence check
 		public.GET("/users/exists", h.CheckUserExists)
 
+		// Get user by ID (for internal service calls)
+		public.GET("/users/:id", h.GetUserByID)
+
 		// Token validation (for other services)
 		public.POST("/validate-token", h.ValidateToken)
 

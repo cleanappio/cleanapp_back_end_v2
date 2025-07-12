@@ -36,7 +36,7 @@ func main() {
 	stripeClient := stripe.NewClient(cfg)
 
 	// Initialize service with Stripe client
-	service := database.NewCustomerService(db, stripeClient)
+	service := database.NewCustomerService(db, stripeClient, cfg.AuthServiceURL)
 
 	// Setup Gin router
 	router := setupRouter(service, stripeClient, cfg)

@@ -120,3 +120,10 @@ type Price struct {
 type PricesResponse struct {
 	Prices []Price `json:"prices"`
 }
+
+// UserProfile represents user profile data from auth-service
+type UserProfile struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}

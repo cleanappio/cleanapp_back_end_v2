@@ -245,6 +245,27 @@ func (h *Handlers) CheckUserExists(c *gin.Context) {
 	})
 }
 
+// GetUserByID retrieves user information by ID (for internal service calls)
+func (h *Handlers) GetUserByID(c *gin.Context) {
+	userID := c.Param("id")
+	if userID == "" {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "user ID is required"})
+		return
+	}
+
+	user, err := h.service.GetUser(c.Request.Context(), userID)
+	if err != nil {
+		if err.Error() == "user not found" {
+			c.JSON(http.StatusNotFound, models.ErrorResponse{Error: err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to get user"})
+		return
+	}
+
+	c.JSON(http.StatusOK, user)
+}
+
 // RootHealthCheck returns the service health status (root level)
 func (h *Handlers) RootHealthCheck(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
