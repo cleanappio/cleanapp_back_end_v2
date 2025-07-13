@@ -259,7 +259,7 @@ func (s *CustomerService) CreateSubscription(ctx context.Context, customerID str
 
 		stripeCustomerID.String = stripeCustomer.ID
 		stripeCustomerID.Valid = true
-		log.Printf("INFO: Successfully created Stripe customer %s for subscription creation %s", stripeCustomerID, customerID)
+		log.Printf("INFO: Successfully created Stripe customer %s for subscription creation %s", stripeCustomerID.String, customerID)
 	}
 
 	// Create subscription in Stripe
@@ -377,7 +377,7 @@ func (s *CustomerService) CancelSubscription(ctx context.Context, customerID str
 
 	// Update subscription status in database
 	_, err = s.db.ExecContext(ctx,
-		"UPDATE subscriptions SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+		"UPDATE subscriptions SET status = 'canceled', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
 		subscription.ID)
 	if err != nil {
 		return fmt.Errorf("failed to update subscription status: %w", err)
@@ -392,7 +392,7 @@ func (s *CustomerService) ReactivateSubscription(ctx context.Context, customerID
 	var subscription models.Subscription
 	err := s.db.QueryRowContext(ctx,
 		`SELECT id, customer_id, plan_type, billing_cycle, status, start_date, next_billing_date 
-		 FROM subscriptions WHERE customer_id = ? AND status = 'cancelled'`,
+		 FROM subscriptions WHERE customer_id = ? AND status = 'canceled'`,
 		customerID).Scan(&subscription.ID, &subscription.CustomerID, &subscription.PlanType,
 		&subscription.BillingCycle, &subscription.Status, &subscription.StartDate, &subscription.NextBillingDate)
 
