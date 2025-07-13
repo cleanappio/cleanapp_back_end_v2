@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"log"
 	"net/http"
 
 	"auth-service/database"
@@ -25,6 +26,7 @@ func NewHandlers(service *database.AuthService) *Handlers {
 func (h *Handlers) CreateUser(c *gin.Context) {
 	var req models.CreateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Printf("ERROR: Invalid JSON in CreateUser request from %s: %v", c.ClientIP(), err)
 		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
 		return
 	}
@@ -32,13 +34,16 @@ func (h *Handlers) CreateUser(c *gin.Context) {
 	user, err := h.service.CreateUser(c.Request.Context(), req)
 	if err != nil {
 		if err.Error() == "user already exists" {
+			log.Printf("WARNING: User creation failed - user already exists for email %s from %s", req.Email, c.ClientIP())
 			c.JSON(http.StatusConflict, models.ErrorResponse{Error: err.Error()})
 			return
 		}
+		log.Printf("ERROR: Failed to create user for email %s from %s: %v", req.Email, c.ClientIP(), err)
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to create user"})
 		return
 	}
 
+	log.Printf("INFO: User created successfully - ID: %s, Email: %s, From: %s", user.ID, req.Email, c.ClientIP())
 	c.JSON(http.StatusCreated, user)
 }
 
@@ -97,6 +102,7 @@ func (h *Handlers) DeleteUser(c *gin.Context) {
 func (h *Handlers) GetUser(c *gin.Context) {
 	userID := c.GetString("user_id")
 	if userID == "" {
+		log.Printf("WARNING: GetUser called without user_id from %s", c.ClientIP())
 		c.JSON(http.StatusUnauthorized, models.ErrorResponse{Error: "unauthorized"})
 		return
 	}
@@ -104,9 +110,11 @@ func (h *Handlers) GetUser(c *gin.Context) {
 	user, err := h.service.GetUser(c.Request.Context(), userID)
 	if err != nil {
 		if err.Error() == "user not found" {
+			log.Printf("WARNING: User not found in GetUser - ID: %s, From: %s", userID, c.ClientIP())
 			c.JSON(http.StatusNotFound, models.ErrorResponse{Error: err.Error()})
 			return
 		}
+		log.Printf("ERROR: Failed to get user %s from %s: %v", userID, c.ClientIP(), err)
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to get user"})
 		return
 	}
@@ -118,6 +126,7 @@ func (h *Handlers) GetUser(c *gin.Context) {
 func (h *Handlers) Login(c *gin.Context) {
 	var req models.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Printf("ERROR: Invalid JSON in Login request from %s: %v", c.ClientIP(), err)
 		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
 		return
 	}
@@ -125,6 +134,7 @@ func (h *Handlers) Login(c *gin.Context) {
 	// Authenticate and get user ID
 	userID, err := h.service.Login(c.Request.Context(), req)
 	if err != nil {
+		log.Printf("WARNING: Login failed for email %s from %s: %v", req.Email, c.ClientIP(), err)
 		c.JSON(http.StatusUnauthorized, models.ErrorResponse{Error: err.Error()})
 		return
 	}
@@ -132,10 +142,12 @@ func (h *Handlers) Login(c *gin.Context) {
 	// Generate token pair
 	token, refreshToken, err := h.service.GenerateTokenPair(c.Request.Context(), userID)
 	if err != nil {
+		log.Printf("ERROR: Failed to generate tokens for user %s from %s: %v", userID, c.ClientIP(), err)
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to generate tokens"})
 		return
 	}
 
+	log.Printf("INFO: Login successful for user %s (email: %s) from %s", userID, req.Email, c.ClientIP())
 	c.JSON(http.StatusOK, models.TokenResponse{
 		Token:        token,
 		RefreshToken: refreshToken,
@@ -206,6 +218,7 @@ func (h *Handlers) Logout(c *gin.Context) {
 func (h *Handlers) ValidateToken(c *gin.Context) {
 	var req models.ValidateTokenRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Printf("ERROR: Invalid JSON in ValidateToken request from %s: %v", c.ClientIP(), err)
 		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
 		return
 	}
@@ -213,6 +226,7 @@ func (h *Handlers) ValidateToken(c *gin.Context) {
 	// Validate token and get user ID
 	userID, err := h.service.ValidateToken(req.Token)
 	if err != nil {
+		log.Printf("WARNING: Token validation failed from %s: %v", c.ClientIP(), err)
 		c.JSON(http.StatusOK, models.ValidateTokenResponse{
 			Valid: false,
 			Error: err.Error(),
@@ -249,6 +263,7 @@ func (h *Handlers) CheckUserExists(c *gin.Context) {
 func (h *Handlers) GetUserByID(c *gin.Context) {
 	userID := c.Param("id")
 	if userID == "" {
+		log.Printf("WARNING: GetUserByID called without user ID from %s", c.ClientIP())
 		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "user ID is required"})
 		return
 	}
@@ -256,9 +271,11 @@ func (h *Handlers) GetUserByID(c *gin.Context) {
 	user, err := h.service.GetUser(c.Request.Context(), userID)
 	if err != nil {
 		if err.Error() == "user not found" {
+			log.Printf("WARNING: User not found in GetUserByID - ID: %s, From: %s", userID, c.ClientIP())
 			c.JSON(http.StatusNotFound, models.ErrorResponse{Error: err.Error()})
 			return
 		}
+		log.Printf("ERROR: Failed to get user by ID %s from %s: %v", userID, c.ClientIP(), err)
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to get user"})
 		return
 	}

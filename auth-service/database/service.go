@@ -37,9 +37,11 @@ func (s *AuthService) CreateUser(ctx context.Context, req models.CreateUserReque
 	// Check if user already exists
 	exists, err := s.UserExistsByEmail(ctx, req.Email)
 	if err != nil {
+		log.Printf("ERROR: Failed to check user existence for email %s: %v", req.Email, err)
 		return nil, fmt.Errorf("failed to check user existence: %w", err)
 	}
 	if exists {
+		log.Printf("WARNING: User creation failed - user already exists for email: %s", req.Email)
 		return nil, errors.New("user already exists")
 	}
 
@@ -49,34 +51,40 @@ func (s *AuthService) CreateUser(ctx context.Context, req models.CreateUserReque
 	// Encrypt email
 	emailEncrypted, err := s.encryptor.Encrypt(req.Email)
 	if err != nil {
+		log.Printf("ERROR: Failed to encrypt email for user %s: %v", userID, err)
 		return nil, fmt.Errorf("failed to encrypt email: %w", err)
 	}
 
 	// Hash password
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
+		log.Printf("ERROR: Failed to hash password for user %s: %v", userID, err)
 		return nil, fmt.Errorf("failed to hash password: %w", err)
 	}
 
 	// Start transaction
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
+		log.Printf("ERROR: Failed to begin transaction for user %s: %v", userID, err)
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback()
 
 	// Insert user
 	if err := s.insertUser(ctx, tx, userID, req.Name, emailEncrypted); err != nil {
+		log.Printf("ERROR: Failed to insert user %s: %v", userID, err)
 		return nil, fmt.Errorf("failed to insert user: %w", err)
 	}
 
 	// Insert login method
 	if err := s.insertLoginMethod(ctx, tx, userID, "email", string(passwordHash), ""); err != nil {
+		log.Printf("ERROR: Failed to insert login method for user %s: %v", userID, err)
 		return nil, fmt.Errorf("failed to insert login method: %w", err)
 	}
 
 	// Commit transaction
 	if err := tx.Commit(); err != nil {
+		log.Printf("ERROR: Failed to commit transaction for user %s: %v", userID, err)
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
@@ -102,14 +110,17 @@ func (s *AuthService) GetUser(ctx context.Context, userID string) (*models.Clien
 		userID).Scan(&name, &emailEncrypted, &createdAt, &updatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
+			log.Printf("WARNING: User not found: %s", userID)
 			return nil, errors.New("user not found")
 		}
+		log.Printf("ERROR: Failed to query user %s: %v", userID, err)
 		return nil, fmt.Errorf("failed to query user: %w", err)
 	}
 
 	// Decrypt email
 	email, err := s.encryptor.Decrypt(emailEncrypted)
 	if err != nil {
+		log.Printf("ERROR: Failed to decrypt email for user %s: %v", userID, err)
 		return nil, fmt.Errorf("failed to decrypt email: %w", err)
 	}
 
@@ -127,6 +138,7 @@ func (s *AuthService) UpdateUser(ctx context.Context, userID string, req models.
 	// Get current user
 	user, err := s.GetUser(ctx, userID)
 	if err != nil {
+		log.Printf("ERROR: Failed to get user for update %s: %v", userID, err)
 		return nil, err
 	}
 
@@ -144,15 +156,18 @@ func (s *AuthService) UpdateUser(ctx context.Context, userID string, req models.
 		// Check if email is already taken
 		exists, err := s.UserExistsByEmail(ctx, *req.Email)
 		if err != nil {
+			log.Printf("ERROR: Failed to check email existence for user %s: %v", userID, err)
 			return nil, fmt.Errorf("failed to check email existence: %w", err)
 		}
 		if exists && *req.Email != user.Email {
+			log.Printf("WARNING: Email update failed - email already taken for user %s: %s", userID, *req.Email)
 			return nil, errors.New("email already taken")
 		}
 
 		// Encrypt new email
 		emailEncrypted, err := s.encryptor.Encrypt(*req.Email)
 		if err != nil {
+			log.Printf("ERROR: Failed to encrypt email for user %s: %v", userID, err)
 			return nil, fmt.Errorf("failed to encrypt email: %w", err)
 		}
 
@@ -179,11 +194,13 @@ func (s *AuthService) UpdateUser(ctx context.Context, userID string, req models.
 	query := fmt.Sprintf("UPDATE client_auth SET %s, updated_at = CURRENT_TIMESTAMP WHERE id = ?", strings.Join(updates, ", "))
 	_, err = tx.ExecContext(ctx, query, args...)
 	if err != nil {
+		log.Printf("ERROR: Failed to update user %s: %v", userID, err)
 		return nil, fmt.Errorf("failed to update user: %w", err)
 	}
 
 	// Commit transaction
 	if err := tx.Commit(); err != nil {
+		log.Printf("ERROR: Failed to commit update transaction for user %s: %v", userID, err)
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
@@ -224,7 +241,7 @@ func (s *AuthService) DeleteUser(ctx context.Context, userID string) error {
 	return nil
 }
 
-// Login authenticates a user and returns a token
+// Login authenticates a user and returns the user ID
 func (s *AuthService) Login(ctx context.Context, req models.LoginRequest) (string, error) {
 	var userID string
 	var err error
@@ -232,10 +249,12 @@ func (s *AuthService) Login(ctx context.Context, req models.LoginRequest) (strin
 	// Email/password login
 	userID, err = s.authenticateWithPassword(ctx, req.Email, req.Password)
 	if err != nil {
+		log.Printf("WARNING: Login failed for email %s: %v", req.Email, err)
 		return "", err
 	}
 
-	return s.generateToken(ctx, userID)
+	log.Printf("INFO: Login successful for user %s (email: %s)", userID, req.Email)
+	return userID, nil
 }
 
 // ValidateToken validates a JWT token and returns the user ID
@@ -248,6 +267,7 @@ func (s *AuthService) ValidateToken(tokenString string) (string, error) {
 	})
 
 	if err != nil || !token.Valid {
+		log.Printf("WARNING: Invalid token provided: %v", err)
 		return "", errors.New("invalid token")
 	}
 
@@ -292,6 +312,7 @@ func (s *AuthService) GenerateTokenPair(ctx context.Context, userID string) (str
 
 	accessTokenString, err := accessToken.SignedString(s.jwtSecret)
 	if err != nil {
+		log.Printf("ERROR: Failed to sign access token for user %s: %v", userID, err)
 		return "", "", err
 	}
 
@@ -305,11 +326,13 @@ func (s *AuthService) GenerateTokenPair(ctx context.Context, userID string) (str
 
 	refreshTokenString, err := refreshToken.SignedString(s.jwtSecret)
 	if err != nil {
+		log.Printf("ERROR: Failed to sign refresh token for user %s: %v", userID, err)
 		return "", "", err
 	}
 
 	// Store both tokens with the same expiry times
 	if err := s.storeTokens(ctx, userID, accessTokenString, refreshTokenString, accessExpiry, refreshExpiry); err != nil {
+		log.Printf("ERROR: Failed to store tokens for user %s: %v", userID, err)
 		return "", "", err
 	}
 
@@ -460,7 +483,7 @@ func (s *AuthService) authenticateWithPassword(ctx context.Context, email, passw
 	}
 
 	if foundUserID == "" {
-		log.Println("User not found for email:", email)
+		log.Printf("User not found for email: %s", email)
 		return "", errors.New("invalid credentials")
 	}
 
@@ -473,7 +496,7 @@ func (s *AuthService) authenticateWithPassword(ctx context.Context, email, passw
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(password)); err != nil {
-		log.Println("Password mismatch for user:", userID)
+		log.Printf("Password mismatch for user: %s", userID)
 		return "", errors.New("invalid credentials")
 	}
 
@@ -482,6 +505,18 @@ func (s *AuthService) authenticateWithPassword(ctx context.Context, email, passw
 
 // generateToken generates a JWT token for a user (legacy method for backward compatibility)
 func (s *AuthService) generateToken(ctx context.Context, userID string) (string, error) {
+	// First, verify that the user exists
+	var exists bool
+	err := s.db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM client_auth WHERE id = ?)", userID).Scan(&exists)
+	if err != nil {
+		log.Printf("ERROR: Failed to check user existence for token generation %s: %v", userID, err)
+		return "", fmt.Errorf("failed to verify user: %w", err)
+	}
+	if !exists {
+		log.Printf("ERROR: User does not exist for token generation: %s", userID)
+		return "", errors.New("user not found")
+	}
+
 	// Calculate expiry time once
 	now := time.Now()
 	expiry := now.Add(24 * time.Hour)
@@ -495,6 +530,7 @@ func (s *AuthService) generateToken(ctx context.Context, userID string) (string,
 
 	tokenString, err := token.SignedString(s.jwtSecret)
 	if err != nil {
+		log.Printf("ERROR: Failed to sign token for user %s: %v", userID, err)
 		return "", err
 	}
 
@@ -504,6 +540,7 @@ func (s *AuthService) generateToken(ctx context.Context, userID string) (string,
 		"INSERT INTO auth_tokens (user_id, token_hash, expires_at) VALUES (?, ?, FROM_UNIXTIME(?))",
 		userID, tokenHash, expiry.Unix())
 	if err != nil {
+		log.Printf("ERROR: Failed to store token for user %s: %v", userID, err)
 		return "", err
 	}
 
@@ -527,11 +564,24 @@ func (s *AuthService) verifyTokenInDB(userID, tokenString string) error {
 
 // storeTokens stores access and refresh tokens with their expiration times using Unix timestamps
 func (s *AuthService) storeTokens(ctx context.Context, userID, accessToken, refreshToken string, accessExpiry, refreshExpiry time.Time) error {
+	// First, verify that the user exists
+	var exists bool
+	err := s.db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM client_auth WHERE id = ?)", userID).Scan(&exists)
+	if err != nil {
+		log.Printf("ERROR: Failed to check user existence for token storage %s: %v", userID, err)
+		return fmt.Errorf("failed to verify user: %w", err)
+	}
+	if !exists {
+		log.Printf("ERROR: User does not exist for token storage: %s", userID)
+		return errors.New("user not found")
+	}
+
 	accessHash := hashToken(accessToken)
 	refreshHash := hashToken(refreshToken)
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
+		log.Printf("ERROR: Failed to begin transaction for token storage for user %s: %v", userID, err)
 		return err
 	}
 	defer tx.Rollback()
@@ -541,6 +591,7 @@ func (s *AuthService) storeTokens(ctx context.Context, userID, accessToken, refr
 		"INSERT INTO auth_tokens (user_id, token_hash, token_type, expires_at) VALUES (?, ?, 'access', FROM_UNIXTIME(?))",
 		userID, accessHash, accessExpiry.Unix())
 	if err != nil {
+		log.Printf("ERROR: Failed to store access token for user %s: %v", userID, err)
 		return err
 	}
 
@@ -549,10 +600,16 @@ func (s *AuthService) storeTokens(ctx context.Context, userID, accessToken, refr
 		"INSERT INTO auth_tokens (user_id, token_hash, token_type, expires_at) VALUES (?, ?, 'refresh', FROM_UNIXTIME(?))",
 		userID, refreshHash, refreshExpiry.Unix())
 	if err != nil {
+		log.Printf("ERROR: Failed to store refresh token for user %s: %v", userID, err)
 		return err
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		log.Printf("ERROR: Failed to commit token storage transaction for user %s: %v", userID, err)
+		return err
+	}
+
+	return nil
 }
 
 // verifyRefreshTokenInDB checks if a refresh token exists and is not expired

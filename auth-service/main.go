@@ -22,20 +22,20 @@ func main() {
 	// Database connection
 	db, err := setupDatabase(cfg)
 	if err != nil {
-		log.Fatal("Failed to connect to database:", err)
+		log.Fatalf("Failed to connect to database: %v", err)
 	}
 	defer db.Close()
 
 	// Initialize database schema
 	log.Println("Initializing database schema and running migrations...")
 	if err := database.InitializeSchema(db); err != nil {
-		log.Fatal("Failed to initialize database schema:", err)
+		log.Fatalf("Failed to initialize database schema: %v", err)
 	}
 
 	// Initialize encryptor
 	encryptor, err := encryption.NewEncryptor(cfg.EncryptionKey)
 	if err != nil {
-		log.Fatal("Failed to initialize encryptor:", err)
+		log.Fatalf("Failed to initialize encryptor: %v", err)
 	}
 
 	// Initialize service
@@ -47,7 +47,7 @@ func main() {
 	// Start server
 	log.Printf("Auth service starting on port %s", cfg.Port)
 	if err := router.Run(":" + cfg.Port); err != nil {
-		log.Fatal("Failed to start server:", err)
+		log.Fatalf("Failed to start server: %v", err)
 	}
 }
 
@@ -57,11 +57,13 @@ func setupDatabase(cfg *config.Config) (*sql.DB, error) {
 
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
+		log.Printf("ERROR: Failed to open database connection: %v", err)
 		return nil, err
 	}
 
 	// Test connection
 	if err := db.Ping(); err != nil {
+		log.Printf("ERROR: Failed to ping database: %v", err)
 		return nil, err
 	}
 

@@ -30,8 +30,7 @@ CREATE TABLE IF NOT EXISTS login_methods (
     password_hash VARCHAR(256),
     oauth_id VARCHAR(256),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES client_auth(id) ON DELETE CASCADE,
-    UNIQUE KEY unique_user_method (user_id, method_type),
+    INDEX idx_user_method (user_id, method_type),
     INDEX idx_oauth (method_type, oauth_id)
 );
 
@@ -42,7 +41,6 @@ CREATE TABLE IF NOT EXISTS auth_tokens (
     token_type ENUM('access', 'refresh') DEFAULT 'access',
     expires_at TIMESTAMP NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES client_auth(id) ON DELETE CASCADE,
     INDEX idx_user_token_type (user_id, token_type)
 );
 
@@ -64,41 +62,59 @@ type Migration struct {
 var Migrations = []Migration{
 	{
 		Version: 1,
-		Name:    "add_token_type_to_auth_tokens",
+		Name:    "add_foreign_key_constraints",
 		Up: `
-			-- Migration 1: Add token_type to auth_tokens table
+			-- Migration 1: Add foreign key constraints
+			-- Add foreign key to login_methods
 			SET @dbname = DATABASE();
-			SET @tablename = 'auth_tokens';
-			SET @columnname = 'token_type';
+			SET @tablename = 'login_methods';
+			SET @constraintname = 'login_methods_ibfk_1';
 			SET @preparedStatement = (SELECT IF(
-				(SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+				(SELECT COUNT(*) FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
 				WHERE TABLE_SCHEMA = @dbname
 				AND TABLE_NAME = @tablename
-				AND COLUMN_NAME = @columnname) = 0,
-				'ALTER TABLE auth_tokens ADD COLUMN token_type ENUM("access", "refresh") DEFAULT "access";',
+				AND CONSTRAINT_NAME = @constraintname) = 0,
+				'ALTER TABLE login_methods ADD CONSTRAINT login_methods_ibfk_1 FOREIGN KEY (user_id) REFERENCES client_auth(id) ON DELETE CASCADE;',
 				'SELECT 1;'
 			));
-			PREPARE alterIfNotExists FROM @preparedStatement;
-			EXECUTE alterIfNotExists;
-			DEALLOCATE PREPARE alterIfNotExists;
+			PREPARE addFKIfNotExists FROM @preparedStatement;
+			EXECUTE addFKIfNotExists;
+			DEALLOCATE PREPARE addFKIfNotExists;
 
-			-- Add index for user_id and token_type
+			-- Add unique constraint to login_methods
+			SET @constraintname = 'unique_user_method';
 			SET @preparedStatement = (SELECT IF(
-				(SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS
+				(SELECT COUNT(*) FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
 				WHERE TABLE_SCHEMA = @dbname
 				AND TABLE_NAME = @tablename
-				AND INDEX_NAME = 'idx_user_token_type') = 0,
-				'ALTER TABLE auth_tokens ADD INDEX idx_user_token_type (user_id, token_type);',
+				AND CONSTRAINT_NAME = @constraintname) = 0,
+				'ALTER TABLE login_methods ADD CONSTRAINT unique_user_method UNIQUE (user_id, method_type);',
 				'SELECT 1;'
 			));
-			PREPARE addIndexIfNotExists FROM @preparedStatement;
-			EXECUTE addIndexIfNotExists;
-			DEALLOCATE PREPARE addIndexIfNotExists;
+			PREPARE addUniqueIfNotExists FROM @preparedStatement;
+			EXECUTE addUniqueIfNotExists;
+			DEALLOCATE PREPARE addUniqueIfNotExists;
+
+			-- Add foreign key to auth_tokens
+			SET @tablename = 'auth_tokens';
+			SET @constraintname = 'auth_tokens_ibfk_1';
+			SET @preparedStatement = (SELECT IF(
+				(SELECT COUNT(*) FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+				WHERE TABLE_SCHEMA = @dbname
+				AND TABLE_NAME = @tablename
+				AND CONSTRAINT_NAME = @constraintname) = 0,
+				'ALTER TABLE auth_tokens ADD CONSTRAINT auth_tokens_ibfk_1 FOREIGN KEY (user_id) REFERENCES client_auth(id) ON DELETE CASCADE;',
+				'SELECT 1;'
+			));
+			PREPARE addFKIfNotExists2 FROM @preparedStatement;
+			EXECUTE addFKIfNotExists2;
+			DEALLOCATE PREPARE addFKIfNotExists2;
 		`,
 		Down: `
-			-- Remove token_type column and index
-			ALTER TABLE auth_tokens DROP INDEX IF EXISTS idx_user_token_type;
-			ALTER TABLE auth_tokens DROP COLUMN IF EXISTS token_type;
+			-- Remove foreign key constraints
+			ALTER TABLE auth_tokens DROP FOREIGN KEY IF EXISTS auth_tokens_ibfk_1;
+			ALTER TABLE login_methods DROP FOREIGN KEY IF EXISTS login_methods_ibfk_1;
+			ALTER TABLE login_methods DROP INDEX IF EXISTS unique_user_method;
 		`,
 	},
 }
