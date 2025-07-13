@@ -50,6 +50,12 @@ func Connect() *sql.DB {
 	}
 
 	log.Println(" Connected to MySQL!")
+
+	_, err = db.Exec("SET SESSION sort_buffer_size = 1024 * 1024 * 10") // 10MB
+	if err != nil {
+		log.Fatal("Failed to set sort_buffer_size:", err)
+	}
+
 	return db
 }
 

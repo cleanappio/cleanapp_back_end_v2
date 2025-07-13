@@ -85,10 +85,11 @@ func CheckAndSendReports(db *sql.DB, mailer *email.Mailer) {
 
 	query := `
 	  SELECT ai.area_id, c.email, r.seq, r.latitude, r.longitude, r.image
-      FROM reports_copy r
-      JOIN area_index ai ON MBRWithin(r.geom, ai.geom)
+      FROM reports r
+	  JOIN reports_geometry rg ON r.seq = rg.seq
+      JOIN area_index ai ON ST_Within(rg.geom, ai.geom)
       JOIN contact_emails c ON ai.area_id = c.area_id
-      WHERE r.report_sent IS NULL OR r.report_sent = 0
+      WHERE r.seq NOT IN(SELECT seq FROM sent_emails) AND c.email != ''
       ORDER BY ai.area_id
 	`
 
@@ -153,7 +154,7 @@ func CheckAndSendReports(db *sql.DB, mailer *email.Mailer) {
 
 func markAsSent(db *sql.DB, reports []Report) {
 	for _, r := range reports {
-		_, err := db.Exec("UPDATE reports SET report_sent = true WHERE seq = ?", r.Seq)
+		_, err := db.Exec("INSERT INTO sent_emails(seq) VALUES(?) ON DUPLICATE KEY UPDATE seq = seq", r.Seq)
 		if err != nil {
 			fmt.Printf("Failed to mark report %d as sent: %v\n", r.Seq, err)
 		}

@@ -59,7 +59,7 @@ func sendOneEmail(recipient string, reportImage, mapImage []byte) error {
 	}
 
 	fmt.Println("✅ Email sent to:", recipient)
-	fmt.Println("Status:", response.StatusCode)
+	fmt.Println("Response:", response)
 	return nil
 }
 
