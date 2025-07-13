@@ -1,14 +1,14 @@
 package handlers
 
 import (
-	"encoding/json"
 	"log"
-	"net/http"
 	"strconv"
 
 	"montenegro-areas/middleware"
 	"montenegro-areas/models"
 	"montenegro-areas/services"
+
+	"github.com/gin-gonic/gin"
 )
 
 // AreasHandler handles HTTP requests for areas-related endpoints
@@ -26,65 +26,55 @@ func NewAreasHandler(areasService *services.AreasService, databaseService *servi
 }
 
 // HealthHandler handles health check requests
-func (h *AreasHandler) HealthHandler(w http.ResponseWriter, r *http.Request) {
+func (h *AreasHandler) HealthHandler(c *gin.Context) {
 	response := models.HealthResponse{
 		Status:  "healthy",
 		Message: "Montenegro Areas service is running",
 	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(response)
+	c.JSON(200, response)
 }
 
 // AreasByAdminLevelHandler handles requests for areas by admin level
-func (h *AreasHandler) AreasByAdminLevelHandler(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserIDFromContext(r)
+func (h *AreasHandler) AreasByAdminLevelHandler(c *gin.Context) {
+	userID := middleware.GetUserIDFromContext(c)
 	log.Printf("INFO: AreasByAdminLevel request from user %s", userID)
 
-	// Get admin_level from query parameter
-	adminLevelStr := r.URL.Query().Get("admin_level")
+	adminLevelStr := c.Query("admin_level")
 	if adminLevelStr == "" {
-		http.Error(w, "admin_level parameter is required", http.StatusBadRequest)
+		c.JSON(400, gin.H{"error": "admin_level parameter is required"})
 		return
 	}
 
-	// Parse admin_level to int
 	adminLevel, err := strconv.Atoi(adminLevelStr)
 	if err != nil {
-		http.Error(w, "admin_level must be a valid integer", http.StatusBadRequest)
+		c.JSON(400, gin.H{"error": "admin_level must be a valid integer"})
 		return
 	}
 
-	// Get areas for the specified admin level
 	areas, err := h.areasService.GetAreasByAdminLevel(adminLevel)
 	if err != nil {
 		log.Printf("Error getting areas for admin level %d: %v", adminLevel, err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		c.JSON(500, gin.H{"error": "Internal server error"})
 		return
 	}
 
-	// Create response
 	response := models.AreasByAdminLevelResponse{
 		AdminLevel: adminLevel,
 		Count:      len(areas),
 		Areas:      areas,
 	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(response)
+	c.JSON(200, response)
 }
 
 // AvailableAdminLevelsHandler handles requests for available admin levels
-func (h *AreasHandler) AvailableAdminLevelsHandler(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserIDFromContext(r)
+func (h *AreasHandler) AvailableAdminLevelsHandler(c *gin.Context) {
+	userID := middleware.GetUserIDFromContext(c)
 	log.Printf("INFO: AvailableAdminLevels request from user %s", userID)
 
 	levels, err := h.areasService.GetAvailableAdminLevels()
 	if err != nil {
 		log.Printf("Error getting available admin levels: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		c.JSON(500, gin.H{"error": "Internal server error"})
 		return
 	}
 
@@ -92,89 +82,71 @@ func (h *AreasHandler) AvailableAdminLevelsHandler(w http.ResponseWriter, r *htt
 		AdminLevels: levels,
 		Count:       len(levels),
 	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(response)
+	c.JSON(200, response)
 }
 
 // ReportsHandler handles requests for reports within a MontenegroArea
-func (h *AreasHandler) ReportsHandler(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserIDFromContext(r)
+func (h *AreasHandler) ReportsHandler(c *gin.Context) {
+	userID := middleware.GetUserIDFromContext(c)
 	log.Printf("INFO: Reports request from user %s", userID)
 
-	// Get query parameters
-	osmIDStr := r.URL.Query().Get("osm_id")
-	nStr := r.URL.Query().Get("n")
+	osmIDStr := c.Query("osm_id")
+	nStr := c.Query("n")
 
 	if osmIDStr == "" {
-		http.Error(w, "osm_id parameter is required", http.StatusBadRequest)
+		c.JSON(400, gin.H{"error": "osm_id parameter is required"})
 		return
 	}
-
 	if nStr == "" {
-		http.Error(w, "n parameter is required", http.StatusBadRequest)
+		c.JSON(400, gin.H{"error": "n parameter is required"})
 		return
 	}
 
-	// Parse OSM ID
 	osmID, err := strconv.ParseInt(osmIDStr, 10, 64)
 	if err != nil {
-		http.Error(w, "osm_id must be a valid integer", http.StatusBadRequest)
+		c.JSON(400, gin.H{"error": "osm_id must be a valid integer"})
 		return
 	}
 
-	// Parse number of reports
 	n, err := strconv.Atoi(nStr)
 	if err != nil {
-		http.Error(w, "n must be a valid integer", http.StatusBadRequest)
+		c.JSON(400, gin.H{"error": "n must be a valid integer"})
 		return
 	}
-
 	if n <= 0 {
-		http.Error(w, "n must be greater than 0", http.StatusBadRequest)
+		c.JSON(400, gin.H{"error": "n must be greater than 0"})
 		return
 	}
 
-	// Get reports from database
 	reports, err := h.databaseService.GetReportsByMontenegroArea(osmID, n)
 	if err != nil {
 		log.Printf("Error getting reports for OSM ID %d: %v", osmID, err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		c.JSON(500, gin.H{"error": "Internal server error"})
 		return
 	}
 
-	// Create response
 	response := models.ReportsResponse{
 		Reports: reports,
 		Count:   len(reports),
 	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(response)
+	c.JSON(200, response)
 }
 
 // ReportsAggrHandler handles requests for aggregated reports data for admin level 6 areas
-func (h *AreasHandler) ReportsAggrHandler(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserIDFromContext(r)
+func (h *AreasHandler) ReportsAggrHandler(c *gin.Context) {
+	userID := middleware.GetUserIDFromContext(c)
 	log.Printf("INFO: ReportsAggr request from user %s", userID)
 
-	// Get aggregated reports data for all areas of admin level 6
 	areasData, err := h.databaseService.GetReportsAggregatedData()
 	if err != nil {
 		log.Printf("Error getting aggregated reports data: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		c.JSON(500, gin.H{"error": "Internal server error"})
 		return
 	}
 
-	// Create response
 	response := models.ReportsAggrResponse{
 		Areas: areasData,
 		Count: len(areasData),
 	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(response)
+	c.JSON(200, response)
 }

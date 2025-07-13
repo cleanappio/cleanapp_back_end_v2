@@ -2,58 +2,57 @@ package middleware
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"log"
 	"net/http"
 	"strings"
 
 	"montenegro-areas/config"
+
+	"github.com/gin-gonic/gin"
 )
 
 // AuthMiddleware validates JWT tokens for protected routes by calling auth-service
-func AuthMiddleware(cfg *config.Config) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			authHeader := r.Header.Get("Authorization")
-			if authHeader == "" {
-				log.Printf("WARNING: Missing authorization header from %s", r.RemoteAddr)
-				http.Error(w, "missing authorization header", http.StatusUnauthorized)
-				return
-			}
+func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
+			log.Printf("WARNING: Missing authorization header from %s", c.ClientIP())
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "missing authorization header"})
+			c.Abort()
+			return
+		}
 
-			tokenString := extractToken(authHeader)
-			if tokenString == "" {
-				log.Printf("WARNING: Invalid authorization format from %s", r.RemoteAddr)
-				http.Error(w, "invalid authorization format", http.StatusUnauthorized)
-				return
-			}
+		tokenString := extractToken(authHeader)
+		if tokenString == "" {
+			log.Printf("WARNING: Invalid authorization format from %s", c.ClientIP())
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid authorization format"})
+			c.Abort()
+			return
+		}
 
-			log.Printf("DEBUG: Validating token from %s", r.RemoteAddr)
+		log.Printf("DEBUG: Validating token from %s", c.ClientIP())
 
-			// Call auth-service to validate token
-			valid, userID, err := validateTokenWithAuthService(tokenString, cfg.AuthServiceURL)
-			if err != nil {
-				log.Printf("ERROR: Failed to validate token with auth-service from %s: %v", r.RemoteAddr, err)
-				http.Error(w, "invalid or expired token", http.StatusUnauthorized)
-				return
-			}
+		// Call auth-service to validate token
+		valid, userID, err := validateTokenWithAuthService(tokenString, cfg.AuthServiceURL)
+		if err != nil {
+			log.Printf("ERROR: Failed to validate token with auth-service from %s: %v", c.ClientIP(), err)
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
+			c.Abort()
+			return
+		}
 
-			if !valid {
-				log.Printf("WARNING: Invalid token from %s", r.RemoteAddr)
-				http.Error(w, "invalid or expired token", http.StatusUnauthorized)
-				return
-			}
+		if !valid {
+			log.Printf("WARNING: Invalid token from %s", c.ClientIP())
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
+			c.Abort()
+			return
+		}
 
-			log.Printf("DEBUG: Token validated successfully for user %s from %s", userID, r.RemoteAddr)
-
-			// Add user ID to request context
-			ctx := r.Context()
-			ctx = context.WithValue(ctx, "user_id", userID)
-			ctx = context.WithValue(ctx, "token", tokenString)
-
-			next.ServeHTTP(w, r.WithContext(ctx))
-		})
+		log.Printf("DEBUG: Token validated successfully for user %s from %s", userID, c.ClientIP())
+		c.Set("user_id", userID)
+		c.Set("token", tokenString)
+		c.Next()
 	}
 }
 
@@ -102,18 +101,22 @@ func validateTokenWithAuthService(token string, authServiceURL string) (bool, st
 	return result.Valid, id, nil
 }
 
-// GetUserIDFromContext extracts user ID from request context
-func GetUserIDFromContext(r *http.Request) string {
-	if userID, ok := r.Context().Value("user_id").(string); ok {
-		return userID
+// GetUserIDFromContext extracts user ID from Gin context
+func GetUserIDFromContext(c *gin.Context) string {
+	if userID, exists := c.Get("user_id"); exists {
+		if id, ok := userID.(string); ok {
+			return id
+		}
 	}
 	return ""
 }
 
-// GetTokenFromContext extracts token from request context
-func GetTokenFromContext(r *http.Request) string {
-	if token, ok := r.Context().Value("token").(string); ok {
-		return token
+// GetTokenFromContext extracts token from Gin context
+func GetTokenFromContext(c *gin.Context) string {
+	if token, exists := c.Get("token"); exists {
+		if t, ok := token.(string); ok {
+			return t
+		}
 	}
 	return ""
 }
