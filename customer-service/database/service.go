@@ -78,7 +78,7 @@ func (s *CustomerService) CreateCustomer(ctx context.Context, customerID string,
 	return customer, nil
 }
 
-// GetCustomer retrieves a customer by ID
+// GetCustomer retrieves a customer by ID, creating one if it doesn't exist
 func (s *CustomerService) GetCustomer(ctx context.Context, customerID string) (*models.Customer, error) {
 	log.Printf("DEBUG: Getting customer %s", customerID)
 
@@ -89,8 +89,9 @@ func (s *CustomerService) GetCustomer(ctx context.Context, customerID string) (*
 		customerID).Scan(&createdAt, &updatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			log.Printf("WARNING: Customer not found: %s", customerID)
-			return nil, errors.New("customer not found")
+			log.Printf("INFO: Customer not found, creating new customer: %s", customerID)
+			// Customer doesn't exist, create one
+			return s.ensureCustomerExists(ctx, customerID)
 		}
 		log.Printf("ERROR: Failed to query customer %s: %v", customerID, err)
 		return nil, fmt.Errorf("failed to query customer: %w", err)
@@ -216,41 +217,53 @@ func (s *CustomerService) CreateSubscription(ctx context.Context, customerID str
 	}
 	defer tx.Rollback()
 
+	// Ensure customer exists first
+	_, err = s.ensureCustomerExists(ctx, customerID)
+	if err != nil {
+		log.Printf("ERROR: Failed to ensure customer exists for subscription creation %s: %v", customerID, err)
+		return nil, fmt.Errorf("failed to ensure customer exists: %w", err)
+	}
+
 	// Get or create customer's Stripe customer ID
-	var stripeCustomerID string
+	var stripeCustomerID sql.NullString
 	err = tx.QueryRowContext(ctx, "SELECT stripe_customer_id FROM customers WHERE id = ?", customerID).Scan(&stripeCustomerID)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("customer not found: %w", err)
+		log.Printf("ERROR: Failed to get customer Stripe ID for subscription creation %s: %v", customerID, err)
+		return nil, fmt.Errorf("failed to get customer stripe ID: %w", err)
+	}
+
+	// If stripe_customer_id is NULL, we need to create a Stripe customer
+	if !stripeCustomerID.Valid || stripeCustomerID.String == "" {
+		log.Printf("INFO: Creating Stripe customer for subscription creation %s", customerID)
+
+		// Get user profile from auth-service to create Stripe customer
+		userProfile, err := s.getUserProfileFromAuthService(ctx, customerID)
+		if err != nil {
+			log.Printf("ERROR: Failed to get user profile for subscription creation %s: %v", customerID, err)
+			return nil, fmt.Errorf("failed to get user profile: %w", err)
 		}
-		// If stripe_customer_id is NULL, we need to create a Stripe customer
-		if stripeCustomerID == "" {
-			// Get user profile from auth-service to create Stripe customer
-			userProfile, err := s.getUserProfileFromAuthService(ctx, customerID)
-			if err != nil {
-				return nil, fmt.Errorf("failed to get user profile: %w", err)
-			}
 
-			// Create Stripe customer
-			stripeCustomer, err := s.stripeClient.CreateCustomer(userProfile.Email, userProfile.Name, customerID)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create stripe customer: %w", err)
-			}
-
-			// Update customer record with Stripe customer ID
-			_, err = tx.ExecContext(ctx, "UPDATE customers SET stripe_customer_id = ? WHERE id = ?", stripeCustomer.ID, customerID)
-			if err != nil {
-				return nil, fmt.Errorf("failed to update customer with stripe ID: %w", err)
-			}
-
-			stripeCustomerID = stripeCustomer.ID
-		} else {
-			return nil, fmt.Errorf("failed to get customer stripe ID: %w", err)
+		// Create Stripe customer
+		stripeCustomer, err := s.stripeClient.CreateCustomer(userProfile.Email, userProfile.Name, customerID)
+		if err != nil {
+			log.Printf("ERROR: Failed to create Stripe customer for subscription creation %s: %v", customerID, err)
+			return nil, fmt.Errorf("failed to create stripe customer: %w", err)
 		}
+
+		// Update customer record with Stripe customer ID
+		_, err = tx.ExecContext(ctx, "UPDATE customers SET stripe_customer_id = ? WHERE id = ?", stripeCustomer.ID, customerID)
+		if err != nil {
+			log.Printf("ERROR: Failed to update customer with Stripe ID for subscription creation %s: %v", customerID, err)
+			return nil, fmt.Errorf("failed to update customer with stripe ID: %w", err)
+		}
+
+		stripeCustomerID.String = stripeCustomer.ID
+		stripeCustomerID.Valid = true
+		log.Printf("INFO: Successfully created Stripe customer %s for subscription creation %s", stripeCustomerID, customerID)
 	}
 
 	// Create subscription in Stripe
-	stripeSubscription, err := s.stripeClient.CreateSubscription(stripeCustomerID, req.PlanType, req.BillingCycle, req.StripePaymentMethodID)
+	stripeSubscription, err := s.stripeClient.CreateSubscription(stripeCustomerID.String, req.PlanType, req.BillingCycle, req.StripePaymentMethodID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create stripe subscription: %w", err)
 	}
@@ -310,14 +323,18 @@ func (s *CustomerService) UpdateSubscription(ctx context.Context, customerID str
 	}
 
 	// Get subscription's Stripe ID
-	var stripeSubscriptionID string
+	var stripeSubscriptionID sql.NullString
 	err = s.db.QueryRowContext(ctx, "SELECT stripe_subscription_id FROM subscriptions WHERE id = ?", subscription.ID).Scan(&stripeSubscriptionID)
 	if err != nil {
 		return fmt.Errorf("failed to get subscription stripe ID: %w", err)
 	}
 
+	if !stripeSubscriptionID.Valid || stripeSubscriptionID.String == "" {
+		return fmt.Errorf("subscription does not have a valid Stripe ID")
+	}
+
 	// Update subscription in Stripe
-	_, err = s.stripeClient.UpdateSubscription(stripeSubscriptionID, req.PlanType, req.BillingCycle)
+	_, err = s.stripeClient.UpdateSubscription(stripeSubscriptionID.String, req.PlanType, req.BillingCycle)
 	if err != nil {
 		return fmt.Errorf("failed to update stripe subscription: %w", err)
 	}
@@ -342,14 +359,18 @@ func (s *CustomerService) CancelSubscription(ctx context.Context, customerID str
 	}
 
 	// Get subscription's Stripe ID
-	var stripeSubscriptionID string
+	var stripeSubscriptionID sql.NullString
 	err = s.db.QueryRowContext(ctx, "SELECT stripe_subscription_id FROM subscriptions WHERE id = ?", subscription.ID).Scan(&stripeSubscriptionID)
 	if err != nil {
 		return fmt.Errorf("failed to get subscription stripe ID: %w", err)
 	}
 
+	if !stripeSubscriptionID.Valid || stripeSubscriptionID.String == "" {
+		return fmt.Errorf("subscription does not have a valid Stripe ID")
+	}
+
 	// Cancel subscription in Stripe
-	_, err = s.stripeClient.CancelSubscription(stripeSubscriptionID)
+	_, err = s.stripeClient.CancelSubscription(stripeSubscriptionID.String)
 	if err != nil {
 		return fmt.Errorf("failed to cancel stripe subscription: %w", err)
 	}
@@ -383,14 +404,18 @@ func (s *CustomerService) ReactivateSubscription(ctx context.Context, customerID
 	}
 
 	// Get subscription's Stripe ID
-	var stripeSubscriptionID string
+	var stripeSubscriptionID sql.NullString
 	err = s.db.QueryRowContext(ctx, "SELECT stripe_subscription_id FROM subscriptions WHERE id = ?", subscription.ID).Scan(&stripeSubscriptionID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get subscription stripe ID: %w", err)
 	}
 
+	if !stripeSubscriptionID.Valid || stripeSubscriptionID.String == "" {
+		return nil, fmt.Errorf("subscription does not have a valid Stripe ID")
+	}
+
 	// Reactivate subscription in Stripe
-	_, err = s.stripeClient.ReactivateSubscription(stripeSubscriptionID)
+	_, err = s.stripeClient.ReactivateSubscription(stripeSubscriptionID.String)
 	if err != nil {
 		return nil, fmt.Errorf("failed to reactivate stripe subscription: %w", err)
 	}
@@ -445,45 +470,49 @@ func (s *CustomerService) AddPaymentMethod(ctx context.Context, customerID, stri
 	}
 	defer tx.Rollback()
 
+	// Ensure customer exists first
+	_, err = s.ensureCustomerExists(ctx, customerID)
+	if err != nil {
+		log.Printf("ERROR: Failed to ensure customer exists for payment method addition %s: %v", customerID, err)
+		return fmt.Errorf("failed to ensure customer exists: %w", err)
+	}
+
 	// Get or create customer's Stripe customer ID
-	var stripeCustomerID string
+	var stripeCustomerID sql.NullString
 	err = tx.QueryRowContext(ctx, "SELECT stripe_customer_id FROM customers WHERE id = ?", customerID).Scan(&stripeCustomerID)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			log.Printf("ERROR: Customer not found for payment method addition: %s", customerID)
-			return fmt.Errorf("customer not found: %w", err)
+		log.Printf("ERROR: Failed to get customer Stripe ID for payment method addition %s: %v", customerID, err)
+		return fmt.Errorf("failed to get customer stripe ID: %w", err)
+	}
+
+	// If stripe_customer_id is NULL, we need to create a Stripe customer
+	if !stripeCustomerID.Valid || stripeCustomerID.String == "" {
+		log.Printf("INFO: Creating Stripe customer for payment method addition %s", customerID)
+
+		// Get user profile from auth-service to create Stripe customer
+		userProfile, err := s.getUserProfileFromAuthService(ctx, customerID)
+		if err != nil {
+			log.Printf("ERROR: Failed to get user profile for payment method addition %s: %v", customerID, err)
+			return fmt.Errorf("failed to get user profile: %w", err)
 		}
-		// If stripe_customer_id is NULL, we need to create a Stripe customer
-		if stripeCustomerID == "" {
-			log.Printf("INFO: Creating Stripe customer for customer %s", customerID)
 
-			// Get user profile from auth-service to create Stripe customer
-			userProfile, err := s.getUserProfileFromAuthService(ctx, customerID)
-			if err != nil {
-				log.Printf("ERROR: Failed to get user profile for customer %s: %v", customerID, err)
-				return fmt.Errorf("failed to get user profile: %w", err)
-			}
-
-			// Create Stripe customer
-			stripeCustomer, err := s.stripeClient.CreateCustomer(userProfile.Email, userProfile.Name, customerID)
-			if err != nil {
-				log.Printf("ERROR: Failed to create Stripe customer for customer %s: %v", customerID, err)
-				return fmt.Errorf("failed to create stripe customer: %w", err)
-			}
-
-			// Update customer record with Stripe customer ID
-			_, err = tx.ExecContext(ctx, "UPDATE customers SET stripe_customer_id = ? WHERE id = ?", stripeCustomer.ID, customerID)
-			if err != nil {
-				log.Printf("ERROR: Failed to update customer with Stripe ID for customer %s: %v", customerID, err)
-				return fmt.Errorf("failed to update customer with stripe ID: %w", err)
-			}
-
-			stripeCustomerID = stripeCustomer.ID
-			log.Printf("INFO: Successfully created Stripe customer %s for customer %s", stripeCustomerID, customerID)
-		} else {
-			log.Printf("ERROR: Failed to get customer Stripe ID for customer %s: %v", customerID, err)
-			return fmt.Errorf("failed to get customer stripe ID: %w", err)
+		// Create Stripe customer
+		stripeCustomer, err := s.stripeClient.CreateCustomer(userProfile.Email, userProfile.Name, customerID)
+		if err != nil {
+			log.Printf("ERROR: Failed to create Stripe customer for payment method addition %s: %v", customerID, err)
+			return fmt.Errorf("failed to create stripe customer: %w", err)
 		}
+
+		// Update customer record with Stripe customer ID
+		_, err = tx.ExecContext(ctx, "UPDATE customers SET stripe_customer_id = ? WHERE id = ?", stripeCustomer.ID, customerID)
+		if err != nil {
+			log.Printf("ERROR: Failed to update customer with Stripe ID for payment method addition %s: %v", customerID, err)
+			return fmt.Errorf("failed to update customer with stripe ID: %w", err)
+		}
+
+		stripeCustomerID.String = stripeCustomer.ID
+		stripeCustomerID.Valid = true
+		log.Printf("INFO: Successfully created Stripe customer %s for payment method addition %s", stripeCustomerID.String, customerID)
 	}
 
 	// Get payment method details from Stripe
@@ -494,7 +523,7 @@ func (s *CustomerService) AddPaymentMethod(ctx context.Context, customerID, stri
 	}
 
 	// Attach payment method to customer in Stripe
-	_, err = s.stripeClient.AttachPaymentMethod(stripePaymentMethodID, stripeCustomerID)
+	_, err = s.stripeClient.AttachPaymentMethod(stripePaymentMethodID, stripeCustomerID.String)
 	if err != nil {
 		log.Printf("ERROR: Failed to attach payment method to Stripe for customer %s: %v", customerID, err)
 		return fmt.Errorf("failed to attach payment method: %w", err)
@@ -502,7 +531,7 @@ func (s *CustomerService) AddPaymentMethod(ctx context.Context, customerID, stri
 
 	// Set as default if requested
 	if isDefault {
-		err = s.stripeClient.SetDefaultPaymentMethod(stripeCustomerID, stripePaymentMethodID)
+		err = s.stripeClient.SetDefaultPaymentMethod(stripeCustomerID.String, stripePaymentMethodID)
 		if err != nil {
 			log.Printf("ERROR: Failed to set default payment method in Stripe for customer %s: %v", customerID, err)
 			return fmt.Errorf("failed to set default payment method: %w", err)
@@ -513,7 +542,7 @@ func (s *CustomerService) AddPaymentMethod(ctx context.Context, customerID, stri
 	_, err = tx.ExecContext(ctx,
 		`INSERT INTO payment_methods (customer_id, stripe_payment_method_id, stripe_customer_id, last_four, brand, exp_month, exp_year, is_default)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		customerID, stripePaymentMethodID, stripeCustomerID, paymentMethod.Card.Last4,
+		customerID, stripePaymentMethodID, stripeCustomerID.String, paymentMethod.Card.Last4,
 		paymentMethod.Card.Brand, paymentMethod.Card.ExpMonth, paymentMethod.Card.ExpYear, isDefault)
 	if err != nil {
 		log.Printf("ERROR: Failed to insert payment method into database for customer %s: %v", customerID, err)
@@ -539,37 +568,49 @@ func (s *CustomerService) UpdatePaymentMethod(ctx context.Context, customerID, p
 	}
 	defer tx.Rollback()
 
+	// Ensure customer exists first
+	_, err = s.ensureCustomerExists(ctx, customerID)
+	if err != nil {
+		log.Printf("ERROR: Failed to ensure customer exists for payment method update %s: %v", customerID, err)
+		return fmt.Errorf("failed to ensure customer exists: %w", err)
+	}
+
 	// Get or create customer's Stripe customer ID
-	var stripeCustomerID string
+	var stripeCustomerID sql.NullString
 	err = tx.QueryRowContext(ctx, "SELECT stripe_customer_id FROM customers WHERE id = ?", customerID).Scan(&stripeCustomerID)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return fmt.Errorf("customer not found: %w", err)
+		log.Printf("ERROR: Failed to get customer Stripe ID for payment method update %s: %v", customerID, err)
+		return fmt.Errorf("failed to get customer stripe ID: %w", err)
+	}
+
+	// If stripe_customer_id is NULL, we need to create a Stripe customer
+	if !stripeCustomerID.Valid || stripeCustomerID.String == "" {
+		log.Printf("INFO: Creating Stripe customer for payment method update %s", customerID)
+
+		// Get user profile from auth-service to create Stripe customer
+		userProfile, err := s.getUserProfileFromAuthService(ctx, customerID)
+		if err != nil {
+			log.Printf("ERROR: Failed to get user profile for payment method update %s: %v", customerID, err)
+			return fmt.Errorf("failed to get user profile: %w", err)
 		}
-		// If stripe_customer_id is NULL, we need to create a Stripe customer
-		if stripeCustomerID == "" {
-			// Get user profile from auth-service to create Stripe customer
-			userProfile, err := s.getUserProfileFromAuthService(ctx, customerID)
-			if err != nil {
-				return fmt.Errorf("failed to get user profile: %w", err)
-			}
 
-			// Create Stripe customer
-			stripeCustomer, err := s.stripeClient.CreateCustomer(userProfile.Email, userProfile.Name, customerID)
-			if err != nil {
-				return fmt.Errorf("failed to create stripe customer: %w", err)
-			}
-
-			// Update customer record with Stripe customer ID
-			_, err = tx.ExecContext(ctx, "UPDATE customers SET stripe_customer_id = ? WHERE id = ?", stripeCustomer.ID, customerID)
-			if err != nil {
-				return fmt.Errorf("failed to update customer with stripe ID: %w", err)
-			}
-
-			stripeCustomerID = stripeCustomer.ID
-		} else {
-			return fmt.Errorf("failed to get customer stripe ID: %w", err)
+		// Create Stripe customer
+		stripeCustomer, err := s.stripeClient.CreateCustomer(userProfile.Email, userProfile.Name, customerID)
+		if err != nil {
+			log.Printf("ERROR: Failed to create Stripe customer for payment method update %s: %v", customerID, err)
+			return fmt.Errorf("failed to create stripe customer: %w", err)
 		}
+
+		// Update customer record with Stripe customer ID
+		_, err = tx.ExecContext(ctx, "UPDATE customers SET stripe_customer_id = ? WHERE id = ?", stripeCustomer.ID, customerID)
+		if err != nil {
+			log.Printf("ERROR: Failed to update customer with Stripe ID for payment method update %s: %v", customerID, err)
+			return fmt.Errorf("failed to update customer with stripe ID: %w", err)
+		}
+
+		stripeCustomerID.String = stripeCustomer.ID
+		stripeCustomerID.Valid = true
+		log.Printf("INFO: Successfully created Stripe customer %s for payment method update %s", stripeCustomerID.String, customerID)
 	}
 
 	// Get payment method's Stripe ID
@@ -582,7 +623,7 @@ func (s *CustomerService) UpdatePaymentMethod(ctx context.Context, customerID, p
 
 	// Set as default if requested
 	if isDefault {
-		err = s.stripeClient.SetDefaultPaymentMethod(stripeCustomerID, stripePaymentMethodID)
+		err = s.stripeClient.SetDefaultPaymentMethod(stripeCustomerID.String, stripePaymentMethodID)
 		if err != nil {
 			return fmt.Errorf("failed to set default payment method: %w", err)
 		}
@@ -778,6 +819,64 @@ func (s *CustomerService) HandlePaymentMethodDetached(ctx context.Context, payme
 }
 
 // Helper methods
+
+// ensureCustomerExists ensures a customer exists in the database, creating one if needed
+func (s *CustomerService) ensureCustomerExists(ctx context.Context, customerID string) (*models.Customer, error) {
+	log.Printf("INFO: Ensuring customer exists: %s", customerID)
+
+	// Start transaction
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		log.Printf("ERROR: Failed to begin transaction for customer creation %s: %v", customerID, err)
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Check if customer was created by another request while we were waiting
+	var createdAt, updatedAt time.Time
+	err = tx.QueryRowContext(ctx,
+		"SELECT created_at, updated_at FROM customers WHERE id = ?",
+		customerID).Scan(&createdAt, &updatedAt)
+	if err == nil {
+		// Customer already exists, commit and return
+		if err := tx.Commit(); err != nil {
+			log.Printf("ERROR: Failed to commit transaction for existing customer %s: %v", customerID, err)
+			return nil, fmt.Errorf("failed to commit transaction: %w", err)
+		}
+		log.Printf("INFO: Customer %s already exists", customerID)
+		return &models.Customer{
+			ID:        customerID,
+			CreatedAt: createdAt,
+			UpdatedAt: updatedAt,
+		}, nil
+	}
+
+	if err != sql.ErrNoRows {
+		log.Printf("ERROR: Failed to check customer existence %s: %v", customerID, err)
+		return nil, fmt.Errorf("failed to check customer existence: %w", err)
+	}
+
+	// Customer doesn't exist, create one
+	if err := s.insertCustomer(ctx, tx, customerID); err != nil {
+		log.Printf("ERROR: Failed to insert customer %s: %v", customerID, err)
+		return nil, fmt.Errorf("failed to insert customer: %w", err)
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		log.Printf("ERROR: Failed to commit transaction for customer creation %s: %v", customerID, err)
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	log.Printf("INFO: Successfully created customer %s", customerID)
+
+	// Return the newly created customer
+	return &models.Customer{
+		ID:        customerID,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}, nil
+}
 
 // getUserProfileFromAuthService fetches user profile data from auth-service
 func (s *CustomerService) getUserProfileFromAuthService(ctx context.Context, userID string) (*models.UserProfile, error) {
