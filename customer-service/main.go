@@ -22,14 +22,14 @@ func main() {
 	// Database connection
 	db, err := setupDatabase(cfg)
 	if err != nil {
-		log.Fatal("Failed to connect to database:", err)
+		log.Fatalf("ERROR: Failed to connect to database: %v", err)
 	}
 	defer db.Close()
 
 	// Initialize database schema
 	log.Println("Initializing database schema and running migrations...")
 	if err := database.InitializeSchema(db); err != nil {
-		log.Fatal("Failed to initialize database schema:", err)
+		log.Fatalf("ERROR: Failed to initialize database schema: %v", err)
 	}
 
 	// Initialize Stripe client
@@ -42,9 +42,9 @@ func main() {
 	router := setupRouter(service, stripeClient, cfg)
 
 	// Start server
-	log.Printf("Server starting on port %s", cfg.Port)
+	log.Printf("INFO: Server starting on port %s", cfg.Port)
 	if err := router.Run(":" + cfg.Port); err != nil {
-		log.Fatal("Failed to start server:", err)
+		log.Fatalf("ERROR: Failed to start server: %v", err)
 	}
 }
 
@@ -54,11 +54,13 @@ func setupDatabase(cfg *config.Config) (*sql.DB, error) {
 
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
+		log.Printf("ERROR: Failed to open database connection: %v", err)
 		return nil, err
 	}
 
 	// Test connection
 	if err := db.Ping(); err != nil {
+		log.Printf("ERROR: Failed to ping database: %v", err)
 		return nil, err
 	}
 

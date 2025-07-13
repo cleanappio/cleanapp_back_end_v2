@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -35,29 +36,37 @@ func NewCustomerService(db *sql.DB, stripeClient *stripe.Client, authServiceURL 
 // CreateCustomer creates a new customer record for subscription purposes
 // Note: Auth data (name, email) is managed by the auth-service
 func (s *CustomerService) CreateCustomer(ctx context.Context, customerID string, req models.CreateCustomerRequest) (*models.Customer, error) {
+	log.Printf("INFO: Creating customer %s with %d areas", customerID, len(req.AreaIDs))
+
 	// Start transaction
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
+		log.Printf("ERROR: Failed to begin transaction for customer %s: %v", customerID, err)
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback()
 
 	// Insert customer (no name/email - managed by auth-service)
 	if err := s.insertCustomer(ctx, tx, customerID); err != nil {
+		log.Printf("ERROR: Failed to insert customer %s: %v", customerID, err)
 		return nil, fmt.Errorf("failed to insert customer: %w", err)
 	}
 
 	// Insert customer areas
 	for _, areaID := range req.AreaIDs {
 		if err := s.insertCustomerArea(ctx, tx, customerID, areaID); err != nil {
+			log.Printf("ERROR: Failed to insert customer area for customer %s, area %d: %v", customerID, areaID, err)
 			return nil, fmt.Errorf("failed to insert customer area: %w", err)
 		}
 	}
 
 	// Commit transaction
 	if err := tx.Commit(); err != nil {
+		log.Printf("ERROR: Failed to commit transaction for customer %s: %v", customerID, err)
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
+
+	log.Printf("INFO: Customer %s created successfully", customerID)
 
 	// Create customer object
 	customer := &models.Customer{
@@ -71,6 +80,8 @@ func (s *CustomerService) CreateCustomer(ctx context.Context, customerID string,
 
 // GetCustomer retrieves a customer by ID
 func (s *CustomerService) GetCustomer(ctx context.Context, customerID string) (*models.Customer, error) {
+	log.Printf("DEBUG: Getting customer %s", customerID)
+
 	var createdAt, updatedAt time.Time
 
 	err := s.db.QueryRowContext(ctx,
@@ -78,8 +89,10 @@ func (s *CustomerService) GetCustomer(ctx context.Context, customerID string) (*
 		customerID).Scan(&createdAt, &updatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
+			log.Printf("WARNING: Customer not found: %s", customerID)
 			return nil, errors.New("customer not found")
 		}
+		log.Printf("ERROR: Failed to query customer %s: %v", customerID, err)
 		return nil, fmt.Errorf("failed to query customer: %w", err)
 	}
 
@@ -186,15 +199,19 @@ func (s *CustomerService) CustomerExists(ctx context.Context, customerID string)
 
 // CreateSubscription creates a new subscription for a customer
 func (s *CustomerService) CreateSubscription(ctx context.Context, customerID string, req models.CreateSubscriptionRequest) (*models.Subscription, error) {
+	log.Printf("INFO: Creating subscription for customer %s, plan: %s, billing: %s", customerID, req.PlanType, req.BillingCycle)
+
 	// Check if customer already has an active subscription
 	existing, err := s.GetSubscription(ctx, customerID)
 	if err == nil && existing != nil {
+		log.Printf("WARNING: Customer %s already has an active subscription", customerID)
 		return nil, errors.New("customer already has an active subscription")
 	}
 
 	// Start transaction
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
+		log.Printf("ERROR: Failed to begin transaction for subscription creation for customer %s: %v", customerID, err)
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback()
@@ -262,6 +279,8 @@ func (s *CustomerService) CreateSubscription(ctx context.Context, customerID str
 
 // GetSubscription retrieves the customer's current subscription
 func (s *CustomerService) GetSubscription(ctx context.Context, customerID string) (*models.Subscription, error) {
+	log.Printf("DEBUG: Getting subscription for customer %s", customerID)
+
 	var subscription models.Subscription
 	err := s.db.QueryRowContext(ctx,
 		`SELECT id, customer_id, plan_type, billing_cycle, status, start_date, next_billing_date 
@@ -271,11 +290,14 @@ func (s *CustomerService) GetSubscription(ctx context.Context, customerID string
 
 	if err != nil {
 		if err == sql.ErrNoRows {
+			log.Printf("WARNING: No active subscription found for customer %s", customerID)
 			return nil, errors.New("no active subscription found")
 		}
+		log.Printf("ERROR: Failed to query subscription for customer %s: %v", customerID, err)
 		return nil, fmt.Errorf("failed to query subscription: %w", err)
 	}
 
+	log.Printf("DEBUG: Found subscription %d for customer %s", subscription.ID, customerID)
 	return &subscription, nil
 }
 
@@ -413,9 +435,12 @@ func (s *CustomerService) GetPaymentMethods(ctx context.Context, customerID stri
 
 // AddPaymentMethod adds a new payment method
 func (s *CustomerService) AddPaymentMethod(ctx context.Context, customerID, stripePaymentMethodID string, isDefault bool) error {
+	log.Printf("INFO: Adding payment method for customer %s, isDefault: %t", customerID, isDefault)
+
 	// Start transaction
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
+		log.Printf("ERROR: Failed to begin transaction for payment method addition for customer %s: %v", customerID, err)
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback()
@@ -425,30 +450,38 @@ func (s *CustomerService) AddPaymentMethod(ctx context.Context, customerID, stri
 	err = tx.QueryRowContext(ctx, "SELECT stripe_customer_id FROM customers WHERE id = ?", customerID).Scan(&stripeCustomerID)
 	if err != nil {
 		if err == sql.ErrNoRows {
+			log.Printf("ERROR: Customer not found for payment method addition: %s", customerID)
 			return fmt.Errorf("customer not found: %w", err)
 		}
 		// If stripe_customer_id is NULL, we need to create a Stripe customer
 		if stripeCustomerID == "" {
+			log.Printf("INFO: Creating Stripe customer for customer %s", customerID)
+
 			// Get user profile from auth-service to create Stripe customer
 			userProfile, err := s.getUserProfileFromAuthService(ctx, customerID)
 			if err != nil {
+				log.Printf("ERROR: Failed to get user profile for customer %s: %v", customerID, err)
 				return fmt.Errorf("failed to get user profile: %w", err)
 			}
 
 			// Create Stripe customer
 			stripeCustomer, err := s.stripeClient.CreateCustomer(userProfile.Email, userProfile.Name, customerID)
 			if err != nil {
+				log.Printf("ERROR: Failed to create Stripe customer for customer %s: %v", customerID, err)
 				return fmt.Errorf("failed to create stripe customer: %w", err)
 			}
 
 			// Update customer record with Stripe customer ID
 			_, err = tx.ExecContext(ctx, "UPDATE customers SET stripe_customer_id = ? WHERE id = ?", stripeCustomer.ID, customerID)
 			if err != nil {
+				log.Printf("ERROR: Failed to update customer with Stripe ID for customer %s: %v", customerID, err)
 				return fmt.Errorf("failed to update customer with stripe ID: %w", err)
 			}
 
 			stripeCustomerID = stripeCustomer.ID
+			log.Printf("INFO: Successfully created Stripe customer %s for customer %s", stripeCustomerID, customerID)
 		} else {
+			log.Printf("ERROR: Failed to get customer Stripe ID for customer %s: %v", customerID, err)
 			return fmt.Errorf("failed to get customer stripe ID: %w", err)
 		}
 	}
@@ -456,12 +489,14 @@ func (s *CustomerService) AddPaymentMethod(ctx context.Context, customerID, stri
 	// Get payment method details from Stripe
 	paymentMethod, err := s.stripeClient.GetPaymentMethod(stripePaymentMethodID)
 	if err != nil {
+		log.Printf("ERROR: Failed to get payment method from Stripe for customer %s: %v", customerID, err)
 		return fmt.Errorf("failed to get payment method from stripe: %w", err)
 	}
 
 	// Attach payment method to customer in Stripe
 	_, err = s.stripeClient.AttachPaymentMethod(stripePaymentMethodID, stripeCustomerID)
 	if err != nil {
+		log.Printf("ERROR: Failed to attach payment method to Stripe for customer %s: %v", customerID, err)
 		return fmt.Errorf("failed to attach payment method: %w", err)
 	}
 
@@ -469,6 +504,7 @@ func (s *CustomerService) AddPaymentMethod(ctx context.Context, customerID, stri
 	if isDefault {
 		err = s.stripeClient.SetDefaultPaymentMethod(stripeCustomerID, stripePaymentMethodID)
 		if err != nil {
+			log.Printf("ERROR: Failed to set default payment method in Stripe for customer %s: %v", customerID, err)
 			return fmt.Errorf("failed to set default payment method: %w", err)
 		}
 	}
@@ -480,14 +516,17 @@ func (s *CustomerService) AddPaymentMethod(ctx context.Context, customerID, stri
 		customerID, stripePaymentMethodID, stripeCustomerID, paymentMethod.Card.Last4,
 		paymentMethod.Card.Brand, paymentMethod.Card.ExpMonth, paymentMethod.Card.ExpYear, isDefault)
 	if err != nil {
+		log.Printf("ERROR: Failed to insert payment method into database for customer %s: %v", customerID, err)
 		return fmt.Errorf("failed to insert payment method: %w", err)
 	}
 
 	// Commit transaction
 	if err := tx.Commit(); err != nil {
+		log.Printf("ERROR: Failed to commit transaction for payment method addition for customer %s: %v", customerID, err)
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
+	log.Printf("INFO: Successfully added payment method for customer %s", customerID)
 	return nil
 }
 
@@ -742,28 +781,35 @@ func (s *CustomerService) HandlePaymentMethodDetached(ctx context.Context, payme
 
 // getUserProfileFromAuthService fetches user profile data from auth-service
 func (s *CustomerService) getUserProfileFromAuthService(ctx context.Context, userID string) (*models.UserProfile, error) {
+	log.Printf("DEBUG: Fetching user profile from auth-service for user %s", userID)
+
 	url := fmt.Sprintf("%s/api/v3/users/%s", s.authServiceURL, userID)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
+		log.Printf("ERROR: Failed to create request to auth-service for user %s: %v", userID, err)
 		return nil, fmt.Errorf("failed to create request to auth-service: %w", err)
 	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
+		log.Printf("ERROR: Failed to call auth-service for user %s: %v", userID, err)
 		return nil, fmt.Errorf("failed to call auth-service: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		log.Printf("ERROR: Auth-service returned status %d for user %s", resp.StatusCode, userID)
 		return nil, fmt.Errorf("auth-service returned status %d", resp.StatusCode)
 	}
 
 	var profile models.UserProfile
 	if err := json.NewDecoder(resp.Body).Decode(&profile); err != nil {
+		log.Printf("ERROR: Failed to decode user profile for user %s: %v", userID, err)
 		return nil, fmt.Errorf("failed to decode user profile: %w", err)
 	}
 
+	log.Printf("DEBUG: Successfully fetched user profile for user %s", userID)
 	return &profile, nil
 }
 

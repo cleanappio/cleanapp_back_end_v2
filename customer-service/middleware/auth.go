@@ -5,6 +5,7 @@ import (
 	"customer-service/config"
 	"customer-service/database"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 
@@ -16,6 +17,7 @@ func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
+			log.Printf("WARNING: Missing authorization header from %s", c.ClientIP())
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "missing authorization header"})
 			c.Abort()
 			return
@@ -23,19 +25,31 @@ func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 
 		tokenString := extractToken(authHeader)
 		if tokenString == "" {
+			log.Printf("WARNING: Invalid authorization format from %s", c.ClientIP())
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid authorization format"})
 			c.Abort()
 			return
 		}
 
+		log.Printf("DEBUG: Validating token from %s", c.ClientIP())
+
 		// Call auth-service to validate token
 		valid, customerID, err := validateTokenWithAuthService(tokenString, cfg.AuthServiceURL)
-		if err != nil || !valid {
+		if err != nil {
+			log.Printf("ERROR: Failed to validate token with auth-service from %s: %v", c.ClientIP(), err)
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
 			c.Abort()
 			return
 		}
 
+		if !valid {
+			log.Printf("WARNING: Invalid token from %s", c.ClientIP())
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
+			c.Abort()
+			return
+		}
+
+		log.Printf("DEBUG: Token validated successfully for customer %s from %s", customerID, c.ClientIP())
 		c.Set("customer_id", customerID)
 		c.Set("token", tokenString)
 		c.Next()
@@ -55,11 +69,16 @@ func validateTokenWithAuthService(token string, authServiceURL string) (bool, st
 	payload := map[string]string{"token": token}
 	body, _ := json.Marshal(payload)
 
+	log.Printf("DEBUG: Calling auth-service to validate token: %s", url)
+
 	resp, err := http.Post(url, "application/json", bytes.NewBuffer(body))
 	if err != nil {
+		log.Printf("ERROR: Failed to call auth-service for token validation: %v", err)
 		return false, "", err
 	}
 	defer resp.Body.Close()
+
+	log.Printf("DEBUG: Auth-service token validation response: %d", resp.StatusCode)
 
 	var result struct {
 		Valid      bool   `json:"valid"`
@@ -68,6 +87,7 @@ func validateTokenWithAuthService(token string, authServiceURL string) (bool, st
 		Error      string `json:"error"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		log.Printf("ERROR: Failed to decode auth-service response: %v", err)
 		return false, "", err
 	}
 
@@ -77,6 +97,7 @@ func validateTokenWithAuthService(token string, authServiceURL string) (bool, st
 		id = result.UserID
 	}
 
+	log.Printf("DEBUG: Token validation result - Valid: %t, ID: %s", result.Valid, id)
 	return result.Valid, id, nil
 }
 
