@@ -142,6 +142,11 @@ CREATE TABLE IF NOT EXISTS area_index(
   geom GEOMETRY NOT NULL SRID 4326,
   SPATIAL INDEX(geom)
 );
+
+CREATE TABLE IF NOT EXISTS sent_emails (
+  seq INT PRIMARY KEY
+);
+
 -- Migration Statement:
 -- SELECT CONCAT('INSERT INTO area_index (area_id, geom) VALUES(', area_id, ',', ST_AsText(geom), ');') AS insert_statement FROM area_index;
 

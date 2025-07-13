@@ -1,0 +1,3 @@
+CREATE TABLE IF NOT EXISTS sent_emails (
+  seq INT PRIMARY KEY
+);
