@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"montenegro-areas/middleware"
 	"montenegro-areas/models"
 	"montenegro-areas/services"
 )
@@ -38,6 +39,9 @@ func (h *AreasHandler) HealthHandler(w http.ResponseWriter, r *http.Request) {
 
 // AreasByAdminLevelHandler handles requests for areas by admin level
 func (h *AreasHandler) AreasByAdminLevelHandler(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserIDFromContext(r)
+	log.Printf("INFO: AreasByAdminLevel request from user %s", userID)
+
 	// Get admin_level from query parameter
 	adminLevelStr := r.URL.Query().Get("admin_level")
 	if adminLevelStr == "" {
@@ -74,6 +78,9 @@ func (h *AreasHandler) AreasByAdminLevelHandler(w http.ResponseWriter, r *http.R
 
 // AvailableAdminLevelsHandler handles requests for available admin levels
 func (h *AreasHandler) AvailableAdminLevelsHandler(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserIDFromContext(r)
+	log.Printf("INFO: AvailableAdminLevels request from user %s", userID)
+
 	levels, err := h.areasService.GetAvailableAdminLevels()
 	if err != nil {
 		log.Printf("Error getting available admin levels: %v", err)
@@ -93,6 +100,9 @@ func (h *AreasHandler) AvailableAdminLevelsHandler(w http.ResponseWriter, r *htt
 
 // ReportsHandler handles requests for reports within a MontenegroArea
 func (h *AreasHandler) ReportsHandler(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserIDFromContext(r)
+	log.Printf("INFO: Reports request from user %s", userID)
+
 	// Get query parameters
 	osmIDStr := r.URL.Query().Get("osm_id")
 	nStr := r.URL.Query().Get("n")
@@ -147,6 +157,9 @@ func (h *AreasHandler) ReportsHandler(w http.ResponseWriter, r *http.Request) {
 
 // ReportsAggrHandler handles requests for aggregated reports data for admin level 6 areas
 func (h *AreasHandler) ReportsAggrHandler(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserIDFromContext(r)
+	log.Printf("INFO: ReportsAggr request from user %s", userID)
+
 	// Get aggregated reports data for all areas of admin level 6
 	areasData, err := h.databaseService.GetReportsAggregatedData()
 	if err != nil {

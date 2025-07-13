@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"montenegro-areas/middleware"
 	"montenegro-areas/models"
 	ws "montenegro-areas/websocket"
 
@@ -37,6 +38,9 @@ var upgrader = gorilla.Upgrader{
 
 // ListenMontenegroReports handles WebSocket connections for listening to reports in Montenegro
 func (h *WebSocketHandler) ListenMontenegroReports(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserIDFromContext(r)
+	log.Printf("INFO: WebSocket connection request from user %s", userID)
+
 	// Upgrade the HTTP connection to a WebSocket connection
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -54,11 +58,14 @@ func (h *WebSocketHandler) ListenMontenegroReports(w http.ResponseWriter, r *htt
 	go client.WritePump()
 	go client.ReadPump()
 
-	log.Printf("WebSocket connection established for Montenegro reports")
+	log.Printf("WebSocket connection established for Montenegro reports for user %s", userID)
 }
 
 // HealthCheck returns the service health status with WebSocket statistics
 func (h *WebSocketHandler) HealthCheck(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserIDFromContext(r)
+	log.Printf("INFO: WebSocket health check request from user %s", userID)
+
 	connectedClients, lastBroadcastSeq := h.hub.GetStats()
 
 	response := models.HealthResponse{

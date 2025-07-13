@@ -1,21 +1,34 @@
 # Montenegro Areas Microservice
 
-A Go microservice for handling Montenegro area data.
+A Go microservice for handling Montenegro area data with bearer token authentication.
 
 ## Features
 
+- Bearer token authentication via auth-service
 - Health check endpoint (`/health`)
 - GeoJSON data loading from OSMB file
 - Areas querying by administrative level
 - Available admin levels endpoint
+- Reports data endpoints
+- WebSocket support for real-time updates
 - JSON API responses
 - Configurable port via environment variable
+
+## Authentication
+
+All endpoints except `/health` require a valid Bearer token in the Authorization header. The service validates tokens by calling the auth-service.
+
+**Example:**
+```bash
+curl -H "Authorization: Bearer your-jwt-token" http://localhost:8080/areas?admin_level=8
+```
 
 ## Running Locally
 
 ### Prerequisites
 
 - Go 1.21 or later
+- Access to auth-service for token validation
 
 ### Setup
 
@@ -29,7 +42,9 @@ A Go microservice for handling Montenegro area data.
    go mod tidy
    ```
 
-3. Run the service:
+3. Set up environment variables (see Environment Variables section below)
+
+4. Run the service:
    ```bash
    make run-dev
    ```
@@ -43,25 +58,44 @@ The service will start on port 8080 by default.
 
 ### Environment Variables
 
-The service uses a `.env` file for configuration. Copy `.env.example` to `.env` and modify as needed:
+The service uses environment variables for configuration. Create a `.env` file or set environment variables directly:
 
-```bash
-cp .env.example .env
-```
+**Required Environment Variables:**
 
-**Available Environment Variables:**
+- `AUTH_SERVICE_URL`: URL of the auth-service for token validation (default: http://auth-service:8080)
+
+**Optional Environment Variables:**
 
 - `PORT`: Port to run the service on (default: 8080)
 - `HOST`: Host to bind the service to (default: 0.0.0.0)
-- `LOG_LEVEL`: Logging level (default: info)
-- `LOG_FORMAT`: Log format (default: json)
-- `GEOJSON_FILE`: Path to the GeoJSON file (default: OSMB-e0b412fe96a2a2c5d8e7eb33454a21d971bea620.geojson)
+- `DB_HOST`: Database host (default: localhost)
+- `DB_PORT`: Database port (default: 3306)
+- `DB_USER`: Database user (default: root)
+- `DB_PASSWORD`: Database password (default: password)
+
+**Example .env file:**
+```bash
+# Server Configuration
+PORT=8080
+HOST=0.0.0.0
+
+# Database Configuration
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=root
+DB_PASSWORD=password
+
+# Auth Service Configuration
+AUTH_SERVICE_URL=http://auth-service:8080
+```
 
 ## API Endpoints
 
-### GET /health
+### Public Endpoints
 
-Returns the health status of the service.
+#### GET /health
+
+Returns the health status of the service. **No authentication required.**
 
 **Response:**
 ```json
@@ -71,9 +105,16 @@ Returns the health status of the service.
 }
 ```
 
-### GET /areas?admin_level={level}
+### Protected Endpoints
+
+All endpoints below require a valid Bearer token in the Authorization header.
+
+#### GET /areas?admin_level={level}
 
 Returns all areas for a given administrative level.
+
+**Headers:**
+- `Authorization: Bearer <jwt-token>` (required)
 
 **Parameters:**
 - `admin_level` (required): The administrative level to query (integer)
@@ -97,9 +138,12 @@ Returns all areas for a given administrative level.
 }
 ```
 
-### GET /admin-levels
+#### GET /admin-levels
 
 Returns all available administrative levels in the dataset.
+
+**Headers:**
+- `Authorization: Bearer <jwt-token>` (required)
 
 **Response:**
 ```json
@@ -109,9 +153,12 @@ Returns all available administrative levels in the dataset.
 }
 ```
 
-### GET /reports?osm_id={id}&n={number}
+#### GET /reports?osm_id={id}&n={number}
 
 Returns the last N reports within a specific Montenegro area.
+
+**Headers:**
+- `Authorization: Bearer <jwt-token>` (required)
 
 **Parameters:**
 - `osm_id` (required): The OSM ID of the area (integer)
@@ -137,9 +184,12 @@ Returns the last N reports within a specific Montenegro area.
 }
 ```
 
-### GET /reports_aggr
+#### GET /reports_aggr
 
 Returns aggregated reports data for all areas of AdminLevel 6.
+
+**Headers:**
+- `Authorization: Bearer <jwt-token>` (required)
 
 **Response:**
 ```json
@@ -168,6 +218,45 @@ Returns aggregated reports data for all areas of AdminLevel 6.
 - `mean_litter_probability`: Mean litter probability (0.0-1.0) for all reports in this area
 - `mean_hazard_probability`: Mean hazard probability (0.0-1.0) for all reports in this area
 
+### WebSocket Endpoints
+
+#### GET /ws/montenegro-reports
+
+WebSocket endpoint for real-time Montenegro reports updates.
+
+**Headers:**
+- `Authorization: Bearer <jwt-token>` (required)
+
+#### GET /ws/health
+
+WebSocket health check endpoint.
+
+**Headers:**
+- `Authorization: Bearer <jwt-token>` (required)
+
+## Error Responses
+
+### Authentication Errors
+
+**401 Unauthorized:**
+```json
+{
+  "error": "missing authorization header"
+}
+```
+
+```json
+{
+  "error": "invalid authorization format"
+}
+```
+
+```json
+{
+  "error": "invalid or expired token"
+}
+```
+
 ## Docker
 
 ### Build the image:
@@ -177,9 +266,11 @@ docker build -t montenegro-areas .
 
 ### Run the container:
 ```bash
-docker run -p 8080:8080 montenegro-areas
+docker run -p 8080:8080 \
+  -e AUTH_SERVICE_URL=http://auth-service:8080 \
+  montenegro-areas
 ```
 
 ## Development
 
-This is a skeleton service that can be extended with additional endpoints for handling Montenegro area data. 
+This service integrates with the auth-service for token validation and provides protected access to Montenegro area data and reports. 

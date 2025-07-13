@@ -3,12 +3,13 @@ package main
 import (
 	"log"
 	"net/http"
-	"os"
 
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
 
+	"montenegro-areas/config"
 	"montenegro-areas/handlers"
+	"montenegro-areas/middleware"
 	"montenegro-areas/services"
 )
 
@@ -17,6 +18,9 @@ func main() {
 	if err := godotenv.Load(); err != nil {
 		log.Printf("Warning: .env file not found, using system environment variables")
 	}
+
+	// Load configuration
+	cfg := config.Load()
 
 	// Initialize areas service
 	areasService := services.NewAreasService()
@@ -56,35 +60,27 @@ func main() {
 	// Add CORS middleware
 	router.Use(corsMiddleware)
 
-	// Health endpoint
+	// Health endpoint (public)
 	router.HandleFunc("/health", areasHandler.HealthHandler).Methods("GET")
 
-	// Areas endpoints
-	router.HandleFunc("/areas", areasHandler.AreasByAdminLevelHandler).Methods("GET")
-	router.HandleFunc("/admin-levels", areasHandler.AvailableAdminLevelsHandler).Methods("GET")
+	// Protected routes - require authentication
+	protectedRouter := router.PathPrefix("/").Subrouter()
+	protectedRouter.Use(middleware.AuthMiddleware(cfg))
 
-	// Reports endpoints
-	router.HandleFunc("/reports", areasHandler.ReportsHandler).Methods("GET")
-	router.HandleFunc("/reports_aggr", areasHandler.ReportsAggrHandler).Methods("GET")
+	// Areas endpoints (protected)
+	protectedRouter.HandleFunc("/areas", areasHandler.AreasByAdminLevelHandler).Methods("GET")
+	protectedRouter.HandleFunc("/admin-levels", areasHandler.AvailableAdminLevelsHandler).Methods("GET")
 
-	// WebSocket endpoints
-	router.HandleFunc("/ws/montenegro-reports", websocketHandler.ListenMontenegroReports).Methods("GET")
-	router.HandleFunc("/ws/health", websocketHandler.HealthCheck).Methods("GET")
+	// Reports endpoints (protected)
+	protectedRouter.HandleFunc("/reports", areasHandler.ReportsHandler).Methods("GET")
+	protectedRouter.HandleFunc("/reports_aggr", areasHandler.ReportsAggrHandler).Methods("GET")
 
-	// Get port from environment variable or default to 8080
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
+	// WebSocket endpoints (protected)
+	protectedRouter.HandleFunc("/ws/montenegro-reports", websocketHandler.ListenMontenegroReports).Methods("GET")
+	protectedRouter.HandleFunc("/ws/health", websocketHandler.HealthCheck).Methods("GET")
 
-	// Get host from environment variable or default to 0.0.0.0
-	host := os.Getenv("HOST")
-	if host == "" {
-		host = "0.0.0.0"
-	}
-
-	log.Printf("Starting Montenegro Areas service on %s:%s", host, port)
-	log.Fatal(http.ListenAndServe(host+":"+port, router))
+	log.Printf("Starting Montenegro Areas service on %s:%s", cfg.Host, cfg.Port)
+	log.Fatal(http.ListenAndServe(cfg.Host+":"+cfg.Port, router))
 }
 
 // corsMiddleware handles CORS headers

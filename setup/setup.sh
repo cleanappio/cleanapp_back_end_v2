@@ -330,6 +330,7 @@ services:
       - MONTENEGRO_AREAS_DOCKER_IMAGE=OSMB-e0b412fe96a2a2c5d8e7eb33454a21d971bea620.geojson
       - LOG_LEVEL=info
       - LOG_FORMAT=json
+      - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
       - GIN_MODE=${GIN_MODE}
     ports:
       - 9083:8080
