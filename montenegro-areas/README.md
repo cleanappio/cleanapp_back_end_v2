@@ -199,7 +199,7 @@ Returns aggregated reports data for all areas of AdminLevel 6.
       "osm_id": -18945986,
       "name": "Đenjaši Česminovo",
       "reports_count": 15,
-      "reports_median": 12.5,
+      "reports_mean": 12.5,
       "mean_severity": 0.7,
       "mean_litter_probability": 0.8,
       "mean_hazard_probability": 0.2
@@ -213,7 +213,7 @@ Returns aggregated reports data for all areas of AdminLevel 6.
 - `osm_id`: The OSM ID of the area
 - `name`: The name of the area
 - `reports_count`: Number of reports in this area
-- `reports_median`: Median reports count across all AdminLevel 6 areas
+- `reports_mean`: Mean reports count across all AdminLevel 6 areas
 - `mean_severity`: Mean severity level (0.0-1.0) for all reports in this area
 - `mean_litter_probability`: Mean litter probability (0.0-1.0) for all reports in this area
 - `mean_hazard_probability`: Mean hazard probability (0.0-1.0) for all reports in this area

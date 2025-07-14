@@ -97,7 +97,7 @@ type AreaAggrData struct {
 	OSMID                 int64   `json:"osm_id"`
 	Name                  string  `json:"name"`
 	ReportsCount          int     `json:"reports_count"`
-	ReportsMedian         float64 `json:"reports_median"`
+	ReportsMean           float64 `json:"reports_mean"`
 	MeanSeverity          float64 `json:"mean_severity"`
 	MeanLitterProbability float64 `json:"mean_litter_probability"`
 	MeanHazardProbability float64 `json:"mean_hazard_probability"`

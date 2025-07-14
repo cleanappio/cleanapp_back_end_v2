@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"sort"
 	"time"
 
 	"montenegro-areas/models"
@@ -178,9 +177,10 @@ func (s *DatabaseService) GetReportsAggregatedData() ([]models.AreaAggrData, err
 		return []models.AreaAggrData{}, nil
 	}
 
-	// Calculate median reports count across all areas
+	// Calculate mean reports count across all areas
 	// First, get all report counts for each area
 	var reportCounts []int
+	var totalCount int
 	for _, area := range areas {
 		areaWKT, err := s.wktConverter.ConvertGeoJSONToWKT(area.Area)
 		if err != nil {
@@ -200,22 +200,13 @@ func (s *DatabaseService) GetReportsAggregatedData() ([]models.AreaAggrData, err
 			count = 0
 		}
 		reportCounts = append(reportCounts, count)
+		totalCount += count
 	}
 
-	// Calculate median from the collected counts
-	var medianCount float64
+	// Calculate mean from the collected counts
+	var meanCount float64
 	if len(reportCounts) > 0 {
-		// Sort the counts to find median
-		sort.Ints(reportCounts)
-		if len(reportCounts)%2 == 0 {
-			// Even number of elements, take average of middle two
-			mid := len(reportCounts) / 2
-			medianCount = float64(reportCounts[mid-1]+reportCounts[mid]) / 2.0
-		} else {
-			// Odd number of elements, take middle element
-			mid := len(reportCounts) / 2
-			medianCount = float64(reportCounts[mid])
-		}
+		meanCount = float64(totalCount) / float64(len(reportCounts))
 	}
 
 	// Get aggregated data for each area
@@ -259,7 +250,7 @@ func (s *DatabaseService) GetReportsAggregatedData() ([]models.AreaAggrData, err
 		// Set the area metadata
 		areaData.OSMID = area.OSMID
 		areaData.Name = area.Name
-		areaData.ReportsMedian = medianCount
+		areaData.ReportsMean = meanCount
 
 		areasData = append(areasData, areaData)
 	}
