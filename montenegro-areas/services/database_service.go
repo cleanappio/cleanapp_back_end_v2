@@ -177,10 +177,11 @@ func (s *DatabaseService) GetReportsAggregatedData() ([]models.AreaAggrData, err
 		return []models.AreaAggrData{}, nil
 	}
 
-	// Calculate mean reports count across all areas
+	// Calculate mean and max reports count across all areas
 	// First, get all report counts for each area
 	var reportCounts []int
 	var totalCount int
+	var maxCount int
 	for _, area := range areas {
 		areaWKT, err := s.wktConverter.ConvertGeoJSONToWKT(area.Area)
 		if err != nil {
@@ -201,6 +202,9 @@ func (s *DatabaseService) GetReportsAggregatedData() ([]models.AreaAggrData, err
 		}
 		reportCounts = append(reportCounts, count)
 		totalCount += count
+		if count > maxCount {
+			maxCount = count
+		}
 	}
 
 	// Calculate mean from the collected counts
@@ -251,6 +255,7 @@ func (s *DatabaseService) GetReportsAggregatedData() ([]models.AreaAggrData, err
 		areaData.OSMID = area.OSMID
 		areaData.Name = area.Name
 		areaData.ReportsMean = meanCount
+		areaData.ReportsMax = maxCount
 
 		areasData = append(areasData, areaData)
 	}

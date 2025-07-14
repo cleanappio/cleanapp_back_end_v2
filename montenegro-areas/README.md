@@ -200,6 +200,7 @@ Returns aggregated reports data for all areas of AdminLevel 6.
       "name": "Đenjaši Česminovo",
       "reports_count": 15,
       "reports_mean": 12.5,
+      "reports_max": 25,
       "mean_severity": 0.7,
       "mean_litter_probability": 0.8,
       "mean_hazard_probability": 0.2
@@ -214,6 +215,7 @@ Returns aggregated reports data for all areas of AdminLevel 6.
 - `name`: The name of the area
 - `reports_count`: Number of reports in this area
 - `reports_mean`: Mean reports count across all AdminLevel 6 areas
+- `reports_max`: Maximum reports count across all AdminLevel 6 areas
 - `mean_severity`: Mean severity level (0.0-1.0) for all reports in this area
 - `mean_litter_probability`: Mean litter probability (0.0-1.0) for all reports in this area
 - `mean_hazard_probability`: Mean hazard probability (0.0-1.0) for all reports in this area

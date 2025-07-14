@@ -98,6 +98,7 @@ type AreaAggrData struct {
 	Name                  string  `json:"name"`
 	ReportsCount          int     `json:"reports_count"`
 	ReportsMean           float64 `json:"reports_mean"`
+	ReportsMax            int     `json:"reports_max"`
 	MeanSeverity          float64 `json:"mean_severity"`
 	MeanLitterProbability float64 `json:"mean_litter_probability"`
 	MeanHazardProbability float64 `json:"mean_hazard_probability"`
