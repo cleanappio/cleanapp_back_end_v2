@@ -77,13 +77,14 @@ type ReportAnalysis struct {
 	HazardProbability float64 `json:"hazard_probability"`
 	SeverityLevel     float64 `json:"severity_level"`
 	Summary           string  `json:"summary"`
+	Language          string  `json:"language"`
 	CreatedAt         string  `json:"created_at"`
 }
 
 // ReportWithAnalysis represents a report with its corresponding analysis
 type ReportWithAnalysis struct {
-	Report   ReportData     `json:"report"`
-	Analysis ReportAnalysis `json:"analysis"`
+	Report   ReportData       `json:"report"`
+	Analysis []ReportAnalysis `json:"analysis"`
 }
 
 // ReportsResponse represents the response for reports within a MontenegroArea

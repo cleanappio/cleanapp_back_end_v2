@@ -278,7 +278,7 @@
             
             reports.forEach(reportWithAnalysis => {
                 const report = reportWithAnalysis.report;
-                const analysis = reportWithAnalysis.analysis;
+                const analyses = reportWithAnalysis.analysis;
                 
                 const reportElement = document.createElement('div');
                 reportElement.className = 'report-item';
@@ -315,37 +315,42 @@
                         ` : ''}
                     </div>
                     <div class="analysis-details" style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #dee2e6;">
-                        <h4 style="margin: 0 0 10px 0; color: #007bff;">Analysis Results</h4>
-                        <div class="analysis-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; font-size: 14px;">
-                            <div class="analysis-detail">
-                                <span class="analysis-detail-label" style="font-weight: bold; color: #495057;">Title:</span>
-                                <span class="analysis-detail-value" style="color: #6c757d;">${analysis.title || 'N/A'}</span>
+                        <h4 style="margin: 0 0 10px 0; color: #007bff;">Analysis Results (${analyses.length} language${analyses.length !== 1 ? 's' : ''})</h4>
+                        ${analyses.map(analysis => `
+                            <div class="analysis-section" style="margin-bottom: 15px; padding: 10px; background-color: #f8f9fa; border-radius: 4px; border-left: 3px solid #007bff;">
+                                <h5 style="margin: 0 0 10px 0; color: #007bff;">Language: ${analysis.language || 'Unknown'}</h5>
+                                <div class="analysis-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; font-size: 14px;">
+                                    <div class="analysis-detail">
+                                        <span class="analysis-detail-label" style="font-weight: bold; color: #495057;">Title:</span>
+                                        <span class="analysis-detail-value" style="color: #6c757d;">${analysis.title || 'N/A'}</span>
+                                    </div>
+                                    <div class="analysis-detail">
+                                        <span class="analysis-detail-label" style="font-weight: bold; color: #495057;">Severity Level:</span>
+                                        <span class="analysis-detail-value" style="color: #6c757d;">${analysis.severity_level?.toFixed(2) || 'N/A'}</span>
+                                    </div>
+                                    <div class="analysis-detail">
+                                        <span class="analysis-detail-label" style="font-weight: bold; color: #495057;">Litter Probability:</span>
+                                        <span class="analysis-detail-value" style="color: #6c757d;">${(analysis.litter_probability * 100)?.toFixed(1) || 'N/A'}%</span>
+                                    </div>
+                                    <div class="analysis-detail">
+                                        <span class="analysis-detail-label" style="font-weight: bold; color: #495057;">Hazard Probability:</span>
+                                        <span class="analysis-detail-value" style="color: #6c757d;">${(analysis.hazard_probability * 100)?.toFixed(1) || 'N/A'}%</span>
+                                    </div>
+                                </div>
+                                ${analysis.description ? `
+                                <div class="analysis-description" style="margin-top: 10px;">
+                                    <span class="analysis-detail-label" style="font-weight: bold; color: #495057;">Description:</span>
+                                    <span class="analysis-detail-value" style="color: #6c757d; display: block; margin-top: 5px;">${analysis.description}</span>
+                                </div>
+                                ` : ''}
+                                ${analysis.summary ? `
+                                <div class="analysis-summary" style="margin-top: 10px;">
+                                    <span class="analysis-detail-label" style="font-weight: bold; color: #495057;">Summary:</span>
+                                    <span class="analysis-detail-value" style="color: #6c757d; display: block; margin-top: 5px;">${analysis.summary}</span>
+                                </div>
+                                ` : ''}
                             </div>
-                            <div class="analysis-detail">
-                                <span class="analysis-detail-label" style="font-weight: bold; color: #495057;">Severity Level:</span>
-                                <span class="analysis-detail-value" style="color: #6c757d;">${analysis.severity_level?.toFixed(2) || 'N/A'}</span>
-                            </div>
-                            <div class="analysis-detail">
-                                <span class="analysis-detail-label" style="font-weight: bold; color: #495057;">Litter Probability:</span>
-                                <span class="analysis-detail-value" style="color: #6c757d;">${(analysis.litter_probability * 100)?.toFixed(1) || 'N/A'}%</span>
-                            </div>
-                            <div class="analysis-detail">
-                                <span class="analysis-detail-label" style="font-weight: bold; color: #495057;">Hazard Probability:</span>
-                                <span class="analysis-detail-value" style="color: #6c757d;">${(analysis.hazard_probability * 100)?.toFixed(1) || 'N/A'}%</span>
-                            </div>
-                        </div>
-                        ${analysis.description ? `
-                        <div class="analysis-description" style="margin-top: 10px;">
-                            <span class="analysis-detail-label" style="font-weight: bold; color: #495057;">Description:</span>
-                            <span class="analysis-detail-value" style="color: #6c757d; display: block; margin-top: 5px;">${analysis.description}</span>
-                        </div>
-                        ` : ''}
-                        ${analysis.summary ? `
-                        <div class="analysis-summary" style="margin-top: 10px;">
-                            <span class="analysis-detail-label" style="font-weight: bold; color: #495057;">Summary:</span>
-                            <span class="analysis-detail-value" style="color: #6c757d; display: block; margin-top: 5px;">${analysis.summary}</span>
-                        </div>
-                        ` : ''}
+                        `).join('')}
                     </div>
                 `;
                 

@@ -170,6 +170,25 @@ func main() {
 	}
 
 	fmt.Printf("Analysis response: %s\n", analysisResponse)
+
+	// Step 4: Translate the response to Montenegro language
+	fmt.Println("Step 4: Translating to Montenegro language...")
+	translationResponse, err := callOpenAITranslation(openAIKey, analysisResponse, "Montenegrin")
+	if err != nil {
+		fmt.Printf("Error in translation call: %v\n", err)
+		return
+	}
+
+	fmt.Printf("Translation response: %s\n", translationResponse)
+
+	// Example of using the translation function for other languages
+	fmt.Println("\nExample: Translating to Spanish...")
+	spanishTranslation, err := callOpenAITranslation(openAIKey, "Hello, how are you?", "Spanish")
+	if err != nil {
+		fmt.Printf("Error in Spanish translation: %v\n", err)
+	} else {
+		fmt.Printf("Spanish translation: %s\n", spanishTranslation)
+	}
 }
 
 // callOpenAI makes a call to OpenAI API with the given prompt and image
@@ -195,6 +214,88 @@ func callOpenAI(apiKey, base64Image, prompt string) (string, error) {
 					textPrompt,
 					imagePrompt,
 				},
+			},
+		},
+	}
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", fmt.Errorf("error marshaling JSON: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", openAIEndpoint, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", fmt.Errorf("error creating request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("error sending request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("error reading response body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	var chatResp ChatResponse
+	if err := json.Unmarshal(body, &chatResp); err != nil {
+		return "", fmt.Errorf("error parsing response: %w", err)
+	}
+
+	if len(chatResp.Choices) == 0 {
+		return "", fmt.Errorf("no choices in response")
+	}
+
+	// Extract the text content from the response
+	content := chatResp.Choices[0].Message.Content
+	if contentStr, ok := content.(string); ok {
+		return contentStr, nil
+	}
+
+	// If content is not a string, try to marshal it back to JSON
+	contentJSON, err := json.Marshal(content)
+	if err != nil {
+		return "", fmt.Errorf("error marshaling content: %w", err)
+	}
+
+	return string(contentJSON), nil
+}
+
+// callOpenAITranslation makes a call to OpenAI API for text translation
+// Parameters:
+//   - apiKey: OpenAI API key for authentication
+//   - text: The text to be translated
+//   - targetLanguage: The target language to translate into (e.g., "Spanish", "French", "Montenegrin")
+//
+// Returns:
+//   - The translated text as a string
+//   - An error if the translation fails
+//
+// Example usage:
+//
+//	translatedText, err := callOpenAITranslation(apiKey, "Hello world", "Spanish")
+//	if err != nil {
+//	    log.Printf("Translation error: %v", err)
+//	} else {
+//	    fmt.Printf("Translated: %s", translatedText)
+//	}
+func callOpenAITranslation(apiKey, text, targetLanguage string) (string, error) {
+	translationPrompt := fmt.Sprintf("Please translate the following text to %s:\n\n%s", targetLanguage, text)
+
+	reqBody := ChatRequest{
+		Model: "gpt-4o",
+		Messages: []Message{
+			{
+				Role:    "user",
+				Content: translationPrompt,
 			},
 		},
 	}

@@ -43,18 +43,34 @@ This service now includes a WebSocket endpoint that listens to new reports speci
           "y": 0.3,
           "action_id": "action_123"
         },
-        "analysis": {
-          "seq": 12345,
-          "source": "ai_analysis",
-          "analysis_text": "Detailed analysis text...",
-          "title": "Litter Detection",
-          "description": "Multiple pieces of litter detected",
-          "litter_probability": 0.85,
-          "hazard_probability": 0.12,
-          "severity_level": 3.5,
-          "summary": "Moderate litter detected",
-          "created_at": "2024-01-15T10:30:00Z"
-        }
+        "analysis": [
+          {
+            "seq": 12345,
+            "source": "ai_analysis",
+            "analysis_text": "Detailed analysis text...",
+            "title": "Litter Detection",
+            "description": "Multiple pieces of litter detected",
+            "litter_probability": 0.85,
+            "hazard_probability": 0.12,
+            "severity_level": 3.5,
+            "summary": "Moderate litter detected",
+            "language": "en",
+            "created_at": "2024-01-15T10:30:00Z"
+          },
+          {
+            "seq": 12345,
+            "source": "ai_analysis",
+            "analysis_text": "Texto de análisis detallado...",
+            "title": "Detección de Basura",
+            "description": "Múltiples piezas de basura detectadas",
+            "litter_probability": 0.85,
+            "hazard_probability": 0.12,
+            "severity_level": 3.5,
+            "summary": "Basura moderada detectada",
+            "language": "es",
+            "created_at": "2024-01-15T10:30:00Z"
+          }
+        ]
       }
     ],
     "count": 1,
@@ -92,7 +108,12 @@ ws.onmessage = function(event) {
         console.log('Received reports with analysis:', message.data.reports);
         message.data.reports.forEach(reportWithAnalysis => {
             console.log('Report:', reportWithAnalysis.report);
-            console.log('Analysis:', reportWithAnalysis.analysis);
+            console.log('Analyses:', reportWithAnalysis.analysis);
+            
+            // Handle multiple analyses per report
+            reportWithAnalysis.analysis.forEach(analysis => {
+                console.log(`Analysis in ${analysis.language}:`, analysis);
+            });
         });
     }
 };

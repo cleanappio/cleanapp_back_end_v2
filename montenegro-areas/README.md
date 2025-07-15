@@ -155,7 +155,7 @@ Returns all available administrative levels in the dataset.
 
 #### GET /reports?osm_id={id}&n={number}
 
-Returns the last N reports within a specific Montenegro area.
+Returns the last N reports with analysis within a specific Montenegro area.
 
 **Headers:**
 - `Authorization: Bearer <jwt-token>` (required)
@@ -169,20 +169,65 @@ Returns the last N reports within a specific Montenegro area.
 {
   "reports": [
     {
-      "seq": 123,
-      "timestamp": "2024-01-01T12:00:00Z",
-      "id": "user123",
-      "team": 1,
-      "latitude": 42.2580593,
-      "longitude": 18.8975984,
-      "x": 0.5,
-      "y": 0.3,
-      "action_id": "action123"
+      "report": {
+        "seq": 123,
+        "timestamp": "2024-01-01T12:00:00Z",
+        "id": "user123",
+        "team": 1,
+        "latitude": 42.2580593,
+        "longitude": 18.8975984,
+        "x": 0.5,
+        "y": 0.3,
+        "action_id": "action123"
+      },
+      "analysis": [
+        {
+          "seq": 123,
+          "source": "openai",
+          "analysis_text": "This image shows litter in a public area...",
+          "title": "Litter Analysis",
+          "description": "Multiple pieces of litter detected",
+          "litter_probability": 0.85,
+          "hazard_probability": 0.15,
+          "severity_level": 0.7,
+          "summary": "Moderate litter situation",
+          "language": "en",
+          "created_at": "2024-01-01T12:00:00Z"
+        },
+        {
+          "seq": 123,
+          "source": "openai",
+          "analysis_text": "Esta imagen muestra basura en un área pública...",
+          "title": "Análisis de Basura",
+          "description": "Múltiples piezas de basura detectadas",
+          "litter_probability": 0.85,
+          "hazard_probability": 0.15,
+          "severity_level": 0.7,
+          "summary": "Situación moderada de basura",
+          "language": "es",
+          "created_at": "2024-01-01T12:00:00Z"
+        }
+      ]
     }
   ],
   "count": 1
 }
 ```
+
+**Response Fields:**
+- `report`: The report data including location and metadata
+- `analysis`: Array of analysis results in different languages
+  - `seq`: Report sequence number
+  - `source`: Analysis source (e.g., "openai")
+  - `analysis_text`: Detailed analysis text
+  - `title`: Analysis title
+  - `description`: Analysis description
+  - `litter_probability`: Probability of litter (0.0-1.0)
+  - `hazard_probability`: Probability of hazard (0.0-1.0)
+  - `severity_level`: Severity level (0.0-1.0)
+  - `summary`: Analysis summary
+  - `language`: Language code (e.g., "en", "es", "fr")
+  - `created_at`: Analysis creation timestamp
 
 #### GET /reports_aggr
 
