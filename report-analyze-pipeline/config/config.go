@@ -35,8 +35,8 @@ type Config struct {
 	MaxRetries       int
 	AnalysisPrompt   string
 
-	// Languages to translate to
-	TranslationLanguages []string
+	// Languages to translate to (code -> name mapping)
+	TranslationLanguages map[string]string
 
 	// Logging
 	LogLevel string
@@ -68,7 +68,7 @@ func Load() *Config {
 		AnalysisPrompt:   getEnv("ANALYSIS_PROMPT", "What kind of litter or hazard can you see on this image? Please describe the litter or hazard in detail. Also, give a probability that there is a litter or hazard on a photo and a severity level from 0.0 to 1.0."),
 
 		// Languages to translate to
-		TranslationLanguages: getStringSliceEnv("TRANSLATION_LANGUAGES", "en,me"),
+		TranslationLanguages: getLanguageMapEnv("TRANSLATION_LANGUAGES", "en,me,de"),
 
 		// Logging defaults
 		LogLevel: getEnv("LOG_LEVEL", "info"),
@@ -80,23 +80,23 @@ func Load() *Config {
 	return config
 }
 
-// getStringSliceEnv gets a comma-separated string environment variable and returns it as a string slice
-func getStringSliceEnv(key, defaultValue string) []string {
+// getLanguageMapEnv gets a comma-separated string environment variable and returns it as a language code -> name map
+func getLanguageMapEnv(key, defaultValue string) map[string]string {
 	value := getEnv(key, defaultValue)
 	if value == "" {
-		return []string{}
+		return map[string]string{}
 	}
 
 	codes := strings.Split(value, ",")
-	var languages []string
+	languages := make(map[string]string)
 
 	for _, code := range codes {
 		code = strings.TrimSpace(code)
 		if fullName, exists := languageCodeMap[code]; exists {
-			languages = append(languages, fullName)
+			languages[code] = fullName
 		} else {
-			// If code not found in map, use the code as-is
-			languages = append(languages, code)
+			// If code not found in map, use the code as both key and value
+			languages[code] = code
 		}
 	}
 

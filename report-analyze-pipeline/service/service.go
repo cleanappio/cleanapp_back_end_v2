@@ -141,30 +141,34 @@ Analyze this image and provide a JSON response with the following structure:
 	if err := s.db.SaveAnalysis(analysisResult); err != nil {
 		log.Printf("Failed to save English analysis for report %d: %v", report.Seq, err)
 		return
+	} else {
+		log.Printf("Successfully saved English analysis for report %d", report.Seq)
 	}
 
 	// Asynchronous translations
 	var transWg sync.WaitGroup
-	for _, language := range s.config.TranslationLanguages {
-		if language == "English" || language == "en" {
+	for code, fullName := range s.config.TranslationLanguages {
+		if code == "en" || fullName == "English" {
 			continue // Skip English as we already have it
 		}
 
 		transWg.Add(1)
-		lang := language // capture range variable
+		langCode := code
+		langName := fullName
+		log.Printf("Translating to %s", langName)
 		go func() {
 			defer transWg.Done()
-			// Translate the analysis text
-			translatedText, err := s.openai.TranslateAnalysis(response, lang)
+			// Translate the analysis text using the full language name
+			translatedText, err := s.openai.TranslateAnalysis(response, langName)
 			if err != nil {
-				log.Printf("Failed to translate analysis for report %d to %s: %v", report.Seq, lang, err)
+				log.Printf("Failed to translate analysis for report %d to %s: %v", report.Seq, langName, err)
 				return
 			}
 
 			// Parse the translated response
 			translatedAnalysis, err := parser.ParseAnalysis(translatedText)
 			if err != nil {
-				log.Printf("Failed to parse translated analysis for report %d in %s: %v", report.Seq, lang, err)
+				log.Printf("Failed to parse translated analysis for report %d in %s: %v", report.Seq, langName, err)
 				return
 			}
 
@@ -180,14 +184,14 @@ Analyze this image and provide a JSON response with the following structure:
 				HazardProbability: translatedAnalysis.HazardProbability,
 				SeverityLevel:     translatedAnalysis.SeverityLevel,
 				Summary:           translatedAnalysis.Title + ": " + translatedAnalysis.Description,
-				Language:          lang,
+				Language:          langCode, // Store the language code in the database
 			}
 
 			// Save the translated analysis to the database
 			if err := s.db.SaveAnalysis(translatedResult); err != nil {
-				log.Printf("Failed to save %s analysis for report %d: %v", lang, report.Seq, err)
+				log.Printf("Failed to save %s analysis for report %d: %v", langName, report.Seq, err)
 			} else {
-				log.Printf("Successfully saved %s analysis for report %d", lang, report.Seq)
+				log.Printf("Successfully saved %s analysis for report %d", langName, report.Seq)
 			}
 		}()
 	}

@@ -164,13 +164,15 @@ For each report, the service creates multiple analysis records:
 Each record contains:
 - The same structured data (title, description, probabilities, severity)
 - Translated content appropriate for the target language
-- Language field indicating the analysis language
+- Language field containing the 2-letter language code (e.g., "en", "me", "es")
 - Same report sequence number (seq) for easy querying
 
 Example: If `TRANSLATION_LANGUAGES=en,me,es` is configured, a single report will generate 3 analysis records:
 - One in English (language: "en")
 - One in Montenegrin (language: "me") 
 - One in Spanish (language: "es")
+
+**Note**: The service uses full language names (e.g., "Montenegrin", "Spanish") for OpenAI translation API calls, but stores the 2-letter language codes in the database for efficient querying and storage.
 
 ## Error Handling
 
