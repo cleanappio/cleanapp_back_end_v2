@@ -56,7 +56,7 @@ func (d *Database) GetReportsSince(ctx context.Context, sinceSeq int) ([]models.
 			ra.seq as analysis_seq, ra.source, ra.analysis_text, 
 			ra.title, ra.description,
 			ra.litter_probability, ra.hazard_probability, 
-			ra.severity_level, ra.summary, ra.created_at
+			ra.severity_level, ra.summary, ra.language, ra.created_at
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		WHERE r.seq > ?
@@ -87,6 +87,7 @@ func (d *Database) GetReportsSince(ctx context.Context, sinceSeq int) ([]models.
 			&reportWithAnalysis.Analysis.HazardProbability,
 			&reportWithAnalysis.Analysis.SeverityLevel,
 			&reportWithAnalysis.Analysis.Summary,
+			&reportWithAnalysis.Analysis.Language,
 			&reportWithAnalysis.Analysis.CreatedAt,
 		)
 		if err != nil {
@@ -184,7 +185,7 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int) ([]mo
 			ra.seq as analysis_seq, ra.source, ra.analysis_text,
 			ra.title, ra.description,
 			ra.litter_probability, ra.hazard_probability, 
-			ra.severity_level, ra.summary, ra.created_at
+			ra.severity_level, ra.summary, ra.language, ra.created_at
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		ORDER BY r.seq DESC
@@ -215,6 +216,7 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int) ([]mo
 			&reportWithAnalysis.Analysis.HazardProbability,
 			&reportWithAnalysis.Analysis.SeverityLevel,
 			&reportWithAnalysis.Analysis.Summary,
+			&reportWithAnalysis.Analysis.Language,
 			&reportWithAnalysis.Analysis.CreatedAt,
 		)
 		if err != nil {
@@ -238,7 +240,7 @@ func (d *Database) GetReportBySeq(ctx context.Context, seq int) (*models.ReportW
 			ra.seq as analysis_seq, ra.source, ra.analysis_text, ra.analysis_image, 
 			ra.title, ra.description,
 			ra.litter_probability, ra.hazard_probability, 
-			ra.severity_level, ra.summary, ra.created_at
+			ra.severity_level, ra.summary, ra.language, ra.created_at
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		WHERE r.seq = ?
@@ -262,6 +264,7 @@ func (d *Database) GetReportBySeq(ctx context.Context, seq int) (*models.ReportW
 		&reportWithAnalysis.Analysis.HazardProbability,
 		&reportWithAnalysis.Analysis.SeverityLevel,
 		&reportWithAnalysis.Analysis.Summary,
+		&reportWithAnalysis.Analysis.Language,
 		&reportWithAnalysis.Analysis.CreatedAt,
 	)
 	if err != nil {
@@ -282,7 +285,7 @@ func (d *Database) GetLastNReportsByID(ctx context.Context, reportID string, lim
 			ra.seq as analysis_seq, ra.source, ra.analysis_text, ra.analysis_image, 
 			ra.title, ra.description,
 			ra.litter_probability, ra.hazard_probability, 
-			ra.severity_level, ra.summary, ra.created_at
+			ra.severity_level, ra.summary, ra.language, ra.created_at
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		WHERE r.id = ?
@@ -316,6 +319,7 @@ func (d *Database) GetLastNReportsByID(ctx context.Context, reportID string, lim
 			&reportWithAnalysis.Analysis.HazardProbability,
 			&reportWithAnalysis.Analysis.SeverityLevel,
 			&reportWithAnalysis.Analysis.Summary,
+			&reportWithAnalysis.Analysis.Language,
 			&reportWithAnalysis.Analysis.CreatedAt,
 		)
 		if err != nil {

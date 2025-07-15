@@ -26,6 +26,7 @@ type ReportAnalysis struct {
 	HazardProbability float64   `json:"hazard_probability" db:"hazard_probability"`
 	SeverityLevel     float64   `json:"severity_level" db:"severity_level"`
 	Summary           string    `json:"summary" db:"summary"`
+	Language          string    `json:"language" db:"language"`
 	CreatedAt         time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at" db:"updated_at"`
 }

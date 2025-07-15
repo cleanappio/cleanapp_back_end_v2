@@ -56,6 +56,7 @@ Establishes a WebSocket connection for real-time report updates with analysis.
           "hazard_probability": 0.12,
           "severity_level": 0.7,
           "summary": "Summary of the analysis findings",
+          "language": "en",
           "created_at": "2024-01-01T12:00:01Z",
           "updated_at": "2024-01-01T12:00:01Z"
         }
@@ -118,6 +119,7 @@ Returns the last N analyzed reports. The `n` parameter specifies how many report
         "hazard_probability": 0.12,
         "severity_level": 0.7,
         "summary": "Summary of the analysis findings",
+        "language": "en",
         "created_at": "2024-01-01T12:00:01Z",
         "updated_at": "2024-01-01T12:00:01Z"
       }
@@ -194,14 +196,18 @@ CREATE TABLE report_analysis(
   hazard_probability FLOAT,
   severity_level FLOAT,
   summary TEXT,
+  language VARCHAR(2) NOT NULL DEFAULT 'en',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX seq_index (seq),
-  INDEX source_index (source)
+  INDEX source_index (source),
+  INDEX idx_report_analysis_language (language)
 );
 ```
 
 **Note:** The service only broadcasts reports that have corresponding analysis entries in the `report_analysis` table. The `seq` field in `report_analysis` references the `seq` field in the `reports` table.
+
+**Language Field:** The `language` field in the `report_analysis` table contains 2-letter language codes (e.g., "en", "me", "es") indicating the language of the analysis. This allows for multi-language analysis results where the same report may have analyses in different languages.
 
 ## Running the Service
 
@@ -378,6 +384,7 @@ ws.onmessage = function(event) {
             console.log(`Hazard probability: ${analysis.hazard_probability}`);
             console.log(`Severity level: ${analysis.severity_level}`);
             console.log(`Summary: ${analysis.summary}`);
+            console.log(`Language: ${analysis.language}`);
         });
     }
 };
