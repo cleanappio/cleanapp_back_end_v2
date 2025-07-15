@@ -38,6 +38,13 @@ func main() {
 	}
 	defer db.Close()
 
+	// Run database migrations
+	log.Println("Running database migrations...")
+	if err := database.RunMigrations(db.GetDB()); err != nil {
+		log.Fatalf("Failed to run database migrations: %v", err)
+	}
+	log.Println("Database migrations completed successfully")
+
 	// Initialize service
 	analysisService := service.NewService(cfg, db)
 

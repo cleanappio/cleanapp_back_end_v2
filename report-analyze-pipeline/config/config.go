@@ -3,8 +3,16 @@ package config
 import (
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
+
+// languageCodeMap maps 2-letter language codes to full language names
+var languageCodeMap = map[string]string{
+	"en": "English",
+	"me": "Montenegrin",
+	"de": "German",
+}
 
 // Config holds all configuration for the report analyze pipeline service
 type Config struct {
@@ -26,6 +34,9 @@ type Config struct {
 	AnalysisInterval time.Duration
 	MaxRetries       int
 	AnalysisPrompt   string
+
+	// Languages to translate to
+	TranslationLanguages []string
 
 	// Logging
 	LogLevel string
@@ -56,6 +67,9 @@ func Load() *Config {
 		MaxRetries:       getIntEnv("MAX_RETRIES", 3),
 		AnalysisPrompt:   getEnv("ANALYSIS_PROMPT", "What kind of litter or hazard can you see on this image? Please describe the litter or hazard in detail. Also, give a probability that there is a litter or hazard on a photo and a severity level from 0.0 to 1.0."),
 
+		// Languages to translate to
+		TranslationLanguages: getStringSliceEnv("TRANSLATION_LANGUAGES", "en,me"),
+
 		// Logging defaults
 		LogLevel: getEnv("LOG_LEVEL", "info"),
 
@@ -64,6 +78,29 @@ func Load() *Config {
 	}
 
 	return config
+}
+
+// getStringSliceEnv gets a comma-separated string environment variable and returns it as a string slice
+func getStringSliceEnv(key, defaultValue string) []string {
+	value := getEnv(key, defaultValue)
+	if value == "" {
+		return []string{}
+	}
+
+	codes := strings.Split(value, ",")
+	var languages []string
+
+	for _, code := range codes {
+		code = strings.TrimSpace(code)
+		if fullName, exists := languageCodeMap[code]; exists {
+			languages = append(languages, fullName)
+		} else {
+			// If code not found in map, use the code as-is
+			languages = append(languages, code)
+		}
+	}
+
+	return languages
 }
 
 // getEnv gets an environment variable or returns a default value

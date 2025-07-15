@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"report-analyze-pipeline/config"
-	"report-analyze-pipeline/parser"
 
 	_ "github.com/go-sql-driver/mysql"
 )
@@ -43,6 +42,7 @@ type ReportAnalysis struct {
 	HazardProbability float64
 	SeverityLevel     float64
 	Summary           string
+	Language          string
 }
 
 // NewDatabase creates a new database connection
@@ -148,9 +148,9 @@ func (d *Database) SaveAnalysis(analysis *ReportAnalysis) error {
 	INSERT INTO report_analysis (
 		seq, source, analysis_text, analysis_image, 
 		title, description,
-		litter_probability, hazard_probability, severity_level, summary
+		litter_probability, hazard_probability, severity_level, summary, language
 	)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err := d.db.Exec(query,
 		analysis.Seq,
@@ -163,6 +163,7 @@ func (d *Database) SaveAnalysis(analysis *ReportAnalysis) error {
 		analysis.HazardProbability,
 		analysis.SeverityLevel,
 		analysis.Summary,
+		analysis.Language,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to save analysis: %w", err)
@@ -193,37 +194,4 @@ func (d *Database) GetLastProcessedSeq() (int, error) {
 // GetDB returns the underlying sql.DB for direct queries
 func (d *Database) GetDB() *sql.DB {
 	return d.db
-}
-
-// SaveReportAnalysis saves the analysis results to the database
-func (db *Database) SaveReportAnalysis(reportID int, analysis *parser.AnalysisResult) error {
-	query := `
-		INSERT INTO report_analysis (
-			report_id, 
-			title,
-			description,
-			litter_probability, 
-			hazard_probability, 
-			severity_level,
-			created_at
-		) VALUES (?, ?, ?, ?, ?, ?, NOW())
-		ON DUPLICATE KEY UPDATE
-			title = VALUES(title),
-			description = VALUES(description),
-			litter_probability = VALUES(litter_probability),
-			hazard_probability = VALUES(hazard_probability),
-			severity_level = VALUES(severity_level),
-			updated_at = NOW()
-	`
-
-	_, err := db.db.Exec(query,
-		reportID,
-		analysis.Title,
-		analysis.Description,
-		analysis.LitterProbability,
-		analysis.HazardProbability,
-		analysis.SeverityLevel,
-	)
-
-	return err
 }

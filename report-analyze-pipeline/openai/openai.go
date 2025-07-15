@@ -143,3 +143,67 @@ func (c *Client) AnalyzeImage(imageData []byte, prompt string) (string, error) {
 
 	return string(contentJSON), nil
 }
+
+func (c *Client) TranslateAnalysis(text, targetLanguage string) (string, error) {
+	translationPrompt := fmt.Sprintf("Please translate the following text to %s:\n\n%s", targetLanguage, text)
+
+	reqBody := ChatRequest{
+		Model: "gpt-4o",
+		Messages: []Message{
+			{
+				Role:    "user",
+				Content: translationPrompt,
+			},
+		},
+	}
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", fmt.Errorf("error marshaling JSON: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", openAIEndpoint, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", fmt.Errorf("error creating request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("error sending request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("error reading response body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	var chatResp ChatResponse
+	if err := json.Unmarshal(body, &chatResp); err != nil {
+		return "", fmt.Errorf("error parsing response: %w", err)
+	}
+
+	if len(chatResp.Choices) == 0 {
+		return "", fmt.Errorf("no choices in response")
+	}
+
+	// Extract the text content from the response
+	content := chatResp.Choices[0].Message.Content
+	if contentStr, ok := content.(string); ok {
+		return contentStr, nil
+	}
+
+	// If content is not a string, try to marshal it back to JSON
+	contentJSON, err := json.Marshal(content)
+	if err != nil {
+		return "", fmt.Errorf("error marshaling content: %w", err)
+	}
+
+	return string(contentJSON), nil
+}

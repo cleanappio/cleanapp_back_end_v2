@@ -108,7 +108,7 @@ Analyze this image and provide a JSON response with the following structure:
 }
 `, s.config.AnalysisPrompt)
 
-	// Call OpenAI API
+	// Call OpenAI API for initial analysis in English
 	response, err := s.openai.AnalyzeImage(report.Image, prompt)
 	if err != nil {
 		log.Printf("Failed to analyze report %d: %v", report.Seq, err)
@@ -122,7 +122,7 @@ Analyze this image and provide a JSON response with the following structure:
 		return
 	}
 
-	// Create the analysis result
+	// Create the English analysis result
 	analysisResult := &database.ReportAnalysis{
 		Seq:               report.Seq,
 		Source:            "ChatGPT",
@@ -134,10 +134,62 @@ Analyze this image and provide a JSON response with the following structure:
 		HazardProbability: analysis.HazardProbability,
 		SeverityLevel:     analysis.SeverityLevel,
 		Summary:           analysis.Title + ": " + analysis.Description,
+		Language:          "en",
 	}
 
-	// Save the analysis to the database
+	// Save the English analysis to the database
 	if err := s.db.SaveAnalysis(analysisResult); err != nil {
-		log.Printf("Failed to save analysis for report %d: %v", report.Seq, err)
+		log.Printf("Failed to save English analysis for report %d: %v", report.Seq, err)
+		return
 	}
+
+	// Asynchronous translations
+	var transWg sync.WaitGroup
+	for _, language := range s.config.TranslationLanguages {
+		if language == "English" || language == "en" {
+			continue // Skip English as we already have it
+		}
+
+		transWg.Add(1)
+		lang := language // capture range variable
+		go func() {
+			defer transWg.Done()
+			// Translate the analysis text
+			translatedText, err := s.openai.TranslateAnalysis(response, lang)
+			if err != nil {
+				log.Printf("Failed to translate analysis for report %d to %s: %v", report.Seq, lang, err)
+				return
+			}
+
+			// Parse the translated response
+			translatedAnalysis, err := parser.ParseAnalysis(translatedText)
+			if err != nil {
+				log.Printf("Failed to parse translated analysis for report %d in %s: %v", report.Seq, lang, err)
+				return
+			}
+
+			// Create the translated analysis result
+			translatedResult := &database.ReportAnalysis{
+				Seq:               report.Seq,
+				Source:            "ChatGPT",
+				AnalysisText:      translatedText,
+				AnalysisImage:     nil,
+				Title:             translatedAnalysis.Title,
+				Description:       translatedAnalysis.Description,
+				LitterProbability: translatedAnalysis.LitterProbability,
+				HazardProbability: translatedAnalysis.HazardProbability,
+				SeverityLevel:     translatedAnalysis.SeverityLevel,
+				Summary:           translatedAnalysis.Title + ": " + translatedAnalysis.Description,
+				Language:          lang,
+			}
+
+			// Save the translated analysis to the database
+			if err := s.db.SaveAnalysis(translatedResult); err != nil {
+				log.Printf("Failed to save %s analysis for report %d: %v", lang, report.Seq, err)
+			} else {
+				log.Printf("Successfully saved %s analysis for report %d", lang, report.Seq)
+			}
+		}()
+	}
+	transWg.Wait()
 }
