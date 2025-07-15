@@ -43,13 +43,21 @@ func TestGetReportsSince(t *testing.T) {
 		}
 
 		// Check that analysis data is present
-		if reportWithAnalysis.Analysis.Seq != reportWithAnalysis.Report.Seq {
-			t.Errorf("Analysis seq (%d) does not match report seq (%d)",
-				reportWithAnalysis.Analysis.Seq, reportWithAnalysis.Report.Seq)
+		if len(reportWithAnalysis.Analysis) == 0 {
+			t.Errorf("No analyses found for report %d", reportWithAnalysis.Report.Seq)
+			continue
 		}
 
-		if reportWithAnalysis.Analysis.Source == "" {
-			t.Errorf("Analysis source is empty for report %d", reportWithAnalysis.Report.Seq)
+		// Check each analysis
+		for _, analysis := range reportWithAnalysis.Analysis {
+			if analysis.Seq != reportWithAnalysis.Report.Seq {
+				t.Errorf("Analysis seq (%d) does not match report seq (%d)",
+					analysis.Seq, reportWithAnalysis.Report.Seq)
+			}
+
+			if analysis.Source == "" {
+				t.Errorf("Analysis source is empty for report %d", reportWithAnalysis.Report.Seq)
+			}
 		}
 	}
 

@@ -45,21 +45,38 @@ Establishes a WebSocket connection for real-time report updates with analysis.
           "latitude": 40.7128,
           "longitude": -74.0060
         },
-        "analysis": {
-          "seq": 123,
-          "source": "gpt-4o",
-          "analysis_text": "Analysis of the report content...",
-          "analysis_image": null,
-          "title": "Litter Detection Report",
-          "description": "Detailed description of the detected litter or hazard",
-          "litter_probability": 0.85,
-          "hazard_probability": 0.12,
-          "severity_level": 0.7,
-          "summary": "Summary of the analysis findings",
-          "language": "en",
-          "created_at": "2024-01-01T12:00:01Z",
-          "updated_at": "2024-01-01T12:00:01Z"
-        }
+        "analysis": [
+          {
+            "seq": 123,
+            "source": "gpt-4o",
+            "analysis_text": "Analysis of the report content in English...",
+            "analysis_image": null,
+            "title": "Litter Detection Report",
+            "description": "Detailed description of the detected litter or hazard",
+            "litter_probability": 0.85,
+            "hazard_probability": 0.12,
+            "severity_level": 0.7,
+            "summary": "Summary of the analysis findings",
+            "language": "en",
+            "created_at": "2024-01-01T12:00:01Z",
+            "updated_at": "2024-01-01T12:00:01Z"
+          },
+          {
+            "seq": 123,
+            "source": "gpt-4o",
+            "analysis_text": "Analysis of the report content in Montenegrin...",
+            "analysis_image": null,
+            "title": "Izveštaj o detekciji smeća",
+            "description": "Detaljan opis detektovanog smeća ili opasnosti",
+            "litter_probability": 0.85,
+            "hazard_probability": 0.12,
+            "severity_level": 0.7,
+            "summary": "Sažetak nalaza analize",
+            "language": "me",
+            "created_at": "2024-01-01T12:00:02Z",
+            "updated_at": "2024-01-01T12:00:02Z"
+          }
+        ]
       }
     ],
     "count": 1,
@@ -108,21 +125,38 @@ Returns the last N analyzed reports. The `n` parameter specifies how many report
         "latitude": 40.7128,
         "longitude": -74.0060
       },
-      "analysis": {
-        "seq": 123,
-        "source": "gpt-4o",
-        "analysis_text": "Analysis of the report content...",
-        "analysis_image": null,
-        "title": "Litter Detection Report",
-        "description": "Detailed description of the detected litter or hazard",
-        "litter_probability": 0.85,
-        "hazard_probability": 0.12,
-        "severity_level": 0.7,
-        "summary": "Summary of the analysis findings",
-        "language": "en",
-        "created_at": "2024-01-01T12:00:01Z",
-        "updated_at": "2024-01-01T12:00:01Z"
-      }
+      "analysis": [
+        {
+          "seq": 123,
+          "source": "gpt-4o",
+          "analysis_text": "Analysis of the report content in English...",
+          "analysis_image": null,
+          "title": "Litter Detection Report",
+          "description": "Detailed description of the detected litter or hazard",
+          "litter_probability": 0.85,
+          "hazard_probability": 0.12,
+          "severity_level": 0.7,
+          "summary": "Summary of the analysis findings",
+          "language": "en",
+          "created_at": "2024-01-01T12:00:01Z",
+          "updated_at": "2024-01-01T12:00:01Z"
+        },
+        {
+          "seq": 123,
+          "source": "gpt-4o",
+          "analysis_text": "Analysis of the report content in Montenegrin...",
+          "analysis_image": null,
+          "title": "Izveštaj o detekciji smeća",
+          "description": "Detaljan opis detektovanog smeća ili opasnosti",
+          "litter_probability": 0.85,
+          "hazard_probability": 0.12,
+          "severity_level": 0.7,
+          "summary": "Sažetak nalaza analize",
+          "language": "me",
+          "created_at": "2024-01-01T12:00:02Z",
+          "updated_at": "2024-01-01T12:00:02Z"
+        }
+      ]
     }
   ],
   "count": 1,
@@ -207,7 +241,7 @@ CREATE TABLE report_analysis(
 
 **Note:** The service only broadcasts reports that have corresponding analysis entries in the `report_analysis` table. The `seq` field in `report_analysis` references the `seq` field in the `reports` table.
 
-**Language Field:** The `language` field in the `report_analysis` table contains 2-letter language codes (e.g., "en", "me", "es") indicating the language of the analysis. This allows for multi-language analysis results where the same report may have analyses in different languages.
+**Multi-Analysis Structure:** Each report can now have multiple analyses in different languages. The `analysis` field in API responses is now an array containing all available analyses for that report, ordered by language code.
 
 ## Running the Service
 
@@ -373,18 +407,23 @@ ws.onmessage = function(event) {
         
         batch.reports.forEach(reportWithAnalysis => {
             const report = reportWithAnalysis.report;
-            const analysis = reportWithAnalysis.analysis;
+            const analyses = reportWithAnalysis.analysis;
             
             console.log(`Report ${report.seq}: ${report.id} at (${report.latitude}, ${report.longitude})`);
-            console.log(`Analysis source: ${analysis.source}`);
-            console.log(`Analysis text: ${analysis.analysis_text}`);
-            console.log(`Title: ${analysis.title}`);
-            console.log(`Description: ${analysis.description}`);
-            console.log(`Litter probability: ${analysis.litter_probability}`);
-            console.log(`Hazard probability: ${analysis.hazard_probability}`);
-            console.log(`Severity level: ${analysis.severity_level}`);
-            console.log(`Summary: ${analysis.summary}`);
-            console.log(`Language: ${analysis.language}`);
+            console.log(`Found ${analyses.length} analyses for this report:`);
+            
+            analyses.forEach((analysis, index) => {
+                console.log(`  Analysis ${index + 1} (${analysis.language}):`);
+                console.log(`    Source: ${analysis.source}`);
+                console.log(`    Analysis text: ${analysis.analysis_text}`);
+                console.log(`    Title: ${analysis.title}`);
+                console.log(`    Description: ${analysis.description}`);
+                console.log(`    Litter probability: ${analysis.litter_probability}`);
+                console.log(`    Hazard probability: ${analysis.hazard_probability}`);
+                console.log(`    Severity level: ${analysis.severity_level}`);
+                console.log(`    Summary: ${analysis.summary}`);
+                console.log(`    Language: ${analysis.language}`);
+            });
         });
     }
 };

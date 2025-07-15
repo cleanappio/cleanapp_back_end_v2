@@ -33,8 +33,8 @@ type ReportAnalysis struct {
 
 // ReportWithAnalysis represents a report with its corresponding analysis
 type ReportWithAnalysis struct {
-	Report   Report         `json:"report"`
-	Analysis ReportAnalysis `json:"analysis"`
+	Report   Report           `json:"report"`
+	Analysis []ReportAnalysis `json:"analysis"`
 }
 
 // ReportBatch represents a batch of reports to be broadcasted

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"report-listener/config"
@@ -50,57 +51,118 @@ func (d *Database) Close() error {
 
 // GetReportsSince retrieves reports with analysis since a given sequence number
 func (d *Database) GetReportsSince(ctx context.Context, sinceSeq int) ([]models.ReportWithAnalysis, error) {
-	query := `
-		SELECT 
-			r.seq, r.ts, r.id, r.latitude, r.longitude,
-			ra.seq as analysis_seq, ra.source, ra.analysis_text, 
-			ra.title, ra.description,
-			ra.litter_probability, ra.hazard_probability, 
-			ra.severity_level, ra.summary, ra.language, ra.created_at
+	// First, get all reports since the given sequence
+	reportsQuery := `
+		SELECT DISTINCT r.seq, r.ts, r.id, r.latitude, r.longitude
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		WHERE r.seq > ?
 		ORDER BY r.seq ASC
 	`
 
-	rows, err := d.db.QueryContext(ctx, query, sinceSeq)
+	reportRows, err := d.db.QueryContext(ctx, reportsQuery, sinceSeq)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query reports with analysis: %w", err)
+		return nil, fmt.Errorf("failed to query reports: %w", err)
 	}
-	defer rows.Close()
+	defer reportRows.Close()
 
-	var reports []models.ReportWithAnalysis
-	for rows.Next() {
-		var reportWithAnalysis models.ReportWithAnalysis
-		err := rows.Scan(
-			&reportWithAnalysis.Report.Seq,
-			&reportWithAnalysis.Report.Timestamp,
-			&reportWithAnalysis.Report.ID,
-			&reportWithAnalysis.Report.Latitude,
-			&reportWithAnalysis.Report.Longitude,
-			&reportWithAnalysis.Analysis.Seq,
-			&reportWithAnalysis.Analysis.Source,
-			&reportWithAnalysis.Analysis.AnalysisText,
-			&reportWithAnalysis.Analysis.Title,
-			&reportWithAnalysis.Analysis.Description,
-			&reportWithAnalysis.Analysis.LitterProbability,
-			&reportWithAnalysis.Analysis.HazardProbability,
-			&reportWithAnalysis.Analysis.SeverityLevel,
-			&reportWithAnalysis.Analysis.Summary,
-			&reportWithAnalysis.Analysis.Language,
-			&reportWithAnalysis.Analysis.CreatedAt,
+	// Collect all report sequences
+	var reportSeqs []int
+	var reports []models.Report
+	for reportRows.Next() {
+		var report models.Report
+		err := reportRows.Scan(
+			&report.Seq,
+			&report.Timestamp,
+			&report.ID,
+			&report.Latitude,
+			&report.Longitude,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("failed to scan report with analysis: %w", err)
+			return nil, fmt.Errorf("failed to scan report: %w", err)
 		}
-		reports = append(reports, reportWithAnalysis)
+		reports = append(reports, report)
+		reportSeqs = append(reportSeqs, report.Seq)
 	}
 
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating reports with analysis: %w", err)
+	if err = reportRows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating reports: %w", err)
 	}
 
-	return reports, nil
+	if len(reports) == 0 {
+		return []models.ReportWithAnalysis{}, nil
+	}
+
+	// Build placeholders for the IN clause
+	placeholders := make([]string, len(reportSeqs))
+	args := make([]interface{}, len(reportSeqs))
+	for i, seq := range reportSeqs {
+		placeholders[i] = "?"
+		args[i] = seq
+	}
+
+	// Then, get all analyses for these reports
+	analysesQuery := fmt.Sprintf(`
+		SELECT 
+			ra.seq, ra.source, ra.analysis_text, ra.analysis_image,
+			ra.title, ra.description,
+			ra.litter_probability, ra.hazard_probability, 
+			ra.severity_level, ra.summary, ra.language, ra.created_at
+		FROM report_analysis ra
+		WHERE ra.seq IN (%s)
+		ORDER BY ra.seq ASC, ra.language ASC
+	`, strings.Join(placeholders, ","))
+
+	analysisRows, err := d.db.QueryContext(ctx, analysesQuery, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query analyses: %w", err)
+	}
+	defer analysisRows.Close()
+
+	// Group analyses by report sequence
+	analysesBySeq := make(map[int][]models.ReportAnalysis)
+	for analysisRows.Next() {
+		var analysis models.ReportAnalysis
+		err := analysisRows.Scan(
+			&analysis.Seq,
+			&analysis.Source,
+			&analysis.AnalysisText,
+			&analysis.AnalysisImage,
+			&analysis.Title,
+			&analysis.Description,
+			&analysis.LitterProbability,
+			&analysis.HazardProbability,
+			&analysis.SeverityLevel,
+			&analysis.Summary,
+			&analysis.Language,
+			&analysis.CreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan analysis: %w", err)
+		}
+		analysesBySeq[analysis.Seq] = append(analysesBySeq[analysis.Seq], analysis)
+	}
+
+	if err = analysisRows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating analyses: %w", err)
+	}
+
+	// Combine reports with their analyses
+	var result []models.ReportWithAnalysis
+	for _, report := range reports {
+		analyses := analysesBySeq[report.Seq]
+		if len(analyses) == 0 {
+			// Skip reports without analyses
+			continue
+		}
+
+		result = append(result, models.ReportWithAnalysis{
+			Report:   report,
+			Analysis: analyses,
+		})
+	}
+
+	return result, nil
 }
 
 // GetLatestReportSeq returns the latest sequence number from the reports table
@@ -179,93 +241,137 @@ func (d *Database) EnsureServiceStateTable(ctx context.Context) error {
 
 // GetLastNAnalyzedReports retrieves the last N analyzed reports
 func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int) ([]models.ReportWithAnalysis, error) {
-	query := `
-		SELECT 
-			r.seq, r.ts, r.id, r.latitude, r.longitude,
-			ra.seq as analysis_seq, ra.source, ra.analysis_text,
-			ra.title, ra.description,
-			ra.litter_probability, ra.hazard_probability, 
-			ra.severity_level, ra.summary, ra.language, ra.created_at
+	// First, get the last N reports that have analysis
+	reportsQuery := `
+		SELECT DISTINCT r.seq, r.ts, r.id, r.latitude, r.longitude
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		ORDER BY r.seq DESC
 		LIMIT ?
 	`
 
-	rows, err := d.db.QueryContext(ctx, query, limit)
+	reportRows, err := d.db.QueryContext(ctx, reportsQuery, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query last N analyzed reports: %w", err)
 	}
-	defer rows.Close()
+	defer reportRows.Close()
 
-	var reports []models.ReportWithAnalysis
-	for rows.Next() {
-		var reportWithAnalysis models.ReportWithAnalysis
-		err := rows.Scan(
-			&reportWithAnalysis.Report.Seq,
-			&reportWithAnalysis.Report.Timestamp,
-			&reportWithAnalysis.Report.ID,
-			&reportWithAnalysis.Report.Latitude,
-			&reportWithAnalysis.Report.Longitude,
-			&reportWithAnalysis.Analysis.Seq,
-			&reportWithAnalysis.Analysis.Source,
-			&reportWithAnalysis.Analysis.AnalysisText,
-			&reportWithAnalysis.Analysis.Title,
-			&reportWithAnalysis.Analysis.Description,
-			&reportWithAnalysis.Analysis.LitterProbability,
-			&reportWithAnalysis.Analysis.HazardProbability,
-			&reportWithAnalysis.Analysis.SeverityLevel,
-			&reportWithAnalysis.Analysis.Summary,
-			&reportWithAnalysis.Analysis.Language,
-			&reportWithAnalysis.Analysis.CreatedAt,
+	// Collect all report sequences
+	var reportSeqs []int
+	var reports []models.Report
+	for reportRows.Next() {
+		var report models.Report
+		err := reportRows.Scan(
+			&report.Seq,
+			&report.Timestamp,
+			&report.ID,
+			&report.Latitude,
+			&report.Longitude,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("failed to scan report with analysis: %w", err)
+			return nil, fmt.Errorf("failed to scan report: %w", err)
 		}
-		reports = append(reports, reportWithAnalysis)
+		reports = append(reports, report)
+		reportSeqs = append(reportSeqs, report.Seq)
 	}
 
-	if err = rows.Err(); err != nil {
+	if err = reportRows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating last N analyzed reports: %w", err)
 	}
 
-	return reports, nil
+	if len(reports) == 0 {
+		return []models.ReportWithAnalysis{}, nil
+	}
+
+	// Build placeholders for the IN clause
+	placeholders := make([]string, len(reportSeqs))
+	args := make([]interface{}, len(reportSeqs))
+	for i, seq := range reportSeqs {
+		placeholders[i] = "?"
+		args[i] = seq
+	}
+
+	// Then, get all analyses for these reports
+	analysesQuery := fmt.Sprintf(`
+		SELECT 
+			ra.seq, ra.source, ra.analysis_text, ra.analysis_image,
+			ra.title, ra.description,
+			ra.litter_probability, ra.hazard_probability, 
+			ra.severity_level, ra.summary, ra.language, ra.created_at
+		FROM report_analysis ra
+		WHERE ra.seq IN (%s)
+		ORDER BY ra.seq DESC, ra.language ASC
+	`, strings.Join(placeholders, ","))
+
+	analysisRows, err := d.db.QueryContext(ctx, analysesQuery, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query analyses: %w", err)
+	}
+	defer analysisRows.Close()
+
+	// Group analyses by report sequence
+	analysesBySeq := make(map[int][]models.ReportAnalysis)
+	for analysisRows.Next() {
+		var analysis models.ReportAnalysis
+		err := analysisRows.Scan(
+			&analysis.Seq,
+			&analysis.Source,
+			&analysis.AnalysisText,
+			&analysis.AnalysisImage,
+			&analysis.Title,
+			&analysis.Description,
+			&analysis.LitterProbability,
+			&analysis.HazardProbability,
+			&analysis.SeverityLevel,
+			&analysis.Summary,
+			&analysis.Language,
+			&analysis.CreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan analysis: %w", err)
+		}
+		analysesBySeq[analysis.Seq] = append(analysesBySeq[analysis.Seq], analysis)
+	}
+
+	if err = analysisRows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating analyses: %w", err)
+	}
+
+	// Combine reports with their analyses
+	var result []models.ReportWithAnalysis
+	for _, report := range reports {
+		analyses := analysesBySeq[report.Seq]
+		if len(analyses) == 0 {
+			// Skip reports without analyses
+			continue
+		}
+
+		result = append(result, models.ReportWithAnalysis{
+			Report:   report,
+			Analysis: analyses,
+		})
+	}
+
+	return result, nil
 }
 
 // GetReportBySeq retrieves a single report with analysis by sequence ID
 func (d *Database) GetReportBySeq(ctx context.Context, seq int) (*models.ReportWithAnalysis, error) {
-	query := `
-		SELECT 
-			r.seq, r.ts, r.id, r.latitude, r.longitude, r.image,
-			ra.seq as analysis_seq, ra.source, ra.analysis_text, ra.analysis_image, 
-			ra.title, ra.description,
-			ra.litter_probability, ra.hazard_probability, 
-			ra.severity_level, ra.summary, ra.language, ra.created_at
+	// First, get the report
+	reportQuery := `
+		SELECT r.seq, r.ts, r.id, r.latitude, r.longitude, r.image
 		FROM reports r
-		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		WHERE r.seq = ?
 	`
 
-	var reportWithAnalysis models.ReportWithAnalysis
-	err := d.db.QueryRowContext(ctx, query, seq).Scan(
-		&reportWithAnalysis.Report.Seq,
-		&reportWithAnalysis.Report.Timestamp,
-		&reportWithAnalysis.Report.ID,
-		&reportWithAnalysis.Report.Latitude,
-		&reportWithAnalysis.Report.Longitude,
-		&reportWithAnalysis.Report.Image,
-		&reportWithAnalysis.Analysis.Seq,
-		&reportWithAnalysis.Analysis.Source,
-		&reportWithAnalysis.Analysis.AnalysisText,
-		&reportWithAnalysis.Analysis.AnalysisImage,
-		&reportWithAnalysis.Analysis.Title,
-		&reportWithAnalysis.Analysis.Description,
-		&reportWithAnalysis.Analysis.LitterProbability,
-		&reportWithAnalysis.Analysis.HazardProbability,
-		&reportWithAnalysis.Analysis.SeverityLevel,
-		&reportWithAnalysis.Analysis.Summary,
-		&reportWithAnalysis.Analysis.Language,
-		&reportWithAnalysis.Analysis.CreatedAt,
+	var report models.Report
+	err := d.db.QueryRowContext(ctx, reportQuery, seq).Scan(
+		&report.Seq,
+		&report.Timestamp,
+		&report.ID,
+		&report.Latitude,
+		&report.Longitude,
+		&report.Image,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -274,18 +380,66 @@ func (d *Database) GetReportBySeq(ctx context.Context, seq int) (*models.ReportW
 		return nil, fmt.Errorf("failed to get report by seq: %w", err)
 	}
 
-	return &reportWithAnalysis, nil
+	// Then, get all analyses for this report
+	analysesQuery := `
+		SELECT 
+			ra.seq, ra.source, ra.analysis_text, ra.analysis_image,
+			ra.title, ra.description,
+			ra.litter_probability, ra.hazard_probability, 
+			ra.severity_level, ra.summary, ra.language, ra.created_at
+		FROM report_analysis ra
+		WHERE ra.seq = ?
+		ORDER BY ra.language ASC
+	`
+
+	analysisRows, err := d.db.QueryContext(ctx, analysesQuery, seq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query analyses: %w", err)
+	}
+	defer analysisRows.Close()
+
+	var analyses []models.ReportAnalysis
+	for analysisRows.Next() {
+		var analysis models.ReportAnalysis
+		err := analysisRows.Scan(
+			&analysis.Seq,
+			&analysis.Source,
+			&analysis.AnalysisText,
+			&analysis.AnalysisImage,
+			&analysis.Title,
+			&analysis.Description,
+			&analysis.LitterProbability,
+			&analysis.HazardProbability,
+			&analysis.SeverityLevel,
+			&analysis.Summary,
+			&analysis.Language,
+			&analysis.CreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan analysis: %w", err)
+		}
+		analyses = append(analyses, analysis)
+	}
+
+	if err = analysisRows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating analyses: %w", err)
+	}
+
+	if len(analyses) == 0 {
+		return nil, fmt.Errorf("no analyses found for report with seq %d", seq)
+	}
+
+	return &models.ReportWithAnalysis{
+		Report:   report,
+		Analysis: analyses,
+	}, nil
 }
 
 // GetLastNReportsByID retrieves the last N reports with analysis for a given report ID
 func (d *Database) GetLastNReportsByID(ctx context.Context, reportID string, limit int) ([]models.ReportWithAnalysis, error) {
-	query := `
-		SELECT 
-			r.seq, r.ts, r.id, r.latitude, r.longitude, r.image,
-			ra.seq as analysis_seq, ra.source, ra.analysis_text, ra.analysis_image, 
-			ra.title, ra.description,
-			ra.litter_probability, ra.hazard_probability, 
-			ra.severity_level, ra.summary, ra.language, ra.created_at
+	// First, get the last N reports for the given ID
+	reportsQuery := `
+		SELECT DISTINCT r.seq, r.ts, r.id, r.latitude, r.longitude, r.image
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		WHERE r.id = ?
@@ -293,44 +447,108 @@ func (d *Database) GetLastNReportsByID(ctx context.Context, reportID string, lim
 		LIMIT ?
 	`
 
-	rows, err := d.db.QueryContext(ctx, query, reportID, limit)
+	reportRows, err := d.db.QueryContext(ctx, reportsQuery, reportID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query reports by ID: %w", err)
 	}
-	defer rows.Close()
+	defer reportRows.Close()
 
-	var reports []models.ReportWithAnalysis
-	for rows.Next() {
-		var reportWithAnalysis models.ReportWithAnalysis
-		err := rows.Scan(
-			&reportWithAnalysis.Report.Seq,
-			&reportWithAnalysis.Report.Timestamp,
-			&reportWithAnalysis.Report.ID,
-			&reportWithAnalysis.Report.Latitude,
-			&reportWithAnalysis.Report.Longitude,
-			&reportWithAnalysis.Report.Image,
-			&reportWithAnalysis.Analysis.Seq,
-			&reportWithAnalysis.Analysis.Source,
-			&reportWithAnalysis.Analysis.AnalysisText,
-			&reportWithAnalysis.Analysis.AnalysisImage,
-			&reportWithAnalysis.Analysis.Title,
-			&reportWithAnalysis.Analysis.Description,
-			&reportWithAnalysis.Analysis.LitterProbability,
-			&reportWithAnalysis.Analysis.HazardProbability,
-			&reportWithAnalysis.Analysis.SeverityLevel,
-			&reportWithAnalysis.Analysis.Summary,
-			&reportWithAnalysis.Analysis.Language,
-			&reportWithAnalysis.Analysis.CreatedAt,
+	// Collect all report sequences
+	var reportSeqs []int
+	var reports []models.Report
+	for reportRows.Next() {
+		var report models.Report
+		err := reportRows.Scan(
+			&report.Seq,
+			&report.Timestamp,
+			&report.ID,
+			&report.Latitude,
+			&report.Longitude,
+			&report.Image,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("failed to scan report with analysis: %w", err)
+			return nil, fmt.Errorf("failed to scan report: %w", err)
 		}
-		reports = append(reports, reportWithAnalysis)
+		reports = append(reports, report)
+		reportSeqs = append(reportSeqs, report.Seq)
 	}
 
-	if err = rows.Err(); err != nil {
+	if err = reportRows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating reports by ID: %w", err)
 	}
 
-	return reports, nil
+	if len(reports) == 0 {
+		return []models.ReportWithAnalysis{}, nil
+	}
+
+	// Build placeholders for the IN clause
+	placeholders := make([]string, len(reportSeqs))
+	args := make([]interface{}, len(reportSeqs))
+	for i, seq := range reportSeqs {
+		placeholders[i] = "?"
+		args[i] = seq
+	}
+
+	// Then, get all analyses for these reports
+	analysesQuery := fmt.Sprintf(`
+		SELECT 
+			ra.seq, ra.source, ra.analysis_text, ra.analysis_image,
+			ra.title, ra.description,
+			ra.litter_probability, ra.hazard_probability, 
+			ra.severity_level, ra.summary, ra.language, ra.created_at
+		FROM report_analysis ra
+		WHERE ra.seq IN (%s)
+		ORDER BY ra.seq DESC, ra.language ASC
+	`, strings.Join(placeholders, ","))
+
+	analysisRows, err := d.db.QueryContext(ctx, analysesQuery, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query analyses: %w", err)
+	}
+	defer analysisRows.Close()
+
+	// Group analyses by report sequence
+	analysesBySeq := make(map[int][]models.ReportAnalysis)
+	for analysisRows.Next() {
+		var analysis models.ReportAnalysis
+		err := analysisRows.Scan(
+			&analysis.Seq,
+			&analysis.Source,
+			&analysis.AnalysisText,
+			&analysis.AnalysisImage,
+			&analysis.Title,
+			&analysis.Description,
+			&analysis.LitterProbability,
+			&analysis.HazardProbability,
+			&analysis.SeverityLevel,
+			&analysis.Summary,
+			&analysis.Language,
+			&analysis.CreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan analysis: %w", err)
+		}
+		analysesBySeq[analysis.Seq] = append(analysesBySeq[analysis.Seq], analysis)
+	}
+
+	if err = analysisRows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating analyses: %w", err)
+	}
+
+	// Combine reports with their analyses
+	var result []models.ReportWithAnalysis
+	for _, report := range reports {
+		analyses := analysesBySeq[report.Seq]
+		if len(analyses) == 0 {
+			// Skip reports without analyses
+			continue
+		}
+
+		result = append(result, models.ReportWithAnalysis{
+			Report:   report,
+			Analysis: analyses,
+		})
+	}
+
+	return result, nil
 }
