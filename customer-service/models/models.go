@@ -75,6 +75,27 @@ type UpdateCustomerRequest struct {
 	AreaIDs []int `json:"area_ids,omitempty"`
 }
 
+// AddCustomerBrandsRequest represents the request to add brands to a customer
+type AddCustomerBrandsRequest struct {
+	BrandNames []string `json:"brand_names" binding:"required,min=1"`
+}
+
+// RemoveCustomerBrandsRequest represents the request to remove brands from a customer
+type RemoveCustomerBrandsRequest struct {
+	BrandNames []string `json:"brand_names" binding:"required,min=1"`
+}
+
+// UpdateCustomerBrandsRequest represents the request to update all brands for a customer
+type UpdateCustomerBrandsRequest struct {
+	BrandNames []string `json:"brand_names" binding:"required"`
+}
+
+// CustomerBrandsResponse represents the response for customer brands
+type CustomerBrandsResponse struct {
+	CustomerID string   `json:"customer_id"`
+	BrandNames []string `json:"brand_names"`
+}
+
 // CreateSubscriptionRequest represents the request to create a subscription
 type CreateSubscriptionRequest struct {
 	PlanType              string `json:"plan_type" binding:"required,oneof=base advanced exclusive"`

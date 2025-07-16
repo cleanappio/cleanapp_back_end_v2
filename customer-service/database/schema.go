@@ -27,6 +27,14 @@ CREATE TABLE IF NOT EXISTS customer_areas (
     FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS customer_brands (
+    customer_id VARCHAR(256) NOT NULL,
+    brand_name VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (customer_id, brand_name),
+    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS subscriptions (
     id INT AUTO_INCREMENT PRIMARY KEY,
     customer_id VARCHAR(256) NOT NULL,
@@ -436,6 +444,31 @@ var Migrations = []Migration{
             ADD COLUMN sync_version INT DEFAULT 1,
             ADD COLUMN last_sync_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             ADD INDEX idx_sync_version (sync_version);
+		`,
+	},
+	{
+		Version: 7,
+		Name:    "add_customer_brands_table",
+		Up: `
+        -- Migration 7: Add customer_brands table
+        -- This table allows customers to track specific brands they're interested in
+        -- Similar to customer_areas but for brand monitoring instead of geographic areas
+        
+        CREATE TABLE IF NOT EXISTS customer_brands (
+            customer_id VARCHAR(256) NOT NULL,
+            brand_name VARCHAR(255) NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (customer_id, brand_name),
+            FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
+        );
+        
+        -- Add index for efficient brand lookups
+        CREATE INDEX idx_customer_brands_customer_id ON customer_brands(customer_id);
+        CREATE INDEX idx_customer_brands_brand_name ON customer_brands(brand_name);
+		`,
+		Down: `
+        -- Remove customer_brands table
+        DROP TABLE IF EXISTS customer_brands;
 		`,
 	},
 }

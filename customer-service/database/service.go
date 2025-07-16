@@ -734,6 +734,131 @@ func (s *CustomerService) GetAreas(ctx context.Context) ([]models.Area, error) {
 	return areas, nil
 }
 
+// GetCustomerBrands retrieves all brands for a customer
+func (s *CustomerService) GetCustomerBrands(ctx context.Context, customerID string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, "SELECT brand_name FROM customer_brands WHERE customer_id = ? ORDER BY brand_name", customerID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query customer brands: %w", err)
+	}
+	defer rows.Close()
+
+	var brands []string
+	for rows.Next() {
+		var brandName string
+		if err := rows.Scan(&brandName); err != nil {
+			return nil, fmt.Errorf("failed to scan brand name: %w", err)
+		}
+		brands = append(brands, brandName)
+	}
+
+	return brands, nil
+}
+
+// AddCustomerBrands adds brands to a customer's brand list
+func (s *CustomerService) AddCustomerBrands(ctx context.Context, customerID string, brandNames []string) error {
+	if len(brandNames) == 0 {
+		return nil
+	}
+
+	// Start transaction
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Insert new brands
+	for _, brandName := range brandNames {
+		if err := s.insertCustomerBrand(ctx, tx, customerID, brandName); err != nil {
+			return fmt.Errorf("failed to insert customer brand: %w", err)
+		}
+	}
+
+	// Update customer timestamp
+	_, err = tx.ExecContext(ctx, "UPDATE customers SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", customerID)
+	if err != nil {
+		return fmt.Errorf("failed to update customer timestamp: %w", err)
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+// RemoveCustomerBrands removes brands from a customer's brand list
+func (s *CustomerService) RemoveCustomerBrands(ctx context.Context, customerID string, brandNames []string) error {
+	if len(brandNames) == 0 {
+		return nil
+	}
+
+	// Start transaction
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Remove specified brands
+	for _, brandName := range brandNames {
+		_, err = tx.ExecContext(ctx, "DELETE FROM customer_brands WHERE customer_id = ? AND brand_name = ?", customerID, brandName)
+		if err != nil {
+			return fmt.Errorf("failed to remove customer brand: %w", err)
+		}
+	}
+
+	// Update customer timestamp
+	_, err = tx.ExecContext(ctx, "UPDATE customers SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", customerID)
+	if err != nil {
+		return fmt.Errorf("failed to update customer timestamp: %w", err)
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+// UpdateCustomerBrands replaces all brands for a customer with the new list
+func (s *CustomerService) UpdateCustomerBrands(ctx context.Context, customerID string, brandNames []string) error {
+	// Start transaction
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Remove existing brands
+	_, err = tx.ExecContext(ctx, "DELETE FROM customer_brands WHERE customer_id = ?", customerID)
+	if err != nil {
+		return fmt.Errorf("failed to remove existing brands: %w", err)
+	}
+
+	// Insert new brands
+	for _, brandName := range brandNames {
+		if err := s.insertCustomerBrand(ctx, tx, customerID, brandName); err != nil {
+			return fmt.Errorf("failed to insert customer brand: %w", err)
+		}
+	}
+
+	// Update customer timestamp
+	_, err = tx.ExecContext(ctx, "UPDATE customers SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", customerID)
+	if err != nil {
+		return fmt.Errorf("failed to update customer timestamp: %w", err)
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
 // Webhook event processing methods (placeholder implementations)
 func (s *CustomerService) IsWebhookEventProcessed(ctx context.Context, eventID string) (bool, error) {
 	var exists bool
@@ -923,6 +1048,13 @@ func (s *CustomerService) insertCustomerArea(ctx context.Context, tx *sql.Tx, cu
 	_, err := tx.ExecContext(ctx,
 		"INSERT INTO customer_areas (customer_id, area_id) VALUES (?, ?)",
 		customerID, areaID)
+	return err
+}
+
+func (s *CustomerService) insertCustomerBrand(ctx context.Context, tx *sql.Tx, customerID string, brandName string) error {
+	_, err := tx.ExecContext(ctx,
+		"INSERT INTO customer_brands (customer_id, brand_name) VALUES (?, ?)",
+		customerID, brandName)
 	return err
 }
 

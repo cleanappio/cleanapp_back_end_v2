@@ -197,6 +197,116 @@ func (h *Handlers) GetAreas(c *gin.Context) {
 	c.JSON(http.StatusOK, areas)
 }
 
+// GetCustomerBrands retrieves all brands for a customer
+func (h *Handlers) GetCustomerBrands(c *gin.Context) {
+	customerID := c.GetString("customer_id")
+	if customerID == "" {
+		log.Printf("WARNING: GetCustomerBrands called without customer_id from %s", c.ClientIP())
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse{Error: "unauthorized"})
+		return
+	}
+
+	log.Printf("DEBUG: Getting customer brands for customer %s from %s", customerID, c.ClientIP())
+
+	brands, err := h.service.GetCustomerBrands(c.Request.Context(), customerID)
+	if err != nil {
+		log.Printf("ERROR: Failed to get customer brands for customer %s from %s: %v", customerID, c.ClientIP(), err)
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to get customer brands"})
+		return
+	}
+
+	response := models.CustomerBrandsResponse{
+		CustomerID: customerID,
+		BrandNames: brands,
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// AddCustomerBrands adds brands to a customer's brand list
+func (h *Handlers) AddCustomerBrands(c *gin.Context) {
+	customerID := c.GetString("customer_id")
+	if customerID == "" {
+		log.Printf("WARNING: AddCustomerBrands called without customer_id from %s", c.ClientIP())
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse{Error: "unauthorized"})
+		return
+	}
+
+	var req models.AddCustomerBrandsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Printf("ERROR: Invalid JSON in AddCustomerBrands request for customer %s from %s: %v", customerID, c.ClientIP(), err)
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	log.Printf("INFO: Adding %d brands to customer %s from %s", len(req.BrandNames), customerID, c.ClientIP())
+
+	if err := h.service.AddCustomerBrands(c.Request.Context(), customerID, req.BrandNames); err != nil {
+		log.Printf("ERROR: Failed to add customer brands for customer %s from %s: %v", customerID, c.ClientIP(), err)
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to add customer brands"})
+		return
+	}
+
+	log.Printf("INFO: Successfully added %d brands to customer %s from %s", len(req.BrandNames), customerID, c.ClientIP())
+	c.JSON(http.StatusOK, models.MessageResponse{Message: "brands added successfully"})
+}
+
+// RemoveCustomerBrands removes brands from a customer's brand list
+func (h *Handlers) RemoveCustomerBrands(c *gin.Context) {
+	customerID := c.GetString("customer_id")
+	if customerID == "" {
+		log.Printf("WARNING: RemoveCustomerBrands called without customer_id from %s", c.ClientIP())
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse{Error: "unauthorized"})
+		return
+	}
+
+	var req models.RemoveCustomerBrandsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Printf("ERROR: Invalid JSON in RemoveCustomerBrands request for customer %s from %s: %v", customerID, c.ClientIP(), err)
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	log.Printf("INFO: Removing %d brands from customer %s from %s", len(req.BrandNames), customerID, c.ClientIP())
+
+	if err := h.service.RemoveCustomerBrands(c.Request.Context(), customerID, req.BrandNames); err != nil {
+		log.Printf("ERROR: Failed to remove customer brands for customer %s from %s: %v", customerID, c.ClientIP(), err)
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to remove customer brands"})
+		return
+	}
+
+	log.Printf("INFO: Successfully removed %d brands from customer %s from %s", len(req.BrandNames), customerID, c.ClientIP())
+	c.JSON(http.StatusOK, models.MessageResponse{Message: "brands removed successfully"})
+}
+
+// UpdateCustomerBrands replaces all brands for a customer with the new list
+func (h *Handlers) UpdateCustomerBrands(c *gin.Context) {
+	customerID := c.GetString("customer_id")
+	if customerID == "" {
+		log.Printf("WARNING: UpdateCustomerBrands called without customer_id from %s", c.ClientIP())
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse{Error: "unauthorized"})
+		return
+	}
+
+	var req models.UpdateCustomerBrandsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Printf("ERROR: Invalid JSON in UpdateCustomerBrands request for customer %s from %s: %v", customerID, c.ClientIP(), err)
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	log.Printf("INFO: Updating customer %s with %d brands from %s", customerID, len(req.BrandNames), c.ClientIP())
+
+	if err := h.service.UpdateCustomerBrands(c.Request.Context(), customerID, req.BrandNames); err != nil {
+		log.Printf("ERROR: Failed to update customer brands for customer %s from %s: %v", customerID, c.ClientIP(), err)
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to update customer brands"})
+		return
+	}
+
+	log.Printf("INFO: Successfully updated customer %s with %d brands from %s", customerID, len(req.BrandNames), c.ClientIP())
+	c.JSON(http.StatusOK, models.MessageResponse{Message: "customer brands updated successfully"})
+}
+
 func (h *Handlers) GetPrices(c *gin.Context) {
 	// Retrieve all products and their prices from Stripe
 	prices := models.PricesResponse{

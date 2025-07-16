@@ -122,6 +122,12 @@ func setupRouter(service *database.CustomerService, stripeClient *stripe.Client,
 		protected.PUT("/customers/me", h.UpdateCustomer)
 		protected.DELETE("/customers/me", h.DeleteCustomer)
 
+		// Customer brands routes
+		protected.GET("/customers/me/brands", h.GetCustomerBrands)
+		protected.POST("/customers/me/brands", h.AddCustomerBrands)
+		protected.PUT("/customers/me/brands", h.UpdateCustomerBrands)
+		protected.DELETE("/customers/me/brands", h.RemoveCustomerBrands)
+
 		// Subscription routes
 		protected.POST("/subscriptions", h.CreateSubscription)
 		protected.GET("/subscriptions/me", h.GetSubscription)
