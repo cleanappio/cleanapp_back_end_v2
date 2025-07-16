@@ -60,17 +60,20 @@ func (s *DatabaseService) Close() error {
 
 // GetReportsByBrand gets the last n reports with analysis that match a specific brand
 func (s *DatabaseService) GetReportsByBrand(brandName string, n int) ([]models.ReportWithAnalysis, error) {
-	// First, get all reports with analyses that have brand names
+	// Normalize the brand name for exact matching
+	normalizedBrandName := s.brandService.normalizeBrandName(brandName)
+
+	// Get reports with analyses that match the brand name exactly
 	reportsQuery := `
 		SELECT DISTINCT r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.action_id
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
-		WHERE ra.brand_name IS NOT NULL AND ra.brand_name != ''
+		WHERE ra.brand_name = ?
 		ORDER BY r.ts DESC
 		LIMIT ?
 	`
 
-	reportRows, err := s.db.Query(reportsQuery, n*10) // Get more reports initially to filter by brand
+	reportRows, err := s.db.Query(reportsQuery, normalizedBrandName, n)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query reports: %w", err)
 	}
@@ -152,9 +155,8 @@ func (s *DatabaseService) GetReportsByBrand(brandName string, n int) ([]models.R
 	}
 	defer analysisRows.Close()
 
-	// Group analyses by report sequence and filter by brand
+	// Group analyses by report sequence
 	analysesBySeq := make(map[int][]models.ReportAnalysis)
-	matchingReports := make(map[int]bool)
 
 	for analysisRows.Next() {
 		var analysis models.ReportAnalysis
@@ -183,11 +185,6 @@ func (s *DatabaseService) GetReportsByBrand(brandName string, n int) ([]models.R
 		// Convert timestamp to string
 		analysis.CreatedAt = analysisCreatedAt.Format(time.RFC3339)
 
-		// Check if this analysis matches the target brand
-		if isMatch, _ := s.brandService.IsBrandMatch(analysis.BrandName); isMatch {
-			matchingReports[analysis.Seq] = true
-		}
-
 		analysesBySeq[analysis.Seq] = append(analysesBySeq[analysis.Seq], analysis)
 	}
 
@@ -195,13 +192,9 @@ func (s *DatabaseService) GetReportsByBrand(brandName string, n int) ([]models.R
 		return nil, fmt.Errorf("error iterating analyses: %w", err)
 	}
 
-	// Combine reports with their analyses, filtering by brand match
+	// Combine reports with their analyses
 	var result []models.ReportWithAnalysis
 	for _, report := range reports {
-		if !matchingReports[report.Seq] {
-			continue // Skip reports that don't match the brand
-		}
-
 		analyses := analysesBySeq[report.Seq]
 		if len(analyses) == 0 {
 			continue
@@ -211,11 +204,6 @@ func (s *DatabaseService) GetReportsByBrand(brandName string, n int) ([]models.R
 			Report:   report,
 			Analysis: analyses,
 		})
-
-		// Limit the number of results
-		if len(result) >= n {
-			break
-		}
 	}
 
 	return result, nil
