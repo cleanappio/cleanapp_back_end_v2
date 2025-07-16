@@ -96,3 +96,32 @@ func TestHashToken(t *testing.T) {
 		t.Error("Different tokens should produce different hashes")
 	}
 }
+
+func TestNormalizeBrandName(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"Coca-Cola", "cocacola"},
+		{"Coca Cola", "cocacola"},
+		{"Coca-Cola & Co.", "cocacolaco"},
+		{"Red Bull", "redbull"},
+		{"Nike", "nike"},
+		{"Adidas.", "adidas"},
+		{"Apple Inc.", "appleinc"},
+		{"McDonald's", "mcdonalds"},
+		{"Starbucks", "starbucks"},
+		{"Pepsi, Inc.", "pepsiinc"},
+		{"Samsung Electronics", "samsungelectronics"},
+		{"Microsoft Corporation", "microsoftcorporation"},
+		{"  Coca   Cola  ", "cocacola"},
+		{"Coca-Cola and Company", "cocacolacompany"},
+	}
+
+	for _, tt := range tests {
+		result := NormalizeBrandName(tt.input)
+		if result != tt.expected {
+			t.Errorf("NormalizeBrandName(%q) = %q, want %q", tt.input, result, tt.expected)
+		}
+	}
+}

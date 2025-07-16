@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"customer-service/models"
+	"customer-service/utils"
 	"customer-service/utils/stripe"
 
 	stripego "github.com/stripe/stripe-go/v82"
@@ -748,7 +749,7 @@ func (s *CustomerService) GetCustomerBrands(ctx context.Context, customerID stri
 		if err := rows.Scan(&brandName); err != nil {
 			return nil, fmt.Errorf("failed to scan brand name: %w", err)
 		}
-		brands = append(brands, brandName)
+		brands = append(brands, utils.GetBrandDisplayName(brandName))
 	}
 
 	return brands, nil
@@ -769,7 +770,8 @@ func (s *CustomerService) AddCustomerBrands(ctx context.Context, customerID stri
 
 	// Insert new brands
 	for _, brandName := range brandNames {
-		if err := s.insertCustomerBrand(ctx, tx, customerID, brandName); err != nil {
+		normalized := utils.NormalizeBrandName(brandName)
+		if err := s.insertCustomerBrand(ctx, tx, customerID, normalized); err != nil {
 			return fmt.Errorf("failed to insert customer brand: %w", err)
 		}
 	}
@@ -803,7 +805,8 @@ func (s *CustomerService) RemoveCustomerBrands(ctx context.Context, customerID s
 
 	// Remove specified brands
 	for _, brandName := range brandNames {
-		_, err = tx.ExecContext(ctx, "DELETE FROM customer_brands WHERE customer_id = ? AND brand_name = ?", customerID, brandName)
+		normalized := utils.NormalizeBrandName(brandName)
+		_, err = tx.ExecContext(ctx, "DELETE FROM customer_brands WHERE customer_id = ? AND brand_name = ?", customerID, normalized)
 		if err != nil {
 			return fmt.Errorf("failed to remove customer brand: %w", err)
 		}
@@ -840,7 +843,8 @@ func (s *CustomerService) UpdateCustomerBrands(ctx context.Context, customerID s
 
 	// Insert new brands
 	for _, brandName := range brandNames {
-		if err := s.insertCustomerBrand(ctx, tx, customerID, brandName); err != nil {
+		normalized := utils.NormalizeBrandName(brandName)
+		if err := s.insertCustomerBrand(ctx, tx, customerID, normalized); err != nil {
 			return fmt.Errorf("failed to insert customer brand: %w", err)
 		}
 	}
@@ -1051,6 +1055,7 @@ func (s *CustomerService) insertCustomerArea(ctx context.Context, tx *sql.Tx, cu
 	return err
 }
 
+// insertCustomerBrand inserts a brand for a customer (brandName should already be normalized)
 func (s *CustomerService) insertCustomerBrand(ctx context.Context, tx *sql.Tx, customerID string, brandName string) error {
 	_, err := tx.ExecContext(ctx,
 		"INSERT INTO customer_brands (customer_id, brand_name) VALUES (?, ?)",
