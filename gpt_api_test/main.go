@@ -20,10 +20,12 @@ const litterHazardPrompt = `
 	Please describe the litter or hazard in detail.
 	Also, give a probability that there is a litter or hazard on a photo in units from 0.0 to 1.0 and
 	a severity level from 0.0 to 1.0.
+	Also, please extract any brand name from the image, if present.
 
 	Please format the output as a json with following fields:
 	- title: an issue title, one sentence;
 	- description: a description, one paragraph;
+	- brand_name: optional, a brand name, if present;
 	- litter_probability: a probability, a number from 0.0 to 1.0;
 	- hazard_probability: a severity, a number from 0.0 to 1.0;
 	- severity_level: a severity level, a number from 0.0 to 1.0;
@@ -36,6 +38,7 @@ const digitalErrorPrompt = `
 	Please format the output as:
 	- a bug title, one sentence;
 	- a bug description, one paragraph;
+	- a brand name, optional, if present;
 	- a site URL, if you recognize it;
 	- a probability, a number from 0.0 to 1.0;
 	- a severity, a number from 0.0 to 1.0;

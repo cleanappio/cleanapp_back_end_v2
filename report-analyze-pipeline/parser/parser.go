@@ -10,6 +10,7 @@ import (
 type AnalysisResult struct {
 	Title             string  `json:"title"`
 	Description       string  `json:"description"`
+	BrandName         string  `json:"brand_name"`
 	LitterProbability float64 `json:"litter_probability"`
 	HazardProbability float64 `json:"hazard_probability"`
 	SeverityLevel     float64 `json:"severity_level"`

@@ -38,6 +38,7 @@ type ReportAnalysis struct {
 	AnalysisImage     []byte
 	Title             string
 	Description       string
+	BrandName         string
 	LitterProbability float64
 	HazardProbability float64
 	SeverityLevel     float64
@@ -147,10 +148,10 @@ func (d *Database) SaveAnalysis(analysis *ReportAnalysis) error {
 	query := `
 	INSERT INTO report_analysis (
 		seq, source, analysis_text, analysis_image, 
-		title, description,
+		title, description, brand_name,
 		litter_probability, hazard_probability, severity_level, summary, language
 	)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err := d.db.Exec(query,
 		analysis.Seq,
@@ -159,6 +160,7 @@ func (d *Database) SaveAnalysis(analysis *ReportAnalysis) error {
 		analysis.AnalysisImage,
 		analysis.Title,
 		analysis.Description,
+		analysis.BrandName,
 		analysis.LitterProbability,
 		analysis.HazardProbability,
 		analysis.SeverityLevel,

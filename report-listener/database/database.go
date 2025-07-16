@@ -105,7 +105,7 @@ func (d *Database) GetReportsSince(ctx context.Context, sinceSeq int) ([]models.
 	analysesQuery := fmt.Sprintf(`
 		SELECT 
 			ra.seq, ra.source, ra.analysis_text, ra.analysis_image,
-			ra.title, ra.description,
+			ra.title, ra.description, ra.brand_name,
 			ra.litter_probability, ra.hazard_probability, 
 			ra.severity_level, ra.summary, ra.language, ra.created_at
 		FROM report_analysis ra
@@ -130,6 +130,7 @@ func (d *Database) GetReportsSince(ctx context.Context, sinceSeq int) ([]models.
 			&analysis.AnalysisImage,
 			&analysis.Title,
 			&analysis.Description,
+			&analysis.BrandName,
 			&analysis.LitterProbability,
 			&analysis.HazardProbability,
 			&analysis.SeverityLevel,

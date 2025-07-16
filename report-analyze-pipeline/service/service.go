@@ -102,6 +102,7 @@ Analyze this image and provide a JSON response with the following structure:
 {
   "title": "A descriptive title for the issue",
   "description": "A detailed description of what you see in the image",
+  "brand_name": "A brand name, if present, otherwise null",
   "litter_probability": 0.0-1.0,
   "hazard_probability": 0.0-1.0,
   "severity_level": 0.0-1.0
@@ -130,6 +131,7 @@ Analyze this image and provide a JSON response with the following structure:
 		AnalysisImage:     nil, // OpenAI doesn't return images in this context
 		Title:             analysis.Title,
 		Description:       analysis.Description,
+		BrandName:         analysis.BrandName,
 		LitterProbability: analysis.LitterProbability,
 		HazardProbability: analysis.HazardProbability,
 		SeverityLevel:     analysis.SeverityLevel,
@@ -180,6 +182,7 @@ Analyze this image and provide a JSON response with the following structure:
 				AnalysisImage:     nil,
 				Title:             translatedAnalysis.Title,
 				Description:       translatedAnalysis.Description,
+				BrandName:         translatedAnalysis.BrandName,
 				LitterProbability: translatedAnalysis.LitterProbability,
 				HazardProbability: translatedAnalysis.HazardProbability,
 				SeverityLevel:     translatedAnalysis.SeverityLevel,

@@ -166,7 +166,7 @@ REPORT_ANALYZE_PIPELINE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-analyze-p
 MONTENEGRO_AREAS_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-montenegro-areas-image:${OPT}"
 AUTH_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-auth-service-image:${OPT}"
 
-ANALYSIS_PROMPT="What kind of litter or hazard can you see on this image? Please describe the litter or hazard in detail. Also, give a probability that there is a litter or hazard on a photo in units from 0.0 to 1.0 and a severity level from 0.0 to 1.0."
+ANALYSIS_PROMPT="What kind of litter or hazard can you see on this image? Please describe the litter or hazard in detail. Also, please extract any brand name from the image, if present. Also, give a probability that there is a litter or hazard on a photo in units from 0.0 to 1.0 and a severity level from 0.0 to 1.0."
 
 # Create docker-compose.yml file.
 cat >docker-compose.yml << COMPOSE

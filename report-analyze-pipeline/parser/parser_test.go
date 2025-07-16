@@ -16,6 +16,7 @@ func TestParseAnalysis(t *testing.T) {
 			response: `{
 				"title": "Discarded Mattress and Debris on Roadside",
 				"description": "The image shows a rural roadside area with various pieces of litter, including a mattress, wooden debris, and other scattered trash items. This clutter not only detracts from the visual appeal of the environment but also poses a potential safety hazard to passersby, as the debris may obstruct the pathway or create tripping hazards.",
+				"brand_name": "Generic Mattress Co.",
 				"litter_probability": 1.0,
 				"hazard_probability": 0.7,
 				"severity_level": 0.6
@@ -24,6 +25,7 @@ func TestParseAnalysis(t *testing.T) {
 			expected: &AnalysisResult{
 				Title:             "Discarded Mattress and Debris on Roadside",
 				Description:       "The image shows a rural roadside area with various pieces of litter, including a mattress, wooden debris, and other scattered trash items. This clutter not only detracts from the visual appeal of the environment but also poses a potential safety hazard to passersby, as the debris may obstruct the pathway or create tripping hazards.",
+				BrandName:         "Generic Mattress Co.",
 				LitterProbability: 1.0,
 				HazardProbability: 0.7,
 				SeverityLevel:     0.6,
@@ -34,6 +36,7 @@ func TestParseAnalysis(t *testing.T) {
 			response: `{
 				"title": "Minor Litter Found",
 				"description": "Small amount of paper waste visible in the area.",
+				"brand_name": "Coca-Cola",
 				"litter_probability": 0.3,
 				"hazard_probability": 0.1,
 				"severity_level": 0.2
@@ -42,9 +45,69 @@ func TestParseAnalysis(t *testing.T) {
 			expected: &AnalysisResult{
 				Title:             "Minor Litter Found",
 				Description:       "Small amount of paper waste visible in the area.",
+				BrandName:         "Coca-Cola",
 				LitterProbability: 0.3,
 				HazardProbability: 0.1,
 				SeverityLevel:     0.2,
+			},
+		},
+		{
+			name: "valid JSON with empty brand name",
+			response: `{
+				"title": "Unknown Brand Litter",
+				"description": "Various unidentified brand items found in the area.",
+				"brand_name": null,
+				"litter_probability": 0.5,
+				"hazard_probability": 0.2,
+				"severity_level": 0.4
+			}`,
+			wantErr: false,
+			expected: &AnalysisResult{
+				Title:             "Unknown Brand Litter",
+				Description:       "Various unidentified brand items found in the area.",
+				BrandName:         "",
+				LitterProbability: 0.5,
+				HazardProbability: 0.2,
+				SeverityLevel:     0.4,
+			},
+		},
+		{
+			name: "valid JSON without brand name field",
+			response: `{
+				"title": "Natural Debris",
+				"description": "Natural debris and fallen branches in the area.",
+				"litter_probability": 0.1,
+				"hazard_probability": 0.3,
+				"severity_level": 0.2
+			}`,
+			wantErr: false,
+			expected: &AnalysisResult{
+				Title:             "Natural Debris",
+				Description:       "Natural debris and fallen branches in the area.",
+				BrandName:         "",
+				LitterProbability: 0.1,
+				HazardProbability: 0.3,
+				SeverityLevel:     0.2,
+			},
+		},
+		{
+			name: "valid JSON with multiple word brand name",
+			response: `{
+				"title": "Fast Food Packaging Litter",
+				"description": "Multiple fast food containers and wrappers scattered in the area.",
+				"brand_name": "McDonald's Corporation",
+				"litter_probability": 0.8,
+				"hazard_probability": 0.1,
+				"severity_level": 0.5
+			}`,
+			wantErr: false,
+			expected: &AnalysisResult{
+				Title:             "Fast Food Packaging Litter",
+				Description:       "Multiple fast food containers and wrappers scattered in the area.",
+				BrandName:         "McDonald's Corporation",
+				LitterProbability: 0.8,
+				HazardProbability: 0.1,
+				SeverityLevel:     0.5,
 			},
 		},
 		{
@@ -57,6 +120,7 @@ func TestParseAnalysis(t *testing.T) {
 			name: "missing title",
 			response: `{
 				"description": "Some description",
+				"brand_name": "Some Brand",
 				"litter_probability": 0.5,
 				"hazard_probability": 0.3,
 				"severity_level": 0.4
@@ -68,6 +132,7 @@ func TestParseAnalysis(t *testing.T) {
 			name: "missing description",
 			response: `{
 				"title": "Some Title",
+				"brand_name": "Some Brand",
 				"litter_probability": 0.5,
 				"hazard_probability": 0.3,
 				"severity_level": 0.4
@@ -80,6 +145,7 @@ func TestParseAnalysis(t *testing.T) {
 			response: `{
 				"title": "Some Title",
 				"description": "Some description",
+				"brand_name": "Some Brand",
 				"litter_probability": 1.5,
 				"hazard_probability": 0.3,
 				"severity_level": 0.4
@@ -92,8 +158,9 @@ func TestParseAnalysis(t *testing.T) {
 			response: `{
 				"title": "Some Title",
 				"description": "Some description",
-				"litter_probability": 0.5,
+				"brand_name": "Some Brand",
 				"hazard_probability": -0.1,
+				"litter_probability": 0.5,
 				"severity_level": 0.4
 			}`,
 			wantErr:  true,
@@ -104,6 +171,7 @@ func TestParseAnalysis(t *testing.T) {
 			response: `{
 				"title": "Some Title",
 				"description": "Some description",
+				"brand_name": "Some Brand",
 				"litter_probability": 0.5,
 				"hazard_probability": 0.3,
 				"severity_level": 2.0
@@ -119,6 +187,7 @@ func TestParseAnalysis(t *testing.T) {
 {
   "title": "Wooden Wall with Varied Plank Colors",
   "description": "The image shows a close-up of a wall or floor made of wooden planks. The planks have varying shades of brown, green, and gray, giving the surface a patchwork or reclaimed wood appearance. There are no visible objects, trash, or hazards present in the image.",
+  "brand_name": "TimberCraft Industries",
   "litter_probability": 0.0,
   "hazard_probability": 0.0,
   "severity_level": 0.0
@@ -130,6 +199,7 @@ This analysis shows no litter or hazards.`,
 			expected: &AnalysisResult{
 				Title:             "Wooden Wall with Varied Plank Colors",
 				Description:       "The image shows a close-up of a wall or floor made of wooden planks. The planks have varying shades of brown, green, and gray, giving the surface a patchwork or reclaimed wood appearance. There are no visible objects, trash, or hazards present in the image.",
+				BrandName:         "TimberCraft Industries",
 				LitterProbability: 0.0,
 				HazardProbability: 0.0,
 				SeverityLevel:     0.0,
@@ -143,6 +213,7 @@ This analysis shows no litter or hazards.`,
 {
   "title": "Clean Environment",
   "description": "The area appears to be clean with no visible litter or hazards.",
+  "brand_name": "",
   "litter_probability": 0.0,
   "hazard_probability": 0.0,
   "severity_level": 0.0
@@ -152,6 +223,7 @@ This analysis shows no litter or hazards.`,
 			expected: &AnalysisResult{
 				Title:             "Clean Environment",
 				Description:       "The area appears to be clean with no visible litter or hazards.",
+				BrandName:         "",
 				LitterProbability: 0.0,
 				HazardProbability: 0.0,
 				SeverityLevel:     0.0,
@@ -181,6 +253,10 @@ This analysis shows no litter or hazards.`,
 
 			if result.Description != tt.expected.Description {
 				t.Errorf("ParseAnalysis() description = %v, want %v", result.Description, tt.expected.Description)
+			}
+
+			if result.BrandName != tt.expected.BrandName {
+				t.Errorf("ParseAnalysis() brand_name = %v, want %v", result.BrandName, tt.expected.BrandName)
 			}
 
 			if result.LitterProbability != tt.expected.LitterProbability {
