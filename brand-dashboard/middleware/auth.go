@@ -52,15 +52,24 @@ func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 
 // validateTokenWithAuthService validates a JWT token with the auth service
 func validateTokenWithAuthService(token, authServiceURL string) (string, error) {
+	// Create request payload
+	requestBody := map[string]string{
+		"token": token,
+	}
+
+	jsonBody, err := json.Marshal(requestBody)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal request body: %w", err)
+	}
+
 	// Create request to auth service
-	url := fmt.Sprintf("%s/api/v3/auth/validate", authServiceURL)
-	req, err := http.NewRequest("POST", url, nil)
+	url := fmt.Sprintf("%s/api/v3/validate-token", authServiceURL)
+	req, err := http.NewRequest("POST", url, strings.NewReader(string(jsonBody)))
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 
 	// Set headers
-	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 
 	// Make the request
@@ -78,10 +87,16 @@ func validateTokenWithAuthService(token, authServiceURL string) (string, error) 
 
 	// Parse response
 	var response struct {
+		Valid  bool   `json:"valid"`
 		UserID string `json:"user_id"`
+		Error  string `json:"error"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 		return "", fmt.Errorf("failed to decode auth service response: %w", err)
+	}
+
+	if !response.Valid {
+		return "", fmt.Errorf("token validation failed: %s", response.Error)
 	}
 
 	return response.UserID, nil
