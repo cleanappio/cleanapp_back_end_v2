@@ -1,0 +1,73 @@
+version: '3.8'
+
+services:
+  brand-dashboard:
+    build: .
+    container_name: brand-dashboard
+    ports:
+      - "8080:8080"
+    environment:
+      - DB_USER=server
+      - DB_PASSWORD=secret_app
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_NAME=cleanapp
+      - AUTH_SERVICE_URL=http://auth-service:8080
+      - BRAND_NAMES=coca-cola,redbull,nike,adidas,pepsi,mcdonalds,starbucks,apple,samsung,microsoft
+      - PORT=8080
+      - HOST=0.0.0.0
+    depends_on:
+      - mysql
+      - auth-service
+    networks:
+      - cleanapp-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  mysql:
+    image: mysql:8.0
+    container_name: cleanapp-mysql
+    environment:
+      - MYSQL_ROOT_PASSWORD=root_password
+      - MYSQL_DATABASE=cleanapp
+      - MYSQL_USER=server
+      - MYSQL_PASSWORD=secret_app
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - cleanapp-network
+    restart: unless-stopped
+
+  auth-service:
+    image: auth-service:latest
+    container_name: auth-service
+    ports:
+      - "8081:8080"
+    environment:
+      - DB_USER=server
+      - DB_PASSWORD=secret_app
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_NAME=cleanapp
+      - PORT=8080
+      - HOST=0.0.0.0
+    depends_on:
+      - mysql
+    networks:
+      - cleanapp-network
+    restart: unless-stopped
+
+networks:
+  cleanapp-network:
+    driver: bridge
+
+volumes:
+  mysql_data: 
