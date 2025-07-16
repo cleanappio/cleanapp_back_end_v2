@@ -366,6 +366,7 @@ services:
       - DB_USER=server
       - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
       - GIN_MODE=${GIN_MODE}
+      - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
       - BRAND_NAMES=${RED_BULL_BRAND_NAMES}
     ports:
       - 9085:8080
