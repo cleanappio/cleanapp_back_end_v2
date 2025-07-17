@@ -20,6 +20,11 @@ func RunMigrations(db *sql.DB) error {
 		return fmt.Errorf("migration 002 failed: %w", err)
 	}
 
+	// Migration 3: Add brand_display_name field to report_analysis table
+	if err := runMigration003(db); err != nil {
+		return fmt.Errorf("migration 003 failed: %w", err)
+	}
+
 	log.Println("All migrations completed successfully")
 	return nil
 }
@@ -93,5 +98,41 @@ func runMigration002(db *sql.DB) error {
 	}
 
 	log.Println("Migration 002 completed")
+	return nil
+}
+
+// runMigration003 adds brand_display_name field to report_analysis table
+func runMigration003(db *sql.DB) error {
+	log.Println("Running migration 003: Adding brand_display_name field to report_analysis table")
+
+	// Step 1: Add brand_display_name column (will fail if already exists, but that's ok)
+	_, err := db.Exec(`
+		ALTER TABLE report_analysis 
+		ADD COLUMN brand_display_name VARCHAR(255) DEFAULT ''
+	`)
+	if err != nil {
+		log.Printf("Note: brand_display_name column may already exist: %v", err)
+	}
+
+	// Step 2: Update existing records with empty brand_display_name to empty string
+	_, err = db.Exec(`
+		UPDATE report_analysis 
+		SET brand_display_name = '' 
+		WHERE brand_display_name IS NULL
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to update existing records: %w", err)
+	}
+
+	// Step 3: Add index on brand_display_name column
+	_, err = db.Exec(`
+		CREATE INDEX idx_report_analysis_brand_display_name 
+		ON report_analysis(brand_display_name)
+	`)
+	if err != nil {
+		log.Printf("Note: brand_display_name index may already exist: %v", err)
+	}
+
+	log.Println("Migration 003 completed")
 	return nil
 }

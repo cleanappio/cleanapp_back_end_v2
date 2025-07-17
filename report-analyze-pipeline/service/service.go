@@ -129,6 +129,7 @@ Analyze this image and provide a JSON response with the following structure:
 
 	// Normalize the brand name before saving
 	normalizedBrandName := s.brandService.NormalizeBrandName(analysis.BrandName)
+	brandDisplayName := analysis.BrandName
 
 	// Create the English analysis result
 	analysisResult := &database.ReportAnalysis{
@@ -139,6 +140,7 @@ Analyze this image and provide a JSON response with the following structure:
 		Title:             analysis.Title,
 		Description:       analysis.Description,
 		BrandName:         normalizedBrandName,
+		BrandDisplayName:  brandDisplayName,
 		LitterProbability: analysis.LitterProbability,
 		HazardProbability: analysis.HazardProbability,
 		SeverityLevel:     analysis.SeverityLevel,
@@ -183,6 +185,7 @@ Analyze this image and provide a JSON response with the following structure:
 
 			// Normalize the brand name for translated analysis
 			normalizedTranslatedBrandName := s.brandService.NormalizeBrandName(translatedAnalysis.BrandName)
+			translatedBrandDisplayName := translatedAnalysis.BrandName
 
 			// Create the translated analysis result
 			translatedResult := &database.ReportAnalysis{
@@ -193,6 +196,7 @@ Analyze this image and provide a JSON response with the following structure:
 				Title:             translatedAnalysis.Title,
 				Description:       translatedAnalysis.Description,
 				BrandName:         normalizedTranslatedBrandName,
+				BrandDisplayName:  translatedBrandDisplayName,
 				LitterProbability: translatedAnalysis.LitterProbability,
 				HazardProbability: translatedAnalysis.HazardProbability,
 				SeverityLevel:     translatedAnalysis.SeverityLevel,

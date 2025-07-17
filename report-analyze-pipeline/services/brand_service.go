@@ -31,7 +31,8 @@ func (s *BrandService) NormalizeBrandName(brandName string) string {
 	normalized = strings.ReplaceAll(normalized, ",", "")
 	normalized = strings.ReplaceAll(normalized, "&", "")
 	normalized = strings.ReplaceAll(normalized, "'", "")
-	normalized = strings.ReplaceAll(normalized, "and", "")
+	// Don't remove "and" as it's part of many brand names
+	// normalized = strings.ReplaceAll(normalized, "and", "")
 
 	// Remove extra spaces
 	normalized = strings.Join(strings.Fields(normalized), "")
@@ -39,42 +40,6 @@ func (s *BrandService) NormalizeBrandName(brandName string) string {
 	log.Printf("Normalizing brand name: %s -> %s", brandName, normalized)
 
 	return normalized
-}
-
-// GetBrandDisplayName returns a display-friendly name for a brand
-func (s *BrandService) GetBrandDisplayName(brandName string) string {
-	if brandName == "" {
-		return ""
-	}
-
-	// Convert to title case and handle common cases
-	displayName := s.toTitleCase(brandName)
-
-	// Handle specific brand name formatting
-	switch strings.ToLower(brandName) {
-	case "coca-cola":
-		return "Coca-Cola"
-	case "redbull":
-		return "Red Bull"
-	case "nike":
-		return "Nike"
-	case "adidas":
-		return "Adidas"
-	case "pepsi":
-		return "Pepsi"
-	case "mcdonalds":
-		return "McDonald's"
-	case "starbucks":
-		return "Starbucks"
-	case "apple":
-		return "Apple"
-	case "samsung":
-		return "Samsung"
-	case "microsoft":
-		return "Microsoft"
-	}
-
-	return displayName
 }
 
 // toTitleCase converts a string to title case

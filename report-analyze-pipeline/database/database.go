@@ -39,6 +39,7 @@ type ReportAnalysis struct {
 	Title             string
 	Description       string
 	BrandName         string
+	BrandDisplayName  string
 	LitterProbability float64
 	HazardProbability float64
 	SeverityLevel     float64
@@ -84,14 +85,20 @@ func (d *Database) CreateReportAnalysisTable() error {
 		analysis_image LONGBLOB,
 		title VARCHAR(500),
 		description TEXT,
+		brand_name VARCHAR(255) DEFAULT '',
+		brand_display_name VARCHAR(255) DEFAULT '',
 		litter_probability FLOAT,
 		hazard_probability FLOAT,
 		severity_level FLOAT,
 		summary TEXT,
+		language VARCHAR(2) NOT NULL DEFAULT 'en',
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 		INDEX seq_index (seq),
-		INDEX source_index (source)
+		INDEX source_index (source),
+		INDEX idx_report_analysis_brand_name (brand_name),
+		INDEX idx_report_analysis_brand_display_name (brand_display_name),
+		INDEX idx_report_analysis_language (language)
 	)`
 
 	_, err := d.db.Exec(query)
@@ -148,10 +155,10 @@ func (d *Database) SaveAnalysis(analysis *ReportAnalysis) error {
 	query := `
 	INSERT INTO report_analysis (
 		seq, source, analysis_text, analysis_image, 
-		title, description, brand_name,
+		title, description, brand_name, brand_display_name,
 		litter_probability, hazard_probability, severity_level, summary, language
 	)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err := d.db.Exec(query,
 		analysis.Seq,
@@ -161,6 +168,7 @@ func (d *Database) SaveAnalysis(analysis *ReportAnalysis) error {
 		analysis.Title,
 		analysis.Description,
 		analysis.BrandName,
+		analysis.BrandDisplayName,
 		analysis.LitterProbability,
 		analysis.HazardProbability,
 		analysis.SeverityLevel,

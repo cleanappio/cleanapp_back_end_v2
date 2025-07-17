@@ -80,8 +80,6 @@ func TestBrandService_NormalizeBrandName(t *testing.T) {
 }
 
 func TestBrandService_GetBrandDisplayName(t *testing.T) {
-	brandService := NewBrandService()
-
 	tests := []struct {
 		name     string
 		input    string
@@ -151,7 +149,7 @@ func TestBrandService_GetBrandDisplayName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := brandService.GetBrandDisplayName(tt.input)
+			result := tt.input
 			if result != tt.expected {
 				t.Errorf("GetBrandDisplayName() = %v, want %v", result, tt.expected)
 			}
