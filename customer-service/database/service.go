@@ -280,6 +280,18 @@ func (s *CustomerService) CreateSubscription(ctx context.Context, customerID str
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
+	// Calculate next billing date based on billing cycle
+	var nextBillingDate time.Time
+	switch req.BillingCycle {
+	case "monthly":
+		nextBillingDate = time.Now().AddDate(0, 1, 0)
+	case "annual", "yearly":
+		nextBillingDate = time.Now().AddDate(1, 0, 0)
+	default:
+		// Default to monthly if billing cycle is not recognized
+		nextBillingDate = time.Now().AddDate(0, 1, 0)
+	}
+
 	return &models.Subscription{
 		ID:              int(subscriptionID),
 		CustomerID:      customerID,
@@ -287,7 +299,7 @@ func (s *CustomerService) CreateSubscription(ctx context.Context, customerID str
 		BillingCycle:    req.BillingCycle,
 		Status:          "active",
 		StartDate:       time.Now(),
-		NextBillingDate: time.Now().AddDate(0, 1, 0), // Default to 1 month
+		NextBillingDate: nextBillingDate,
 	}, nil
 }
 
@@ -340,9 +352,21 @@ func (s *CustomerService) UpdateSubscription(ctx context.Context, customerID str
 		return fmt.Errorf("failed to update stripe subscription: %w", err)
 	}
 
+	// Calculate next billing date based on new billing cycle
+	var nextBillingDate string
+	switch req.BillingCycle {
+	case "monthly":
+		nextBillingDate = "DATE_ADD(CURRENT_DATE, INTERVAL 1 MONTH)"
+	case "annual", "yearly":
+		nextBillingDate = "DATE_ADD(CURRENT_DATE, INTERVAL 1 YEAR)"
+	default:
+		// Default to monthly if billing cycle is not recognized
+		nextBillingDate = "DATE_ADD(CURRENT_DATE, INTERVAL 1 MONTH)"
+	}
+
 	// Update subscription in database
 	_, err = s.db.ExecContext(ctx,
-		"UPDATE subscriptions SET plan_type = ?, billing_cycle = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+		fmt.Sprintf("UPDATE subscriptions SET plan_type = ?, billing_cycle = ?, next_billing_date = %s, updated_at = CURRENT_TIMESTAMP WHERE id = ?", nextBillingDate),
 		req.PlanType, req.BillingCycle, subscription.ID)
 	if err != nil {
 		return fmt.Errorf("failed to update subscription: %w", err)
@@ -1064,9 +1088,21 @@ func (s *CustomerService) insertCustomerBrand(ctx context.Context, tx *sql.Tx, c
 }
 
 func (s *CustomerService) insertSubscription(ctx context.Context, customerID, planType, billingCycle, stripeSubscriptionID string) (int64, error) {
+	// Determine the billing interval based on billing cycle
+	var interval string
+	switch billingCycle {
+	case "monthly":
+		interval = "1 MONTH"
+	case "annual", "yearly":
+		interval = "1 YEAR"
+	default:
+		// Default to monthly if billing cycle is not recognized
+		interval = "1 MONTH"
+	}
+
 	result, err := s.db.ExecContext(ctx,
-		`INSERT INTO subscriptions (customer_id, plan_type, billing_cycle, stripe_subscription_id, start_date, next_billing_date)
-		 VALUES (?, ?, ?, ?, CURRENT_DATE, DATE_ADD(CURRENT_DATE, INTERVAL 1 MONTH))`,
+		fmt.Sprintf(`INSERT INTO subscriptions (customer_id, plan_type, billing_cycle, stripe_subscription_id, start_date, next_billing_date)
+		 VALUES (?, ?, ?, ?, CURRENT_DATE, DATE_ADD(CURRENT_DATE, INTERVAL %s))`, interval),
 		customerID, planType, billingCycle, stripeSubscriptionID)
 	if err != nil {
 		return 0, err
