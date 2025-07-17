@@ -105,7 +105,7 @@ func (d *Database) GetReportsSince(ctx context.Context, sinceSeq int) ([]models.
 	analysesQuery := fmt.Sprintf(`
 		SELECT 
 			ra.seq, ra.source, ra.analysis_text, ra.analysis_image,
-			ra.title, ra.description, ra.brand_name,
+			ra.title, ra.description, ra.brand_name, ra.brand_display_name,
 			ra.litter_probability, ra.hazard_probability, 
 			ra.severity_level, ra.summary, ra.language, ra.created_at
 		FROM report_analysis ra
@@ -131,6 +131,7 @@ func (d *Database) GetReportsSince(ctx context.Context, sinceSeq int) ([]models.
 			&analysis.Title,
 			&analysis.Description,
 			&analysis.BrandName,
+			&analysis.BrandDisplayName,
 			&analysis.LitterProbability,
 			&analysis.HazardProbability,
 			&analysis.SeverityLevel,
@@ -296,7 +297,7 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int) ([]mo
 	analysesQuery := fmt.Sprintf(`
 		SELECT 
 			ra.seq, ra.source, ra.analysis_text, ra.analysis_image,
-			ra.title, ra.description,
+			ra.title, ra.description, ra.brand_name, ra.brand_display_name,
 			ra.litter_probability, ra.hazard_probability, 
 			ra.severity_level, ra.summary, ra.language, ra.created_at
 		FROM report_analysis ra
@@ -321,6 +322,8 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int) ([]mo
 			&analysis.AnalysisImage,
 			&analysis.Title,
 			&analysis.Description,
+			&analysis.BrandName,
+			&analysis.BrandDisplayName,
 			&analysis.LitterProbability,
 			&analysis.HazardProbability,
 			&analysis.SeverityLevel,
@@ -385,7 +388,7 @@ func (d *Database) GetReportBySeq(ctx context.Context, seq int) (*models.ReportW
 	analysesQuery := `
 		SELECT 
 			ra.seq, ra.source, ra.analysis_text, ra.analysis_image,
-			ra.title, ra.description,
+			ra.title, ra.description, ra.brand_name, ra.brand_display_name,
 			ra.litter_probability, ra.hazard_probability, 
 			ra.severity_level, ra.summary, ra.language, ra.created_at
 		FROM report_analysis ra
@@ -409,6 +412,8 @@ func (d *Database) GetReportBySeq(ctx context.Context, seq int) (*models.ReportW
 			&analysis.AnalysisImage,
 			&analysis.Title,
 			&analysis.Description,
+			&analysis.BrandName,
+			&analysis.BrandDisplayName,
 			&analysis.LitterProbability,
 			&analysis.HazardProbability,
 			&analysis.SeverityLevel,
@@ -494,7 +499,7 @@ func (d *Database) GetLastNReportsByID(ctx context.Context, reportID string, lim
 	analysesQuery := fmt.Sprintf(`
 		SELECT 
 			ra.seq, ra.source, ra.analysis_text, ra.analysis_image,
-			ra.title, ra.description,
+			ra.title, ra.description, ra.brand_name, ra.brand_display_name,
 			ra.litter_probability, ra.hazard_probability, 
 			ra.severity_level, ra.summary, ra.language, ra.created_at
 		FROM report_analysis ra
@@ -519,6 +524,8 @@ func (d *Database) GetLastNReportsByID(ctx context.Context, reportID string, lim
 			&analysis.AnalysisImage,
 			&analysis.Title,
 			&analysis.Description,
+			&analysis.BrandName,
+			&analysis.BrandDisplayName,
 			&analysis.LitterProbability,
 			&analysis.HazardProbability,
 			&analysis.SeverityLevel,

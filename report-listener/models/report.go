@@ -23,6 +23,7 @@ type ReportAnalysis struct {
 	Title             string    `json:"title"`
 	Description       string    `json:"description"`
 	BrandName         string    `json:"brand_name" db:"brand_name"`
+	BrandDisplayName  string    `json:"brand_display_name" db:"brand_display_name"`
 	LitterProbability float64   `json:"litter_probability" db:"litter_probability"`
 	HazardProbability float64   `json:"hazard_probability" db:"hazard_probability"`
 	SeverityLevel     float64   `json:"severity_level" db:"severity_level"`
