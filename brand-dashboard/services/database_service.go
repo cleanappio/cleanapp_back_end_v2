@@ -141,7 +141,7 @@ func (s *DatabaseService) GetReportsByBrand(brandName string, n int) ([]models.R
 	analysesQuery := fmt.Sprintf(`
 		SELECT 
 			ra.seq, ra.source, ra.analysis_text, ra.analysis_image,
-			ra.title, ra.description, ra.brand_name,
+			ra.title, ra.description, ra.brand_name, ra.brand_display_name,
 			ra.litter_probability, ra.hazard_probability, 
 			ra.severity_level, ra.summary, ra.language, ra.created_at
 		FROM report_analysis ra
@@ -171,6 +171,7 @@ func (s *DatabaseService) GetReportsByBrand(brandName string, n int) ([]models.R
 			&analysis.Title,
 			&analysis.Description,
 			&analysis.BrandName,
+			&analysis.BrandDisplayName,
 			&analysis.LitterProbability,
 			&analysis.HazardProbability,
 			&analysis.SeverityLevel,
