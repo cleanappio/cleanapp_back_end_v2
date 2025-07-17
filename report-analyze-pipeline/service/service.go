@@ -10,25 +10,29 @@ import (
 	"report-analyze-pipeline/database"
 	"report-analyze-pipeline/openai"
 	"report-analyze-pipeline/parser"
+	"report-analyze-pipeline/services"
 )
 
 // Service represents the report analysis service
 type Service struct {
-	config   *config.Config
-	db       *database.Database
-	openai   *openai.Client
-	stopChan chan bool
+	config       *config.Config
+	db           *database.Database
+	openai       *openai.Client
+	brandService *services.BrandService
+	stopChan     chan bool
 }
 
 // NewService creates a new report analysis service
 func NewService(cfg *config.Config, db *database.Database) *Service {
 	client := openai.NewClient(cfg.OpenAIAPIKey, cfg.OpenAIModel)
+	brandService := services.NewBrandService()
 
 	return &Service{
-		config:   cfg,
-		db:       db,
-		openai:   client,
-		stopChan: make(chan bool),
+		config:       cfg,
+		db:           db,
+		openai:       client,
+		brandService: brandService,
+		stopChan:     make(chan bool),
 	}
 }
 
@@ -123,6 +127,9 @@ Analyze this image and provide a JSON response with the following structure:
 		return
 	}
 
+	// Normalize the brand name before saving
+	normalizedBrandName := s.brandService.NormalizeBrandName(analysis.BrandName)
+
 	// Create the English analysis result
 	analysisResult := &database.ReportAnalysis{
 		Seq:               report.Seq,
@@ -131,7 +138,7 @@ Analyze this image and provide a JSON response with the following structure:
 		AnalysisImage:     nil, // OpenAI doesn't return images in this context
 		Title:             analysis.Title,
 		Description:       analysis.Description,
-		BrandName:         analysis.BrandName,
+		BrandName:         normalizedBrandName,
 		LitterProbability: analysis.LitterProbability,
 		HazardProbability: analysis.HazardProbability,
 		SeverityLevel:     analysis.SeverityLevel,
@@ -174,6 +181,9 @@ Analyze this image and provide a JSON response with the following structure:
 				return
 			}
 
+			// Normalize the brand name for translated analysis
+			normalizedTranslatedBrandName := s.brandService.NormalizeBrandName(translatedAnalysis.BrandName)
+
 			// Create the translated analysis result
 			translatedResult := &database.ReportAnalysis{
 				Seq:               report.Seq,
@@ -182,7 +192,7 @@ Analyze this image and provide a JSON response with the following structure:
 				AnalysisImage:     nil,
 				Title:             translatedAnalysis.Title,
 				Description:       translatedAnalysis.Description,
-				BrandName:         translatedAnalysis.BrandName,
+				BrandName:         normalizedTranslatedBrandName,
 				LitterProbability: translatedAnalysis.LitterProbability,
 				HazardProbability: translatedAnalysis.HazardProbability,
 				SeverityLevel:     translatedAnalysis.SeverityLevel,

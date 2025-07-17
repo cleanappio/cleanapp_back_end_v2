@@ -7,6 +7,7 @@ A microservice that analyzes reports from the CleanApp database using OpenAI's v
 - Monitors the `reports` table for new reports
 - Analyzes images using OpenAI GPT-4 Vision API
 - **Automatically translates analysis results to multiple languages**
+- **Normalizes brand names for consistent storage and querying**
 - Stores analysis results in the `report_analysis` table with language-specific records
 - Provides HTTP API endpoints for status and results
 - Configurable analysis intervals and retry logic
@@ -173,6 +174,36 @@ Example: If `TRANSLATION_LANGUAGES=en,me,es` is configured, a single report will
 - One in Spanish (language: "es")
 
 **Note**: The service uses full language names (e.g., "Montenegrin", "Spanish") for OpenAI translation API calls, but stores the 2-letter language codes in the database for efficient querying and storage.
+
+### Brand Name Normalization
+
+The service automatically normalizes brand names extracted from AI analysis before storing them in the database. This ensures consistent brand name storage and enables efficient querying and reporting.
+
+#### Normalization Process
+
+Brand names are normalized by:
+1. Converting to lowercase
+2. Removing common punctuation (`-`, `_`, `.`, `,`, `&`, `'`)
+3. Removing common words (`and`)
+4. Removing extra spaces
+
+#### Examples
+
+| Original Brand Name | Normalized Brand Name |
+|-------------------|---------------------|
+| "Coca-Cola" | "cocacola" |
+| "Red Bull" | "redbull" |
+| "Nike, Inc." | "nikeinc" |
+| "McDonald's" | "mcdonalds" |
+| "Starbucks Coffee" | "starbuckscoffee" |
+| "Coca & Cola" | "cocacola" |
+
+#### Benefits
+
+- **Consistent Storage**: All variations of the same brand are stored identically
+- **Efficient Querying**: Easy to search for reports by brand name
+- **Data Integrity**: Prevents duplicate brand entries due to formatting differences
+- **Reporting**: Enables accurate brand-based analytics and reporting
 
 ## Error Handling
 
