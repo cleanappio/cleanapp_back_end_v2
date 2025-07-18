@@ -15,6 +15,11 @@ import (
 	gorilla "github.com/gorilla/websocket"
 )
 
+const (
+	// MaxReportsLimit is the maximum number of reports that can be requested in a single query
+	MaxReportsLimit = 1000
+)
+
 // Handlers contains all HTTP handlers
 type Handlers struct {
 	hub *ws.Hub
@@ -91,8 +96,8 @@ func (h *Handlers) GetLastNAnalyzedReports(c *gin.Context) {
 	}
 
 	// Limit the maximum number of reports to prevent abuse
-	if limit > 100 {
-		limit = 100
+	if limit > MaxReportsLimit {
+		limit = MaxReportsLimit
 	}
 
 	// Get the reports from the database
@@ -171,8 +176,8 @@ func (h *Handlers) GetLastNReportsByID(c *gin.Context) {
 	}
 
 	// Limit the maximum number of reports to prevent abuse
-	if n > 100 {
-		n = 100
+	if n > MaxReportsLimit {
+		n = MaxReportsLimit
 	}
 
 	// Get the reports from the database
