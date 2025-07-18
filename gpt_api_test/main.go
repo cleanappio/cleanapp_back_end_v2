@@ -49,7 +49,7 @@ const litterHazardPrompt = `
 	Please describe the litter or hazard in detail.
 	Also, give a probability that there is a litter or hazard on a photo in units from 0.0 to 1.0 and
 	a severity level from 0.0 to 1.0.
-	Also, please extract any brand name from the image, if present.
+	Also, please extract any brand name from the image, if present. Extract only a brand name without any context info. If there are multiple brands, extract the one with the highest probability of being present.
 
 	Please format the output as a json with following fields:
 	- title: an issue title, one sentence;
