@@ -1,11 +1,12 @@
 package main
 
 import (
+	"areas-service/config"
 	"areas-service/database"
 	"areas-service/handlers"
 	"areas-service/utils"
-	"flag"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/apex/log"
@@ -20,12 +21,9 @@ const (
 	EndPointGetAreasCount      = "/get_areas_count"
 )
 
-var (
-	serverPort = flag.Int("port", 8081, "The port used by the areas service.")
-)
-
 func main() {
-	flag.Parse()
+	// Load configuration
+	cfg := config.Load()
 
 	log.Info("Starting the areas service...")
 
@@ -63,9 +61,15 @@ func main() {
 	router.POST(EndPointUpdateConsent, areasHandler.UpdateConsent)
 	router.GET(EndPointGetAreasCount, areasHandler.GetAreasCount)
 
+	// Get server port from config
+	serverPort, err := strconv.Atoi(cfg.Port)
+	if err != nil {
+		log.Fatalf("Invalid PORT configuration: %v", err)
+	}
+
 	// Start server
-	log.Infof("Areas service starting on port %d", *serverPort)
-	if err := router.Run(fmt.Sprintf(":%d", *serverPort)); err != nil {
+	log.Infof("Areas service starting on port %d", serverPort)
+	if err := router.Run(fmt.Sprintf(":%d", serverPort)); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 }

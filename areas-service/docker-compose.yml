@@ -6,10 +6,12 @@ services:
     ports:
       - "8081:8081"
     environment:
-      - MYSQL_HOST=mysql
-      - MYSQL_PORT=3306
-      - MYSQL_DB=cleanapp
-      - MYSQL_PASSWORD=secret
+      - PORT=8081
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_NAME=cleanapp
+      - DB_USER=server
+      - DB_PASSWORD=secret
     networks:
       - cleanapp-network
 

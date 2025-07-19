@@ -1,114 +1,57 @@
 # Areas Service
 
-A microservice for managing geographic areas and their associated contact information.
+A microservice for managing areas and area-related operations.
 
-## Endpoints
+## Features
 
-- `POST /create_or_update_area` - Create or update an area
-- `GET /get_areas` - Get areas (optionally filtered by viewport)
-- `POST /update_consent` - Update email consent for an area
-- `GET /get_areas_count` - Get the total count of areas
-
-## Running the Service
-
-### Local Development
-
-1. Install dependencies:
-```bash
-go mod tidy
-```
-
-2. Run the service:
-```bash
-go run main.go
-```
-
-The service will automatically create the necessary database tables on startup.
-
-### Docker
-
-1. Build and run with Docker Compose:
-```bash
-docker-compose up --build
-```
-
-2. Or build and run manually:
-```bash
-docker build -t areas-service .
-docker run -p 8081:8081 areas-service
-```
-
-**Note**: The areas-service expects to connect to an existing MySQL database. Make sure the database is running and accessible before starting the service.
+- Create or update areas
+- Get areas with filtering
+- Update consent for areas
+- Get areas count
+- Automatic database schema initialization
 
 ## Configuration
 
 The service uses the following environment variables:
 
-- `MYSQL_HOST` - MySQL host (default: localhost)
-- `MYSQL_PORT` - MySQL port (default: 3306)
-- `MYSQL_DB` - MySQL database name (default: cleanapp)
-- `MYSQL_PASSWORD` - MySQL password (default: secret)
+- `PORT` - Service port (default: 8081)
+- `DB_HOST` - Database host (default: localhost)
+- `DB_PORT` - Database port (default: 3306)
+- `DB_NAME` - Database name (default: cleanapp)
+- `DB_USER` - Database username (default: server)
+- `DB_PASSWORD` - Database password (default: secret)
 
-## API Examples
+## API Endpoints
 
-### Create or Update Area
+- `POST /create_or_update_area` - Create or update an area
+- `GET /get_areas` - Get areas with optional filtering
+- `POST /update_consent` - Update consent for an area
+- `GET /get_areas_count` - Get count of areas
+
+## Running the Service
+
+### Local Development
 
 ```bash
-curl -X POST http://localhost:8081/create_or_update_area \
-  -H "Content-Type: application/json" \
-  -d '{
-    "version": "2.0",
-    "area": {
-      "id": 1,
-      "name": "Downtown Area",
-      "description": "Central business district",
-      "is_custom": false,
-      "contact_name": "John Doe",
-      "contact_emails": [
-        {
-          "email": "john@example.com",
-          "consent_report": true
-        }
-      ],
-      "coordinates": {
-        "type": "Feature",
-        "geometry": {
-          "type": "Polygon",
-          "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]]
-        }
-      },
-      "created_at": "2024-01-01T00:00:00Z",
-      "updated_at": "2024-01-01T00:00:00Z"
-    }
-  }'
+go run main.go
 ```
 
-### Get Areas
+### Using Docker
 
 ```bash
-# Get all areas
-curl http://localhost:8081/get_areas
-
-# Get areas in a specific viewport
-curl "http://localhost:8081/get_areas?sw_lat=0&sw_lon=0&ne_lat=1&ne_lon=1"
+docker-compose up --build
 ```
 
-### Update Consent
+## Database Schema
+
+The service automatically creates the following tables on startup:
+
+- `areas` - Main areas table
+- `contact_emails` - Contact email information
+- `area_index` - Spatial index for areas
+
+## Testing
 
 ```bash
-curl -X POST http://localhost:8081/update_consent \
-  -H "Content-Type: application/json" \
-  -d '{
-    "version": "2.0",
-    "contact_email": {
-      "email": "john@example.com",
-      "consent_report": false
-    }
-  }'
-```
-
-### Get Areas Count
-
-```bash
-curl http://localhost:8081/get_areas_count
+go test ./...
 ``` 

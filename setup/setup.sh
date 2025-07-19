@@ -166,6 +166,7 @@ REPORT_ANALYZE_PIPELINE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-analyze-p
 MONTENEGRO_AREAS_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-montenegro-areas-image:${OPT}"
 AUTH_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-auth-service-image:${OPT}"
 BRAND_DASHBOARD_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-brand-dashboard-image:${OPT}"
+AREAS_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-areas-service-image:${OPT}"
 
 ANALYSIS_PROMPT="What kind of litter or hazard can you see on this image? Please describe the litter or hazard in detail. Also, please extract any brand name from the image, if present. Extract only a brand name without any context info. If there are multiple brands, extract the one with the highest probability of being present."
 
@@ -371,6 +372,18 @@ services:
     ports:
       - 9085:8080
 
+  cleanapp_areas_service:
+    container_name: cleanapp_areas_service
+    image: ${AREAS_SERVICE_DOCKER_IMAGE}
+    environment:
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+      - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
+      - GIN_MODE=${GIN_MODE}
+    ports:
+      - 9086:8080
+
 volumes:
   mysql:
     name: eko_mysql
@@ -394,6 +407,7 @@ docker pull ${REPORT_ANALYZE_PIPELINE_DOCKER_IMAGE}
 docker pull ${MONTENEGRO_AREAS_DOCKER_IMAGE}
 docker pull ${AUTH_SERVICE_DOCKER_IMAGE}
 docker pull ${BRAND_DASHBOARD_DOCKER_IMAGE}
+docker pull ${AREAS_SERVICE_DOCKER_IMAGE}
 
 # Start our docker images.
 ./up.sh

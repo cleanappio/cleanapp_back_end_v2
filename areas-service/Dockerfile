@@ -25,7 +25,7 @@ WORKDIR /root/
 COPY --from=builder /app/areas-service .
 
 # Expose port
-EXPOSE 8081
+EXPOSE 8080
 
 # Run the binary
 CMD ["./areas-service"] 

@@ -1,156 +1,136 @@
 # Areas Service Migration
 
-This document describes the migration of area-related endpoints from the main backend service to a separate microservice.
+This document describes the migration of area-related endpoints from the main backend to a separate microservice.
 
 ## Overview
 
-The following four endpoints have been moved to a new microservice called `areas-service`:
+The following endpoints have been moved to a dedicated `areas-service`:
 
 - `POST /create_or_update_area` - Create or update an area
-- `GET /get_areas` - Get areas (optionally filtered by viewport)
-- `POST /update_consent` - Update email consent for an area
-- `GET /get_areas_count` - Get the total count of areas
+- `GET /get_areas` - Get areas with optional filtering
+- `POST /update_consent` - Update consent for an area
+- `GET /get_areas_count` - Get count of areas
 
-## Changes Made
+## Architecture Changes
 
-### 1. Created New Areas Service (`areas-service/`)
+### New Microservice Structure
 
-**Structure:**
 ```
 areas-service/
-├── main.go                 # Main application entry point
-├── go.mod                  # Go module dependencies
-├── Dockerfile             # Docker container definition
-├── docker-compose.yml     # Docker Compose configuration
-├── build_image.sh         # Build script
-├── README.md              # Service documentation
+├── config/
+│   └── config.go          # Configuration management
+├── database/
+│   ├── schema.go          # Database schema initialization
+│   └── service.go         # Database operations
+├── handlers/
+│   └── handlers.go        # HTTP handlers
 ├── models/
 │   └── models.go          # Data structures
-├── database/
-│   ├── service.go         # Database operations
-│   └── schema.go          # Database schema initialization
-├── handlers/
-│   └── handlers.go        # HTTP request handlers
-└── utils/
-    ├── db.go              # Database connection utilities
-    ├── area_index.go      # Spatial indexing utilities
-    └── area_index_test.go # Comprehensive test suite for spatial operations
+├── utils/
+│   ├── db.go              # Database connection
+│   ├── area_index.go      # Spatial indexing utilities
+│   └── area_index_test.go # Spatial indexing tests
+├── main.go                # Service entry point
+├── Dockerfile             # Container configuration
+├── docker-compose.yml     # Local development setup
+└── README.md              # Service documentation
 ```
 
-**Key Features:**
-- Runs on port 8081 (configurable)
-- Uses the same database schema as the original service
-- Maintains API compatibility with existing clients
-- Includes Docker support for easy deployment
+### Configuration Management
 
-### 2. Modified Original Backend Service
+The service uses a centralized configuration package (`config/config.go`) that loads all settings from environment variables with sensible defaults:
 
-**Removed from `backend/server/server.go`:**
-- Area-related endpoint constants
-- Area-related route registrations
+- `PORT` - Service port (default: 8081)
+- `DB_HOST` - Database host (default: localhost)
+- `DB_PORT` - Database port (default: 3306)
+- `DB_NAME` - Database name (default: cleanapp)
+- `DB_USER` - Database username (default: server)
+- `DB_PASSWORD` - Database password (default: secret)
 
-**Removed from `backend/server/area.go`:**
-- Entire file deleted (moved to areas-service)
+### Database Schema Initialization
 
-**Removed from `backend/db/db.go`:**
+The service automatically creates required database tables on startup:
+
+- `areas` - Main areas table with spatial data
+- `contact_emails` - Contact email information
+- `area_index` - Spatial index for efficient area queries
+
+## Files Removed from Backend
+
+### From `backend/server/server.go`:
+- Area endpoint constants
+- Area route registrations
+
+### From `backend/server/area.go`:
+- Entire file removed (all area-related handlers)
+
+### From `backend/db/db.go`:
 - `CreateOrUpdateArea()` function
 - `GetAreas()` function
 - `GetAreaIdsForViewport()` function
 - `UpdateConsent()` function
 - `GetAreasCount()` function
-- `sendAffectedPolygonsEmails()` function
-- `findAreasForReport()` function
-- Removed unused imports (area_index, geojson, etc.)
+- `getAreaIdsForViewport()` helper function
+- Area-related imports
 
-**Removed from `backend/area_index/`:**
-- Entire `area_index` package moved to `areas-service/utils/`
-- `area_index.go` - spatial indexing utilities
-- `area_index_test.go` - comprehensive test suite for spatial operations
-
-**Removed from `backend/server/api/api.go`:**
-- `ContactEmail` struct
+### From `backend/server/api/api.go`:
 - `Area` struct
+- `ContactEmail` struct
 - `CreateAreaRequest` struct
 - `UpdateConsentRequest` struct
 - `AreasResponse` struct
 - `AreasCountResponse` struct
 
-## API Compatibility
+### From `backend/area_index/`:
+- Entire directory removed (moved to areas-service/utils/)
 
-The new areas-service maintains full API compatibility with the original endpoints:
+## Migration Benefits
 
-- Same request/response formats
-- Same validation rules (version 2.0 requirement)
-- Same error handling patterns
-- Same HTTP status codes
-
-## Database Schema
-
-The areas-service automatically creates its required database tables on startup:
-- `areas` table - stores area information
-- `contact_emails` table - stores email contacts for areas
-- `area_index` table - spatial index for geographic queries
-
-The service uses the same database schema as the original service and will create tables if they don't exist, ensuring compatibility with existing data.
+1. **Separation of Concerns**: Area-related functionality is now isolated
+2. **Independent Deployment**: Areas service can be deployed separately
+3. **Scalability**: Areas service can be scaled independently
+4. **Maintainability**: Easier to maintain and test area-specific features
+5. **Configuration Management**: Centralized configuration with environment variables
+6. **Database Management**: Automatic schema initialization on startup
 
 ## Deployment
 
 ### Local Development
+
 ```bash
 cd areas-service
-go mod tidy
 go run main.go
 ```
 
-### Docker
+### Docker Deployment
+
 ```bash
 cd areas-service
-./build_image.sh
-docker-compose up
+docker-compose up --build
 ```
 
-### Configuration
-The service uses the same environment variables as the original:
-- `MYSQL_HOST` - MySQL host (default: localhost)
-- `MYSQL_PORT` - MySQL port (default: 3306)
-- `MYSQL_DB` - MySQL database name (default: cleanapp)
-- `MYSQL_PASSWORD` - MySQL password (default: secret)
+### Environment Variables
 
-## Migration Steps
+Set the following environment variables for production deployment:
 
-1. **Deploy the new areas-service** alongside the existing backend
-2. **Update client applications** to point to the new service endpoints
-3. **Test thoroughly** to ensure all functionality works as expected
-4. **Remove area-related code** from the original backend (already done)
-5. **Monitor** both services during the transition period
-
-## Benefits
-
-- **Separation of Concerns**: Area management is now isolated in its own service
-- **Scalability**: Areas service can be scaled independently
-- **Maintainability**: Easier to maintain and update area-related functionality
-- **Technology Flexibility**: Can use different technologies/versions for different services
-- **Deployment Flexibility**: Can deploy areas service independently
+```bash
+export PORT=8081
+export DB_HOST=your-mysql-host
+export DB_PORT=3306
+export DB_NAME=cleanapp
+export DB_USER=your-db-user
+export DB_PASSWORD=your-db-password
+```
 
 ## Testing
 
-The areas-service includes comprehensive error handling and logging. Test the following scenarios:
+The areas-service includes comprehensive tests:
 
-1. Create a new area
-2. Update an existing area
-3. Get areas with and without viewport filters
-4. Update email consent
-5. Get areas count
-6. Test with invalid data (wrong version, missing fields, etc.)
-7. Test database connection failures
+```bash
+cd areas-service
+go test ./...
+```
 
-## Rollback Plan
+## API Compatibility
 
-If issues arise, the original area-related code can be restored by:
-
-1. Reverting the changes to `backend/server/server.go`
-2. Restoring the `backend/server/area.go` file
-3. Restoring the area-related functions in `backend/db/db.go`
-4. Restoring the area-related types in `backend/server/api/api.go`
-5. Restoring the `backend/area_index/` package with its utilities and tests
-6. Updating client applications to point back to the original endpoints 
+The API endpoints maintain the same request/response format as the original backend implementation, ensuring backward compatibility for existing clients. 
