@@ -23,10 +23,14 @@ The service uses the following environment variables:
 
 ## API Endpoints
 
-- `POST /create_or_update_area` - Create or update an area
-- `GET /get_areas` - Get areas with optional filtering
-- `POST /update_consent` - Update consent for an area
-- `GET /get_areas_count` - Get count of areas
+### Health Check
+- `GET /health` - Health check endpoint
+
+### API v3 Endpoints
+- `POST /api/v3/create_or_update_area` - Create or update an area
+- `GET /api/v3/get_areas` - Get areas with optional filtering
+- `POST /api/v3/update_consent` - Update consent for an area
+- `GET /api/v3/get_areas_count` - Get count of areas
 
 ## Running the Service
 

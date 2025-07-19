@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/apex/log"
+	geojson "github.com/paulmach/go.geojson"
 )
 
 type AreasService struct {
@@ -184,7 +185,7 @@ func (s *AreasService) GetAreas(ctx context.Context, areaIds []uint64) ([]*model
 			return nil, err
 		}
 
-		coords := &models.Area{}
+		coords := &geojson.Feature{}
 		tc, _ := time.Parse(time.DateTime, createdAt)
 		cr := tc.Format(time.RFC3339)
 		tu, _ := time.Parse(time.DateTime, updatedAt)
@@ -201,7 +202,7 @@ func (s *AreasService) GetAreas(ctx context.Context, areaIds []uint64) ([]*model
 			Description: description,
 			IsCustom:    isCustom,
 			ContactName: contactName,
-			Coordinates: coords.Coordinates,
+			Coordinates: coords,
 			CreatedAt:   cr,
 			UpdatedAt:   upd,
 		}

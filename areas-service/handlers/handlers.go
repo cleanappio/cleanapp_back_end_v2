@@ -21,6 +21,14 @@ func NewAreasHandler(areasService *database.AreasService) *AreasHandler {
 	}
 }
 
+// HealthCheck returns a simple health status
+func (h *AreasHandler) HealthCheck(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"status":  "healthy",
+		"service": "areas-service",
+	})
+}
+
 func (h *AreasHandler) CreateOrUpdateArea(c *gin.Context) {
 	args := &models.CreateAreaRequest{}
 

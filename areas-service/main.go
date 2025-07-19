@@ -15,6 +15,7 @@ import (
 )
 
 const (
+	EndPointHealth             = "/health"
 	EndPointCreateOrUpdateArea = "/create_or_update_area"
 	EndPointGetAreas           = "/get_areas"
 	EndPointUpdateConsent      = "/update_consent"
@@ -55,11 +56,17 @@ func main() {
 		MaxAge:           12 * time.Hour,
 	}))
 
-	// Register routes
-	router.POST(EndPointCreateOrUpdateArea, areasHandler.CreateOrUpdateArea)
-	router.GET(EndPointGetAreas, areasHandler.GetAreas)
-	router.POST(EndPointUpdateConsent, areasHandler.UpdateConsent)
-	router.GET(EndPointGetAreasCount, areasHandler.GetAreasCount)
+	// Register health endpoint (outside API group)
+	router.GET(EndPointHealth, areasHandler.HealthCheck)
+
+	// Create API v3 router group
+	apiV3 := router.Group("/api/v3")
+	{
+		apiV3.POST(EndPointCreateOrUpdateArea, areasHandler.CreateOrUpdateArea)
+		apiV3.GET(EndPointGetAreas, areasHandler.GetAreas)
+		apiV3.POST(EndPointUpdateConsent, areasHandler.UpdateConsent)
+		apiV3.GET(EndPointGetAreasCount, areasHandler.GetAreasCount)
+	}
 
 	// Get server port from config
 	serverPort, err := strconv.Atoi(cfg.Port)

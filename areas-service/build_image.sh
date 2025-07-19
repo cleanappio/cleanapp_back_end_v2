@@ -5,6 +5,7 @@ echo "Building areas-service docker image..."
 OPT=""
 SSH_KEYFILE=""
 while [[ $# -gt 0 ]]; do
+  echo "Processing option: $1 $2"
   case $1 in
     "-e"|"--env")
       OPT="$2"
