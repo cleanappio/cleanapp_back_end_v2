@@ -1,7 +1,7 @@
-package area_index
+package utils
 
 import (
-	"cleanapp/backend/server/api"
+	"areas-service/models"
 	"fmt"
 	"testing"
 
@@ -41,12 +41,12 @@ func TestPointToWKT(t *testing.T) {
 func TestViewPortToWKT(t *testing.T) {
 	testCases := []struct {
 		name     string
-		input    *api.ViewPort
+		input    *models.ViewPort
 		expected string
 	}{
 		{
 			name: "Standard Viewport",
-			input: &api.ViewPort{
+			input: &models.ViewPort{
 				LatMin: 47.3561236,
 				LonMin: 8.4924316,
 				LatMax: 47.3735062,
@@ -55,7 +55,7 @@ func TestViewPortToWKT(t *testing.T) {
 			expected: "POLYGON((47.3561236 8.4924316,47.3561236 8.5238456,47.3735062 8.5238456,47.3735062 8.4924316,47.3561236 8.4924316))",
 		}, {
 			name: "Second Viewport",
-			input: &api.ViewPort{
+			input: &models.ViewPort{
 				LatMin: 47.32049780635907,
 				LonMin: 8.528003096580507,
 				LatMax: 47.32267240135444,
@@ -76,7 +76,7 @@ func TestViewPortToWKT(t *testing.T) {
 func TestPolygonToWKT(t *testing.T) {
 	testCases := []struct {
 		name     string
-		input    *api.Area
+		input    *models.Area
 		expected struct {
 			wkt string
 			err error
@@ -84,7 +84,7 @@ func TestPolygonToWKT(t *testing.T) {
 	}{
 		{
 			name: "Small Polygon",
-			input: &api.Area{
+			input: &models.Area{
 				Coordinates: &geojson.Feature{
 					Geometry: &geojson.Geometry{
 						Type: "Polygon",
@@ -115,7 +115,7 @@ func TestPolygonToWKT(t *testing.T) {
 			},
 		}, {
 			name: "MultiLoop Polygon",
-			input: &api.Area{
+			input: &models.Area{
 				Coordinates: &geojson.Feature{
 					Geometry: &geojson.Geometry{
 						Type: "Polygon",
@@ -209,7 +209,7 @@ func TestPolygonToWKT(t *testing.T) {
 			},
 		}, {
 			name: "Multi Polygon",
-			input: &api.Area{
+			input: &models.Area{
 				Coordinates: &geojson.Feature{
 					Geometry: &geojson.Geometry{
 						Type: "MultiPolygon",

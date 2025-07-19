@@ -1,9 +1,8 @@
-package server
+package handlers
 
 import (
-	"cleanapp/backend/db"
-	"cleanapp/backend/server/api"
-	"cleanapp/common"
+	"areas-service/database"
+	"areas-service/models"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -12,8 +11,18 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func CreateOrUpdateArea(c *gin.Context) {
-	args := &api.CreateAreaRequest{}
+type AreasHandler struct {
+	areasService *database.AreasService
+}
+
+func NewAreasHandler(areasService *database.AreasService) *AreasHandler {
+	return &AreasHandler{
+		areasService: areasService,
+	}
+}
+
+func (h *AreasHandler) CreateOrUpdateArea(c *gin.Context) {
+	args := &models.CreateAreaRequest{}
 
 	if err := c.BindJSON(args); err != nil {
 		log.Errorf("Failed to get the argument in /create_area call: %w", err)
@@ -26,15 +35,7 @@ func CreateOrUpdateArea(c *gin.Context) {
 		return
 	}
 
-	// Put the area into the DB
-	dbc, err := common.DBConnect()
-	if err != nil {
-		log.Errorf("DB connection error: %w", err)
-		return
-	}
-	defer dbc.Close()
-
-	err = db.CreateOrUpdateArea(dbc, args)
+	err := h.areasService.CreateOrUpdateArea(c.Request.Context(), args)
 	if err != nil {
 		log.Errorf("Error creating or updating area: %w", err)
 		c.String(http.StatusInternalServerError, fmt.Sprint(err))
@@ -44,7 +45,7 @@ func CreateOrUpdateArea(c *gin.Context) {
 	c.Status(http.StatusOK)
 }
 
-func GetAreas(c *gin.Context) {
+func (h *AreasHandler) GetAreas(c *gin.Context) {
 	latMinStr, hasLatMin := c.GetQuery("sw_lat")
 	lonMinStr, hasLonMin := c.GetQuery("sw_lon")
 	latMaxStr, hasLatMax := c.GetQuery("ne_lat")
@@ -52,7 +53,7 @@ func GetAreas(c *gin.Context) {
 
 	var latMin, lonMin, latMax, lonMax float64
 	var err error
-	var vp *api.ViewPort
+	var vp *models.ViewPort
 	if hasLatMin && hasLatMax && hasLonMin && hasLonMax {
 		if latMin, err = strconv.ParseFloat(latMinStr, 64); err != nil {
 			log.Errorf("Error in parsing sw_lat param: %w", err)
@@ -74,7 +75,7 @@ func GetAreas(c *gin.Context) {
 			c.String(http.StatusBadRequest, fmt.Sprintf("Parsing ne_lon: %v", err))
 			return
 		}
-		vp = &api.ViewPort{
+		vp = &models.ViewPort{
 			LatMin: latMin,
 			LonMin: lonMin,
 			LatMax: latMax,
@@ -82,32 +83,33 @@ func GetAreas(c *gin.Context) {
 		}
 	}
 
-	dbc, err := common.DBConnect()
-	if err != nil {
-		log.Errorf("DB connection error: %w", err)
-		return
-	}
-	defer dbc.Close()
-
-	areaIds, err := db.GetAreaIdsForViewport(dbc, vp)
+	areaIds, err := h.areasService.GetAreaIdsForViewport(c.Request.Context(), vp)
 	if err != nil {
 		log.Errorf("Error getting area IDs for viewport %v: %w", vp, err)
 		c.String(http.StatusInternalServerError, fmt.Sprintf("Getting area IDs: %v", err))
 		return
 	}
 
-	res, err := db.GetAreas(dbc, areaIds)
+	res, err := h.areasService.GetAreas(c.Request.Context(), areaIds)
 	if err != nil {
 		log.Errorf("Error getting areas: %w", err)
 		c.String(http.StatusInternalServerError, fmt.Sprintf("Getting areas: %v", err))
 		return
 	}
 
-	c.IndentedJSON(http.StatusOK, res)
+	// Convert []*models.Area to []models.Area for response
+	areas := make([]models.Area, len(res))
+	for i, area := range res {
+		areas[i] = *area
+	}
+
+	c.IndentedJSON(http.StatusOK, &models.AreasResponse{
+		Areas: areas,
+	})
 }
 
-func UpdateConsent(c *gin.Context) {
-	args := &api.UpdateConsentRequest{}
+func (h *AreasHandler) UpdateConsent(c *gin.Context) {
+	args := &models.UpdateConsentRequest{}
 
 	if err := c.BindJSON(args); err != nil {
 		log.Errorf("Failed to get the argument in /update_consent call: %w", err)
@@ -120,14 +122,7 @@ func UpdateConsent(c *gin.Context) {
 		return
 	}
 
-	dbc, err := common.DBConnect()
-	if err != nil {
-		log.Errorf("DB connection error: %w", err)
-		return
-	}
-	defer dbc.Close()
-
-	if err = db.UpdateConsent(dbc, args); err != nil {
+	if err := h.areasService.UpdateConsent(c.Request.Context(), args); err != nil {
 		log.Errorf("Error updating email consent: %w", err)
 		c.String(http.StatusInternalServerError, fmt.Sprint(err))
 		return
@@ -136,22 +131,15 @@ func UpdateConsent(c *gin.Context) {
 	c.Status(http.StatusOK)
 }
 
-func GetAreasCount(c *gin.Context) {
-	dbc, err := common.DBConnect()
-	if err != nil {
-		log.Errorf("DB connection error: %w", err)
-		return
-	}
-	defer dbc.Close()
-
-	cnt, err := db.GetAreasCount(dbc)
+func (h *AreasHandler) GetAreasCount(c *gin.Context) {
+	cnt, err := h.areasService.GetAreasCount(c.Request.Context())
 	if err != nil {
 		log.Errorf("Error getting areas.count: %w", err)
 		c.String(http.StatusInternalServerError, fmt.Sprint(err))
 		return
 	}
 
-	c.IndentedJSON(http.StatusOK, &api.AreasCountResponse{
+	c.IndentedJSON(http.StatusOK, &models.AreasCountResponse{
 		Count: cnt,
 	})
 }

@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  areas-service:
+    build: .
+    ports:
+      - "8081:8081"
+    environment:
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+      - MYSQL_DB=cleanapp
+      - MYSQL_PASSWORD=secret
+    depends_on:
+      - mysql
+    networks:
+      - cleanapp-network
+
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: secret
+      MYSQL_DATABASE: cleanapp
+      MYSQL_USER: server
+      MYSQL_PASSWORD: secret
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - cleanapp-network
+
+networks:
+  cleanapp-network:
+    driver: bridge
+
+volumes:
+  mysql_data: 

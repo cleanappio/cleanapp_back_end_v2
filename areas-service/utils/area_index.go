@@ -1,7 +1,7 @@
-package area_index
+package utils
 
 import (
-	"cleanapp/backend/server/api"
+	"areas-service/models"
 	"fmt"
 	"strings"
 )
@@ -10,7 +10,7 @@ func PointToWKT(longitude, latitude float64) string {
 	return fmt.Sprintf("POINT(%g %g)", latitude, longitude)
 }
 
-func ViewPortToWKT(vp *api.ViewPort) string {
+func ViewPortToWKT(vp *models.ViewPort) string {
 	poly := [][][]float64{
 		{
 			{vp.LonMin, vp.LatMin},
@@ -23,7 +23,7 @@ func ViewPortToWKT(vp *api.ViewPort) string {
 	return fmt.Sprintf("POLYGON(%s)", innerWKT(poly))
 }
 
-func AreaToWKT(area *api.Area) (string, error) {
+func AreaToWKT(area *models.Area) (string, error) {
 	if area.Coordinates.Geometry.IsPolygon() {
 		return PolygonToWKT(area), nil
 	} else if area.Coordinates.Geometry.IsMultiPolygon() {
@@ -33,11 +33,11 @@ func AreaToWKT(area *api.Area) (string, error) {
 	}
 }
 
-func PolygonToWKT(area *api.Area) string {
+func PolygonToWKT(area *models.Area) string {
 	return fmt.Sprintf("POLYGON(%s)", innerWKT(area.Coordinates.Geometry.Polygon))
 }
 
-func MultiPolygonToWKT(area *api.Area) string {
+func MultiPolygonToWKT(area *models.Area) string {
 	wktPolys := make([]string, len(area.Coordinates.Geometry.MultiPolygon))
 	for i, poly := range area.Coordinates.Geometry.MultiPolygon {
 		wktPolys[i] = fmt.Sprintf("(%s)", innerWKT(poly))
