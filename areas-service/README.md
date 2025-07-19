@@ -23,6 +23,8 @@ go mod tidy
 go run main.go
 ```
 
+The service will automatically create the necessary database tables on startup.
+
 ### Docker
 
 1. Build and run with Docker Compose:
@@ -35,6 +37,8 @@ docker-compose up --build
 docker build -t areas-service .
 docker run -p 8081:8081 areas-service
 ```
+
+**Note**: The areas-service expects to connect to an existing MySQL database. Make sure the database is running and accessible before starting the service.
 
 ## Configuration
 

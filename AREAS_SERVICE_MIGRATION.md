@@ -27,7 +27,8 @@ areas-service/
 ├── models/
 │   └── models.go          # Data structures
 ├── database/
-│   └── service.go         # Database operations
+│   ├── service.go         # Database operations
+│   └── schema.go          # Database schema initialization
 ├── handlers/
 │   └── handlers.go        # HTTP request handlers
 └── utils/
@@ -85,10 +86,12 @@ The new areas-service maintains full API compatibility with the original endpoin
 
 ## Database Schema
 
-The areas-service uses the same database schema as the original service:
+The areas-service automatically creates its required database tables on startup:
 - `areas` table - stores area information
 - `contact_emails` table - stores email contacts for areas
 - `area_index` table - spatial index for geographic queries
+
+The service uses the same database schema as the original service and will create tables if they don't exist, ensuring compatibility with existing data.
 
 ## Deployment
 

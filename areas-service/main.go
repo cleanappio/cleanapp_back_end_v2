@@ -36,6 +36,11 @@ func main() {
 	}
 	defer db.Close()
 
+	// Initialize database schema
+	if err := database.InitSchema(db); err != nil {
+		log.Fatalf("Failed to initialize database schema: %v", err)
+	}
+
 	// Initialize services
 	areasService := database.NewAreasService(db)
 
