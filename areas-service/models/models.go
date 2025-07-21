@@ -22,12 +22,10 @@ type Area struct {
 }
 
 type CreateAreaRequest struct {
-	Version string `json:"version"` // Must be "2.0"
 	Area    *Area  `json:"area"`
 }
 
 type UpdateConsentRequest struct {
-	Version      string        `json:"version"` // Must be "2.0"
 	ContactEmail *ContactEmail `json:"contact_email"`
 }
 

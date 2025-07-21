@@ -37,12 +37,6 @@ func (h *AreasHandler) CreateOrUpdateArea(c *gin.Context) {
 		return
 	}
 
-	if args.Version != "2.0" {
-		log.Errorf("Bad version in /create_or_update_area, expected: 2.0, got: %v", args.Version)
-		c.String(http.StatusNotAcceptable, "Bad API version, expecting 2.0.") // 406
-		return
-	}
-
 	err := h.areasService.CreateOrUpdateArea(c.Request.Context(), args)
 	if err != nil {
 		log.Errorf("Error creating or updating area: %w", err)
@@ -121,12 +115,6 @@ func (h *AreasHandler) UpdateConsent(c *gin.Context) {
 
 	if err := c.BindJSON(args); err != nil {
 		log.Errorf("Failed to get the argument in /update_consent call: %w", err)
-		return
-	}
-
-	if args.Version != "2.0" {
-		log.Errorf("Bad version in /update_consent, expected: 2.0, got: %v", args.Version)
-		c.String(http.StatusNotAcceptable, "Bad API version, expecting 2.0.") // 406
 		return
 	}
 
