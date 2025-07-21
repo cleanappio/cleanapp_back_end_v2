@@ -52,6 +52,7 @@ func (h *AreasHandler) GetAreas(c *gin.Context) {
 	lonMinStr, hasLonMin := c.GetQuery("sw_lon")
 	latMaxStr, hasLatMax := c.GetQuery("ne_lat")
 	lonMaxStr, hasLonMax := c.GetQuery("ne_lon")
+	typeFilter, hasTypeFilter := c.GetQuery("type")
 
 	var latMin, lonMin, latMax, lonMax float64
 	var err error
@@ -85,14 +86,13 @@ func (h *AreasHandler) GetAreas(c *gin.Context) {
 		}
 	}
 
-	areaIds, err := h.areasService.GetAreaIdsForViewport(c.Request.Context(), vp)
-	if err != nil {
-		log.Errorf("Error getting area IDs for viewport %v: %w", vp, err)
-		c.String(http.StatusInternalServerError, fmt.Sprintf("Getting area IDs: %v", err))
-		return
+	// Use unified GetAreas method that handles all parameters
+	var areaType string
+	if hasTypeFilter {
+		areaType = typeFilter
 	}
 
-	res, err := h.areasService.GetAreas(c.Request.Context(), areaIds)
+	res, err := h.areasService.GetAreas(c.Request.Context(), nil, areaType, vp)
 	if err != nil {
 		log.Errorf("Error getting areas: %w", err)
 		c.String(http.StatusInternalServerError, fmt.Sprintf("Getting areas: %v", err))

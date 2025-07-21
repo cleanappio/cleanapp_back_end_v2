@@ -33,6 +33,37 @@ The service uses the following environment variables:
 - `GET /api/v3/get_areas_count` - Get count of areas
 - `DELETE /api/v3/delete_area` - Delete an area and all related data (🔒 **Bearer Token Required**)
 
+## Area Types
+
+Areas can have the following types:
+- `poi` - Points of Interest (default)
+- `admin` - Administrative areas
+
+## Query Parameters
+
+### GET /api/v3/get_areas
+
+The get_areas endpoint supports the following query parameters:
+
+- `type` - Filter areas by type (`poi` or `admin`)
+- `sw_lat`, `sw_lon`, `ne_lat`, `ne_lon` - Filter by viewport coordinates
+
+### Example Usage
+
+```bash
+# Get all areas
+curl http://localhost:8081/api/v3/get_areas
+
+# Get only POI areas
+curl http://localhost:8081/api/v3/get_areas?type=poi
+
+# Get only admin areas
+curl http://localhost:8081/api/v3/get_areas?type=admin
+
+# Get POI areas within a viewport
+curl "http://localhost:8081/api/v3/get_areas?type=poi&sw_lat=40.0&sw_lon=-74.0&ne_lat=41.0&ne_lon=-73.0"
+```
+
 ## Authentication
 
 Protected endpoints require a valid Bearer token in the Authorization header. The token is validated by calling the auth-service.

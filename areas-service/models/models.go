@@ -15,6 +15,7 @@ type Area struct {
 	Description    string           `json:"description"`
 	IsCustom       bool             `json:"is_custom"`
 	ContactName    string           `json:"contact_name"`
+	Type           string           `json:"type"`
 	ContractEmails []*ContactEmail  `json:"contact_emails"`
 	Coordinates    *geojson.Feature `json:"coordinates"`
 	CreatedAt      string           `json:"created_at"`

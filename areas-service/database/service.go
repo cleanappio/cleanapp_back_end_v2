@@ -58,9 +58,9 @@ func (s *AreasService) CreateOrUpdateArea(ctx context.Context, req *models.Creat
 	var newId int
 	if areaExists {
 		result, err := tx.Exec(`UPDATE areas
-			SET name = ?, description = ?, is_custom = ?, contact_name = ?, area_json = ?, created_at = ?, updated_at = ?
+			SET name = ?, description = ?, is_custom = ?, contact_name = ?, type = ?, area_json = ?, created_at = ?, updated_at = ?
 			WHERE id = ?`,
-			req.Area.Name, req.Area.Description, req.Area.IsCustom, req.Area.ContactName, string(coords), create_ts, update_ts, req.Area.Id)
+			req.Area.Name, req.Area.Description, req.Area.IsCustom, req.Area.ContactName, req.Area.Type, string(coords), create_ts, update_ts, req.Area.Id)
 		logResult("updateArea", result, err, true)
 		if err != nil {
 			return err
@@ -69,9 +69,9 @@ func (s *AreasService) CreateOrUpdateArea(ctx context.Context, req *models.Creat
 		log.Infof("Updated area with ID %d", newId)
 	} else {
 		result, err := tx.Exec(`INSERT
-			INTO areas (name, description, is_custom, contact_name, area_json, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			req.Area.Name, req.Area.Description, req.Area.IsCustom, req.Area.ContactName, string(coords), create_ts, update_ts)
+			INTO areas (name, description, is_custom, contact_name, type, area_json, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			req.Area.Name, req.Area.Description, req.Area.IsCustom, req.Area.ContactName, req.Area.Type, string(coords), create_ts, update_ts)
 		logResult("insertArea", result, err, true)
 		if err != nil {
 			return err
@@ -137,14 +137,31 @@ func (s *AreasService) CreateOrUpdateArea(ctx context.Context, req *models.Creat
 	return tx.Commit()
 }
 
-func (s *AreasService) GetAreas(ctx context.Context, areaIds []uint64) ([]*models.Area, error) {
+func (s *AreasService) GetAreas(ctx context.Context, areaIds []uint64, areaType string, viewport *models.ViewPort) ([]*models.Area, error) {
 	res := []*models.Area{}
 
-	sqlStr := `SELECT
-	 	id, name, description, is_custom, contact_name, area_json, created_at, updated_at
-		FROM areas`
-	params := []any{}
+	// Base query
+	sqlStr := `SELECT DISTINCT
+		a.id, a.name, a.description, a.is_custom, a.contact_name, a.type, a.area_json, a.created_at, a.updated_at
+		FROM areas a`
 
+	params := []any{}
+	whereConditions := []string{}
+
+	// Add JOIN for viewport filtering if viewport is specified
+	if viewport != nil {
+		sqlStr += ` JOIN area_index ai ON a.id = ai.area_id`
+		whereConditions = append(whereConditions, "ST_Intersects(ST_GeomFromText(?, 4326), ai.geom)")
+		params = append(params, utils.ViewPortToWKT(viewport))
+	}
+
+	// Add type filter if specified
+	if areaType != "" {
+		whereConditions = append(whereConditions, "a.type = ?")
+		params = append(params, areaType)
+	}
+
+	// Add area IDs filter if specified
 	if areaIds != nil {
 		if len(areaIds) == 0 {
 			return res, nil
@@ -154,15 +171,19 @@ func (s *AreasService) GetAreas(ctx context.Context, areaIds []uint64) ([]*model
 			qp[i] = "?"
 		}
 		ph := strings.Join(qp, ",")
-		sqlStr = fmt.Sprintf(`SELECT
-			id, name, description, is_custom, contact_name, area_json, created_at, updated_at
-			FROM areas
-			WHERE id IN(%s)`, ph)
-		params = make([]any, len(areaIds))
-		for i, areaId := range areaIds {
-			params[i] = areaId
+		whereConditions = append(whereConditions, fmt.Sprintf("a.id IN(%s)", ph))
+		for _, areaId := range areaIds {
+			params = append(params, areaId)
 		}
 	}
+
+	// Build WHERE clause if we have conditions
+	if len(whereConditions) > 0 {
+		sqlStr += " WHERE " + strings.Join(whereConditions, " AND ")
+	}
+
+	// Add ORDER BY for consistent results
+	sqlStr += " ORDER BY a.id"
 
 	rows, err := s.db.QueryContext(ctx, sqlStr, params...)
 	if err != nil {
@@ -177,11 +198,12 @@ func (s *AreasService) GetAreas(ctx context.Context, areaIds []uint64) ([]*model
 			description string
 			isCustom    bool
 			contactName string
+			areaType    string
 			areaJson    string
 			createdAt   string
 			updatedAt   string
 		)
-		if err := rows.Scan(&id, &name, &description, &isCustom, &contactName, &areaJson, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(&id, &name, &description, &isCustom, &contactName, &areaType, &areaJson, &createdAt, &updatedAt); err != nil {
 			return nil, err
 		}
 
@@ -202,6 +224,7 @@ func (s *AreasService) GetAreas(ctx context.Context, areaIds []uint64) ([]*model
 			Description: description,
 			IsCustom:    isCustom,
 			ContactName: contactName,
+			Type:        areaType,
 			Coordinates: coords,
 			CreatedAt:   cr,
 			UpdatedAt:   upd,
@@ -210,28 +233,6 @@ func (s *AreasService) GetAreas(ctx context.Context, areaIds []uint64) ([]*model
 	}
 
 	return res, nil
-}
-
-func (s *AreasService) GetAreaIdsForViewport(ctx context.Context, vp *models.ViewPort) ([]uint64, error) {
-	if vp == nil {
-		return nil, nil
-	}
-	rows, err := s.db.QueryContext(ctx, "SELECT area_id FROM area_index WHERE ST_Intersects(ST_GeomFromText(?, 4326), geom)", utils.ViewPortToWKT(vp))
-	if err != nil {
-		return nil, err
-	}
-	ret := []uint64{}
-	for rows.Next() {
-		var areaId uint64
-		if err := rows.Scan(&areaId); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		ret = append(ret, areaId)
-	}
-	rows.Close()
-
-	return ret, nil
 }
 
 func (s *AreasService) UpdateConsent(ctx context.Context, req *models.UpdateConsentRequest) error {
