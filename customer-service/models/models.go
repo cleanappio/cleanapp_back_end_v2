@@ -148,3 +148,40 @@ type UserProfile struct {
 	Name  string `json:"name"`
 	Email string `json:"email"`
 }
+
+// CustomerArea represents a customer's area association
+type CustomerArea struct {
+	CustomerID string    `json:"customer_id"`
+	AreaID     int       `json:"area_id"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// GetCustomerAreasRequest represents the request to get customer areas
+type GetCustomerAreasRequest struct {
+	CustomerID string `json:"customer_id" binding:"required"`
+}
+
+// AddCustomerAreasRequest represents the request to add areas to a customer
+type AddCustomerAreasRequest struct {
+	CustomerID string `json:"customer_id" binding:"required"`
+	AreaIDs    []int  `json:"area_ids" binding:"required,min=1"`
+}
+
+// UpdateCustomerAreasRequest represents the request to replace all areas for a customer
+type UpdateCustomerAreasRequest struct {
+	CustomerID string `json:"customer_id" binding:"required"`
+	AreaIDs    []int  `json:"area_ids" binding:"required"`
+}
+
+// DeleteCustomerAreasRequest represents the request to remove areas from a customer
+type DeleteCustomerAreasRequest struct {
+	CustomerID string `json:"customer_id" binding:"required"`
+	AreaIDs    []int  `json:"area_ids" binding:"required,min=1"`
+}
+
+// CustomerAreasResponse represents the response for customer areas
+type CustomerAreasResponse struct {
+	CustomerID string         `json:"customer_id"`
+	Areas      []CustomerArea `json:"areas"`
+	Count      int            `json:"count"`
+}

@@ -279,7 +279,7 @@ func (h *Handlers) RemoveCustomerBrands(c *gin.Context) {
 	c.JSON(http.StatusOK, models.MessageResponse{Message: "brands removed successfully"})
 }
 
-// UpdateCustomerBrands replaces all brands for a customer with the new list
+// UpdateCustomerBrands replaces all brands for a customer
 func (h *Handlers) UpdateCustomerBrands(c *gin.Context) {
 	customerID := c.GetString("customer_id")
 	if customerID == "" {
@@ -295,16 +295,147 @@ func (h *Handlers) UpdateCustomerBrands(c *gin.Context) {
 		return
 	}
 
-	log.Printf("INFO: Updating customer %s with %d brands from %s", customerID, len(req.BrandNames), c.ClientIP())
+	log.Printf("INFO: Updating brands for customer %s with %d brands from %s", customerID, len(req.BrandNames), c.ClientIP())
 
 	if err := h.service.UpdateCustomerBrands(c.Request.Context(), customerID, req.BrandNames); err != nil {
-		log.Printf("ERROR: Failed to update customer brands for customer %s from %s: %v", customerID, c.ClientIP(), err)
+		log.Printf("ERROR: Failed to update brands for customer %s from %s: %v", customerID, c.ClientIP(), err)
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to update customer brands"})
 		return
 	}
 
-	log.Printf("INFO: Successfully updated customer %s with %d brands from %s", customerID, len(req.BrandNames), c.ClientIP())
+	log.Printf("INFO: Brands updated successfully for customer %s from %s", customerID, c.ClientIP())
 	c.JSON(http.StatusOK, models.MessageResponse{Message: "customer brands updated successfully"})
+}
+
+// GetCustomerAreas retrieves all areas for a customer
+func (h *Handlers) GetCustomerAreas(c *gin.Context) {
+	customerID := c.GetString("customer_id")
+	if customerID == "" {
+		log.Printf("WARNING: GetCustomerAreas called without customer_id from %s", c.ClientIP())
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse{Error: "unauthorized"})
+		return
+	}
+
+	log.Printf("DEBUG: Getting areas for customer %s from %s", customerID, c.ClientIP())
+
+	areas, err := h.service.GetCustomerAreas(c.Request.Context(), customerID)
+	if err != nil {
+		log.Printf("ERROR: Failed to get areas for customer %s from %s: %v", customerID, c.ClientIP(), err)
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to get customer areas"})
+		return
+	}
+
+	log.Printf("DEBUG: Found %d areas for customer %s from %s", len(areas), customerID, c.ClientIP())
+	c.JSON(http.StatusOK, models.CustomerAreasResponse{
+		CustomerID: customerID,
+		Areas:      areas,
+		Count:      len(areas),
+	})
+}
+
+// AddCustomerAreas adds areas to a customer
+func (h *Handlers) AddCustomerAreas(c *gin.Context) {
+	customerID := c.GetString("customer_id")
+	if customerID == "" {
+		log.Printf("WARNING: AddCustomerAreas called without customer_id from %s", c.ClientIP())
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse{Error: "unauthorized"})
+		return
+	}
+
+	var req models.AddCustomerAreasRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Printf("ERROR: Invalid JSON in AddCustomerAreas request for customer %s from %s: %v", customerID, c.ClientIP(), err)
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	// Validate that the request customer_id matches the authenticated customer
+	if req.CustomerID != customerID {
+		log.Printf("WARNING: Customer ID mismatch in AddCustomerAreas - Request: %s, Authenticated: %s from %s", req.CustomerID, customerID, c.ClientIP())
+		c.JSON(http.StatusForbidden, models.ErrorResponse{Error: "customer ID mismatch"})
+		return
+	}
+
+	log.Printf("INFO: Adding %d areas to customer %s from %s", len(req.AreaIDs), customerID, c.ClientIP())
+
+	if err := h.service.AddCustomerAreas(c.Request.Context(), customerID, req.AreaIDs); err != nil {
+		log.Printf("ERROR: Failed to add areas for customer %s from %s: %v", customerID, c.ClientIP(), err)
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to add customer areas"})
+		return
+	}
+
+	log.Printf("INFO: Successfully added %d areas to customer %s from %s", len(req.AreaIDs), customerID, c.ClientIP())
+	c.JSON(http.StatusOK, models.MessageResponse{Message: "areas added successfully"})
+}
+
+// UpdateCustomerAreas replaces all areas for a customer
+func (h *Handlers) UpdateCustomerAreas(c *gin.Context) {
+	customerID := c.GetString("customer_id")
+	if customerID == "" {
+		log.Printf("WARNING: UpdateCustomerAreas called without customer_id from %s", c.ClientIP())
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse{Error: "unauthorized"})
+		return
+	}
+
+	var req models.UpdateCustomerAreasRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Printf("ERROR: Invalid JSON in UpdateCustomerAreas request for customer %s from %s: %v", customerID, c.ClientIP(), err)
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	// Validate that the request customer_id matches the authenticated customer
+	if req.CustomerID != customerID {
+		log.Printf("WARNING: Customer ID mismatch in UpdateCustomerAreas - Request: %s, Authenticated: %s from %s", req.CustomerID, customerID, c.ClientIP())
+		c.JSON(http.StatusForbidden, models.ErrorResponse{Error: "customer ID mismatch"})
+		return
+	}
+
+	log.Printf("INFO: Updating areas for customer %s with %d areas from %s", customerID, len(req.AreaIDs), c.ClientIP())
+
+	if err := h.service.UpdateCustomerAreas(c.Request.Context(), customerID, req.AreaIDs); err != nil {
+		log.Printf("ERROR: Failed to update areas for customer %s from %s: %v", customerID, c.ClientIP(), err)
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to update customer areas"})
+		return
+	}
+
+	log.Printf("INFO: Successfully updated areas for customer %s from %s", customerID, c.ClientIP())
+	c.JSON(http.StatusOK, models.MessageResponse{Message: "areas updated successfully"})
+}
+
+// DeleteCustomerAreas removes areas from a customer
+func (h *Handlers) DeleteCustomerAreas(c *gin.Context) {
+	customerID := c.GetString("customer_id")
+	if customerID == "" {
+		log.Printf("WARNING: DeleteCustomerAreas called without customer_id from %s", c.ClientIP())
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse{Error: "unauthorized"})
+		return
+	}
+
+	var req models.DeleteCustomerAreasRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Printf("ERROR: Invalid JSON in DeleteCustomerAreas request for customer %s from %s: %v", customerID, c.ClientIP(), err)
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	// Validate that the request customer_id matches the authenticated customer
+	if req.CustomerID != customerID {
+		log.Printf("WARNING: Customer ID mismatch in DeleteCustomerAreas - Request: %s, Authenticated: %s from %s", req.CustomerID, customerID, c.ClientIP())
+		c.JSON(http.StatusForbidden, models.ErrorResponse{Error: "customer ID mismatch"})
+		return
+	}
+
+	log.Printf("INFO: Deleting %d areas from customer %s from %s", len(req.AreaIDs), customerID, c.ClientIP())
+
+	if err := h.service.DeleteCustomerAreas(c.Request.Context(), customerID, req.AreaIDs); err != nil {
+		log.Printf("ERROR: Failed to delete areas for customer %s from %s: %v", customerID, c.ClientIP(), err)
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to delete customer areas"})
+		return
+	}
+
+	log.Printf("INFO: Successfully deleted %d areas from customer %s from %s", len(req.AreaIDs), customerID, c.ClientIP())
+	c.JSON(http.StatusOK, models.MessageResponse{Message: "areas deleted successfully"})
 }
 
 func (h *Handlers) GetPrices(c *gin.Context) {

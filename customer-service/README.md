@@ -111,3 +111,88 @@ Content-Type: application/json
   "message": "brands removed successfully"
 }
 ```
+
+### Customer Areas Management
+
+#### Get Customer Areas
+```
+GET /api/v3/customers/me/areas
+Authorization: Bearer <token>
+```
+
+**Response:**
+```json
+{
+  "customer_id": "customer_123",
+  "areas": [
+    {
+      "customer_id": "customer_123",
+      "area_id": 1,
+      "created_at": "2024-01-15T10:30:00Z"
+    },
+    {
+      "customer_id": "customer_123",
+      "area_id": 2,
+      "created_at": "2024-01-16T14:20:00Z"
+    }
+  ],
+  "count": 2
+}
+```
+
+#### Add Customer Areas
+```
+POST /api/v3/customers/me/areas
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "customer_id": "customer_123",
+  "area_ids": [1, 2, 3]
+}
+```
+
+**Response:**
+```json
+{
+  "message": "areas added successfully"
+}
+```
+
+#### Update Customer Areas (Replace All)
+```
+PUT /api/v3/customers/me/areas
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "customer_id": "customer_123",
+  "area_ids": [1, 2, 3, 4, 5]
+}
+```
+
+**Response:**
+```json
+{
+  "message": "areas updated successfully"
+}
+```
+
+#### Delete Customer Areas
+```
+DELETE /api/v3/customers/me/areas
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "customer_id": "customer_123",
+  "area_ids": [1, 2]
+}
+```
+
+**Response:**
+```json
+{
+  "message": "areas deleted successfully"
+}
+```

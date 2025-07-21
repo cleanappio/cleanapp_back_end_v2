@@ -1079,6 +1079,209 @@ func (s *CustomerService) insertCustomerArea(ctx context.Context, tx *sql.Tx, cu
 	return err
 }
 
+// GetCustomerAreas retrieves all areas for a customer
+func (s *CustomerService) GetCustomerAreas(ctx context.Context, customerID string) ([]models.CustomerArea, error) {
+	log.Printf("DEBUG: Getting areas for customer %s", customerID)
+
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT customer_id, area_id, created_at FROM customer_areas WHERE customer_id = ? ORDER BY created_at",
+		customerID)
+	if err != nil {
+		log.Printf("ERROR: Failed to query customer areas for customer %s: %v", customerID, err)
+		return nil, fmt.Errorf("failed to query customer areas: %w", err)
+	}
+	defer rows.Close()
+
+	var areas []models.CustomerArea
+	for rows.Next() {
+		var area models.CustomerArea
+		if err := rows.Scan(&area.CustomerID, &area.AreaID, &area.CreatedAt); err != nil {
+			log.Printf("ERROR: Failed to scan customer area for customer %s: %v", customerID, err)
+			return nil, fmt.Errorf("failed to scan customer area: %w", err)
+		}
+		areas = append(areas, area)
+	}
+
+	log.Printf("DEBUG: Found %d areas for customer %s", len(areas), customerID)
+	return areas, nil
+}
+
+// AddCustomerAreas adds areas to a customer
+func (s *CustomerService) AddCustomerAreas(ctx context.Context, customerID string, areaIDs []int) error {
+	log.Printf("INFO: Adding %d areas to customer %s", len(areaIDs), customerID)
+
+	// Start transaction
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		log.Printf("ERROR: Failed to begin transaction for adding areas to customer %s: %v", customerID, err)
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Ensure customer exists
+	if err := s.ensureCustomerExistsInTx(ctx, tx, customerID); err != nil {
+		log.Printf("ERROR: Failed to ensure customer exists %s: %v", customerID, err)
+		return fmt.Errorf("failed to ensure customer exists: %w", err)
+	}
+
+	// Add each area
+	for _, areaID := range areaIDs {
+		if err := s.insertCustomerAreaIfNotExists(ctx, tx, customerID, areaID); err != nil {
+			log.Printf("ERROR: Failed to add area %d to customer %s: %v", areaID, customerID, err)
+			return fmt.Errorf("failed to add area %d: %w", areaID, err)
+		}
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		log.Printf("ERROR: Failed to commit transaction for adding areas to customer %s: %v", customerID, err)
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	log.Printf("INFO: Successfully added %d areas to customer %s", len(areaIDs), customerID)
+	return nil
+}
+
+// UpdateCustomerAreas replaces all areas for a customer
+func (s *CustomerService) UpdateCustomerAreas(ctx context.Context, customerID string, areaIDs []int) error {
+	log.Printf("INFO: Updating areas for customer %s with %d areas", customerID, len(areaIDs))
+
+	// Start transaction
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		log.Printf("ERROR: Failed to begin transaction for updating areas for customer %s: %v", customerID, err)
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Ensure customer exists
+	if err := s.ensureCustomerExistsInTx(ctx, tx, customerID); err != nil {
+		log.Printf("ERROR: Failed to ensure customer exists %s: %v", customerID, err)
+		return fmt.Errorf("failed to ensure customer exists: %w", err)
+	}
+
+	// Delete all existing areas for the customer
+	if err := s.deleteAllCustomerAreas(ctx, tx, customerID); err != nil {
+		log.Printf("ERROR: Failed to delete existing areas for customer %s: %v", customerID, err)
+		return fmt.Errorf("failed to delete existing areas: %w", err)
+	}
+
+	// Add new areas
+	for _, areaID := range areaIDs {
+		if err := s.insertCustomerArea(ctx, tx, customerID, areaID); err != nil {
+			log.Printf("ERROR: Failed to add area %d to customer %s: %v", areaID, customerID, err)
+			return fmt.Errorf("failed to add area %d: %w", areaID, err)
+		}
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		log.Printf("ERROR: Failed to commit transaction for updating areas for customer %s: %v", customerID, err)
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	log.Printf("INFO: Successfully updated areas for customer %s", customerID)
+	return nil
+}
+
+// DeleteCustomerAreas removes specific areas from a customer
+func (s *CustomerService) DeleteCustomerAreas(ctx context.Context, customerID string, areaIDs []int) error {
+	log.Printf("INFO: Deleting %d areas from customer %s", len(areaIDs), customerID)
+
+	// Start transaction
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		log.Printf("ERROR: Failed to begin transaction for deleting areas from customer %s: %v", customerID, err)
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Ensure customer exists
+	if err := s.ensureCustomerExistsInTx(ctx, tx, customerID); err != nil {
+		log.Printf("ERROR: Failed to ensure customer exists %s: %v", customerID, err)
+		return fmt.Errorf("failed to ensure customer exists: %w", err)
+	}
+
+	// Delete each area
+	for _, areaID := range areaIDs {
+		if err := s.deleteCustomerArea(ctx, tx, customerID, areaID); err != nil {
+			log.Printf("ERROR: Failed to delete area %d from customer %s: %v", areaID, customerID, err)
+			return fmt.Errorf("failed to delete area %d: %w", areaID, err)
+		}
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		log.Printf("ERROR: Failed to commit transaction for deleting areas from customer %s: %v", customerID, err)
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	log.Printf("INFO: Successfully deleted %d areas from customer %s", len(areaIDs), customerID)
+	return nil
+}
+
+// Helper methods for customer areas operations
+
+func (s *CustomerService) insertCustomerAreaIfNotExists(ctx context.Context, tx *sql.Tx, customerID string, areaID int) error {
+	// Check if the area already exists for this customer
+	var exists int
+	err := tx.QueryRowContext(ctx,
+		"SELECT 1 FROM customer_areas WHERE customer_id = ? AND area_id = ?",
+		customerID, areaID).Scan(&exists)
+
+	if err == sql.ErrNoRows {
+		// Area doesn't exist, insert it
+		return s.insertCustomerArea(ctx, tx, customerID, areaID)
+	} else if err != nil {
+		return err
+	}
+
+	// Area already exists, skip insertion
+	log.Printf("DEBUG: Area %d already exists for customer %s, skipping", areaID, customerID)
+	return nil
+}
+
+func (s *CustomerService) deleteAllCustomerAreas(ctx context.Context, tx *sql.Tx, customerID string) error {
+	_, err := tx.ExecContext(ctx,
+		"DELETE FROM customer_areas WHERE customer_id = ?",
+		customerID)
+	return err
+}
+
+func (s *CustomerService) deleteCustomerArea(ctx context.Context, tx *sql.Tx, customerID string, areaID int) error {
+	result, err := tx.ExecContext(ctx,
+		"DELETE FROM customer_areas WHERE customer_id = ? AND area_id = ?",
+		customerID, areaID)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rowsAffected == 0 {
+		log.Printf("DEBUG: Area %d not found for customer %s, skipping deletion", areaID, customerID)
+	}
+
+	return nil
+}
+
+func (s *CustomerService) ensureCustomerExistsInTx(ctx context.Context, tx *sql.Tx, customerID string) error {
+	var exists int
+	err := tx.QueryRowContext(ctx,
+		"SELECT 1 FROM customers WHERE id = ?",
+		customerID).Scan(&exists)
+
+	if err == sql.ErrNoRows {
+		// Customer doesn't exist, create it
+		return s.insertCustomer(ctx, tx, customerID)
+	}
+
+	return err
+}
+
 // insertCustomerBrand inserts a brand for a customer (brandName should already be normalized)
 func (s *CustomerService) insertCustomerBrand(ctx context.Context, tx *sql.Tx, customerID string, brandName string) error {
 	_, err := tx.ExecContext(ctx,
