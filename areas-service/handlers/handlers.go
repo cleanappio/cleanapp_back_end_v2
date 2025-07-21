@@ -34,17 +34,29 @@ func (h *AreasHandler) CreateOrUpdateArea(c *gin.Context) {
 
 	if err := c.BindJSON(args); err != nil {
 		log.Errorf("Failed to get the argument in /create_area call: %w", err)
+		c.String(http.StatusBadRequest, fmt.Sprintf("Invalid request format: %v", err))
 		return
 	}
 
-	err := h.areasService.CreateOrUpdateArea(c.Request.Context(), args)
+	areaId, err := h.areasService.CreateOrUpdateArea(c.Request.Context(), args)
 	if err != nil {
 		log.Errorf("Error creating or updating area: %w", err)
 		c.String(http.StatusInternalServerError, fmt.Sprint(err))
 		return
 	}
 
-	c.Status(http.StatusOK)
+	// Determine if this was a create or update operation
+	var message string
+	if args.Area.Id == 0 {
+		message = "Area created successfully"
+	} else {
+		message = "Area updated successfully"
+	}
+
+	c.JSON(http.StatusOK, &models.CreateAreaResponse{
+		AreaId:  areaId,
+		Message: message,
+	})
 }
 
 func (h *AreasHandler) GetAreas(c *gin.Context) {

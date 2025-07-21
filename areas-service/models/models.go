@@ -26,6 +26,11 @@ type CreateAreaRequest struct {
 	Area *Area `json:"area"`
 }
 
+type CreateAreaResponse struct {
+	AreaId  uint64 `json:"area_id"`
+	Message string `json:"message"`
+}
+
 type UpdateConsentRequest struct {
 	ContactEmail *ContactEmail `json:"contact_email"`
 }

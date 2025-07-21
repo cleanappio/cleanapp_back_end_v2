@@ -22,34 +22,34 @@ func NewAreasService(db *sql.DB) *AreasService {
 	return &AreasService{db: db}
 }
 
-func (s *AreasService) CreateOrUpdateArea(ctx context.Context, req *models.CreateAreaRequest) error {
+func (s *AreasService) CreateOrUpdateArea(ctx context.Context, req *models.CreateAreaRequest) (uint64, error) {
 	// Start transaction
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
 		log.Errorf("Error creating transaction: %w", err)
-		return err
+		return 0, err
 	}
 	defer tx.Rollback()
 
 	// Put the area into areas table
 	coords, err := json.MarshalIndent(req.Area.Coordinates, "", "  ")
 	if err != nil {
-		return err
+		return 0, err
 	}
 	tmc, err := time.Parse(time.RFC3339, req.Area.CreatedAt)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	create_ts := tmc.Format(time.DateTime)
 	tmu, err := time.Parse(time.RFC3339, req.Area.UpdatedAt)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	update_ts := tmu.Format(time.DateTime)
 
 	rows, err := tx.Query(`SELECT id FROM areas WHERE id = ?`, req.Area.Id)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	areaExists := rows.Next()
 	rows.Close()
@@ -63,7 +63,7 @@ func (s *AreasService) CreateOrUpdateArea(ctx context.Context, req *models.Creat
 			req.Area.Name, req.Area.Description, req.Area.IsCustom, req.Area.ContactName, req.Area.Type, string(coords), create_ts, update_ts, req.Area.Id)
 		logResult("updateArea", result, err, true)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		newId = int(req.Area.Id)
 		log.Infof("Updated area with ID %d", newId)
@@ -74,15 +74,15 @@ func (s *AreasService) CreateOrUpdateArea(ctx context.Context, req *models.Creat
 			req.Area.Name, req.Area.Description, req.Area.IsCustom, req.Area.ContactName, req.Area.Type, string(coords), create_ts, update_ts)
 		logResult("insertArea", result, err, true)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		rows, err := tx.Query("SELECT MAX(id) FROM areas")
 		if err != nil {
-			return err
+			return 0, err
 		}
 		rows.Next()
 		if err := rows.Scan(&newId); err != nil {
-			return err
+			return 0, err
 		}
 		rows.Close()
 		log.Infof("Inserted area with id %d", newId)
@@ -93,7 +93,7 @@ func (s *AreasService) CreateOrUpdateArea(ctx context.Context, req *models.Creat
 		log.Infof("Updating email %v", em)
 		rows, err = tx.Query(`SELECT email FROM contact_emails WHERE area_id = ? AND email = ?`, newId, em.Email)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		emailExists := rows.Next()
 		rows.Close()
@@ -102,7 +102,7 @@ func (s *AreasService) CreateOrUpdateArea(ctx context.Context, req *models.Creat
 				SET consent_report = ? WHERE area_id = ? AND email = ?`, em.ConsentReport, newId, em.Email)
 			logResult("updateContactEmails", result, err, false)
 			if err != nil {
-				return err
+				return 0, err
 			}
 			log.Info("Email is updated")
 		} else {
@@ -110,7 +110,7 @@ func (s *AreasService) CreateOrUpdateArea(ctx context.Context, req *models.Creat
 			  VALUES (?, ?, ?)`, newId, em.Email, em.ConsentReport)
 			logResult("insertContactEmails", result, err, true)
 			if err != nil {
-				return err
+				return 0, err
 			}
 			log.Info("Email is inserted")
 		}
@@ -120,21 +120,25 @@ func (s *AreasService) CreateOrUpdateArea(ctx context.Context, req *models.Creat
 	result, err := tx.Exec(`DELETE FROM area_index WHERE area_id = ?`, req.Area.Id)
 	logResult("deletePreviousAreaIndex", result, err, false)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	areaWKT, err := utils.AreaToWKT(req.Area)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	result, err = tx.Exec("INSERT INTO area_index (area_id, geom) VALUES (?, ST_GeomFromText(?, 4326))", newId, areaWKT)
 	logResult("insertAreaIndex", result, err, true)
 	if err != nil {
 		log.Errorf("%s", areaWKT)
-		return err
+		return 0, err
 	}
 
 	// Commit transaction
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+
+	return uint64(newId), nil
 }
 
 func (s *AreasService) GetAreas(ctx context.Context, areaIds []uint64, areaType string, viewport *models.ViewPort) ([]*models.Area, error) {
