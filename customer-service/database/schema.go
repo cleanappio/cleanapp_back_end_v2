@@ -110,6 +110,11 @@ func runMigrations(db *sql.DB) error {
 		return fmt.Errorf("failed to add area_id foreign key to customer_areas table: %w", err)
 	}
 
+	// Migration: Add customer_id foreign key constraint to customer_areas table if it doesn't exist
+	if err := addCustomerIdForeignKeyToCustomerAreas(db); err != nil {
+		return fmt.Errorf("failed to add customer_id foreign key to customer_areas table: %w", err)
+	}
+
 	log.Println("Database migrations completed successfully")
 	return nil
 }
@@ -120,11 +125,10 @@ func addAreaIdForeignKeyToCustomerAreas(db *sql.DB) error {
 	var count int
 	err := db.QueryRow(`
 		SELECT COUNT(*) 
-		FROM information_schema.TABLE_CONSTRAINTS 
-		WHERE CONSTRAINT_SCHEMA = DATABASE() 
-		AND TABLE_NAME = 'customer_areas' 
-		AND CONSTRAINT_NAME = 'fk_customer_areas_area_id'
-	`).Scan(&count)
+		FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE 
+		WHERE TABLE_SCHEMA = DATABASE() 
+		AND TABLE_NAME = 'customer_areas'
+		AND REFERENCED_TABLE_NAME = 'areas';`).Scan(&count)
 
 	if err != nil {
 		log.Printf("Could not check for existing area_id foreign key constraint: %v", err)
@@ -145,6 +149,41 @@ func addAreaIdForeignKeyToCustomerAreas(db *sql.DB) error {
 		log.Println("Added area_id foreign key constraint to customer_areas table")
 	} else {
 		log.Println("Area_id foreign key constraint already exists in customer_areas table")
+	}
+
+	return nil
+}
+
+// addCustomerIdForeignKeyToCustomerAreas adds the area_id foreign key constraint to customer_areas table if it doesn't exist
+func addCustomerIdForeignKeyToCustomerAreas(db *sql.DB) error {
+	// Check if area_id foreign key constraint already exists
+	var count int
+	err := db.QueryRow(`
+		SELECT COUNT(*) 
+		FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE 
+		WHERE TABLE_SCHEMA = DATABASE() 
+		AND TABLE_NAME = 'customer_areas'
+		AND REFERENCED_TABLE_NAME = 'customers';`).Scan(&count)
+
+	if err != nil {
+		log.Printf("Could not check for existing customer_id foreign key constraint: %v", err)
+		return err
+	}
+
+	if count == 0 {
+		// Add foreign key constraint for customer_id
+		_, err := db.Exec(`
+			ALTER TABLE customer_areas 
+			ADD CONSTRAINT fk_customer_areas_customer_id 
+			FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
+		`)
+		if err != nil {
+			log.Printf("Could not add customer_id foreign key constraint to customer_areas table: %v", err)
+			return err
+		}
+		log.Println("Added customer_id foreign key constraint to customer_areas table")
+	} else {
+		log.Println("Customer_id foreign key constraint already exists in customer_areas table")
 	}
 
 	return nil
