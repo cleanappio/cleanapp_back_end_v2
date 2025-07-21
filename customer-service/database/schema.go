@@ -24,7 +24,8 @@ CREATE TABLE IF NOT EXISTS customer_areas (
     area_id INT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (customer_id, area_id),
-    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
+    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
+    FOREIGN KEY (area_id) REFERENCES areas(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS customer_brands (
@@ -91,6 +92,60 @@ func InitializeSchema(db *sql.DB) error {
 		return fmt.Errorf("failed to create schema: %w", err)
 	}
 
+	// Run migrations for existing tables
+	if err := runMigrations(db); err != nil {
+		return fmt.Errorf("failed to run migrations: %w", err)
+	}
+
 	log.Println("Database schema initialized successfully")
+	return nil
+}
+
+// runMigrations handles schema migrations for existing tables
+func runMigrations(db *sql.DB) error {
+	log.Println("Running database migrations...")
+
+	// Migration: Add area_id foreign key constraint to customer_areas table if it doesn't exist
+	if err := addAreaIdForeignKeyToCustomerAreas(db); err != nil {
+		return fmt.Errorf("failed to add area_id foreign key to customer_areas table: %w", err)
+	}
+
+	log.Println("Database migrations completed successfully")
+	return nil
+}
+
+// addAreaIdForeignKeyToCustomerAreas adds the area_id foreign key constraint to customer_areas table if it doesn't exist
+func addAreaIdForeignKeyToCustomerAreas(db *sql.DB) error {
+	// Check if area_id foreign key constraint already exists
+	var count int
+	err := db.QueryRow(`
+		SELECT COUNT(*) 
+		FROM information_schema.TABLE_CONSTRAINTS 
+		WHERE CONSTRAINT_SCHEMA = DATABASE() 
+		AND TABLE_NAME = 'customer_areas' 
+		AND CONSTRAINT_NAME = 'fk_customer_areas_area_id'
+	`).Scan(&count)
+
+	if err != nil {
+		log.Printf("Could not check for existing area_id foreign key constraint: %v", err)
+		return err
+	}
+
+	if count == 0 {
+		// Add foreign key constraint for area_id
+		_, err := db.Exec(`
+			ALTER TABLE customer_areas 
+			ADD CONSTRAINT fk_customer_areas_area_id 
+			FOREIGN KEY (area_id) REFERENCES areas(id) ON DELETE CASCADE
+		`)
+		if err != nil {
+			log.Printf("Could not add area_id foreign key constraint to customer_areas table: %v", err)
+			return err
+		}
+		log.Println("Added area_id foreign key constraint to customer_areas table")
+	} else {
+		log.Println("Area_id foreign key constraint already exists in customer_areas table")
+	}
+
 	return nil
 }
