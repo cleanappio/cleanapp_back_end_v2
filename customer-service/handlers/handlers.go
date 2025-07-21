@@ -327,7 +327,6 @@ func (h *Handlers) GetCustomerAreas(c *gin.Context) {
 
 	log.Printf("DEBUG: Found %d areas for customer %s from %s", len(areas), customerID, c.ClientIP())
 	c.JSON(http.StatusOK, models.CustomerAreasResponse{
-		CustomerID: customerID,
 		Areas:      areas,
 		Count:      len(areas),
 	})
@@ -346,13 +345,6 @@ func (h *Handlers) AddCustomerAreas(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		log.Printf("ERROR: Invalid JSON in AddCustomerAreas request for customer %s from %s: %v", customerID, c.ClientIP(), err)
 		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
-		return
-	}
-
-	// Validate that the request customer_id matches the authenticated customer
-	if req.CustomerID != customerID {
-		log.Printf("WARNING: Customer ID mismatch in AddCustomerAreas - Request: %s, Authenticated: %s from %s", req.CustomerID, customerID, c.ClientIP())
-		c.JSON(http.StatusForbidden, models.ErrorResponse{Error: "customer ID mismatch"})
 		return
 	}
 
@@ -385,12 +377,6 @@ func (h *Handlers) UpdateCustomerAreas(c *gin.Context) {
 	}
 
 	// Validate that the request customer_id matches the authenticated customer
-	if req.CustomerID != customerID {
-		log.Printf("WARNING: Customer ID mismatch in UpdateCustomerAreas - Request: %s, Authenticated: %s from %s", req.CustomerID, customerID, c.ClientIP())
-		c.JSON(http.StatusForbidden, models.ErrorResponse{Error: "customer ID mismatch"})
-		return
-	}
-
 	log.Printf("INFO: Updating areas for customer %s with %d areas from %s", customerID, len(req.AreaIDs), c.ClientIP())
 
 	if err := h.service.UpdateCustomerAreas(c.Request.Context(), customerID, req.AreaIDs); err != nil {
@@ -416,13 +402,6 @@ func (h *Handlers) DeleteCustomerAreas(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		log.Printf("ERROR: Invalid JSON in DeleteCustomerAreas request for customer %s from %s: %v", customerID, c.ClientIP(), err)
 		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
-		return
-	}
-
-	// Validate that the request customer_id matches the authenticated customer
-	if req.CustomerID != customerID {
-		log.Printf("WARNING: Customer ID mismatch in DeleteCustomerAreas - Request: %s, Authenticated: %s from %s", req.CustomerID, customerID, c.ClientIP())
-		c.JSON(http.StatusForbidden, models.ErrorResponse{Error: "customer ID mismatch"})
 		return
 	}
 
