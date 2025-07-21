@@ -259,6 +259,45 @@ func (s *AreasService) GetAreasCount(ctx context.Context) (uint64, error) {
 	return cnt, nil
 }
 
+func (s *AreasService) DeleteArea(ctx context.Context, areaId uint64) error {
+	// Start transaction
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	if err != nil {
+		log.Errorf("Error creating transaction for delete area: %w", err)
+		return err
+	}
+	defer tx.Rollback()
+
+	// Check if area exists
+	var exists bool
+	err = tx.QueryRow("SELECT EXISTS(SELECT 1 FROM areas WHERE id = ?)", areaId).Scan(&exists)
+	if err != nil {
+		log.Errorf("Error checking if area exists: %w", err)
+		return err
+	}
+
+	if !exists {
+		return fmt.Errorf("area with ID %d does not exist", areaId)
+	}
+
+	// Delete from areas table - foreign key CASCADE will automatically delete
+	// related records from area_index and contact_emails tables
+	result, err := tx.Exec("DELETE FROM areas WHERE id = ?", areaId)
+	logResult("deleteArea", result, err, true)
+	if err != nil {
+		return err
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		log.Errorf("Error committing delete area transaction: %w", err)
+		return err
+	}
+
+	log.Infof("Successfully deleted area with ID %d and all related data (via CASCADE)", areaId)
+	return nil
+}
+
 func logResult(operation string, result sql.Result, err error, isError bool) {
 	if err != nil {
 		log.Errorf("Error in %s: %v", operation, err)

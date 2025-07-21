@@ -16,6 +16,9 @@ type Config struct {
 
 	// Server configuration
 	Port string
+
+	// Auth Service configuration
+	AuthServiceURL string
 }
 
 // Load loads configuration from environment variables
@@ -30,6 +33,9 @@ func Load() *Config {
 
 		// Server defaults
 		Port: getEnv("PORT", "8080"),
+
+		// Auth Service defaults
+		AuthServiceURL: getEnv("AUTH_SERVICE_URL", "http://auth-service:8080"),
 	}
 
 	return config

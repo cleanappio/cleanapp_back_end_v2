@@ -139,3 +139,31 @@ func (h *AreasHandler) GetAreasCount(c *gin.Context) {
 		Count: cnt,
 	})
 }
+
+func (h *AreasHandler) DeleteArea(c *gin.Context) {
+	args := &models.DeleteAreaRequest{}
+
+	if err := c.BindJSON(args); err != nil {
+		log.Errorf("Failed to get the argument in /delete_area call: %w", err)
+		c.String(http.StatusBadRequest, fmt.Sprintf("Invalid request format: %v", err))
+		return
+	}
+
+	if args.AreaId == 0 {
+		log.Errorf("Invalid area_id: %d", args.AreaId)
+		c.String(http.StatusBadRequest, "area_id is required and must be greater than 0")
+		return
+	}
+
+	err := h.areasService.DeleteArea(c.Request.Context(), args.AreaId)
+	if err != nil {
+		log.Errorf("Error deleting area %d: %w", args.AreaId, err)
+		c.String(http.StatusInternalServerError, fmt.Sprint(err))
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": fmt.Sprintf("Area with ID %d successfully deleted", args.AreaId),
+		"area_id": args.AreaId,
+	})
+}

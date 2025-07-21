@@ -22,11 +22,15 @@ type Area struct {
 }
 
 type CreateAreaRequest struct {
-	Area    *Area  `json:"area"`
+	Area *Area `json:"area"`
 }
 
 type UpdateConsentRequest struct {
 	ContactEmail *ContactEmail `json:"contact_email"`
+}
+
+type DeleteAreaRequest struct {
+	AreaId uint64 `json:"area_id"`
 }
 
 type AreasResponse struct {

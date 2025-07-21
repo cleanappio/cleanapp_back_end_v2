@@ -4,6 +4,7 @@ import (
 	"areas-service/config"
 	"areas-service/database"
 	"areas-service/handlers"
+	"areas-service/middleware"
 	"areas-service/utils"
 	"fmt"
 	"strconv"
@@ -20,6 +21,7 @@ const (
 	EndPointGetAreas           = "/get_areas"
 	EndPointUpdateConsent      = "/update_consent"
 	EndPointGetAreasCount      = "/get_areas_count"
+	EndPointDeleteArea         = "/delete_area"
 )
 
 func main() {
@@ -62,10 +64,11 @@ func main() {
 	// Create API v3 router group
 	apiV3 := router.Group("/api/v3")
 	{
-		apiV3.POST(EndPointCreateOrUpdateArea, areasHandler.CreateOrUpdateArea)
+		apiV3.POST(EndPointCreateOrUpdateArea, middleware.AuthMiddleware(cfg), areasHandler.CreateOrUpdateArea)
 		apiV3.GET(EndPointGetAreas, areasHandler.GetAreas)
 		apiV3.POST(EndPointUpdateConsent, areasHandler.UpdateConsent)
 		apiV3.GET(EndPointGetAreasCount, areasHandler.GetAreasCount)
+		apiV3.DELETE(EndPointDeleteArea, middleware.AuthMiddleware(cfg), areasHandler.DeleteArea)
 	}
 
 	// Get server port from config
