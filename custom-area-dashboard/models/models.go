@@ -22,8 +22,8 @@ type Geometry struct {
 	Coordinates json.RawMessage `json:"coordinates"`
 }
 
-// MontenegroArea represents a parsed area from the GeoJSON
-type MontenegroArea struct {
+// CustomArea represents a parsed area from the GeoJSON
+type CustomArea struct {
 	AdminLevel int             `json:"admin_level"`
 	Area       json.RawMessage `json:"area"` // Raw geometry data
 	Name       string          `json:"name,omitempty"`
@@ -34,7 +34,7 @@ type MontenegroArea struct {
 type AreasByAdminLevelResponse struct {
 	AdminLevel int              `json:"admin_level"`
 	Count      int              `json:"count"`
-	Areas      []MontenegroArea `json:"areas"`
+	Areas      []CustomArea `json:"areas"`
 }
 
 // HealthResponse represents the health check response
@@ -88,7 +88,7 @@ type ReportWithAnalysis struct {
 	Analysis []ReportAnalysis `json:"analysis"`
 }
 
-// ReportsResponse represents the response for reports within a MontenegroArea
+// ReportsResponse represents the response for reports within a custom area
 type ReportsResponse struct {
 	Reports []ReportWithAnalysis `json:"reports"`
 	Count   int                  `json:"count"`

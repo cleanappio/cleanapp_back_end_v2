@@ -6,10 +6,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 
-	"montenegro-areas/config"
-	"montenegro-areas/handlers"
-	"montenegro-areas/middleware"
-	"montenegro-areas/services"
+	"custom-area-dashboard/config"
+	"custom-area-dashboard/handlers"
+	"custom-area-dashboard/middleware"
+	"custom-area-dashboard/services"
 )
 
 func main() {
@@ -25,7 +25,7 @@ func main() {
 	areasService := services.NewAreasService()
 
 	// Load areas data
-	log.Println("Loading Montenegro areas data...")
+	log.Println("Loading custom areas data...")
 	if err := areasService.LoadAreas(); err != nil {
 		log.Fatalf("Failed to load areas data: %v", err)
 	}
@@ -80,10 +80,10 @@ func main() {
 		protected.GET("/admin-levels", areasHandler.AvailableAdminLevelsHandler)
 		protected.GET("/reports", areasHandler.ReportsHandler)
 		protected.GET("/reports_aggr", areasHandler.ReportsAggrHandler)
-		protected.GET("/ws/montenegro-reports", websocketHandler.ListenMontenegroReports)
+		protected.GET("/ws/custom-reports", websocketHandler.ListenCustomReports)
 		protected.GET("/ws/health", websocketHandler.HealthCheck)
 	}
 
-	log.Printf("Starting Montenegro Areas service on %s:%s", cfg.Host, cfg.Port)
+	log.Printf("Starting Custom Area Dashboard service on %s:%s", cfg.Host, cfg.Port)
 	r.Run(cfg.Host + ":" + cfg.Port)
 }

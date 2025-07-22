@@ -4,9 +4,9 @@ import (
 	"log"
 	"strconv"
 
-	"montenegro-areas/middleware"
-	"montenegro-areas/models"
-	"montenegro-areas/services"
+	"custom-area-dashboard/middleware"
+	"custom-area-dashboard/models"
+	"custom-area-dashboard/services"
 
 	"github.com/gin-gonic/gin"
 )
@@ -29,7 +29,7 @@ func NewAreasHandler(areasService *services.AreasService, databaseService *servi
 func (h *AreasHandler) HealthHandler(c *gin.Context) {
 	response := models.HealthResponse{
 		Status:  "healthy",
-		Message: "Montenegro Areas service is running",
+		Message: "Custom Area Dashboard service is running",
 	}
 	c.JSON(200, response)
 }
@@ -85,7 +85,7 @@ func (h *AreasHandler) AvailableAdminLevelsHandler(c *gin.Context) {
 	c.JSON(200, response)
 }
 
-// ReportsHandler handles requests for reports within a MontenegroArea
+// ReportsHandler handles requests for reports within a custom area
 func (h *AreasHandler) ReportsHandler(c *gin.Context) {
 	userID := middleware.GetUserIDFromContext(c)
 	log.Printf("INFO: Reports request from user %s", userID)
@@ -118,7 +118,7 @@ func (h *AreasHandler) ReportsHandler(c *gin.Context) {
 		return
 	}
 
-	reports, err := h.databaseService.GetReportsByMontenegroArea(osmID, n)
+	reports, err := h.databaseService.GetReportsByCustomArea(osmID, n)
 	if err != nil {
 		log.Printf("Error getting reports for OSM ID %d: %v", osmID, err)
 		c.JSON(500, gin.H{"error": "Internal server error"})

@@ -85,7 +85,7 @@ This service now includes a WebSocket endpoint that listens to new reports speci
 ```json
 {
   "status": "healthy",
-  "service": "montenegro-areas-websocket",
+  "service": "custom-area-dashboard-websocket",
   "timestamp": "2024-01-15T10:30:00Z",
   "connected_clients": 3,
   "last_broadcast_seq": 12345

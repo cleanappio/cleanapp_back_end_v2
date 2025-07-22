@@ -8,18 +8,18 @@ import (
 	"sync"
 	"time"
 
-	"montenegro-areas/models"
-	ws "montenegro-areas/websocket"
+	"custom-area-dashboard/models"
+	ws "custom-area-dashboard/websocket"
 )
 
-// WebSocketService manages the WebSocket broadcasting for Montenegro reports
+// WebSocketService manages the WebSocket broadcasting for custom area reports
 type WebSocketService struct {
 	db           *DatabaseService
 	areasService *AreasService
 	hub          *ws.Hub
 
-	// Montenegro area (admin_level 2, osm_id -53296)
-	montenegroArea *models.MontenegroArea
+	// Custom area (admin_level 2, osm_id -53296)
+	customArea *models.CustomArea
 
 	// State tracking
 	lastProcessedSeq int
@@ -47,14 +47,14 @@ func NewWebSocketService(dbService *DatabaseService, areasService *AreasService)
 
 // Start starts the WebSocket service
 func (s *WebSocketService) Start() error {
-	log.Printf("Starting Montenegro WebSocket service...")
+	log.Printf("Starting Custom Area Dashboard WebSocket service...")
 
 	// Start the WebSocket hub
 	go s.hub.Run()
 
-	// Find Montenegro area (admin_level 2, osm_id -53296)
-	if err := s.findMontenegroArea(); err != nil {
-		return fmt.Errorf("failed to find Montenegro area: %w", err)
+	// Find custom area (admin_level 2, osm_id -53296)
+		if err := s.findCustomArea(); err != nil {
+		return fmt.Errorf("failed to find custom area: %w", err)
 	}
 
 	// Initialize last processed sequence
@@ -66,13 +66,13 @@ func (s *WebSocketService) Start() error {
 	s.wg.Add(1)
 	go s.broadcastLoop()
 
-	log.Printf("Montenegro WebSocket service started successfully")
+	log.Printf("Custom Area Dashboard WebSocket service started successfully")
 	return nil
 }
 
 // Stop stops the WebSocket service gracefully
 func (s *WebSocketService) Stop() error {
-	log.Printf("Stopping Montenegro WebSocket service...")
+	log.Printf("Stopping Custom Area Dashboard WebSocket service...")
 
 	// Signal stop
 	close(s.stopChan)
@@ -80,7 +80,7 @@ func (s *WebSocketService) Stop() error {
 	// Wait for goroutines to finish
 	s.wg.Wait()
 
-	log.Printf("Montenegro WebSocket service stopped")
+	log.Printf("Custom Area Dashboard WebSocket service stopped")
 	return nil
 }
 
@@ -98,8 +98,8 @@ func (s *WebSocketService) GetStats() (int, int, int) {
 	return connectedClients, lastBroadcastSeq, lastProcessedSeq
 }
 
-// findMontenegroArea finds the Montenegro area (admin_level 2, osm_id -53296)
-func (s *WebSocketService) findMontenegroArea() error {
+// findCustomArea finds the custom area (admin_level 2, osm_id -53296)
+func (s *WebSocketService) findCustomArea() error {
 	areas, err := s.areasService.GetAreasByAdminLevel(2)
 	if err != nil {
 		return fmt.Errorf("failed to get areas for admin level 2: %w", err)
@@ -107,13 +107,13 @@ func (s *WebSocketService) findMontenegroArea() error {
 
 	for _, area := range areas {
 		if area.OSMID == -53296 {
-			s.montenegroArea = &area
-			log.Printf("Found Montenegro area: %s (OSM ID: %d)", area.Name, area.OSMID)
+			s.customArea = &area
+			log.Printf("Found custom area: %s (OSM ID: %d)", area.Name, area.OSMID)
 			return nil
 		}
 	}
 
-	return fmt.Errorf("montenegro area (OSM ID: -53296) not found")
+	return fmt.Errorf("custom area (OSM ID: -53296) not found")
 }
 
 // initializeLastProcessedSeq initializes the last processed sequence number
@@ -142,7 +142,7 @@ func (s *WebSocketService) getLatestReportSeq() (int, error) {
 	return seq, nil
 }
 
-// broadcastLoop continuously polls for new reports in Montenegro and broadcasts them
+// broadcastLoop continuously polls for new reports in custom area and broadcasts them
 func (s *WebSocketService) broadcastLoop() {
 	defer s.wg.Done()
 
@@ -162,13 +162,13 @@ func (s *WebSocketService) broadcastLoop() {
 	}
 }
 
-// processNewReports fetches and broadcasts new reports with analysis in Montenegro
+// processNewReports fetches and broadcasts new reports with analysis in custom area
 func (s *WebSocketService) processNewReports() error {
 	s.mu.RLock()
 	lastSeq := s.lastProcessedSeq
 	s.mu.RUnlock()
 
-	// Fetch new reports with analysis in Montenegro
+	// Fetch new reports with analysis in custom area
 	reports, err := s.getReportsWithAnalysisSince(lastSeq)
 	if err != nil {
 		return err
@@ -188,25 +188,25 @@ func (s *WebSocketService) processNewReports() error {
 	s.lastProcessedSeq = newLastSeq
 	s.mu.Unlock()
 
-	log.Printf("Processed %d new reports with analysis in Montenegro (seq %d-%d)",
+	log.Printf("Processed %d new reports with analysis in custom area (seq %d-%d)",
 		len(reports), reports[0].Report.Seq, reports[len(reports)-1].Report.Seq)
 
 	return nil
 }
 
-// getReportsWithAnalysisSince retrieves reports with analysis in Montenegro since a given sequence number
+// getReportsWithAnalysisSince retrieves reports with analysis in custom area since a given sequence number
 func (s *WebSocketService) getReportsWithAnalysisSince(sinceSeq int) ([]models.ReportWithAnalysis, error) {
-	if s.montenegroArea == nil {
-		return nil, fmt.Errorf("montenegro area not found")
+	if s.customArea == nil {
+		return nil, fmt.Errorf("custom area not found")
 	}
 
-	// Convert the Montenegro area geometry to WKT format
-	areaWKT, err := s.db.wktConverter.ConvertGeoJSONToWKT(s.montenegroArea.Area)
+	// Convert the custom area geometry to WKT format
+	areaWKT, err := s.db.wktConverter.ConvertGeoJSONToWKT(s.customArea.Area)
 	if err != nil {
-		return nil, fmt.Errorf("failed to convert Montenegro area geometry to WKT: %w", err)
+		return nil, fmt.Errorf("failed to convert custom area geometry to WKT: %w", err)
 	}
 
-	// First, get all reports within Montenegro since the given sequence
+	// First, get all reports within custom area since the given sequence
 	reportsQuery := `
 		SELECT DISTINCT r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.action_id
 		FROM reports r
@@ -218,7 +218,7 @@ func (s *WebSocketService) getReportsWithAnalysisSince(sinceSeq int) ([]models.R
 
 	reportRows, err := s.db.db.Query(reportsQuery, sinceSeq, areaWKT)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query reports in Montenegro: %w", err)
+		return nil, fmt.Errorf("failed to query reports in custom area: %w", err)
 	}
 	defer reportRows.Close()
 

@@ -1,7 +1,7 @@
 package services
 
 import (
-	"montenegro-areas/models"
+	"custom-area-dashboard/models"
 	"testing"
 )
 
@@ -11,7 +11,7 @@ func TestGetReportsAggregatedData(t *testing.T) {
 
 	// Create a mock areas service
 	areasService := &AreasService{
-		areas:  make(map[int][]models.MontenegroArea),
+		areas:  make(map[int][]models.CustomArea),
 		loaded: true,
 	}
 
@@ -26,8 +26,8 @@ func TestGetReportsAggregatedData(t *testing.T) {
 	t.Log("GetReportsAggregatedData function structure is valid")
 }
 
-func TestGetReportsByMontenegroArea_ReturnsReportsWithAnalysis(t *testing.T) {
-	// This test verifies that GetReportsByMontenegroArea now returns ReportWithAnalysis
+func TestGetReportsByCustomArea_ReturnsReportsWithAnalysis(t *testing.T) {
+	// This test verifies that GetReportsByCustomArea now returns ReportWithAnalysis
 	// instead of just ReportData, ensuring the method signature is correct
 
 	// Note: This is a structural test since we can't easily test database queries
@@ -37,7 +37,7 @@ func TestGetReportsByMontenegroArea_ReturnsReportsWithAnalysis(t *testing.T) {
 	// This test ensures the function signature is correct
 
 	// Expected signature:
-	// func (s *DatabaseService) GetReportsByMontenegroArea(osmID int64, n int) ([]models.ReportWithAnalysis, error)
+	// func (s *DatabaseService) GetReportsByCustomArea(osmID int64, n int) ([]models.ReportWithAnalysis, error)
 
-	t.Log("GetReportsByMontenegroArea function structure is valid - returns reports with analysis")
+	t.Log("GetReportsByCustomArea function structure is valid - returns reports with analysis")
 }

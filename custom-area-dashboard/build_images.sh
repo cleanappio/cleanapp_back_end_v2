@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "Building montenegro-areas docker image..."
+echo "Building custom areas dashboard docker image..."
 
 OPT=""
 SSH_KEYFILE=""
@@ -63,10 +63,10 @@ echo "Running docker build for version ${BUILD_VERSION}"
 
 set -e
 
+MONTENEGRO_AREAS_GEOJSON_FILE="/app/OSMB-e0b412fe96a2a2c5d8e7eb33454a21d971bea620.geojson"
+
 CLOUD_REGION="us-central1"
 PROJECT_NAME="cleanup-mysql-v2"
-DOCKER_IMAGE="cleanapp-docker-repo/cleanapp-montenegro-areas-image"
-DOCKER_TAG="${CLOUD_REGION}-docker.pkg.dev/${PROJECT_NAME}/${DOCKER_IMAGE}"
 
 CURRENT_PROJECT=$(gcloud config get project)
 echo ${CURRENT_PROJECT}
@@ -75,17 +75,36 @@ if [ "${PROJECT_NAME}" != "${CURRENT_PROJECT}" ]; then
   gcloud config set project ${PROJECT_NAME}
 fi
 
-if [ "${OPT}" == "dev" ]; then
-  echo "Building and pushing docker image..."
-  gcloud builds submit \
-    --region=${CLOUD_REGION} \
-    --tag=${DOCKER_TAG}:${BUILD_VERSION}
-fi
+for DASHBOARD in "montenegro"; do
+  case ${DASHBOARD} in
+    "montenegro")
+      AREAS_GEOJSON_FILE=${MONTENEGRO_AREAS_GEOJSON_FILE}
+      ;;
+    *)
+      echo "Unknown dashboard: ${DASHBOARD}"
+      exit 1
+      ;;
+  esac
+  DOCKER_IMAGE="cleanapp-docker-repo/cleanapp-${DASHBOARD}-custom-area-dashboard-image"
+  DOCKER_TAG="${CLOUD_REGION}-docker.pkg.dev/${PROJECT_NAME}/${DOCKER_IMAGE}"
 
-echo "Tagging Docker image as current ${OPT}..."
-gcloud artifacts docker tags add ${DOCKER_TAG}:${BUILD_VERSION} ${DOCKER_TAG}:${OPT}
+  cat Dockerfile.template | \
+  sed "s|{{AREAS_GEOJSON_FILE}}|${AREAS_GEOJSON_FILE}|g" \
+  > Dockerfile
 
-echo "montenegro-areas docker image build completed successfully!"
+  if [ "${OPT}" == "dev" ]; then
+    echo "Building and pushing docker image..."
+    gcloud builds submit \
+      --region=${CLOUD_REGION} \
+      --tag=${DOCKER_TAG}:${BUILD_VERSION}
+  fi
+  echo "Tagging Docker image as current ${OPT}..."
+  gcloud artifacts docker tags add ${DOCKER_TAG}:${BUILD_VERSION} ${DOCKER_TAG}:${OPT}
+
+  test -f Dockerfile && rm Dockerfile
+done
+
+echo "custom area dashboard docker images are built successfully!"
 
 if [ -n "${SSH_KEYFILE}" ]; then
   SETUP_SCRIPT="https://raw.githubusercontent.com/cleanappio/cleanapp_back_end_v2/refs/heads/main/setup/setup.sh"

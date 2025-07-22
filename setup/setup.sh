@@ -163,7 +163,7 @@ CLEANAPP_IO_FRONTEND_EMBEDDED_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-frontend-i
 CLEANAPP_IO_BACKEND_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-customer-service-image:${OPT}"
 REPORT_LISTENER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-listener-image:${OPT}"
 REPORT_ANALYZE_PIPELINE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-analyze-pipeline-image:${OPT}"
-MONTENEGRO_AREAS_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-montenegro-areas-image:${OPT}"
+MONTENEGRO_AREAS_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-montenegro-custom-area-dashboard-image:${OPT}"
 AUTH_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-auth-service-image:${OPT}"
 BRAND_DASHBOARD_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-brand-dashboard-image:${OPT}"
 AREAS_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-areas-service-image:${OPT}"
@@ -331,7 +331,6 @@ services:
       - DB_USER=server
       - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
       - DB_NAME=cleanapp
-      - MONTENEGRO_AREAS_DOCKER_IMAGE=OSMB-e0b412fe96a2a2c5d8e7eb33454a21d971bea620.geojson
       - LOG_LEVEL=info
       - LOG_FORMAT=json
       - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080

@@ -1,4 +1,4 @@
-module montenegro-areas
+module custom-area-dashboard
 
 go 1.21
 

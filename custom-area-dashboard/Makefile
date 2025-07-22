@@ -2,7 +2,7 @@
 
 # Build the service
 build:
-	go build -o montenegro-areas-service .
+	go build -o custom-area-dashboard-service .
 
 # Run the service
 run:
@@ -28,15 +28,15 @@ test:
 
 # Clean build artifacts
 clean:
-	rm -f montenegro-areas-service
+	rm -f custom-area-dashboard-service
 
 # Build Docker image
 docker-build:
-	docker build -t montenegro-areas .
+	docker build -t custom-area-dashboard .
 
 # Run Docker container
 docker-run:
-	docker run -p 8080:8080 montenegro-areas
+	docker run -p 8080:8080 custom-area-dashboard
 
 # Download dependencies
 deps:

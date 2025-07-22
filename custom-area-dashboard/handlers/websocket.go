@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"time"
 
-	"montenegro-areas/middleware"
-	"montenegro-areas/models"
-	ws "montenegro-areas/websocket"
+	"custom-area-dashboard/middleware"
+	"custom-area-dashboard/models"
+	ws "custom-area-dashboard/websocket"
 
 	"github.com/gin-gonic/gin"
 
@@ -35,8 +35,8 @@ var upgrader = gorilla.Upgrader{
 	},
 }
 
-// ListenMontenegroReports handles WebSocket connections for listening to reports in Montenegro
-func (h *WebSocketHandler) ListenMontenegroReports(c *gin.Context) {
+// ListenCustomReports handles WebSocket connections for listening to reports in custom area
+func (h *WebSocketHandler) ListenCustomReports(c *gin.Context) {
 	userID := middleware.GetUserIDFromContext(c)
 	log.Printf("INFO: WebSocket connection request from user %s", userID)
 
@@ -51,7 +51,7 @@ func (h *WebSocketHandler) ListenMontenegroReports(c *gin.Context) {
 	go client.WritePump()
 	go client.ReadPump()
 
-	log.Printf("WebSocket connection established for Montenegro reports for user %s", userID)
+	log.Printf("WebSocket connection established for custom area reports for user %s", userID)
 }
 
 // HealthCheck returns the service health status with WebSocket statistics
@@ -63,7 +63,7 @@ func (h *WebSocketHandler) HealthCheck(c *gin.Context) {
 
 	response := models.HealthResponse{
 		Status:           "healthy",
-		Service:          "montenegro-areas-websocket",
+		Service:          "custom-area-dashboard-websocket",
 		Timestamp:        time.Now().UTC().Format(time.RFC3339),
 		ConnectedClients: connectedClients,
 		LastBroadcastSeq: lastBroadcastSeq,

@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"montenegro-areas/models"
+	"custom-area-dashboard/models"
 )
 
 // Hub manages WebSocket connections and broadcasting

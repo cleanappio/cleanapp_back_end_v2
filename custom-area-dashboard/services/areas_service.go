@@ -8,26 +8,26 @@ import (
 	"strconv"
 	"sync"
 
-	"montenegro-areas/models"
+	"custom-area-dashboard/models"
 )
 
-// AreasService manages the Montenegro areas data
+// AreasService manages the custom areas data
 type AreasService struct {
-	areas    map[int][]models.MontenegroArea // admin_level -> areas
+	areas    map[int][]models.CustomArea // admin_level -> areas
 	mutex    sync.RWMutex
 	loaded   bool
 	filePath string
 }
 
+const (
+	filePath = "areas.geojson"
+)
+
 // NewAreasService creates a new areas service
 func NewAreasService() *AreasService {
-	filePath := os.Getenv("GEOJSON_FILE")
-	if filePath == "" {
-		filePath = "OSMB-e0b412fe96a2a2c5d8e7eb33454a21d971bea620.geojson"
-	}
 
 	return &AreasService{
-		areas:    make(map[int][]models.MontenegroArea),
+		areas:    make(map[int][]models.CustomArea),
 		filePath: filePath,
 	}
 }
@@ -55,7 +55,7 @@ func (s *AreasService) LoadAreas() error {
 	}
 
 	// Clear existing data
-	s.areas = make(map[int][]models.MontenegroArea)
+	s.areas = make(map[int][]models.CustomArea)
 
 	// Process each feature
 	for _, feature := range collection.Features {
@@ -81,8 +81,8 @@ func (s *AreasService) LoadAreas() error {
 	return nil
 }
 
-// parseFeature converts a GeoJSON feature to a MontenegroArea
-func (s *AreasService) parseFeature(feature models.Feature) (*models.MontenegroArea, error) {
+// parseFeature converts a GeoJSON feature to a custom area
+func (s *AreasService) parseFeature(feature models.Feature) (*models.CustomArea, error) {
 	// Extract admin_level from properties
 	adminLevelRaw, exists := feature.Properties["admin_level"]
 	if !exists {
@@ -133,7 +133,7 @@ func (s *AreasService) parseFeature(feature models.Feature) (*models.MontenegroA
 		return nil, fmt.Errorf("failed to marshal geometry: %w", err)
 	}
 
-	return &models.MontenegroArea{
+	return &models.CustomArea{
 		AdminLevel: adminLevel,
 		Area:       areaData,
 		Name:       name,
@@ -142,7 +142,7 @@ func (s *AreasService) parseFeature(feature models.Feature) (*models.MontenegroA
 }
 
 // GetAreasByAdminLevel returns all areas for a given admin level
-func (s *AreasService) GetAreasByAdminLevel(adminLevel int) ([]models.MontenegroArea, error) {
+func (s *AreasService) GetAreasByAdminLevel(adminLevel int) ([]models.CustomArea, error) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
@@ -152,7 +152,7 @@ func (s *AreasService) GetAreasByAdminLevel(adminLevel int) ([]models.Montenegro
 
 	areas, exists := s.areas[adminLevel]
 	if !exists {
-		return []models.MontenegroArea{}, nil // Return empty slice if no areas found
+		return []models.CustomArea{}, nil // Return empty slice if no areas found
 	}
 
 	return areas, nil

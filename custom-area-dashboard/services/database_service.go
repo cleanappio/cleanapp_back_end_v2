@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"montenegro-areas/models"
+	"custom-area-dashboard/models"
 
 	_ "github.com/go-sql-driver/mysql"
 )
@@ -59,10 +59,10 @@ func (s *DatabaseService) Close() error {
 	return s.db.Close()
 }
 
-// GetReportsByMontenegroArea gets the last n reports with analysis that are contained within a given MontenegroArea
-func (s *DatabaseService) GetReportsByMontenegroArea(osmID int64, n int) ([]models.ReportWithAnalysis, error) {
-	// Find the MontenegroArea by OSM ID
-	var targetArea *models.MontenegroArea
+// GetReportsByCustomArea gets the last n reports with analysis that are contained within a given custom area
+func (s *DatabaseService) GetReportsByCustomArea(osmID int64, n int) ([]models.ReportWithAnalysis, error) {
+	// Find the custom area by OSM ID
+	var targetArea *models.CustomArea
 	for _, areas := range s.areasService.areas {
 		for _, area := range areas {
 			if area.OSMID == osmID {
@@ -76,7 +76,7 @@ func (s *DatabaseService) GetReportsByMontenegroArea(osmID int64, n int) ([]mode
 	}
 
 	if targetArea == nil {
-		return nil, fmt.Errorf("MontenegroArea with OSM ID %d not found", osmID)
+		return nil, fmt.Errorf("custom area with OSM ID %d not found", osmID)
 	}
 
 	// Convert the area geometry to WKT format for spatial query

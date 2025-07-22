@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"montenegro-areas/config"
+	"custom-area-dashboard/config"
 
 	"github.com/gin-gonic/gin"
 )

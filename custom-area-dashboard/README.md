@@ -32,9 +32,9 @@ curl -H "Authorization: Bearer your-jwt-token" http://localhost:8080/areas?admin
 
 ### Setup
 
-1. Navigate to the montenegro-areas directory:
+1. Navigate to the custom-area-dashboard directory:
    ```bash
-   cd montenegro-areas
+   cd custom-area-dashboard
    ```
 
 2. Download dependencies:
@@ -308,14 +308,14 @@ WebSocket health check endpoint.
 
 ### Build the image:
 ```bash
-docker build -t montenegro-areas .
+docker build -t custom-area-dashboard .
 ```
 
 ### Run the container:
 ```bash
 docker run -p 8080:8080 \
   -e AUTH_SERVICE_URL=http://auth-service:8080 \
-  montenegro-areas
+  custom-area-dashboard
 ```
 
 ## Development
