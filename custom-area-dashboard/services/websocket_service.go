@@ -55,7 +55,7 @@ func (s *WebSocketService) Start() error {
 	// Start the WebSocket hub
 	go s.hub.Run()
 
-	// Find custom area (admin_level 2, osm_id -53296)
+	// Find custom area with configured admin level and OSM ID
 	if err := s.findCustomArea(); err != nil {
 		return fmt.Errorf("failed to find custom area: %w", err)
 	}

@@ -2,9 +2,6 @@ FROM golang:1.21-alpine AS builder
 
 WORKDIR /app
 
-ENV CUSTOM_AREA_ADMIN_LEVEL={{CUSTOM_AREA_ADMIN_LEVEL}}
-ENV CUSTOM_AREA_OSM_ID={{CUSTOM_AREA_OSM_ID}}
-
 # Copy go mod files
 COPY go.mod go.sum ./
 
@@ -24,9 +21,12 @@ RUN apk --no-cache add ca-certificates
 
 WORKDIR /root/
 
+ENV CUSTOM_AREA_ADMIN_LEVEL={{CUSTOM_AREA_ADMIN_LEVEL}}
+ENV CUSTOM_AREA_OSM_ID={{CUSTOM_AREA_OSM_ID}}
+
 # Copy the binary from builder stage
 COPY --from=builder /app/main .
-COPY --from=builder {{AREAS_GEOJSON_FILE}} ./areas.geojson
+COPY --from=builder /app/{{AREAS_GEOJSON_FILE}} ./areas.geojson
 
 # Expose port
 EXPOSE 8080

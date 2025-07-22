@@ -63,7 +63,7 @@ echo "Running docker build for version ${BUILD_VERSION}"
 
 set -e
 
-MONTENEGRO_AREAS_GEOJSON_FILE="/app/OSMB-e0b412fe96a2a2c5d8e7eb33454a21d971bea620.geojson"
+MONTENEGRO_AREAS_GEOJSON_FILE="OSMB-e0b412fe96a2a2c5d8e7eb33454a21d971bea620.geojson"
 
 CLOUD_REGION="us-central1"
 PROJECT_NAME="cleanup-mysql-v2"
@@ -93,7 +93,7 @@ for DASHBOARD in "montenegro"; do
   cat Dockerfile.template | \
   sed "s/{{AREAS_GEOJSON_FILE}}/${AREAS_GEOJSON_FILE}/" | \
   sed "s/{{CUSTOM_AREA_ADMIN_LEVEL}}/${CUSTOM_AREA_ADMIN_LEVEL}/" | \
-  sed "s/{{CUSTOM_AREA_OSM_ID}}/${CUSTOM_AREA_OSM_ID}/" | \
+  sed "s/{{CUSTOM_AREA_OSM_ID}}/${CUSTOM_AREA_OSM_ID}/" \
   > Dockerfile
 
   if [ "${OPT}" == "dev" ]; then
