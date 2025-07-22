@@ -79,6 +79,8 @@ for DASHBOARD in "montenegro"; do
   case ${DASHBOARD} in
     "montenegro")
       AREAS_GEOJSON_FILE=${MONTENEGRO_AREAS_GEOJSON_FILE}
+      CUSTOM_AREA_ADMIN_LEVEL=2
+      CUSTOM_AREA_OSM_ID=-53296
       ;;
     *)
       echo "Unknown dashboard: ${DASHBOARD}"
@@ -89,7 +91,9 @@ for DASHBOARD in "montenegro"; do
   DOCKER_TAG="${CLOUD_REGION}-docker.pkg.dev/${PROJECT_NAME}/${DOCKER_IMAGE}"
 
   cat Dockerfile.template | \
-  sed "s|{{AREAS_GEOJSON_FILE}}|${AREAS_GEOJSON_FILE}|g" \
+  sed "s/{{AREAS_GEOJSON_FILE}}/${AREAS_GEOJSON_FILE}/" | \
+  sed "s/{{CUSTOM_AREA_ADMIN_LEVEL}}/${CUSTOM_AREA_ADMIN_LEVEL}/" | \
+  sed "s/{{CUSTOM_AREA_OSM_ID}}/${CUSTOM_AREA_OSM_ID}/" | \
   > Dockerfile
 
   if [ "${OPT}" == "dev" ]; then

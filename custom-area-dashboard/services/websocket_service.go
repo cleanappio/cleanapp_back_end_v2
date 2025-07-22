@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"custom-area-dashboard/config"
 	"custom-area-dashboard/models"
 	ws "custom-area-dashboard/websocket"
 )
@@ -17,6 +18,7 @@ type WebSocketService struct {
 	db           *DatabaseService
 	areasService *AreasService
 	hub          *ws.Hub
+	config       *config.Config
 
 	// Custom area (admin_level 2, osm_id -53296)
 	customArea *models.CustomArea
@@ -31,7 +33,7 @@ type WebSocketService struct {
 }
 
 // NewWebSocketService creates a new WebSocket service
-func NewWebSocketService(dbService *DatabaseService, areasService *AreasService) (*WebSocketService, error) {
+func NewWebSocketService(dbService *DatabaseService, areasService *AreasService, cfg *config.Config) (*WebSocketService, error) {
 	// Initialize WebSocket hub
 	hub := ws.NewHub()
 
@@ -39,6 +41,7 @@ func NewWebSocketService(dbService *DatabaseService, areasService *AreasService)
 		db:           dbService,
 		areasService: areasService,
 		hub:          hub,
+		config:       cfg,
 		stopChan:     make(chan struct{}),
 	}
 
@@ -53,7 +56,7 @@ func (s *WebSocketService) Start() error {
 	go s.hub.Run()
 
 	// Find custom area (admin_level 2, osm_id -53296)
-		if err := s.findCustomArea(); err != nil {
+	if err := s.findCustomArea(); err != nil {
 		return fmt.Errorf("failed to find custom area: %w", err)
 	}
 
@@ -98,22 +101,25 @@ func (s *WebSocketService) GetStats() (int, int, int) {
 	return connectedClients, lastBroadcastSeq, lastProcessedSeq
 }
 
-// findCustomArea finds the custom area (admin_level 2, osm_id -53296)
+// findCustomArea finds the custom area based on configurable admin level and OSM ID
 func (s *WebSocketService) findCustomArea() error {
-	areas, err := s.areasService.GetAreasByAdminLevel(2)
+	adminLevel := s.config.CustomAreaAdminLevel
+	osmID := s.config.CustomAreaOSMID
+
+	areas, err := s.areasService.GetAreasByAdminLevel(adminLevel)
 	if err != nil {
-		return fmt.Errorf("failed to get areas for admin level 2: %w", err)
+		return fmt.Errorf("failed to get areas for admin level %d: %w", adminLevel, err)
 	}
 
 	for _, area := range areas {
-		if area.OSMID == -53296 {
+		if area.OSMID == osmID {
 			s.customArea = &area
-			log.Printf("Found custom area: %s (OSM ID: %d)", area.Name, area.OSMID)
+			log.Printf("Found custom area: %s (Admin Level: %d, OSM ID: %d)", area.Name, adminLevel, osmID)
 			return nil
 		}
 	}
 
-	return fmt.Errorf("custom area (OSM ID: -53296) not found")
+	return fmt.Errorf("custom area (Admin Level: %d, OSM ID: %d) not found", adminLevel, osmID)
 }
 
 // initializeLastProcessedSeq initializes the last processed sequence number

@@ -27,7 +27,7 @@ if [ -z "${SSH_KEYFILE}" ]; then
   exit 1
 fi
 
-for project_dir in areas-service auth-service brand-dashboard customer-service montenegro-areas report-analyze-pipeline report-listener; do
+for project_dir in areas-service auth-service brand-dashboard custom-area-dashboard customer-service report-analyze-pipeline report-listener; do
     pushd $project_dir
     ./build_image.sh -e ${OPT}
     popd

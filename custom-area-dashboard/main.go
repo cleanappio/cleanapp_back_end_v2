@@ -39,7 +39,7 @@ func main() {
 	defer databaseService.Close()
 
 	// Initialize WebSocket service
-	websocketService, err := services.NewWebSocketService(databaseService, areasService)
+	websocketService, err := services.NewWebSocketService(databaseService, areasService, cfg)
 	if err != nil {
 		log.Fatalf("Failed to initialize WebSocket service: %v", err)
 	}

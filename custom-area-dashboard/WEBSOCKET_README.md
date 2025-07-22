@@ -181,11 +181,13 @@ curl http://localhost:8080/ws/health
 - `DB_USER`: Database user (default: server)
 - `DB_PASSWORD`: Database password (default: secret_app)
 - `DB_NAME`: Database name (default: cleanapp)
+- `CUSTOM_AREA_ADMIN_LEVEL`: Administrative level for the custom area (default: 2)
+- `CUSTOM_AREA_OSM_ID`: OSM ID for the custom area (default: -53296)
 
 ### Montenegro Area
-- **Admin Level**: 2 (country level)
-- **OSM ID**: -53296
-- **Name**: Montenegro
+- **Admin Level**: Configurable via `CUSTOM_AREA_ADMIN_LEVEL` environment variable (default: 2)
+- **OSM ID**: Configurable via `CUSTOM_AREA_OSM_ID` environment variable (default: -53296)
+- **Name**: Automatically detected from loaded areas data
 - **Geometry**: Automatically loaded from GeoJSON file
 
 ## Testing

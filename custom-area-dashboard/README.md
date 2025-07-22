@@ -73,6 +73,11 @@ The service uses environment variables for configuration. Create a `.env` file o
 - `DB_USER`: Database user (default: root)
 - `DB_PASSWORD`: Database password (default: password)
 
+**Custom Area Configuration:**
+
+- `CUSTOM_AREA_ADMIN_LEVEL`: Administrative level for the custom area (default: 2)
+- `CUSTOM_AREA_OSM_ID`: OSM ID for the custom area (default: -53296)
+
 **Example .env file:**
 ```bash
 # Server Configuration
@@ -87,7 +92,35 @@ DB_PASSWORD=password
 
 # Auth Service Configuration
 AUTH_SERVICE_URL=http://auth-service:8080
+
+# Custom Area Configuration
+CUSTOM_AREA_ADMIN_LEVEL=2
+CUSTOM_AREA_OSM_ID=-53296
 ```
+
+### Custom Area Configuration Examples
+
+The service can be configured to monitor different areas by setting the environment variables:
+
+**Example 1: Monitor Montenegro (default)**
+```bash
+CUSTOM_AREA_ADMIN_LEVEL=2
+CUSTOM_AREA_OSM_ID=-53296
+```
+
+**Example 2: Monitor a different country**
+```bash
+CUSTOM_AREA_ADMIN_LEVEL=2
+CUSTOM_AREA_OSM_ID=-12345
+```
+
+**Example 3: Monitor a specific region**
+```bash
+CUSTOM_AREA_ADMIN_LEVEL=4
+CUSTOM_AREA_OSM_ID=-67890
+```
+
+**Note**: The OSM ID must exist in the loaded areas data for the specified admin level.
 
 ## API Endpoints
 
