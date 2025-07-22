@@ -29,7 +29,15 @@ fi
 
 for project_dir in areas-service auth-service brand-dashboard custom-area-dashboard customer-service report-analyze-pipeline report-listener; do
     pushd $project_dir
-    ./build_image.sh -e ${OPT}
+    if [ -f "build_image.sh" ]; then
+        echo "Building image for ${project_dir}..."
+        ./build_image.sh -e ${OPT}
+    elif [ -f "build_images.sh" ]; then
+        echo "Building images for ${project_dir}..."
+        ./build_images.sh -e ${OPT}
+    else
+        echo "No build_image.sh or build_images.sh found for ${project_dir}, skipping..."
+    fi
     popd
 done
 
