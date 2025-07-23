@@ -2,6 +2,7 @@ package config
 
 import (
 	"brand-dashboard/utils"
+	"log"
 	"os"
 	"strings"
 )
@@ -45,6 +46,9 @@ func Load() *Config {
 	for _, brandName := range cfg.BrandNames {
 		cfg.NormailzedBrandNames = append(cfg.NormailzedBrandNames, utils.NormalizeBrandName(brandName))
 	}
+
+	log.Printf("Brand names: %v", cfg.BrandNames)
+	log.Printf("Normailzed brand names: %v", cfg.NormailzedBrandNames)
 
 	return cfg
 }

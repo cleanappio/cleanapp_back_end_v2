@@ -170,7 +170,7 @@ AREAS_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-areas-service-image:${OPT}
 
 ANALYSIS_PROMPT="What kind of litter or hazard can you see on this image? Please describe the litter or hazard in detail. Also, please extract any brand name from the image, if present. Extract only a brand name without any context info. If there are multiple brands, extract the one with the highest probability of being present."
 
-RED_BULL_BRAND_NAMES="redbull"
+RED_BULL_BRAND_NAMES="Red Bull"
 
 # Create docker-compose.yml file.
 cat >docker-compose.yml << COMPOSE
@@ -357,7 +357,7 @@ services:
     depends_on:
       - cleanapp_db
 
-  cleanapp_brand_dashboard:
+  cleanapp_red_bull_dashboard:
     container_name: cleanapp_brand_dashboard
     image: ${BRAND_DASHBOARD_DOCKER_IMAGE}
     environment:
