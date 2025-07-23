@@ -358,7 +358,7 @@ services:
       - cleanapp_db
 
   cleanapp_red_bull_dashboard:
-    container_name: cleanapp_brand_dashboard
+    container_name: cleanapp_red_bull_dashboard
     image: ${BRAND_DASHBOARD_DOCKER_IMAGE}
     environment:
       - DB_HOST=cleanapp_db
