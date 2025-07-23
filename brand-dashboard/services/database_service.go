@@ -4,33 +4,27 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
-	"os"
 	"strings"
 	"time"
 
+	"brand-dashboard/config"
 	"brand-dashboard/models"
+	"brand-dashboard/utils"
 
 	_ "github.com/go-sql-driver/mysql"
 )
 
 // DatabaseService manages database connections and queries for brand-related reports
 type DatabaseService struct {
-	db           *sql.DB
-	brandService *BrandService
+	db  *sql.DB
+	Cfg *config.Config
 }
 
 // NewDatabaseService creates a new database service
-func NewDatabaseService(brandService *BrandService) (*DatabaseService, error) {
-	// Get database connection details from environment variables
-	dbUser := getEnvOrDefault("DB_USER", "server")
-	dbPassword := getEnvOrDefault("DB_PASSWORD", "secret_app")
-	dbHost := getEnvOrDefault("DB_HOST", "localhost")
-	dbPort := getEnvOrDefault("DB_PORT", "3306")
-	dbName := getEnvOrDefault("DB_NAME", "cleanapp")
-
-	// Create DSN
+func NewDatabaseService(cfg *config.Config) (*DatabaseService, error) {
+	// Create DSN using config parameters
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true",
-		dbUser, dbPassword, dbHost, dbPort, dbName)
+		cfg.DBUser, cfg.DBPassword, cfg.DBHost, cfg.DBPort, cfg.DBName)
 
 	// Open database connection
 	db, err := sql.Open("mysql", dsn)
@@ -48,9 +42,9 @@ func NewDatabaseService(brandService *BrandService) (*DatabaseService, error) {
 	db.SetMaxIdleConns(25)
 	db.SetConnMaxLifetime(5 * time.Minute)
 
-	log.Printf("Database connection established to %s:%s/%s", dbHost, dbPort, dbName)
+	log.Printf("Database connection established to %s:%s/%s", cfg.DBHost, cfg.DBPort, cfg.DBName)
 
-	return &DatabaseService{db: db, brandService: brandService}, nil
+	return &DatabaseService{db: db, Cfg: cfg}, nil
 }
 
 // Close closes the database connection
@@ -61,7 +55,7 @@ func (s *DatabaseService) Close() error {
 // GetReportsByBrand gets the last n reports with analysis that match a specific brand
 func (s *DatabaseService) GetReportsByBrand(brandName string, n int) ([]models.ReportWithAnalysis, error) {
 	// Normalize the brand name for exact matching
-	normalizedBrandName := s.brandService.normalizeBrandName(brandName)
+	normalizedBrandName := utils.NormalizeBrandName(brandName)
 
 	// Get reports with analyses that match the brand name exactly
 	reportsQuery := `
@@ -214,7 +208,7 @@ func (s *DatabaseService) GetReportsByBrand(brandName string, n int) ([]models.R
 func (s *DatabaseService) GetBrandsInfo() ([]models.BrandInfo, error) {
 	var brandsInfo []models.BrandInfo
 
-	for _, brandName := range s.brandService.GetBrandNames() {
+	for _, brandName := range s.Cfg.BrandNames {
 		// Count reports for this brand
 		count, err := s.getBrandReportCount(brandName)
 		if err != nil {
@@ -223,8 +217,8 @@ func (s *DatabaseService) GetBrandsInfo() ([]models.BrandInfo, error) {
 		}
 
 		brandsInfo = append(brandsInfo, models.BrandInfo{
-			Name:        brandName,
-			DisplayName: s.brandService.GetBrandDisplayName(brandName),
+			Name:        utils.NormalizeBrandName(brandName),
+			DisplayName: brandName,
 			Count:       count,
 		})
 	}
@@ -255,18 +249,10 @@ func (s *DatabaseService) getBrandReportCount(brandName string) (int, error) {
 		}
 
 		// Check if this analysis matches the target brand
-		if isMatch, _ := s.brandService.IsBrandMatch(brandName); isMatch {
+		if isMatch, _ := s.Cfg.IsBrandMatch(brandName); isMatch {
 			totalCount += count
 		}
 	}
 
 	return totalCount, nil
-}
-
-// getEnvOrDefault gets an environment variable or returns a default value
-func getEnvOrDefault(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
 }

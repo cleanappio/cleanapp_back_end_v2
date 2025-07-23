@@ -1,6 +1,7 @@
 package config
 
 import (
+	"brand-dashboard/utils"
 	"os"
 	"strings"
 )
@@ -21,7 +22,8 @@ type Config struct {
 	AuthServiceURL string
 
 	// Brand Dashboard Configuration
-	BrandNames []string
+	BrandNames           []string
+	NormailzedBrandNames []string
 }
 
 func Load() *Config {
@@ -39,6 +41,10 @@ func Load() *Config {
 	// Load brand names from environment variable
 	brandNamesStr := getEnv("BRAND_NAMES", "coca-cola,redbull,nike,adidas")
 	cfg.BrandNames = parseBrandNames(brandNamesStr)
+
+	for _, brandName := range cfg.BrandNames {
+		cfg.NormailzedBrandNames = append(cfg.NormailzedBrandNames, utils.NormalizeBrandName(brandName))
+	}
 
 	return cfg
 }
@@ -67,4 +73,14 @@ func parseBrandNames(brandNamesStr string) []string {
 	}
 
 	return cleanBrands
+}
+
+// IsBrandMatch checks if a normalized brand name matches any configured brand
+func (cfg *Config) IsBrandMatch(normalizedBrandName string) (bool, string) {
+	for _, brand := range cfg.NormailzedBrandNames {
+		if brand == normalizedBrandName {
+			return true, brand
+		}
+	}
+	return false, ""
 }

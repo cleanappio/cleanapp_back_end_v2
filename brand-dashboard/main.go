@@ -22,11 +22,10 @@ func main() {
 	cfg := config.Load()
 
 	// Initialize brand service
-	brandService := services.NewBrandService(cfg.BrandNames)
 	log.Printf("INFO: Brand dashboard configured with brands: %v", cfg.BrandNames)
 
 	// Initialize database service
-	databaseService, err := services.NewDatabaseService(brandService)
+	databaseService, err := services.NewDatabaseService(cfg)
 	if err != nil {
 		log.Fatalf("Failed to initialize database service: %v", err)
 	}
@@ -40,7 +39,7 @@ func main() {
 	defer websocketHub.Stop()
 
 	// Initialize handlers
-	brandHandler := handlers.NewBrandHandler(brandService, databaseService)
+	brandHandler := handlers.NewBrandHandler(databaseService)
 	websocketHandler := handlers.NewWebSocketHandler(websocketHub)
 
 	r := gin.Default()

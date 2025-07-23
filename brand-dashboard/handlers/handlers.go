@@ -7,20 +7,19 @@ import (
 	"brand-dashboard/middleware"
 	"brand-dashboard/models"
 	"brand-dashboard/services"
+	"brand-dashboard/utils"
 
 	"github.com/gin-gonic/gin"
 )
 
 // BrandHandler handles HTTP requests for brand-related endpoints
 type BrandHandler struct {
-	brandService    *services.BrandService
 	databaseService *services.DatabaseService
 }
 
 // NewBrandHandler creates a new brand handler
-func NewBrandHandler(brandService *services.BrandService, databaseService *services.DatabaseService) *BrandHandler {
+func NewBrandHandler(databaseService *services.DatabaseService) *BrandHandler {
 	return &BrandHandler{
-		brandService:    brandService,
 		databaseService: databaseService,
 	}
 }
@@ -82,7 +81,9 @@ func (h *BrandHandler) ReportsHandler(c *gin.Context) {
 	}
 
 	// Check if the brand name is configured
-	isMatch, matchedBrand := h.brandService.IsBrandMatch(brandName)
+	normalizedBrand := utils.NormalizeBrandName(brandName)
+	isMatch, matchedBrand := h.databaseService.Cfg.IsBrandMatch(normalizedBrand)
+
 	if !isMatch {
 		c.JSON(400, gin.H{"error": "brand not found or not configured"})
 		return
