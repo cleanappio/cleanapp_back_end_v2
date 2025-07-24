@@ -374,7 +374,7 @@ services:
       - DB_NAME=cleanapp
       - GIN_MODE=${GIN_MODE}
     ports:
-      - 9084:8080
+      - 9088:8080
     depends_on:
       - cleanapp_db
 
