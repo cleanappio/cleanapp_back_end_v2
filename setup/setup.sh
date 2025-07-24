@@ -356,7 +356,7 @@ services:
       - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
       - GIN_MODE=${GIN_MODE}
     ports:
-      - 9083:8080
+      - 9088:8080
     depends_on:
       - cleanapp_db
 
@@ -374,7 +374,7 @@ services:
       - DB_NAME=cleanapp
       - GIN_MODE=${GIN_MODE}
     ports:
-      - 9088:8080
+      - 9084:8080
     depends_on:
       - cleanapp_db
 
