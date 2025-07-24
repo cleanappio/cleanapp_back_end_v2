@@ -92,7 +92,9 @@ func (s *DatabaseService) GetReportsByCustomArea(osmID int64, n int) ([]models.R
 		FROM reports r
 		JOIN reports_geometry rg ON r.seq = rg.seq
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
+		LEFT JOIN report_status rs ON r.seq = rs.seq
 		WHERE ST_Within(rg.geom, ST_GeomFromText(?, 4326))
+		AND (rs.status IS NULL OR rs.status = 'active')
 		ORDER BY r.ts DESC
 		LIMIT ?
 	`
@@ -299,7 +301,9 @@ func (s *DatabaseService) GetReportsAggregatedData() ([]models.AreaAggrData, err
 			FROM reports r
 			JOIN reports_geometry rg ON r.seq = rg.seq
 			LEFT JOIN report_analysis ra ON r.seq = ra.seq
+			LEFT JOIN report_status rs ON r.seq = rs.seq
 			WHERE ST_Within(rg.geom, ST_GeomFromText(?, 4326)) AND ra.language = 'en'
+			AND (rs.status IS NULL OR rs.status = 'active')
 		`
 
 		var areaData models.AreaAggrData

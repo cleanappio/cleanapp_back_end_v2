@@ -62,7 +62,9 @@ func (s *DatabaseService) GetReportsByBrand(brandName string, n int) ([]models.R
 		SELECT DISTINCT r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.action_id
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
+		LEFT JOIN report_status rs ON r.seq = rs.seq
 		WHERE ra.brand_name = ?
+		AND (rs.status IS NULL OR rs.status = 'active')
 		ORDER BY r.ts DESC
 		LIMIT ?
 	`
@@ -232,7 +234,9 @@ func (s *DatabaseService) getBrandReportCount(brandName string) (int, error) {
 		SELECT COUNT(DISTINCT r.seq)
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
+		LEFT JOIN report_status rs ON r.seq = rs.seq
 		WHERE ra.brand_name IS NOT NULL AND ra.brand_name != ''
+		AND (rs.status IS NULL OR rs.status = 'active')
 	`
 
 	rows, err := s.db.Query(query)
