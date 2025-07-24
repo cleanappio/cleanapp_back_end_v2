@@ -1,1 +1,0 @@
-SELECT DISTINCT r.seq, r.ts, r.id, r.latitude, r.longitude FROM reports r INNER JOIN report_analysis ra ON r.seq = ra.seq LEFT JOIN report_status rs ON r.seq = rs.seq WHERE (rs.status IS NULL OR rs.status = 'active') ORDER BY r.seq DESC LIMIT 10;
