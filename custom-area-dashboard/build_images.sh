@@ -63,7 +63,8 @@ echo "Running docker build for version ${BUILD_VERSION}"
 
 set -e
 
-MONTENEGRO_AREAS_GEOJSON_FILE="OSMB-e0b412fe96a2a2c5d8e7eb33454a21d971bea620.geojson"
+MONTENEGRO_AREAS_GEOJSON_FILE="areas-montenegro.geojson"
+NEW_YORK_AREAS_GEOJSON_FILE="areas-new-york.geojson"
 
 CLOUD_REGION="us-central1"
 PROJECT_NAME="cleanup-mysql-v2"
@@ -75,12 +76,17 @@ if [ "${PROJECT_NAME}" != "${CURRENT_PROJECT}" ]; then
   gcloud config set project ${PROJECT_NAME}
 fi
 
-for DASHBOARD in "montenegro"; do
+for DASHBOARD in "montenegro" "new-york"; do
   case ${DASHBOARD} in
     "montenegro")
       AREAS_GEOJSON_FILE=${MONTENEGRO_AREAS_GEOJSON_FILE}
       CUSTOM_AREA_ADMIN_LEVEL=2
       CUSTOM_AREA_OSM_ID=-53296
+      ;;
+    "new-york")
+      AREAS_GEOJSON_FILE=${NEW_YORK_AREAS_GEOJSON_FILE}
+      CUSTOM_AREA_ADMIN_LEVEL=5
+      CUSTOM_AREA_OSM_ID=-175905
       ;;
     *)
       echo "Unknown dashboard: ${DASHBOARD}"

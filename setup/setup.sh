@@ -164,6 +164,7 @@ CLEANAPP_IO_BACKEND_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-customer-service-ima
 REPORT_LISTENER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-listener-image:${OPT}"
 REPORT_ANALYZE_PIPELINE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-analyze-pipeline-image:${OPT}"
 MONTENEGRO_AREAS_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-montenegro-custom-area-dashboard-image:${OPT}"
+NEW_YORK_AREAS_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-new-york-custom-area-dashboard-image:${OPT}"
 AUTH_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-auth-service-image:${OPT}"
 BRAND_DASHBOARD_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-brand-dashboard-image:${OPT}"
 AREAS_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-areas-service-image:${OPT}"
@@ -341,6 +342,24 @@ services:
     depends_on:
       - cleanapp_db
 
+  cleanapp_new_york_areas:
+    container_name: cleanapp_new_york_areas
+    image: ${NEW_YORK_AREAS_DOCKER_IMAGE}
+    environment:
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+      - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
+      - DB_NAME=cleanapp
+      - LOG_LEVEL=info
+      - LOG_FORMAT=json
+      - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
+      - GIN_MODE=${GIN_MODE}
+    ports:
+      - 9083:8080
+    depends_on:
+      - cleanapp_db
+
   cleanapp_auth_service:
     container_name: cleanapp_auth_service
     image: ${AUTH_SERVICE_DOCKER_IMAGE}
@@ -423,6 +442,7 @@ docker pull ${CLEANAPP_IO_BACKEND_DOCKER_IMAGE}
 docker pull ${REPORT_LISTENER_DOCKER_IMAGE}
 docker pull ${REPORT_ANALYZE_PIPELINE_DOCKER_IMAGE}
 docker pull ${MONTENEGRO_AREAS_DOCKER_IMAGE}
+docker pull ${NEW_YORK_AREAS_DOCKER_IMAGE}
 docker pull ${AUTH_SERVICE_DOCKER_IMAGE}
 docker pull ${BRAND_DASHBOARD_DOCKER_IMAGE}
 docker pull ${AREAS_SERVICE_DOCKER_IMAGE}
