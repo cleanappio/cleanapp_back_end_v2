@@ -22,6 +22,7 @@ RUN apk --no-cache add ca-certificates
 WORKDIR /root/
 
 ENV CUSTOM_AREA_ADMIN_LEVEL={{CUSTOM_AREA_ADMIN_LEVEL}}
+ENV CUSTOM_AREA_SUB_ADMIN_LEVEL={{CUSTOM_AREA_SUB_ADMIN_LEVEL}}
 ENV CUSTOM_AREA_OSM_ID={{CUSTOM_AREA_OSM_ID}}
 
 # Copy the binary from builder stage

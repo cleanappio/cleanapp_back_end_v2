@@ -101,6 +101,7 @@ for DASHBOARD in "montenegro" "new-york"; do
   cat Dockerfile.template | \
   sed "s/{{AREAS_GEOJSON_FILE}}/${AREAS_GEOJSON_FILE}/" | \
   sed "s/{{CUSTOM_AREA_ADMIN_LEVEL}}/${CUSTOM_AREA_ADMIN_LEVEL}/" | \
+  sed "s/{{CUSTOM_AREA_SUB_ADMIN_LEVEL}}/${CUSTOM_AREA_SUB_ADMIN_LEVEL}/" | \
   sed "s/{{CUSTOM_AREA_OSM_ID}}/${CUSTOM_AREA_OSM_ID}/" \
   > Dockerfile
 
