@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"custom-area-dashboard/config"
 	"custom-area-dashboard/models"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -18,10 +19,11 @@ type DatabaseService struct {
 	db           *sql.DB
 	areasService *AreasService
 	wktConverter *WKTConverter
+	cfg          *config.Config
 }
 
 // NewDatabaseService creates a new database service
-func NewDatabaseService(areasService *AreasService) (*DatabaseService, error) {
+func NewDatabaseService(areasService *AreasService, cfg *config.Config) (*DatabaseService, error) {
 	// Get database connection details from environment variables
 	dbUser := getEnvOrDefault("DB_USER", "server")
 	dbPassword := getEnvOrDefault("DB_PASSWORD", "secret_app")
@@ -51,7 +53,7 @@ func NewDatabaseService(areasService *AreasService) (*DatabaseService, error) {
 
 	log.Printf("Database connection established to %s:%s/%s", dbHost, dbPort, dbName)
 
-	return &DatabaseService{db: db, areasService: areasService, wktConverter: NewWKTConverter()}, nil
+	return &DatabaseService{db: db, areasService: areasService, wktConverter: NewWKTConverter(), cfg: cfg}, nil
 }
 
 // Close closes the database connection
@@ -234,12 +236,12 @@ func (s *DatabaseService) GetReportsByCustomArea(osmID int64, n int) ([]models.R
 	return result, nil
 }
 
-// GetReportsAggregatedData returns aggregated reports data for all areas of admin level 6
+// GetReportsAggregatedData returns aggregated reports data for all areas of the configured sub admin level
 func (s *DatabaseService) GetReportsAggregatedData() ([]models.AreaAggrData, error) {
-	// Get all areas of admin level 6
-	areas, err := s.areasService.GetAreasByAdminLevel(6)
+	// Get all areas of the configured sub admin level
+	areas, err := s.areasService.GetAreasByAdminLevel(s.cfg.CustomAreaSubAdminLevel)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get areas for admin level 6: %w", err)
+		return nil, fmt.Errorf("failed to get areas for admin level %d: %w", s.cfg.CustomAreaSubAdminLevel, err)
 	}
 
 	if len(areas) == 0 {

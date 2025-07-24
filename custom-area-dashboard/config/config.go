@@ -22,6 +22,7 @@ type Config struct {
 
 	// Custom Area Configuration
 	CustomAreaAdminLevel int
+	CustomAreaSubAdminLevel int
 	CustomAreaOSMID      int64
 }
 
@@ -38,6 +39,7 @@ func Load() *Config {
 
 		// Custom Area Configuration
 		CustomAreaAdminLevel: getRequiredEnvAsInt("CUSTOM_AREA_ADMIN_LEVEL"),
+		CustomAreaSubAdminLevel: getRequiredEnvAsInt("CUSTOM_AREA_SUB_ADMIN_LEVEL"),
 		CustomAreaOSMID:      getRequiredEnvAsInt64("CUSTOM_AREA_OSM_ID"),
 	}
 

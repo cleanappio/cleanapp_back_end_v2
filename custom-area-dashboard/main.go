@@ -32,7 +32,7 @@ func main() {
 	log.Println("Areas data loaded successfully")
 
 	// Initialize database service
-	databaseService, err := services.NewDatabaseService(areasService)
+	databaseService, err := services.NewDatabaseService(areasService, cfg)
 	if err != nil {
 		log.Fatalf("Failed to initialize database service: %v", err)
 	}

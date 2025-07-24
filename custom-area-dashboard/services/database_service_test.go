@@ -1,6 +1,7 @@
 package services
 
 import (
+	"custom-area-dashboard/config"
 	"custom-area-dashboard/models"
 	"testing"
 )
@@ -15,9 +16,14 @@ func TestGetReportsAggregatedData(t *testing.T) {
 		loaded: true,
 	}
 
+	// Create a mock config
+	cfg := &config.Config{
+		CustomAreaSubAdminLevel: 6, // Default test value
+	}
+
 	// Create a database service (this will fail to connect in test environment)
 	// but we can test the function structure
-	_, err := NewDatabaseService(areasService)
+	_, err := NewDatabaseService(areasService, cfg)
 	if err != nil {
 		// This is expected since we don't have a test database
 		t.Logf("Expected database connection error in test environment: %v", err)
