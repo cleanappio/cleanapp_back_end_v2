@@ -167,6 +167,7 @@ MONTENEGRO_AREAS_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-montenegro-custom-area-
 AUTH_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-auth-service-image:${OPT}"
 BRAND_DASHBOARD_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-brand-dashboard-image:${OPT}"
 AREAS_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-areas-service-image:${OPT}"
+REPORT_PROCESSOR_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-processor-image:${OPT}"
 
 ANALYSIS_PROMPT="What kind of litter or hazard can you see on this image? Please describe the litter or hazard in detail. Also, please extract any brand name from the image, if present. Extract only a brand name without any context info. If there are multiple brands, extract the one with the highest probability of being present."
 
@@ -351,6 +352,7 @@ services:
       - DB_PORT=3306
       - DB_USER=server
       - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
+      - DB_NAME=cleanapp
       - GIN_MODE=${GIN_MODE}
     ports:
       - 9084:8080
@@ -365,6 +367,7 @@ services:
       - DB_PORT=3306
       - DB_USER=server
       - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
+      - DB_NAME=cleanapp
       - GIN_MODE=${GIN_MODE}
       - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
       - BRAND_NAMES=${RED_BULL_BRAND_NAMES}
@@ -379,10 +382,25 @@ services:
       - DB_PORT=3306
       - DB_USER=server
       - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
+      - DB_NAME=cleanapp
       - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
       - GIN_MODE=${GIN_MODE}
     ports:
       - 9086:8080
+
+  cleanapp_report_processor:
+    container_name: cleanapp_report_processor
+    image: ${REPORT_PROCESSOR_DOCKER_IMAGE}
+    environment:
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+      - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
+      - DB_NAME=cleanapp
+      - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
+      - GIN_MODE=${GIN_MODE}
+    ports:
+      - 9087:8080
 
 volumes:
   mysql:
@@ -408,6 +426,7 @@ docker pull ${MONTENEGRO_AREAS_DOCKER_IMAGE}
 docker pull ${AUTH_SERVICE_DOCKER_IMAGE}
 docker pull ${BRAND_DASHBOARD_DOCKER_IMAGE}
 docker pull ${AREAS_SERVICE_DOCKER_IMAGE}
+docker pull ${REPORT_PROCESSOR_DOCKER_IMAGE}
 
 # Start our docker images.
 ./up.sh
