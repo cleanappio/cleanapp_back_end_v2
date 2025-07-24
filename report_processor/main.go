@@ -21,13 +21,6 @@ func main() {
 	// Load configuration
 	cfg := config.Load()
 
-	// Set log level
-	if cfg.LogLevel == "debug" {
-		gin.SetMode(gin.DebugMode)
-	} else {
-		gin.SetMode(gin.ReleaseMode)
-	}
-
 	// Create database connection
 	db, err := database.NewDatabase(cfg)
 	if err != nil {
