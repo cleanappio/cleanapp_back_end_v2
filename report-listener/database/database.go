@@ -50,13 +50,16 @@ func (d *Database) Close() error {
 }
 
 // GetReportsSince retrieves reports with analysis since a given sequence number
+// Only returns reports that are not resolved (either no status or status = 'active')
 func (d *Database) GetReportsSince(ctx context.Context, sinceSeq int) ([]models.ReportWithAnalysis, error) {
-	// First, get all reports since the given sequence
+	// First, get all reports since the given sequence that are not resolved
 	reportsQuery := `
 		SELECT DISTINCT r.seq, r.ts, r.id, r.latitude, r.longitude
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
-		WHERE r.seq > ?
+		LEFT JOIN report_status rs ON r.seq = rs.seq
+		WHERE r.seq > ? 
+		AND (rs.status IS NULL OR rs.status = 'active')
 		ORDER BY r.seq ASC
 	`
 
@@ -243,11 +246,13 @@ func (d *Database) EnsureServiceStateTable(ctx context.Context) error {
 
 // GetLastNAnalyzedReports retrieves the last N analyzed reports
 func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int) ([]models.ReportWithAnalysis, error) {
-	// First, get the last N reports that have analysis
+	// First, get the last N reports that have analysis and are not resolved
 	reportsQuery := `
 		SELECT DISTINCT r.seq, r.ts, r.id, r.latitude, r.longitude
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
+		LEFT JOIN report_status rs ON r.seq = rs.seq
+		WHERE (rs.status IS NULL OR rs.status = 'active')
 		ORDER BY r.seq DESC
 		LIMIT ?
 	`
@@ -360,12 +365,14 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int) ([]mo
 }
 
 // GetReportBySeq retrieves a single report with analysis by sequence ID
+// Only returns reports that are not resolved (either no status or status = 'active')
 func (d *Database) GetReportBySeq(ctx context.Context, seq int) (*models.ReportWithAnalysis, error) {
-	// First, get the report
+	// First, get the report if it's not resolved
 	reportQuery := `
 		SELECT r.seq, r.ts, r.id, r.latitude, r.longitude, r.image
 		FROM reports r
-		WHERE r.seq = ?
+		LEFT JOIN report_status rs ON r.seq = rs.seq
+		WHERE r.seq = ? AND (rs.status IS NULL OR rs.status = 'active')
 	`
 
 	var report models.Report
@@ -379,7 +386,7 @@ func (d *Database) GetReportBySeq(ctx context.Context, seq int) (*models.ReportW
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("report with seq %d not found", seq)
+			return nil, fmt.Errorf("report with seq %d not found or is resolved", seq)
 		}
 		return nil, fmt.Errorf("failed to get report by seq: %w", err)
 	}
@@ -443,12 +450,13 @@ func (d *Database) GetReportBySeq(ctx context.Context, seq int) (*models.ReportW
 
 // GetLastNReportsByID retrieves the last N reports with analysis for a given report ID
 func (d *Database) GetLastNReportsByID(ctx context.Context, reportID string, limit int) ([]models.ReportWithAnalysis, error) {
-	// First, get the last N reports for the given ID
+	// First, get the last N reports for the given ID that are not resolved
 	reportsQuery := `
 		SELECT DISTINCT r.seq, r.ts, r.id, r.latitude, r.longitude, r.image
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
-		WHERE r.id = ?
+		LEFT JOIN report_status rs ON r.seq = rs.seq
+		WHERE r.id = ? AND (rs.status IS NULL OR rs.status = 'active')
 		ORDER BY r.seq DESC
 		LIMIT ?
 	`
