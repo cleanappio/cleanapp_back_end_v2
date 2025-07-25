@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS reports(
   y FLOAT, # 0.0..1.0
   image LONGBLOB NOT NULL,
   action_id VARCHAR(32),
+  description VARCHAR(255),
   PRIMARY KEY (seq),
   INDEX id_index (id),
   INDEX action_idx (action_id)

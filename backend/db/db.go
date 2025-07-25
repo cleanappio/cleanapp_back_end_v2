@@ -135,9 +135,9 @@ func SaveReport(db *sql.DB, r *api.ReportArgs) error {
 	}
 
 	result, err := tx.ExecContext(ctx, `INSERT
-	  INTO reports (id, team, action_id, latitude, longitude, x, y, image)
-	  VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		r.Id, util.UserIdToTeam(r.Id), r.ActionId, r.Latitude, r.Longitude, r.X, r.Y, compressedImage)
+	  INTO reports (id, team, action_id, latitude, longitude, x, y, image, description)
+	  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.Id, util.UserIdToTeam(r.Id), r.ActionId, r.Latitude, r.Longitude, r.X, r.Y, compressedImage, r.Annotation)
 	common.LogResult("saveReport", result, err, true)
 	if err != nil {
 		log.Errorf("Error inserting report: %w", err)
@@ -155,6 +155,7 @@ func SaveReport(db *sql.DB, r *api.ReportArgs) error {
 	// Save a copy of counters in a shadow table.
 	tx.ExecContext(ctx, `UPDATE users_shadow SET kitns_daily = kitns_daily + 1 WHERE id = ?`, r.Id)
 
+	// Save the geometry of the report
 	result, err = tx.ExecContext(ctx, `INSERT
 	  INTO reports_geometry (seq, geom)
 	  VALUES (LAST_INSERT_ID(), ST_SRID(POINT(?, ?), 4326))`,
@@ -170,8 +171,6 @@ func SaveReport(db *sql.DB, r *api.ReportArgs) error {
 		log.Errorf("Error committing the transaction: %w", err)
 		return err
 	}
-	// Save the geometry of the report
-
 	return nil
 }
 

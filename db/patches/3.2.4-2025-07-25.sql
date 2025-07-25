@@ -1,0 +1,1 @@
+ALTER TABLE reports ADD COLUMN description VARCHAR(255);
