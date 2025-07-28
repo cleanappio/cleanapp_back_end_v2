@@ -30,18 +30,10 @@ case ${OPT} in
   "dev")
     echo "Using dev environment"
     TARGET_VM_IP="34.132.121.53"
-    MONTENEGRO_AREA_ID=6779
-    MONTENEGRO_AREA_SUB_IDS="6753,6754,6755,6757,6758,6759,6760,6761,6762,6763,6764,6765,6766,6767,6768,6769,6770,6778,6895,6910,6948,6951,6953,6954,6955"
-    NEW_YORK_AREA_ID=6970
-    NEW_YORK_AREA_SUB_IDS="6971,6972,6973,6974,6975"
     ;;
   "prod")
     echo "Using prod environment"
     TARGET_VM_IP="34.122.15.16"
-    MONTENEGRO_AREA_ID=6787
-    MONTENEGRO_AREA_SUB_IDS="6761,6762,6763,6765,6766,6767,6768,6769,6770,6771,6772,6773,6774,6775,6776,6777,6778,6786,6903,6918,6956,6959,6961,6962,6963"
-    NEW_YORK_AREA_ID=6636
-    NEW_YORK_AREA_SUB_IDS="6637,6638,6639,6640,6641"
     ;;
   *)
     echo "Usage: $0 -e|--env <dev|prod> [--ssh-keyfile <ssh_keyfile>]"
@@ -81,42 +73,19 @@ if [ "${PROJECT_NAME}" != "${CURRENT_PROJECT}" ]; then
   gcloud config set project ${PROJECT_NAME}
 fi
 
-for DASHBOARD in "montenegro" "new-york"; do
-  case ${DASHBOARD} in
-    "montenegro")
-      CUSTOM_AREA_ID=${MONTENEGRO_AREA_ID}
-      CUSTOM_AREA_SUB_IDS=${MONTENEGRO_AREA_SUB_IDS}
-      ;;
-    "new-york")
-      CUSTOM_AREA_ID=${NEW_YORK_AREA_ID}
-      CUSTOM_AREA_SUB_IDS=${NEW_YORK_AREA_SUB_IDS}
-      ;;
-    *)
-      echo "Unknown dashboard: ${DASHBOARD}"
-      exit 1
-      ;;
-  esac
-  DOCKER_IMAGE="cleanapp-docker-repo/cleanapp-${DASHBOARD}-custom-area-dashboard-image"
-  DOCKER_TAG="${CLOUD_REGION}-docker.pkg.dev/${PROJECT_NAME}/${DOCKER_IMAGE}"
+DOCKER_IMAGE="cleanapp-docker-repo/cleanapp-custom-area-dashboard-image"
+DOCKER_TAG="${CLOUD_REGION}-docker.pkg.dev/${PROJECT_NAME}/${DOCKER_IMAGE}"
 
-  cat Dockerfile.template | \
-  sed "s/{{CUSTOM_AREA_ID}}/${CUSTOM_AREA_ID}/" | \
-  sed "s/{{CUSTOM_AREA_SUB_IDS}}/${CUSTOM_AREA_SUB_IDS}/" \
-  > Dockerfile
+if [ "${OPT}" == "dev" ]; then
+  echo "Building and pushing docker image..."
+  gcloud builds submit \
+    --region=${CLOUD_REGION} \
+    --tag=${DOCKER_TAG}:${BUILD_VERSION}
+fi
+echo "Tagging Docker image as current ${OPT}..."
+gcloud artifacts docker tags add ${DOCKER_TAG}:${BUILD_VERSION} ${DOCKER_TAG}:${OPT}
 
-  if [ "${OPT}" == "dev" ]; then
-    echo "Building and pushing docker image..."
-    gcloud builds submit \
-      --region=${CLOUD_REGION} \
-      --tag=${DOCKER_TAG}:${BUILD_VERSION}
-  fi
-  echo "Tagging Docker image as current ${OPT}..."
-  gcloud artifacts docker tags add ${DOCKER_TAG}:${BUILD_VERSION} ${DOCKER_TAG}:${OPT}
-
-  test -f Dockerfile && rm Dockerfile
-done
-
-echo "custom area dashboard docker images are built successfully!"
+echo "custom area dashboard docker image is built successfully!"
 
 if [ -n "${SSH_KEYFILE}" ]; then
   SETUP_SCRIPT="https://raw.githubusercontent.com/cleanappio/cleanapp_back_end_v2/refs/heads/main/setup/setup.sh"

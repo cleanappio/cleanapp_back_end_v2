@@ -59,7 +59,7 @@ func (d *Database) GetReportsSince(ctx context.Context, sinceSeq int) ([]models.
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		LEFT JOIN report_status rs ON r.seq = rs.seq
 		WHERE r.seq > ? 
-		AND (rs.status IS NULL OR rs.status = 'active')
+		AND (rs.status IS NULL OR rs.status = 'active') AND (ra.hazard_probability >= 0.5 OR ra.litter_probability >= 0.5)
 		ORDER BY r.seq ASC
 	`
 
@@ -252,7 +252,7 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int) ([]mo
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		LEFT JOIN report_status rs ON r.seq = rs.seq
-		WHERE (rs.status IS NULL OR rs.status = 'active')
+		WHERE (rs.status IS NULL OR rs.status = 'active') AND (ra.hazard_probability >= 0.5 OR ra.litter_probability >= 0.5)
 		ORDER BY r.seq DESC
 		LIMIT ?
 	`

@@ -17,7 +17,6 @@ import (
 // DatabaseService manages database connections and queries
 type DatabaseService struct {
 	db           *sql.DB
-	wktConverter *WKTConverter
 	cfg          *config.Config
 }
 
@@ -52,7 +51,7 @@ func NewDatabaseService(cfg *config.Config) (*DatabaseService, error) {
 
 	log.Printf("Database connection established to %s:%s/%s", dbHost, dbPort, dbName)
 
-	return &DatabaseService{db: db, wktConverter: NewWKTConverter(), cfg: cfg}, nil
+	return &DatabaseService{db: db, cfg: cfg}, nil
 }
 
 // Close closes the database connection

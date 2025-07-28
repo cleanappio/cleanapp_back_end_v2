@@ -77,6 +77,10 @@ case ${OPT} in
       STRIPE_PRICE_ADVANCED_MONTHLY=price_1ReIKiFW3SknKzLcaPTOR5Ny
       STRIPE_PRICE_ADVANCED_ANNUAL=price_1ReIKiFW3SknKzLcVMZe6U3U
       SEQ_START_FROM=1
+      MONTENEGRO_AREA_ID=6779
+      MONTENEGRO_AREA_SUB_IDS="6753,6754,6755,6757,6758,6759,6760,6761,6762,6763,6764,6765,6766,6767,6768,6769,6770,6778,6895,6910,6948,6951,6953,6954,6955"
+      NEW_YORK_AREA_ID=6970
+      NEW_YORK_AREA_SUB_IDS="6971,6972,6973,6974,6975"
       ;;
   "prod")
       echo "Using prod environment"
@@ -103,6 +107,10 @@ case ${OPT} in
       STRIPE_PRICE_ADVANCED_MONTHLY=price_1Rg0hEF5CkX59CnmT5ZspSPK
       STRIPE_PRICE_ADVANCED_ANNUAL=price_1Rg0hEF5CkX59CnmF40QClFx
       SEQ_START_FROM=24900
+      MONTENEGRO_AREA_ID=6787
+      MONTENEGRO_AREA_SUB_IDS="6761,6762,6763,6765,6766,6767,6768,6769,6770,6771,6772,6773,6774,6775,6776,6777,6778,6786,6903,6918,6956,6959,6961,6962,6963"
+      NEW_YORK_AREA_ID=6636
+      NEW_YORK_AREA_SUB_IDS="6637,6638,6639,6640,6641"
       GIN_MODE=release
       ;;
   "quit")
@@ -163,8 +171,7 @@ CLEANAPP_IO_FRONTEND_EMBEDDED_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-frontend-i
 CLEANAPP_IO_BACKEND_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-customer-service-image:${OPT}"
 REPORT_LISTENER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-listener-image:${OPT}"
 REPORT_ANALYZE_PIPELINE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-analyze-pipeline-image:${OPT}"
-MONTENEGRO_AREAS_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-montenegro-custom-area-dashboard-image:${OPT}"
-NEW_YORK_AREAS_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-new-york-custom-area-dashboard-image:${OPT}"
+AREAS_DASHBOARD_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-custom-area-dashboard-image:${OPT}"
 AUTH_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-auth-service-image:${OPT}"
 BRAND_DASHBOARD_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-brand-dashboard-image:${OPT}"
 AREAS_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-areas-service-image:${OPT}"
@@ -326,7 +333,7 @@ services:
 
   cleanapp_montenegro_areas:
     container_name: cleanapp_montenegro_areas
-    image: ${MONTENEGRO_AREAS_DOCKER_IMAGE}
+    image: ${AREAS_DASHBOARD_DOCKER_IMAGE}
     environment:
       - DB_HOST=cleanapp_db
       - DB_PORT=3306
@@ -337,6 +344,8 @@ services:
       - LOG_FORMAT=json
       - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
       - GIN_MODE=${GIN_MODE}
+      - CUSTOM_AREA_ID=${MONTENEGRO_AREA_ID}
+      - CUSTOM_AREA_SUB_IDS=${MONTENEGRO_AREA_SUB_IDS}
     ports:
       - 9083:8080
     depends_on:
@@ -344,7 +353,7 @@ services:
 
   cleanapp_new_york_areas:
     container_name: cleanapp_new_york_areas
-    image: ${NEW_YORK_AREAS_DOCKER_IMAGE}
+    image: ${AREAS_DASHBOARD_DOCKER_IMAGE}
     environment:
       - DB_HOST=cleanapp_db
       - DB_PORT=3306
@@ -355,6 +364,8 @@ services:
       - LOG_FORMAT=json
       - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
       - GIN_MODE=${GIN_MODE}
+      - CUSTOM_AREA_ID=${NEW_YORK_AREA_ID}
+      - CUSTOM_AREA_SUB_IDS=${NEW_YORK_AREA_SUB_IDS}
     ports:
       - 9088:8080
     depends_on:

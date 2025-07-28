@@ -21,9 +21,6 @@ RUN apk --no-cache add ca-certificates
 
 WORKDIR /root/
 
-ENV CUSTOM_AREA_ID={{CUSTOM_AREA_ID}}
-ENV CUSTOM_AREA_SUB_IDS={{CUSTOM_AREA_SUB_IDS}}
-
 # Copy the binary from builder stage
 COPY --from=builder /app/main .
 
