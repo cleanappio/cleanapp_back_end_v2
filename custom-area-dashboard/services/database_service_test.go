@@ -2,7 +2,6 @@ package services
 
 import (
 	"custom-area-dashboard/config"
-	"custom-area-dashboard/models"
 	"testing"
 )
 
@@ -10,20 +9,15 @@ func TestGetReportsAggregatedData(t *testing.T) {
 	// This is a basic test to ensure the function can be called
 	// In a real implementation, you would use a test database or mock the database calls
 
-	// Create a mock areas service
-	areasService := &AreasService{
-		areas:  make(map[int][]models.CustomArea),
-		loaded: true,
-	}
-
 	// Create a mock config
 	cfg := &config.Config{
-		CustomAreaSubAdminLevel: 6, // Default test value
+		CustomAreaID:     123,
+		CustomAreaSubIDs: []int64{1, 2, 3},
 	}
 
 	// Create a database service (this will fail to connect in test environment)
 	// but we can test the function structure
-	_, err := NewDatabaseService(areasService, cfg)
+	_, err := NewDatabaseService(cfg)
 	if err != nil {
 		// This is expected since we don't have a test database
 		t.Logf("Expected database connection error in test environment: %v", err)
@@ -43,7 +37,7 @@ func TestGetReportsByCustomArea_ReturnsReportsWithAnalysis(t *testing.T) {
 	// This test ensures the function signature is correct
 
 	// Expected signature:
-	// func (s *DatabaseService) GetReportsByCustomArea(osmID int64, n int) ([]models.ReportWithAnalysis, error)
+	// func (s *DatabaseService) GetReportsByCustomArea(n int) ([]models.ReportWithAnalysis, error)
 
 	t.Log("GetReportsByCustomArea function structure is valid - returns reports with analysis")
 }

@@ -17,13 +17,12 @@ import (
 // DatabaseService manages database connections and queries
 type DatabaseService struct {
 	db           *sql.DB
-	areasService *AreasService
 	wktConverter *WKTConverter
 	cfg          *config.Config
 }
 
 // NewDatabaseService creates a new database service
-func NewDatabaseService(areasService *AreasService, cfg *config.Config) (*DatabaseService, error) {
+func NewDatabaseService(cfg *config.Config) (*DatabaseService, error) {
 	// Get database connection details from environment variables
 	dbUser := getEnvOrDefault("DB_USER", "server")
 	dbPassword := getEnvOrDefault("DB_PASSWORD", "secret_app")
@@ -53,7 +52,7 @@ func NewDatabaseService(areasService *AreasService, cfg *config.Config) (*Databa
 
 	log.Printf("Database connection established to %s:%s/%s", dbHost, dbPort, dbName)
 
-	return &DatabaseService{db: db, areasService: areasService, wktConverter: NewWKTConverter(), cfg: cfg}, nil
+	return &DatabaseService{db: db, wktConverter: NewWKTConverter(), cfg: cfg}, nil
 }
 
 // Close closes the database connection
@@ -61,47 +60,23 @@ func (s *DatabaseService) Close() error {
 	return s.db.Close()
 }
 
-// GetReportsByCustomArea gets the last n reports with analysis that are contained within a given custom area
-func (s *DatabaseService) GetReportsByCustomArea(osmID int64, n int) ([]models.ReportWithAnalysis, error) {
-	// Find the custom area by OSM ID
-	var targetArea *models.CustomArea
-	for _, areas := range s.areasService.areas {
-		for _, area := range areas {
-			if area.OSMID == osmID {
-				targetArea = &area
-				break
-			}
-		}
-		if targetArea != nil {
-			break
-		}
-	}
-
-	if targetArea == nil {
-		return nil, fmt.Errorf("custom area with OSM ID %d not found", osmID)
-	}
-
-	// Convert the area geometry to WKT format for spatial query
-	// The area.Area contains the raw GeoJSON geometry, we need to convert it to WKT
-	areaWKT, err := s.wktConverter.ConvertGeoJSONToWKT(targetArea.Area)
-	if err != nil {
-		return nil, fmt.Errorf("failed to convert area geometry to WKT: %w", err)
-	}
-
-	// First, get all reports within the area
+// GetReportsByCustomArea gets the last n reports with analysis that are contained within the custom area defined in config
+func (s *DatabaseService) GetReportsByCustomArea(n int) ([]models.ReportWithAnalysis, error) {
+	// First, get all reports within the area using area_index table
 	reportsQuery := `
 		SELECT DISTINCT r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.action_id
 		FROM reports r
 		JOIN reports_geometry rg ON r.seq = rg.seq
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		LEFT JOIN report_status rs ON r.seq = rs.seq
-		WHERE ST_Within(rg.geom, ST_GeomFromText(?, 4326))
+		JOIN area_index ai ON ST_Within(rg.geom, ai.geom)
+		WHERE ai.area_id = ?
 		AND (rs.status IS NULL OR rs.status = 'active')
 		ORDER BY r.ts DESC
 		LIMIT ?
 	`
 
-	reportRows, err := s.db.Query(reportsQuery, areaWKT, n)
+	reportRows, err := s.db.Query(reportsQuery, s.cfg.CustomAreaID, n)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query reports: %w", err)
 	}
@@ -238,44 +213,76 @@ func (s *DatabaseService) GetReportsByCustomArea(osmID int64, n int) ([]models.R
 
 // GetReportsAggregatedData returns aggregated reports data for all areas of the configured sub admin level
 func (s *DatabaseService) GetReportsAggregatedData() ([]models.AreaAggrData, error) {
-	// Get all areas of the configured sub admin level
-	areas, err := s.areasService.GetAreasByAdminLevel(s.cfg.CustomAreaSubAdminLevel)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get areas for admin level %d: %w", s.cfg.CustomAreaSubAdminLevel, err)
-	}
-
-	if len(areas) == 0 {
+	if len(s.cfg.CustomAreaSubIDs) == 0 {
 		return []models.AreaAggrData{}, nil
 	}
 
-	// Calculate mean and max reports count across all areas
-	// First, get all report counts for each area
+	// Build placeholders for the IN clause
+	placeholders := make([]string, len(s.cfg.CustomAreaSubIDs))
+	args := make([]interface{}, len(s.cfg.CustomAreaSubIDs))
+	for i, areaID := range s.cfg.CustomAreaSubIDs {
+		placeholders[i] = "?"
+		args[i] = areaID
+	}
+
+	// Single query to get aggregated data for all areas using area_index table
+	query := fmt.Sprintf(`
+		SELECT 
+			ai.area_id as area_id,
+			a.name as name,
+			COUNT(CASE WHEN rs.status IS NULL OR rs.status = 'active' THEN r.seq END) as reports_count,
+			COALESCE(AVG(CASE WHEN rs.status IS NULL OR rs.status = 'active' THEN ra.severity_level END), 0.0) as mean_severity,
+			COALESCE(AVG(CASE WHEN rs.status IS NULL OR rs.status = 'active' THEN ra.litter_probability END), 0.0) as mean_litter_probability,
+			COALESCE(AVG(CASE WHEN rs.status IS NULL OR rs.status = 'active' THEN ra.hazard_probability END), 0.0) as mean_hazard_probability
+		FROM area_index ai
+		JOIN areas a ON ai.area_id = a.id
+		LEFT JOIN reports_geometry rg ON ST_Within(rg.geom, ai.geom)
+		LEFT JOIN reports r ON rg.seq = r.seq
+		LEFT JOIN report_analysis ra ON r.seq = ra.seq AND ra.language = 'en'
+		LEFT JOIN report_status rs ON r.seq = rs.seq
+		WHERE ai.area_id IN (%s)
+		GROUP BY ai.area_id
+		ORDER BY ai.area_id
+	`, strings.Join(placeholders, ","))
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query aggregated data: %w", err)
+	}
+	defer rows.Close()
+
+	// Collect all data and calculate statistics
+	var areasData []models.AreaAggrData
 	var reportCounts []int
 	var totalCount int
 	var maxCount int
-	for _, area := range areas {
-		areaWKT, err := s.wktConverter.ConvertGeoJSONToWKT(area.Area)
+
+	for rows.Next() {
+		var areaData models.AreaAggrData
+		err := rows.Scan(
+			&areaData.AreaID,
+			&areaData.Name,
+			&areaData.ReportsCount,
+			&areaData.MeanSeverity,
+			&areaData.MeanLitterProbability,
+			&areaData.MeanHazardProbability,
+		)
 		if err != nil {
-			log.Printf("Warning: failed to convert area geometry for OSM ID %d: %v", area.OSMID, err)
+			log.Printf("Warning: failed to scan aggregated data: %v", err)
 			continue
 		}
 
-		query := `SELECT COUNT(r.seq) as reports_count
-			FROM reports r
-			JOIN reports_geometry rg ON r.seq = rg.seq
-			WHERE ST_Within(rg.geom, ST_GeomFromText(?, 4326))`
+		reportCounts = append(reportCounts, areaData.ReportsCount)
+		totalCount += areaData.ReportsCount
+		if areaData.ReportsCount > maxCount {
+			maxCount = areaData.ReportsCount
+		}
 
-		var count int
-		err = s.db.QueryRow(query, areaWKT).Scan(&count)
-		if err != nil {
-			log.Printf("Warning: failed to get report count for OSM ID %d: %v", area.OSMID, err)
-			count = 0
-		}
-		reportCounts = append(reportCounts, count)
-		totalCount += count
-		if count > maxCount {
-			maxCount = count
-		}
+		areasData = append(areasData, areaData)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating aggregated data: %w", err)
 	}
 
 	// Calculate mean from the collected counts
@@ -284,56 +291,66 @@ func (s *DatabaseService) GetReportsAggregatedData() ([]models.AreaAggrData, err
 		meanCount = float64(totalCount) / float64(len(reportCounts))
 	}
 
-	// Get aggregated data for each area
-	var areasData []models.AreaAggrData
-	for _, area := range areas {
-		areaWKT, err := s.wktConverter.ConvertGeoJSONToWKT(area.Area)
-		if err != nil {
-			log.Printf("Warning: failed to convert area geometry for OSM ID %d: %v", area.OSMID, err)
-			continue
-		}
-
-		// Query to get aggregated data for this area
-		query := `
-			SELECT 
-				COUNT(r.seq) as reports_count,
-				COALESCE(AVG(ra.severity_level), 0.0) as mean_severity,
-				COALESCE(AVG(ra.litter_probability), 0.0) as mean_litter_probability,
-				COALESCE(AVG(ra.hazard_probability), 0.0) as mean_hazard_probability
-			FROM reports r
-			JOIN reports_geometry rg ON r.seq = rg.seq
-			LEFT JOIN report_analysis ra ON r.seq = ra.seq
-			LEFT JOIN report_status rs ON r.seq = rs.seq
-			WHERE ST_Within(rg.geom, ST_GeomFromText(?, 4326)) AND ra.language = 'en'
-			AND (rs.status IS NULL OR rs.status = 'active')
-		`
-
-		var areaData models.AreaAggrData
-		err = s.db.QueryRow(query, areaWKT).Scan(
-			&areaData.ReportsCount,
-			&areaData.MeanSeverity,
-			&areaData.MeanLitterProbability,
-			&areaData.MeanHazardProbability,
-		)
-		if err != nil {
-			log.Printf("Warning: failed to get aggregated data for OSM ID %d: %v", area.OSMID, err)
-			// Set default values for this area
-			areaData.ReportsCount = 0
-			areaData.MeanSeverity = 0.0
-			areaData.MeanLitterProbability = 0.0
-			areaData.MeanHazardProbability = 0.0
-		}
-
-		// Set the area metadata
-		areaData.OSMID = area.OSMID
-		areaData.Name = area.Name
-		areaData.ReportsMean = meanCount
-		areaData.ReportsMax = maxCount
-
-		areasData = append(areasData, areaData)
+	// Set mean and max values for all areas
+	for i := range areasData {
+		areasData[i].ReportsMean = meanCount
+		areasData[i].ReportsMax = maxCount
 	}
 
 	return areasData, nil
+}
+
+// GetAreasByIds fetches areas from the database by their IDs
+func (s *DatabaseService) GetAreasByIds(areaIDs []int64) ([]models.CustomArea, error) {
+	if len(areaIDs) == 0 {
+		return []models.CustomArea{}, nil
+	}
+
+	// Build placeholders for the IN clause
+	placeholders := make([]string, len(areaIDs))
+	args := make([]any, len(areaIDs))
+	for i, areaID := range areaIDs {
+		placeholders[i] = "?"
+		args[i] = areaID
+	}
+
+	// Query to get areas by IDs
+	query := fmt.Sprintf(`
+		SELECT id, name, area_json
+		FROM areas
+		WHERE id IN (%s)
+		ORDER BY id
+	`, strings.Join(placeholders, ","))
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query areas by IDs: %w", err)
+	}
+	defer rows.Close()
+
+	var areas []models.CustomArea
+	for rows.Next() {
+		var area models.CustomArea
+		var id int64
+		var areaJson string
+
+		err := rows.Scan(&id, &area.Name, &areaJson)
+		if err != nil {
+			log.Printf("Warning: failed to scan area: %v", err)
+			continue
+		}
+
+		area.AreaID = id
+		area.Area = []byte(areaJson)
+
+		areas = append(areas, area)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating areas: %w", err)
+	}
+
+	return areas, nil
 }
 
 // getEnvOrDefault gets an environment variable or returns a default value

@@ -24,17 +24,15 @@ type Geometry struct {
 
 // CustomArea represents a parsed area from the GeoJSON
 type CustomArea struct {
-	AdminLevel int             `json:"admin_level"`
-	Area       json.RawMessage `json:"area"` // Raw geometry data
-	Name       string          `json:"name,omitempty"`
-	OSMID      int64           `json:"osm_id,omitempty"`
+	AreaID int64           `json:"area_id,omitempty"`
+	Area   json.RawMessage `json:"area"` // Raw area data
+	Name   string          `json:"name,omitempty"`
 }
 
-// AreasByAdminLevelResponse represents the response for areas by admin level
-type AreasByAdminLevelResponse struct {
-	AdminLevel int              `json:"admin_level"`
-	Count      int              `json:"count"`
-	Areas      []CustomArea `json:"areas"`
+// AreasResponse represents the response for areas by admin level
+type AreasResponse struct {
+	Count int          `json:"count"`
+	Areas []CustomArea `json:"areas"`
 }
 
 // HealthResponse represents the health check response
@@ -45,12 +43,6 @@ type HealthResponse struct {
 	Timestamp        string `json:"timestamp,omitempty"`
 	ConnectedClients int    `json:"connected_clients,omitempty"`
 	LastBroadcastSeq int    `json:"last_broadcast_seq,omitempty"`
-}
-
-// AdminLevelsResponse represents the response for available admin levels
-type AdminLevelsResponse struct {
-	AdminLevels []int `json:"admin_levels"`
-	Count       int   `json:"count"`
 }
 
 // ReportData represents a report from the database
@@ -96,7 +88,7 @@ type ReportsResponse struct {
 
 // AreaAggrData represents aggregated data for a single area
 type AreaAggrData struct {
-	OSMID                 int64   `json:"osm_id"`
+	AreaID                int64   `json:"area_id"`
 	Name                  string  `json:"name"`
 	ReportsCount          int     `json:"reports_count"`
 	ReportsMean           float64 `json:"reports_mean"`

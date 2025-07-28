@@ -30,10 +30,18 @@ case ${OPT} in
   "dev")
     echo "Using dev environment"
     TARGET_VM_IP="34.132.121.53"
+    MONTENEGRO_AREA_ID=6779
+    MONTENEGRO_AREA_SUB_IDS="6753,6754,6755,6757,6758,6759,6760,6761,6762,6763,6764,6765,6766,6767,6768,6769,6770,6778,6895,6910,6948,6951,6953,6954,6955"
+    NEW_YORK_AREA_ID=6970
+    NEW_YORK_AREA_SUB_IDS="6971,6972,6973,6974,6975"
     ;;
   "prod")
     echo "Using prod environment"
     TARGET_VM_IP="34.122.15.16"
+    MONTENEGRO_AREA_ID=6787
+    MONTENEGRO_AREA_SUB_IDS="6761,6762,6763,6765,6766,6767,6768,6769,6770,6771,6772,6773,6774,6775,6776,6777,6778,6786,6903,6918,6956,6959,6961,6962,6963"
+    NEW_YORK_AREA_ID=6636
+    NEW_YORK_AREA_SUB_IDS="6637,6638,6639,6640,6641"
     ;;
   *)
     echo "Usage: $0 -e|--env <dev|prod> [--ssh-keyfile <ssh_keyfile>]"
@@ -63,9 +71,6 @@ echo "Running docker build for version ${BUILD_VERSION}"
 
 set -e
 
-MONTENEGRO_AREAS_GEOJSON_FILE="areas-montenegro.geojson"
-NEW_YORK_AREAS_GEOJSON_FILE="areas-new-york.geojson"
-
 CLOUD_REGION="us-central1"
 PROJECT_NAME="cleanup-mysql-v2"
 
@@ -79,16 +84,12 @@ fi
 for DASHBOARD in "montenegro" "new-york"; do
   case ${DASHBOARD} in
     "montenegro")
-      AREAS_GEOJSON_FILE=${MONTENEGRO_AREAS_GEOJSON_FILE}
-      CUSTOM_AREA_ADMIN_LEVEL=2
-      CUSTOM_AREA_SUB_ADMIN_LEVEL=6
-      CUSTOM_AREA_OSM_ID=-53296
+      CUSTOM_AREA_ID=${MONTENEGRO_AREA_ID}
+      CUSTOM_AREA_SUB_IDS=${MONTENEGRO_AREA_SUB_IDS}
       ;;
     "new-york")
-      AREAS_GEOJSON_FILE=${NEW_YORK_AREAS_GEOJSON_FILE}
-      CUSTOM_AREA_ADMIN_LEVEL=5
-      CUSTOM_AREA_SUB_ADMIN_LEVEL=7
-      CUSTOM_AREA_OSM_ID=-175905
+      CUSTOM_AREA_ID=${NEW_YORK_AREA_ID}
+      CUSTOM_AREA_SUB_IDS=${NEW_YORK_AREA_SUB_IDS}
       ;;
     *)
       echo "Unknown dashboard: ${DASHBOARD}"
@@ -99,10 +100,8 @@ for DASHBOARD in "montenegro" "new-york"; do
   DOCKER_TAG="${CLOUD_REGION}-docker.pkg.dev/${PROJECT_NAME}/${DOCKER_IMAGE}"
 
   cat Dockerfile.template | \
-  sed "s/{{AREAS_GEOJSON_FILE}}/${AREAS_GEOJSON_FILE}/" | \
-  sed "s/{{CUSTOM_AREA_ADMIN_LEVEL}}/${CUSTOM_AREA_ADMIN_LEVEL}/" | \
-  sed "s/{{CUSTOM_AREA_SUB_ADMIN_LEVEL}}/${CUSTOM_AREA_SUB_ADMIN_LEVEL}/" | \
-  sed "s/{{CUSTOM_AREA_OSM_ID}}/${CUSTOM_AREA_OSM_ID}/" \
+  sed "s/{{CUSTOM_AREA_ID}}/${CUSTOM_AREA_ID}/" | \
+  sed "s/{{CUSTOM_AREA_SUB_IDS}}/${CUSTOM_AREA_SUB_IDS}/" \
   > Dockerfile
 
   if [ "${OPT}" == "dev" ]; then

@@ -4,6 +4,7 @@ import (
 	"log"
 	"strconv"
 
+	"custom-area-dashboard/config"
 	"custom-area-dashboard/middleware"
 	"custom-area-dashboard/models"
 	"custom-area-dashboard/services"
@@ -13,15 +14,15 @@ import (
 
 // AreasHandler handles HTTP requests for areas-related endpoints
 type AreasHandler struct {
-	areasService    *services.AreasService
 	databaseService *services.DatabaseService
+	cfg *config.Config
 }
 
 // NewAreasHandler creates a new areas handler
-func NewAreasHandler(areasService *services.AreasService, databaseService *services.DatabaseService) *AreasHandler {
+func NewAreasHandler(databaseService *services.DatabaseService, cfg *config.Config) *AreasHandler {
 	return &AreasHandler{
-		areasService:    areasService,
 		databaseService: databaseService,
+		cfg: cfg,
 	}
 }
 
@@ -35,76 +36,52 @@ func (h *AreasHandler) HealthHandler(c *gin.Context) {
 }
 
 // AreasByAdminLevelHandler handles requests for areas by admin level
-func (h *AreasHandler) AreasByAdminLevelHandler(c *gin.Context) {
+func (h *AreasHandler) AreasHandler(c *gin.Context) {
 	userID := middleware.GetUserIDFromContext(c)
 	log.Printf("INFO: AreasByAdminLevel request from user %s", userID)
 
-	adminLevelStr := c.Query("admin_level")
-	if adminLevelStr == "" {
-		c.JSON(400, gin.H{"error": "admin_level parameter is required"})
-		return
-	}
-
-	adminLevel, err := strconv.Atoi(adminLevelStr)
+	areas, err := h.databaseService.GetAreasByIds([]int64{h.cfg.CustomAreaID})
 	if err != nil {
-		c.JSON(400, gin.H{"error": "admin_level must be a valid integer"})
-		return
-	}
-
-	areas, err := h.areasService.GetAreasByAdminLevel(adminLevel)
-	if err != nil {
-		log.Printf("Error getting areas for admin level %d: %v", adminLevel, err)
+		log.Printf("Error getting areas: %v", err)
 		c.JSON(500, gin.H{"error": "Internal server error"})
 		return
 	}
 
-	response := models.AreasByAdminLevelResponse{
-		AdminLevel: adminLevel,
+	response := models.AreasResponse{
 		Count:      len(areas),
 		Areas:      areas,
 	}
 	c.JSON(200, response)
 }
 
-// AvailableAdminLevelsHandler handles requests for available admin levels
-func (h *AreasHandler) AvailableAdminLevelsHandler(c *gin.Context) {
+func (h *AreasHandler) SubAreasHandler(c *gin.Context) {
 	userID := middleware.GetUserIDFromContext(c)
-	log.Printf("INFO: AvailableAdminLevels request from user %s", userID)
+	log.Printf("INFO: AreasByAdminLevel request from user %s", userID)
 
-	levels, err := h.areasService.GetAvailableAdminLevels()
+	areas, err := h.databaseService.GetAreasByIds(h.cfg.CustomAreaSubIDs)
 	if err != nil {
-		log.Printf("Error getting available admin levels: %v", err)
+		log.Printf("Error getting areas: %v", err)
 		c.JSON(500, gin.H{"error": "Internal server error"})
 		return
 	}
 
-	response := models.AdminLevelsResponse{
-		AdminLevels: levels,
-		Count:       len(levels),
+	response := models.AreasResponse{
+		Count:      len(areas),
+		Areas:      areas,
 	}
 	c.JSON(200, response)
 }
+
 
 // ReportsHandler handles requests for reports within a custom area
 func (h *AreasHandler) ReportsHandler(c *gin.Context) {
 	userID := middleware.GetUserIDFromContext(c)
 	log.Printf("INFO: Reports request from user %s", userID)
 
-	osmIDStr := c.Query("osm_id")
 	nStr := c.Query("n")
 
-	if osmIDStr == "" {
-		c.JSON(400, gin.H{"error": "osm_id parameter is required"})
-		return
-	}
 	if nStr == "" {
 		c.JSON(400, gin.H{"error": "n parameter is required"})
-		return
-	}
-
-	osmID, err := strconv.ParseInt(osmIDStr, 10, 64)
-	if err != nil {
-		c.JSON(400, gin.H{"error": "osm_id must be a valid integer"})
 		return
 	}
 
@@ -118,9 +95,9 @@ func (h *AreasHandler) ReportsHandler(c *gin.Context) {
 		return
 	}
 
-	reports, err := h.databaseService.GetReportsByCustomArea(osmID, n)
+	reports, err := h.databaseService.GetReportsByCustomArea(n)
 	if err != nil {
-		log.Printf("Error getting reports for OSM ID %d: %v", osmID, err)
+		log.Printf("Error getting reports for custom area: %v", err)
 		c.JSON(500, gin.H{"error": "Internal server error"})
 		return
 	}

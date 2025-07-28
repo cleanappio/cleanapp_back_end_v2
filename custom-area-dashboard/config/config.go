@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 )
 
 type Config struct {
@@ -21,9 +22,8 @@ type Config struct {
 	AuthServiceURL string
 
 	// Custom Area Configuration
-	CustomAreaAdminLevel int
-	CustomAreaSubAdminLevel int
-	CustomAreaOSMID      int64
+	CustomAreaID            int64
+	CustomAreaSubIDs        []int64
 }
 
 func Load() *Config {
@@ -38,12 +38,39 @@ func Load() *Config {
 		AuthServiceURL: getEnv("AUTH_SERVICE_URL", "http://auth-service:8080"),
 
 		// Custom Area Configuration
-		CustomAreaAdminLevel: getRequiredEnvAsInt("CUSTOM_AREA_ADMIN_LEVEL"),
-		CustomAreaSubAdminLevel: getRequiredEnvAsInt("CUSTOM_AREA_SUB_ADMIN_LEVEL"),
-		CustomAreaOSMID:      getRequiredEnvAsInt64("CUSTOM_AREA_OSM_ID"),
+		CustomAreaID:            getRequiredEnvAsInt64("CUSTOM_AREA_ID"),
+		CustomAreaSubIDs:        getRequiredEnvAsInt64Slice("CUSTOM_AREA_SUB_IDS"),
 	}
 
 	return cfg
+}
+
+func getRequiredEnvAsInt64Slice(key string) []int64 {
+	if value := os.Getenv(key); value != "" {
+		// Split the comma-separated string
+		parts := strings.Split(value, ",")
+		var result []int64
+
+		for i, part := range parts {
+			// Trim whitespace from each part
+			trimmedPart := strings.TrimSpace(part)
+			if trimmedPart == "" {
+				continue // Skip empty parts
+			}
+
+			// Convert to int64
+			intValue, err := strconv.ParseInt(trimmedPart, 10, 64)
+			if err != nil {
+				log.Fatalf("Cannot parse %s[%d]='%s' as int64: %v", key, i, trimmedPart, err)
+			}
+			result = append(result, intValue)
+		}
+
+		log.Printf("INFO: %s=%v", key, result)
+		return result
+	}
+	log.Fatalf("The %s value is required", key)
+	return nil
 }
 
 func getEnv(key, defaultValue string) string {
@@ -51,18 +78,6 @@ func getEnv(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
-}
-
-func getRequiredEnvAsInt(key string) int {
-	if value := os.Getenv(key); value != "" {
-		intValue, err := strconv.Atoi(value)
-		if err == nil {
-			return intValue
-		}
-		log.Fatalf("Cannot parse %s as int", key)
-	}
-	log.Fatalf("The %s value is required", key)
-	return 0
 }
 
 func getRequiredEnvAsInt64(key string) int64 {

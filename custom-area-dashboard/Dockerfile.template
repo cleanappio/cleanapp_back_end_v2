@@ -21,13 +21,11 @@ RUN apk --no-cache add ca-certificates
 
 WORKDIR /root/
 
-ENV CUSTOM_AREA_ADMIN_LEVEL={{CUSTOM_AREA_ADMIN_LEVEL}}
-ENV CUSTOM_AREA_SUB_ADMIN_LEVEL={{CUSTOM_AREA_SUB_ADMIN_LEVEL}}
-ENV CUSTOM_AREA_OSM_ID={{CUSTOM_AREA_OSM_ID}}
+ENV CUSTOM_AREA_ID={{CUSTOM_AREA_ID}}
+ENV CUSTOM_AREA_SUB_IDS={{CUSTOM_AREA_SUB_IDS}}
 
 # Copy the binary from builder stage
 COPY --from=builder /app/main .
-COPY --from=builder /app/{{AREAS_GEOJSON_FILE}} ./areas.geojson
 
 # Expose port
 EXPOSE 8080
