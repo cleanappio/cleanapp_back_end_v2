@@ -571,10 +571,10 @@ func (d *Database) GetLastNReportsByID(ctx context.Context, reportID string, lim
 
 // GetReportsByLatLng retrieves reports within a bounding box around given coordinates
 // Only returns reports that are not resolved (either no status or status = 'active')
-func (d *Database) GetReportsByLatLng(ctx context.Context, latitude, longitude float64, radiusKm int) ([]models.ReportWithAnalysis, error) {
+func (d *Database) GetReportsByLatLng(ctx context.Context, latitude, longitude float64, radiusKm float64, n int) ([]models.ReportWithAnalysis, error) {
 	// Calculate bounding box coordinates
 	// Convert radius from km to degrees (approximate: 1 degree ≈ 111 km)
-	radiusDegrees := float64(radiusKm) / 111.0
+	radiusDegrees := radiusKm / 111.0
 
 	minLat := latitude - radiusDegrees
 	maxLat := latitude + radiusDegrees
@@ -591,9 +591,10 @@ func (d *Database) GetReportsByLatLng(ctx context.Context, latitude, longitude f
 		AND r.longitude BETWEEN ? AND ?
 		AND (rs.status IS NULL OR rs.status = 'active')
 		ORDER BY r.ts DESC
+		LIMIT ?
 	`
 
-	reportRows, err := d.db.QueryContext(ctx, reportsQuery, minLat, maxLat, minLng, maxLng)
+	reportRows, err := d.db.QueryContext(ctx, reportsQuery, minLat, maxLat, minLng, maxLng, n)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query reports by lat/lng: %w", err)
 	}

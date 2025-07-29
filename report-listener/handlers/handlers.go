@@ -222,7 +222,18 @@ func (h *Handlers) GetReportsByLatLng(c *gin.Context) {
 	}
 
 	// Get the radius_km parameter from query string, default to 10 if not provided
-	radiusKmStr := c.DefaultQuery("radius_km", "10")
+	radiusKmStr := c.DefaultQuery("radius_km", "1.0")
+
+	// Get the n parameter from query string, default to 10 if not provided
+	nStr := c.DefaultQuery("n", "10")
+
+	n := 10 // default value
+	if parsedN, err := strconv.Atoi(nStr); err == nil && parsedN > 0 {
+		n = parsedN
+	} else {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'n' parameter. Must be a positive integer."})
+		return
+	}
 
 	// Parse latitude
 	latitude, err := strconv.ParseFloat(latStr, 64)
@@ -239,8 +250,8 @@ func (h *Handlers) GetReportsByLatLng(c *gin.Context) {
 	}
 
 	// Parse radius_km
-	radiusKm := 10 // default value
-	if parsedRadius, err := strconv.Atoi(radiusKmStr); err == nil && parsedRadius > 0 {
+	radiusKm := 1.0 // default value
+	if parsedRadius, err := strconv.ParseFloat(radiusKmStr, 32); err == nil && parsedRadius > 0 {
 		radiusKm = parsedRadius
 	} else {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'radius_km' parameter. Must be a positive integer."})
@@ -253,7 +264,7 @@ func (h *Handlers) GetReportsByLatLng(c *gin.Context) {
 	}
 
 	// Get the reports from the database
-	reports, err := h.db.GetReportsByLatLng(c.Request.Context(), latitude, longitude, radiusKm)
+	reports, err := h.db.GetReportsByLatLng(c.Request.Context(), latitude, longitude, radiusKm, n)
 	if err != nil {
 		log.Printf("Failed to get reports by lat/lng (%.6f, %.6f, radius: %dkm): %v", latitude, longitude, radiusKm, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve reports"})
