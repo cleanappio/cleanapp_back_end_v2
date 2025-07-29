@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"custom-area-dashboard/config"
@@ -267,37 +268,56 @@ func (s *DatabaseService) GetReportsAggregatedData() ([]models.AreaAggrData, err
 	var reportCounts []int
 	var totalCount int
 	var maxCount int
+
+	mu := sync.Mutex{}
+	wg := sync.WaitGroup{}
 	for i, geometry := range geometries {
-		// Get aggregated data for all areas using area_index table
-		query := `
-			SELECT 
-				COUNT(CASE WHEN rs.status IS NULL OR rs.status = 'active' THEN r.seq END) as reports_count,
-				COALESCE(AVG(CASE WHEN rs.status IS NULL OR rs.status = 'active' THEN ra.severity_level END), 0.0) as mean_severity,
-				COALESCE(AVG(CASE WHEN rs.status IS NULL OR rs.status = 'active' THEN ra.litter_probability END), 0.0) as mean_litter_probability,
-				COALESCE(AVG(CASE WHEN rs.status IS NULL OR rs.status = 'active' THEN ra.hazard_probability END), 0.0) as mean_hazard_probability
-			FROM reports r
-			LEFT JOIN reports_geometry rg ON r.seq = rg.seq
-			INNER JOIN report_analysis ra ON r.seq = ra.seq AND ra.language = 'en'
-			LEFT JOIN report_status rs ON r.seq = rs.seq
-			WHERE ST_Within(rg.geom, ST_GeomFromText(?, 4326))
-		`
+		wg.Add(1)
+		go func(i int, geometry string) {
+			defer wg.Done()
+			// Get aggregated data for all areas using area_index table
+			reportsCount := 0
+			meanSeverity := 0.0
+			meanLitterProbability := 0.0
+			meanHazardProbability := 0.0
+			query := `
+				SELECT 
+					COUNT(CASE WHEN rs.status IS NULL OR rs.status = 'active' THEN r.seq END) as reports_count,
+					COALESCE(AVG(CASE WHEN rs.status IS NULL OR rs.status = 'active' THEN ra.severity_level END), 0.0) as mean_severity,
+					COALESCE(AVG(CASE WHEN rs.status IS NULL OR rs.status = 'active' THEN ra.litter_probability END), 0.0) as mean_litter_probability,
+					COALESCE(AVG(CASE WHEN rs.status IS NULL OR rs.status = 'active' THEN ra.hazard_probability END), 0.0) as mean_hazard_probability
+				FROM reports r
+				LEFT JOIN reports_geometry rg ON r.seq = rg.seq
+				INNER JOIN report_analysis ra ON r.seq = ra.seq AND ra.language = 'en'
+				LEFT JOIN report_status rs ON r.seq = rs.seq
+				WHERE ST_Within(rg.geom, ST_GeomFromText(?, 4326))
+			`
 
-		err = s.db.QueryRow(query, geometry).Scan(
-			&areasData[i].ReportsCount,
-			&areasData[i].MeanSeverity,
-			&areasData[i].MeanLitterProbability,
-			&areasData[i].MeanHazardProbability,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to query aggregated data: %w", err)
-		}
+			err = s.db.QueryRow(query, geometry).Scan(
+				&reportsCount,
+				&meanSeverity,
+				&meanLitterProbability,
+				&meanHazardProbability,
+			)
+			if err != nil {
+				log.Printf("Warning: failed to query aggregated data: %v", err)
+				return
+			}
 
-		reportCounts = append(reportCounts, areasData[i].ReportsCount)
-		totalCount += areasData[i].ReportsCount
-		if areasData[i].ReportsCount > maxCount {
-			maxCount = areasData[i].ReportsCount
-		}
+			mu.Lock()
+			areasData[i].ReportsCount = reportsCount
+			areasData[i].MeanSeverity = meanSeverity
+			areasData[i].MeanLitterProbability = meanLitterProbability
+			areasData[i].MeanHazardProbability = meanHazardProbability
+			reportCounts = append(reportCounts, reportsCount)
+			totalCount += reportsCount
+			if reportsCount > maxCount {
+				maxCount = reportsCount
+			}
+			mu.Unlock()
+		}(i, geometry)
 	}
+	wg.Wait()
 
 	// Calculate mean from the collected counts
 	var meanCount float64
