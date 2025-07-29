@@ -569,27 +569,31 @@ func (d *Database) GetLastNReportsByID(ctx context.Context, reportID string, lim
 	return result, nil
 }
 
-// GetReportsByLatLng retrieves reports within a specified radius around given coordinates
+// GetReportsByLatLng retrieves reports within a bounding box around given coordinates
 // Only returns reports that are not resolved (either no status or status = 'active')
 func (d *Database) GetReportsByLatLng(ctx context.Context, latitude, longitude float64, radiusKm int) ([]models.ReportWithAnalysis, error) {
-	// First, get all reports within the specified radius that are not resolved
+	// Calculate bounding box coordinates
+	// Convert radius from km to degrees (approximate: 1 degree ≈ 111 km)
+	radiusDegrees := float64(radiusKm) / 111.0
+
+	minLat := latitude - radiusDegrees
+	maxLat := latitude + radiusDegrees
+	minLng := longitude - radiusDegrees
+	maxLng := longitude + radiusDegrees
+
+	// First, get all reports within the bounding box that are not resolved
 	reportsQuery := `
 		SELECT DISTINCT r.seq, r.ts, r.id, r.latitude, r.longitude, r.image
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		LEFT JOIN report_status rs ON r.seq = rs.seq
-		WHERE ST_Distance_Sphere(
-			POINT(r.longitude, r.latitude), 
-			POINT(?, ?)
-		) <= ?
+		WHERE r.latitude BETWEEN ? AND ?
+		AND r.longitude BETWEEN ? AND ?
 		AND (rs.status IS NULL OR rs.status = 'active')
 		ORDER BY r.ts DESC
 	`
 
-	// Convert radius from km to meters (1 km = 1000 meters)
-	radiusMeters := radiusKm * 1000
-
-	reportRows, err := d.db.QueryContext(ctx, reportsQuery, longitude, latitude, radiusMeters)
+	reportRows, err := d.db.QueryContext(ctx, reportsQuery, minLat, maxLat, minLng, maxLng)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query reports by lat/lng: %w", err)
 	}

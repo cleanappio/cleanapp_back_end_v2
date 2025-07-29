@@ -66,7 +66,9 @@ CREATE TABLE IF NOT EXISTS reports(
   description VARCHAR(255),
   PRIMARY KEY (seq),
   INDEX id_index (id),
-  INDEX action_idx (action_id)
+  INDEX action_idx (action_id),
+  INDEX latitude_index (latitude),
+  INDEX longitude_index (longitude)
 );
 SHOW TABLES;
 DESCRIBE TABLE reports;
