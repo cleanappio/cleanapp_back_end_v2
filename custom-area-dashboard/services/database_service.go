@@ -277,7 +277,7 @@ func (s *DatabaseService) GetReportsAggregatedData() ([]models.AreaAggrData, err
 				COALESCE(AVG(CASE WHEN rs.status IS NULL OR rs.status = 'active' THEN ra.hazard_probability END), 0.0) as mean_hazard_probability
 			FROM reports r
 			LEFT JOIN reports_geometry rg ON r.seq = rg.seq
-			LEFT JOIN report_analysis ra ON r.seq = ra.seq AND ra.language = 'en'
+			INNER JOIN report_analysis ra ON r.seq = ra.seq AND ra.language = 'en'
 			LEFT JOIN report_status rs ON r.seq = rs.seq
 			WHERE ST_Within(rg.geom, ST_GeomFromText(?, 4326))
 		`
