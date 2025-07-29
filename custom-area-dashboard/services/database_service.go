@@ -61,21 +61,33 @@ func (s *DatabaseService) Close() error {
 
 // GetReportsByCustomArea gets the last n reports with analysis that are contained within the custom area defined in config
 func (s *DatabaseService) GetReportsByCustomArea(n int) ([]models.ReportWithAnalysis, error) {
-	// First, get all reports within the area using area_index table
+	// Fetch the geometry for the cfg.CustomAreaID
+	geometryQuery := `
+		SELECT ST_AsText(geom)
+		FROM area_index
+		WHERE area_id = ?
+	`
+
+	var geometry string
+	err := s.db.QueryRow(geometryQuery, s.cfg.CustomAreaID).Scan(&geometry)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query geometry: %w", err)
+	}
+
+	// Get all reports within the area using area_index table
 	reportsQuery := `
 		SELECT DISTINCT r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.action_id
 		FROM reports r
 		JOIN reports_geometry rg ON r.seq = rg.seq
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		LEFT JOIN report_status rs ON r.seq = rs.seq
-		JOIN area_index ai ON ST_Within(rg.geom, ai.geom)
-		WHERE ai.area_id = ?
+		WHERE ST_Within(rg.geom, ST_GeomFromText(?, 4326))
 		AND (rs.status IS NULL OR rs.status = 'active')
 		ORDER BY r.ts DESC
 		LIMIT ?
 	`
 
-	reportRows, err := s.db.Query(reportsQuery, s.cfg.CustomAreaID, n)
+	reportRows, err := s.db.Query(reportsQuery, geometry, n)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query reports: %w", err)
 	}
@@ -224,64 +236,67 @@ func (s *DatabaseService) GetReportsAggregatedData() ([]models.AreaAggrData, err
 		args[i] = areaID
 	}
 
-	// Single query to get aggregated data for all areas using area_index table
-	query := fmt.Sprintf(`
-		SELECT 
-			ai.area_id as area_id,
-			a.name as name,
-			COUNT(CASE WHEN rs.status IS NULL OR rs.status = 'active' THEN r.seq END) as reports_count,
-			COALESCE(AVG(CASE WHEN rs.status IS NULL OR rs.status = 'active' THEN ra.severity_level END), 0.0) as mean_severity,
-			COALESCE(AVG(CASE WHEN rs.status IS NULL OR rs.status = 'active' THEN ra.litter_probability END), 0.0) as mean_litter_probability,
-			COALESCE(AVG(CASE WHEN rs.status IS NULL OR rs.status = 'active' THEN ra.hazard_probability END), 0.0) as mean_hazard_probability
-		FROM area_index ai
-		JOIN areas a ON ai.area_id = a.id
-		LEFT JOIN reports_geometry rg ON ST_Within(rg.geom, ai.geom)
-		LEFT JOIN reports r ON rg.seq = r.seq
-		LEFT JOIN report_analysis ra ON r.seq = ra.seq AND ra.language = 'en'
-		LEFT JOIN report_status rs ON r.seq = rs.seq
-		WHERE ai.area_id IN (%s)
-		GROUP BY ai.area_id
-		ORDER BY ai.area_id
+	// Get geometries for area IDs
+	geometriesQuery := fmt.Sprintf(`
+		SELECT a.id, a.name, ST_AsText(ai.geom)
+		FROM areas a
+		JOIN area_index ai ON a.id = ai.area_id
+		WHERE a.id IN (%s)
 	`, strings.Join(placeholders, ","))
-
-	rows, err := s.db.Query(query, args...)
+	
+	rows, err := s.db.Query(geometriesQuery, args...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query aggregated data: %w", err)
+		return nil, fmt.Errorf("failed to query geometries: %w", err)
 	}
 	defer rows.Close()
+	
+	var geometries []string
+	var areasData []models.AreaAggrData
+	for rows.Next() {
+		var areaData models.AreaAggrData
+		var geometry string
+		err := rows.Scan(&areaData.AreaID, &areaData.Name, &geometry)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan geometry: %w", err)
+		}
+		areasData = append(areasData, areaData)
+		geometries = append(geometries, geometry)
+	}
 
 	// Collect all data and calculate statistics
-	var areasData []models.AreaAggrData
 	var reportCounts []int
 	var totalCount int
 	var maxCount int
+	for i, geometry := range geometries {
+		// Get aggregated data for all areas using area_index table
+		query := `
+			SELECT 
+				COUNT(CASE WHEN rs.status IS NULL OR rs.status = 'active' THEN r.seq END) as reports_count,
+				COALESCE(AVG(CASE WHEN rs.status IS NULL OR rs.status = 'active' THEN ra.severity_level END), 0.0) as mean_severity,
+				COALESCE(AVG(CASE WHEN rs.status IS NULL OR rs.status = 'active' THEN ra.litter_probability END), 0.0) as mean_litter_probability,
+				COALESCE(AVG(CASE WHEN rs.status IS NULL OR rs.status = 'active' THEN ra.hazard_probability END), 0.0) as mean_hazard_probability
+			FROM reports r
+			LEFT JOIN reports_geometry rg ON r.seq = rg.seq
+			LEFT JOIN report_analysis ra ON r.seq = ra.seq AND ra.language = 'en'
+			LEFT JOIN report_status rs ON r.seq = rs.seq
+			WHERE ST_Within(rg.geom, ST_GeomFromText(?, 4326))
+		`
 
-	for rows.Next() {
-		var areaData models.AreaAggrData
-		err := rows.Scan(
-			&areaData.AreaID,
-			&areaData.Name,
-			&areaData.ReportsCount,
-			&areaData.MeanSeverity,
-			&areaData.MeanLitterProbability,
-			&areaData.MeanHazardProbability,
+		err = s.db.QueryRow(query, geometry).Scan(
+			&areasData[i].ReportsCount,
+			&areasData[i].MeanSeverity,
+			&areasData[i].MeanLitterProbability,
+			&areasData[i].MeanHazardProbability,
 		)
 		if err != nil {
-			log.Printf("Warning: failed to scan aggregated data: %v", err)
-			continue
+			return nil, fmt.Errorf("failed to query aggregated data: %w", err)
 		}
 
-		reportCounts = append(reportCounts, areaData.ReportsCount)
-		totalCount += areaData.ReportsCount
-		if areaData.ReportsCount > maxCount {
-			maxCount = areaData.ReportsCount
+		reportCounts = append(reportCounts, areasData[i].ReportsCount)
+		totalCount += areasData[i].ReportsCount
+		if areasData[i].ReportsCount > maxCount {
+			maxCount = areasData[i].ReportsCount
 		}
-
-		areasData = append(areasData, areaData)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating aggregated data: %w", err)
 	}
 
 	// Calculate mean from the collected counts
