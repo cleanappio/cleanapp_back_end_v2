@@ -87,7 +87,7 @@ case ${OPT} in
       SCHEDULER_HOST="api.cleanapp.io"
       ETH_NETWORK_URL_MAIN="https://sepolia.base.org"  # TODO: Change to the mainnet URL after we run on the base mainnet
       CONTRACT_ADDRESS_MAIN="0xDc41655b749E8F2922A6E5e525Fc04a915aEaFAA"  # TODO: Change the contract address to the main when we run on the base mainnet
-      DISBURSEMENT_MAIN_SCHEDULE="0 20 * * *"
+      DISBURSEMENT_MAIN_SCHEDULE="*/3 * * * *"
       PIPELINES_MAIN_PORT="8090"
       REACT_APP_REF_API_ENDPOINT="http://api.cleanapp.io:8080/write_referral/"
       REACT_APP_EMAIL_CONSENT_API_ENDPOINT="https://areas.cleanapp.io/api/v3/update_consent/"
