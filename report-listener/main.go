@@ -115,6 +115,9 @@ func setupRouter(svc *service.Service) *gin.Engine {
 
 		// Get last N reports by ID endpoint
 		api.GET("/reports/by-id", h.GetLastNReportsByID)
+
+		// Get reports by latitude/longitude within radius endpoint
+		api.GET("/reports/by-latlng", h.GetReportsByLatLng)
 	}
 
 	// Root health check
