@@ -266,7 +266,7 @@ func (h *Handlers) GetReportsByLatLng(c *gin.Context) {
 	// Get the reports from the database
 	reports, err := h.db.GetReportsByLatLng(c.Request.Context(), latitude, longitude, radiusKm, n)
 	if err != nil {
-		log.Printf("Failed to get reports by lat/lng (%.6f, %.6f, radius: %dkm): %v", latitude, longitude, radiusKm, err)
+		log.Printf("Failed to get reports by lat/lng (%.6f, %.6f, radius: %fkm): %v", latitude, longitude, radiusKm, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve reports"})
 		return
 	}
