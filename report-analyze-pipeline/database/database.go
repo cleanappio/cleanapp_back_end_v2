@@ -45,6 +45,7 @@ type ReportAnalysis struct {
 	SeverityLevel     float64
 	Summary           string
 	Language          string
+	IsValid           bool
 }
 
 // NewDatabase creates a new database connection
@@ -92,13 +93,15 @@ func (d *Database) CreateReportAnalysisTable() error {
 		severity_level FLOAT,
 		summary TEXT,
 		language VARCHAR(2) NOT NULL DEFAULT 'en',
+		is_valid BOOLEAN DEFAULT TRUE,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 		INDEX seq_index (seq),
 		INDEX source_index (source),
 		INDEX idx_report_analysis_brand_name (brand_name),
 		INDEX idx_report_analysis_brand_display_name (brand_display_name),
-		INDEX idx_report_analysis_language (language)
+		INDEX idx_report_analysis_language (language),
+		INDEX idx_report_analysis_is_valid (is_valid)
 	)`
 
 	_, err := d.db.Exec(query)
@@ -107,6 +110,86 @@ func (d *Database) CreateReportAnalysisTable() error {
 	}
 
 	log.Println("report_analysis table created/verified successfully")
+	return nil
+}
+
+// columnExists checks if a column exists in a table
+func (d *Database) columnExists(tableName, columnName string) (bool, error) {
+	query := `
+	SELECT COUNT(*) 
+	FROM INFORMATION_SCHEMA.COLUMNS 
+	WHERE TABLE_SCHEMA = DATABASE() 
+	AND TABLE_NAME = ? 
+	AND COLUMN_NAME = ?`
+
+	var count int
+	err := d.db.QueryRow(query, tableName, columnName).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("failed to check if column exists: %w", err)
+	}
+
+	return count > 0, nil
+}
+
+// indexExists checks if an index exists in a table
+func (d *Database) indexExists(tableName, indexName string) (bool, error) {
+	query := `
+	SELECT COUNT(*) 
+	FROM INFORMATION_SCHEMA.STATISTICS 
+	WHERE TABLE_SCHEMA = DATABASE() 
+	AND TABLE_NAME = ? 
+	AND INDEX_NAME = ?`
+
+	var count int
+	err := d.db.QueryRow(query, tableName, indexName).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("failed to check if index exists: %w", err)
+	}
+
+	return count > 0, nil
+}
+
+func (d *Database) MigrateReportAnalysisTable() error {
+	// Check if is_valid column already exists
+	isValidExists, err := d.columnExists("report_analysis", "is_valid")
+	if err != nil {
+		return fmt.Errorf("failed to check if is_valid column exists: %w", err)
+	}
+
+	if !isValidExists {
+		log.Println("Adding is_valid column to report_analysis table...")
+
+		query := `ALTER TABLE report_analysis ADD COLUMN is_valid BOOLEAN DEFAULT TRUE`
+		_, err = d.db.Exec(query)
+		if err != nil {
+			return fmt.Errorf("failed to add is_valid column: %w", err)
+		}
+
+		log.Println("Successfully added is_valid column to report_analysis table")
+	} else {
+		log.Println("is_valid column already exists in report_analysis table, skipping migration")
+	}
+
+	// Check if is_valid index already exists
+	isValidIndexExists, err := d.indexExists("report_analysis", "idx_report_analysis_is_valid")
+	if err != nil {
+		return fmt.Errorf("failed to check if is_valid index exists: %w", err)
+	}
+
+	if !isValidIndexExists {
+		log.Println("Adding index for is_valid column to report_analysis table...")
+
+		indexQuery := `ALTER TABLE report_analysis ADD INDEX idx_report_analysis_is_valid (is_valid)`
+		_, err = d.db.Exec(indexQuery)
+		if err != nil {
+			return fmt.Errorf("failed to add is_valid index: %w", err)
+		}
+
+		log.Println("Successfully added index for is_valid column to report_analysis table")
+	} else {
+		log.Println("is_valid index already exists in report_analysis table, skipping migration")
+	}
+
 	return nil
 }
 
@@ -156,9 +239,9 @@ func (d *Database) SaveAnalysis(analysis *ReportAnalysis) error {
 	INSERT INTO report_analysis (
 		seq, source, analysis_text, analysis_image, 
 		title, description, brand_name, brand_display_name,
-		litter_probability, hazard_probability, severity_level, summary, language
+		litter_probability, hazard_probability, severity_level, summary, language, is_valid
 	)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err := d.db.Exec(query,
 		analysis.Seq,
@@ -174,6 +257,7 @@ func (d *Database) SaveAnalysis(analysis *ReportAnalysis) error {
 		analysis.SeverityLevel,
 		analysis.Summary,
 		analysis.Language,
+		analysis.IsValid,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to save analysis: %w", err)

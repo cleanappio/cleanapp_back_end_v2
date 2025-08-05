@@ -46,6 +46,12 @@ func (s *Service) Start() {
 		return
 	}
 
+	// Migrate the report_analysis table if it doesn't exist
+	if err := s.db.MigrateReportAnalysisTable(); err != nil {
+		log.Printf("Failed to migrate report_analysis table: %v", err)
+		return
+	}
+
 	// Start the analysis loop
 	go s.analysisLoop()
 }
@@ -117,13 +123,36 @@ Analyze this image and provide a JSON response with the following structure:
 	response, err := s.openai.AnalyzeImage(report.Image, prompt)
 	if err != nil {
 		log.Printf("Failed to analyze report %d: %v", report.Seq, err)
+		// Save error report
+		errorAnalysis := &database.ReportAnalysis{
+			Seq:     report.Seq,
+			Source:  "ChatGPT",
+			IsValid: false,
+		}
+		if saveErr := s.db.SaveAnalysis(errorAnalysis); saveErr != nil {
+			log.Printf("Failed to save error analysis for report %d: %v", report.Seq, saveErr)
+		} else {
+			log.Printf("Saved error analysis for report %d (analysis failed)", report.Seq)
+		}
 		return
 	}
+	log.Printf("Analysis response: %s", response)
 
 	// Parse the response
 	analysis, err := parser.ParseAnalysis(response)
 	if err != nil {
 		log.Printf("Failed to parse analysis for report %d: %v", report.Seq, err)
+		// Save error report
+		errorAnalysis := &database.ReportAnalysis{
+			Seq:     report.Seq,
+			Source:  "ChatGPT",
+			IsValid: false,
+		}
+		if saveErr := s.db.SaveAnalysis(errorAnalysis); saveErr != nil {
+			log.Printf("Failed to save error analysis for report %d: %v", report.Seq, saveErr)
+		} else {
+			log.Printf("Saved error analysis for report %d (parsing failed)", report.Seq)
+		}
 		return
 	}
 
@@ -146,6 +175,7 @@ Analyze this image and provide a JSON response with the following structure:
 		SeverityLevel:     analysis.SeverityLevel,
 		Summary:           analysis.Title + ": " + analysis.Description,
 		Language:          "en",
+		IsValid:           true,
 	}
 
 	// Save the English analysis to the database
@@ -202,6 +232,7 @@ Analyze this image and provide a JSON response with the following structure:
 				SeverityLevel:     translatedAnalysis.SeverityLevel,
 				Summary:           translatedAnalysis.Title + ": " + translatedAnalysis.Description,
 				Language:          langCode, // Store the language code in the database
+				IsValid:           true,
 			}
 
 			// Save the translated analysis to the database

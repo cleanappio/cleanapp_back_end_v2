@@ -1,0 +1,1 @@
+SELECT DISTINCT r.seq, r.ts, r.id, r.latitude, r.longitude FROM reports r INNER JOIN report_analysis ra ON r.seq = ra.seq LEFT JOIN report_status rs ON r.seq = rs.seq WHERE r.seq > 0 AND (rs.status IS NULL OR rs.status = 'active') AND (ra.hazard_probability >= 0.5 OR ra.litter_probability >= 0.5) AND ra.is_valid = TRUE ORDER BY r.seq ASC LIMIT 10;

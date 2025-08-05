@@ -60,6 +60,7 @@ func (d *Database) GetReportsSince(ctx context.Context, sinceSeq int) ([]models.
 		LEFT JOIN report_status rs ON r.seq = rs.seq
 		WHERE r.seq > ? 
 		AND (rs.status IS NULL OR rs.status = 'active') AND (ra.hazard_probability >= 0.5 OR ra.litter_probability >= 0.5)
+		AND ra.is_valid = TRUE
 		ORDER BY r.seq ASC
 	`
 
@@ -253,6 +254,7 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int) ([]mo
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		LEFT JOIN report_status rs ON r.seq = rs.seq
 		WHERE (rs.status IS NULL OR rs.status = 'active') AND (ra.hazard_probability >= 0.5 OR ra.litter_probability >= 0.5)
+		AND ra.is_valid = TRUE
 		ORDER BY r.seq DESC
 		LIMIT ?
 	`
@@ -456,7 +458,8 @@ func (d *Database) GetLastNReportsByID(ctx context.Context, reportID string, lim
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		LEFT JOIN report_status rs ON r.seq = rs.seq
-		WHERE r.id = ? AND (rs.status IS NULL OR rs.status = 'active')
+		WHERE r.id = ? AND (rs.status IS NULL OR rs.status = 'active') AND ra.is_valid = TRUE
+		AND (ra.hazard_probability >= 0.5 OR ra.litter_probability >= 0.5)
 		ORDER BY r.seq DESC
 		LIMIT ?
 	`
@@ -590,6 +593,8 @@ func (d *Database) GetReportsByLatLng(ctx context.Context, latitude, longitude f
 		WHERE r.latitude BETWEEN ? AND ?
 		AND r.longitude BETWEEN ? AND ?
 		AND (rs.status IS NULL OR rs.status = 'active')
+		AND (ra.hazard_probability >= 0.5 OR ra.litter_probability >= 0.5)
+		AND ra.is_valid = TRUE
 		ORDER BY r.ts DESC
 		LIMIT ?
 	`
