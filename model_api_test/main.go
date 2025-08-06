@@ -85,19 +85,19 @@ const classificationPrompt = `
 	- site_url: a site URL, if you recognize it;
 `
 
-const litterHazardPromptForGemini = `
-What kind of litter or hazard can you see on this image? Please describe the litter or hazard in detail. Also, please extract any brand name from the image, if present. Also, give a probability that there is a litter or hazard on a photo in units from 0.0 to 1.0 and a severity level from 0.0 to 1.0. The severity means a degree of how dangerous for life the object on the image is.
-If there is no visible litter or hazard on the image, please specifify that explicitly.
-Analyze this image and provide a JSON response with the following structure:
-{
-"title": "A descriptive title for the issue",
-"description": "A detailed description of what you see in the image",
-"brand_name": "A brand name, if present, otherwise null",
-"litter_probability": 0.0-1.0,
-"hazard_probability": 0.0-1.0,
-"severity_level": 0.0-1.0
-}
-`
+// const litterHazardPromptForGemini = `
+// What kind of litter or hazard can you see on this image? Please describe the litter or hazard in detail. Also, please extract any brand name from the image, if present. Also, give a probability that there is a litter or hazard on a photo in units from 0.0 to 1.0 and a severity level from 0.0 to 1.0. The severity means a degree of how dangerous for life the object on the image is.
+// If there is no visible litter or hazard on the image, please specifify that explicitly.
+// Analyze this image and provide a JSON response with the following structure:
+// {
+// "title": "A descriptive title for the issue",
+// "description": "A detailed description of what you see in the image",
+// "brand_name": "A brand name, if present, otherwise null",
+// "litter_probability": 0.0-1.0,
+// "hazard_probability": 0.0-1.0,
+// "severity_level": 0.0-1.0
+// }
+// `
 
 type Message struct {
 	Role    string `json:"role"`
