@@ -17,7 +17,7 @@ import (
 
 const (
 	// MaxReportsLimit is the maximum number of reports that can be requested in a single query
-	MaxReportsLimit = 1000
+	MaxReportsLimit = 50000
 )
 
 // Handlers contains all HTTP handlers
@@ -100,29 +100,74 @@ func (h *Handlers) GetLastNAnalyzedReports(c *gin.Context) {
 		limit = MaxReportsLimit
 	}
 
+	// Get the full_data parameter from query string, default to true if not provided
+	fullDataStr := c.DefaultQuery("full_data", "true")
+	fullData := true // default value
+	if parsedFullData, err := strconv.ParseBool(fullDataStr); err == nil {
+		fullData = parsedFullData
+	} else {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'full_data' parameter. Must be 'true' or 'false'."})
+		return
+	}
+
 	// Get the reports from the database
-	reports, err := h.db.GetLastNAnalyzedReports(c.Request.Context(), limit)
+	reportsInterface, err := h.db.GetLastNAnalyzedReports(c.Request.Context(), limit, fullData)
 	if err != nil {
 		log.Printf("Failed to get last N analyzed reports: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve reports"})
 		return
 	}
 
-	// Create the response in the same format as WebSocket broadcasts
-	response := models.ReportBatch{
-		Reports: reports,
-		Count:   len(reports),
-		FromSeq: 0,
-		ToSeq:   0,
-	}
+	// Handle different return types based on full_data parameter
+	if fullData {
+		// Type assertion to get the reports with analysis
+		reportsWithAnalysis, ok := reportsInterface.([]models.ReportWithAnalysis)
+		if !ok {
+			log.Printf("Failed to type assert reports to []models.ReportWithAnalysis")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve reports"})
+			return
+		}
 
-	// Set FromSeq and ToSeq if there are reports
-	if len(reports) > 0 {
-		response.FromSeq = reports[0].Report.Seq
-		response.ToSeq = reports[len(reports)-1].Report.Seq
-	}
+		// Create the response in the same format as WebSocket broadcasts
+		response := models.ReportBatch{
+			Reports: reportsWithAnalysis,
+			Count:   len(reportsWithAnalysis),
+			FromSeq: 0,
+			ToSeq:   0,
+		}
 
-	c.JSON(http.StatusOK, response)
+		// Set FromSeq and ToSeq if there are reports
+		if len(reportsWithAnalysis) > 0 {
+			response.FromSeq = reportsWithAnalysis[0].Report.Seq
+			response.ToSeq = reportsWithAnalysis[len(reportsWithAnalysis)-1].Report.Seq
+		}
+
+		c.JSON(http.StatusOK, response)
+	} else {
+		// Type assertion to get only reports
+		reportsOnly, ok := reportsInterface.([]models.Report)
+		if !ok {
+			log.Printf("Failed to type assert reports to []models.Report")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve reports"})
+			return
+		}
+
+		// Create a simplified response for reports only
+		response := gin.H{
+			"reports": reportsOnly,
+			"count":   len(reportsOnly),
+			"from_seq": 0,
+			"to_seq":   0,
+		}
+
+		// Set FromSeq and ToSeq if there are reports
+		if len(reportsOnly) > 0 {
+			response["from_seq"] = reportsOnly[0].Seq
+			response["to_seq"] = reportsOnly[len(reportsOnly)-1].Seq
+		}
+
+		c.JSON(http.StatusOK, response)
+	}
 }
 
 // GetReportBySeq returns a specific report by sequence ID
