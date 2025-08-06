@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -68,17 +69,20 @@ const digitalErrorPrompt = `
 	- a bug title, one sentence;
 	- a bug description, one paragraph;
 	- a brand name, optional, if present;
-	- a site URL, if you recognize it;
 	- a probability, a number from 0.0 to 1.0;
 	- a severity, a number from 0.0 to 1.0;
 `
 
 const classificationPrompt = `
-	Do you see a site on a computer screen on this image?
-	Please provide a site on the screen, please output its URL if you recognize it.
+	What is the probability that the image contain any of the following content:
+	- a photo of a screen with a website on it;
+	- a mobile site or application screenshot;
+	- a screen of a web or mobile application;
+	- a digital bug or error;
 
-	Please format the output as:
-	- a site on the screen, please output its URL if you recognize it;
+	Please format the output as JSON with following fields:
+	- digital_probability: a probability, a number from 0.0 to 1.0;
+	- site_url: a site URL, if you recognize it;
 `
 
 const litterHazardPromptForGemini = `
@@ -115,8 +119,9 @@ type ImageContent struct {
 }
 
 type ChatRequest struct {
-	Model    string    `json:"model"`
-	Messages []Message `json:"messages"`
+	Model       string    `json:"model"`
+	Messages    []Message `json:"messages"`
+	Temperature float64   `json:"temperature"`
 }
 
 type ChatResponse struct {
@@ -125,6 +130,73 @@ type ChatResponse struct {
 			Content any `json:"content"`
 		} `json:"message"`
 	} `json:"choices"`
+}
+
+type ClassificationResult struct {
+	DigitalProbability float64 `json:"digital_probability"`
+	SiteURL            string  `json:"site_url"`
+}
+
+// extractJSONFromMarkdown extracts JSON from markdown code blocks
+func extractJSONFromMarkdown(response string) string {
+	// Look for JSON code blocks with ``` markers
+	startMarker := "```"
+	endMarker := "```"
+
+	startIdx := strings.Index(response, startMarker)
+	if startIdx == -1 {
+		// No code block found, try to find JSON object directly
+		startIdx = strings.Index(response, "{")
+		if startIdx == -1 {
+			return response
+		}
+		endIdx := strings.LastIndex(response, "}")
+		if endIdx == -1 {
+			return response
+		}
+		return strings.TrimSpace(response[startIdx : endIdx+1])
+	}
+
+	// Find the end of the first code block
+	endIdx := strings.Index(response[startIdx+len(startMarker):], endMarker)
+	if endIdx == -1 {
+		return response
+	}
+	endIdx += startIdx + len(startMarker)
+
+	// Extract content between the markers
+	content := response[startIdx+len(startMarker) : endIdx]
+
+	// Remove the language identifier if present (e.g., "json")
+	lines := strings.Split(strings.TrimSpace(content), "\n")
+	if len(lines) > 0 && (strings.TrimSpace(lines[0]) == "json" || strings.TrimSpace(lines[0]) == "") {
+		content = strings.Join(lines[1:], "\n")
+	}
+
+	return strings.TrimSpace(content)
+}
+
+// parseClassification parses the OpenAI response and extracts analysis fields
+func parseClassification(response string) (*ClassificationResult, error) {
+	// Clean the response
+	cleaned := strings.TrimSpace(response)
+
+	// Extract JSON from markdown if present
+	jsonContent := extractJSONFromMarkdown(cleaned)
+
+	// Try to parse as JSON
+	var result ClassificationResult
+	err := json.Unmarshal([]byte(jsonContent), &result)
+	if err == nil {
+		// Validate the parsed result
+		if result.DigitalProbability < 0 || result.DigitalProbability > 1 {
+			return nil, errors.New("digital_probability must be between 0 and 1")
+		}
+		return &result, nil
+	}
+
+	// If JSON parsing fails, return error
+	return nil, errors.New("failed to parse JSON response: " + err.Error())
 }
 
 // getMimeType returns the MIME type based on file extension
@@ -218,11 +290,14 @@ func main() {
 
 	fmt.Printf("Classification response: %s\n\n", classificationResponse)
 
-	// Step 2: Check if URL is found in the response
-	hasURL := containsURL(classificationResponse)
+	res, err := parseClassification(classificationResponse)
+	if err != nil {
+		fmt.Printf("Error unmarshalling classification response: %v\n", err)
+		return
+	}
 
 	var secondPrompt string
-	if hasURL {
+	if res.DigitalProbability >= 0.2 {
 		fmt.Println("URL detected. Using digital error prompt...")
 		secondPrompt = digitalErrorPrompt
 	} else {
@@ -230,7 +305,7 @@ func main() {
 		secondPrompt = litterHazardPrompt
 	}
 
-	// Step 3: Call API with the appropriate prompt
+	// Step 2: Call API with the appropriate prompt
 	fmt.Println("Step 2: Analyzing with appropriate prompt...")
 	analysisResponse, err := callOpenAI(openAIKey, base64Image, secondPrompt)
 	if err != nil {
@@ -240,49 +315,49 @@ func main() {
 
 	fmt.Printf("Analysis response: %s\n", analysisResponse)
 
-	// Step 4: Translate the response to Montenegro language
-	fmt.Println("Step 4: Translating to Montenegro language...")
-	translationResponse, err := callOpenAITranslation(openAIKey, analysisResponse, "Montenegrin")
-	if err != nil {
-		fmt.Printf("Error in translation call: %v\n", err)
-		return
-	}
+	// // Step 4: Translate the response to Montenegro language
+	// fmt.Println("Step 4: Translating to Montenegro language...")
+	// translationResponse, err := callOpenAITranslation(openAIKey, analysisResponse, "Montenegrin")
+	// if err != nil {
+	// 	fmt.Printf("Error in translation call: %v\n", err)
+	// 	return
+	// }
 
-	fmt.Printf("Translation response: %s\n", translationResponse)
+	// fmt.Printf("Translation response: %s\n", translationResponse)
 
-	// Example of using the translation function for other languages
-	fmt.Println("\nExample: Translating to Spanish...")
-	spanishTranslation, err := callOpenAITranslation(openAIKey, "Hello, how are you?", "Spanish")
-	if err != nil {
-		fmt.Printf("Error in Spanish translation: %v\n", err)
-	} else {
-		fmt.Printf("Spanish translation: %s\n", spanishTranslation)
-	}
+	// // Example of using the translation function for other languages
+	// fmt.Println("\nExample: Translating to Spanish...")
+	// spanishTranslation, err := callOpenAITranslation(openAIKey, "Hello, how are you?", "Spanish")
+	// if err != nil {
+	// 	fmt.Printf("Error in Spanish translation: %v\n", err)
+	// } else {
+	// 	fmt.Printf("Spanish translation: %s\n", spanishTranslation)
+	// }
 
-	// Step 5: Example of using Gemini API (if API key is available)
-	if geminiKey != "" {
-		fmt.Println("\n=== Gemini API Example ===")
+	// // Step 5: Example of using Gemini API (if API key is available)
+	// if geminiKey != "" {
+	// 	fmt.Println("\n=== Gemini API Example ===")
 
-		// Use Gemini for image analysis
-		fmt.Println("Step 5: Analyzing with Gemini...")
-		geminiResponse, err := CallGemini(geminiKey, base64Image, litterHazardPromptForGemini)
-		if err != nil {
-			fmt.Printf("Error in Gemini analysis call: %v\n", err)
-		} else {
-			fmt.Printf("Gemini analysis response: %s\n", geminiResponse)
-		}
+	// 	// Use Gemini for image analysis
+	// 	fmt.Println("Step 5: Analyzing with Gemini...")
+	// 	geminiResponse, err := CallGemini(geminiKey, base64Image, litterHazardPromptForGemini)
+	// 	if err != nil {
+	// 		fmt.Printf("Error in Gemini analysis call: %v\n", err)
+	// 	} else {
+	// 		fmt.Printf("Gemini analysis response: %s\n", geminiResponse)
+	// 	}
 
-		// Use Gemini for translation
-		fmt.Println("Step 6: Translating with Gemini...")
-		geminiTranslation, err := CallGeminiTranslation(geminiKey, analysisResponse, "Montenegrin")
-		if err != nil {
-			fmt.Printf("Error in Gemini translation call: %v\n", err)
-		} else {
-			fmt.Printf("Gemini translation response: %s\n", geminiTranslation)
-		}
-	} else {
-		fmt.Println("\nSkipping Gemini API example (GEMINI_API_KEY not set)")
-	}
+	// 	// Use Gemini for translation
+	// 	fmt.Println("Step 6: Translating with Gemini...")
+	// 	geminiTranslation, err := CallGeminiTranslation(geminiKey, analysisResponse, "Montenegrin")
+	// 	if err != nil {
+	// 		fmt.Printf("Error in Gemini translation call: %v\n", err)
+	// 	} else {
+	// 		fmt.Printf("Gemini translation response: %s\n", geminiTranslation)
+	// 	}
+	// } else {
+	// 	fmt.Println("\nSkipping Gemini API example (GEMINI_API_KEY not set)")
+	// }
 }
 
 // callOpenAI makes a call to OpenAI API with the given prompt and image
@@ -310,6 +385,7 @@ func callOpenAI(apiKey, base64Image, prompt string) (string, error) {
 				},
 			},
 		},
+		Temperature: 0.2,
 	}
 
 	jsonData, err := json.Marshal(reqBody)
