@@ -246,7 +246,8 @@ func (d *Database) EnsureServiceStateTable(ctx context.Context) error {
 }
 
 // GetLastNAnalyzedReports retrieves the last N analyzed reports
-func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int) ([]models.ReportWithAnalysis, error) {
+// If full_data is true, returns reports with analysis. If false, returns only reports.
+func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int, full_data bool) (interface{}, error) {
 	// First, get the last N reports that have analysis and are not resolved
 	reportsQuery := `
 		SELECT DISTINCT r.seq, r.ts, r.id, r.latitude, r.longitude
@@ -289,7 +290,15 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int) ([]mo
 	}
 
 	if len(reports) == 0 {
-		return []models.ReportWithAnalysis{}, nil
+		if full_data {
+			return []models.ReportWithAnalysis{}, nil
+		}
+		return []models.Report{}, nil
+	}
+
+	// If full_data is false, return only reports
+	if !full_data {
+		return reports, nil
 	}
 
 	// Build placeholders for the IN clause
