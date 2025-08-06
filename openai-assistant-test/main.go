@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 )
 
@@ -101,23 +100,6 @@ type RunResponse struct {
 	Instructions string                 `json:"instructions"`
 	Tools        []interface{}          `json:"tools"`
 	Metadata     map[string]interface{} `json:"metadata,omitempty"`
-}
-
-// getMimeType returns the MIME type based on file extension
-func getMimeType(filename string) string {
-	ext := strings.ToLower(filepath.Ext(filename))
-	switch ext {
-	case ".jpg", ".jpeg":
-		return "image/jpeg"
-	case ".png":
-		return "image/png"
-	case ".gif":
-		return "image/gif"
-	case ".webp":
-		return "image/webp"
-	default:
-		return "image/jpeg" // default fallback
-	}
 }
 
 // uploadFile uploads a file to OpenAI and returns the file ID

@@ -22,6 +22,10 @@ fi
 
 IMAGE_PATH=$1
 
+. ./.env
+export OPENAI_API_KEY
+export OPENAI_ASSISTANT_ID
+
 # Check if the image file exists
 if [ ! -f "$IMAGE_PATH" ]; then
     echo "Error: Image file '$IMAGE_PATH' does not exist"
