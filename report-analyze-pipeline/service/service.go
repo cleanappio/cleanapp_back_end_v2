@@ -1,7 +1,6 @@
 package service
 
 import (
-	"encoding/json"
 	"log"
 	"sync"
 	"time"
@@ -125,7 +124,6 @@ func (s *Service) analyzeReport(report *database.Report, wg *sync.WaitGroup) {
 		}
 		return
 	}
-	log.Printf("Analysis response: %s", response)
 
 	// Parse the response
 	analysis, err := parser.ParseAnalysis(response)
@@ -190,32 +188,19 @@ func (s *Service) analyzeReport(report *database.Report, wg *sync.WaitGroup) {
 		log.Printf("Translating to %s", langName)
 		go func() {
 			defer transWg.Done()
-			toTranslate := *analysis
-			classification := toTranslate.Classification
-			toTranslate.Classification = ""
-			textToTranslate, err := json.Marshal(toTranslate)
-			if err != nil {
-				log.Printf("Failed to marshal analysis for report %d to %s: %v", report.Seq, langName, err)
-				return
-			}
 			// Translate the analysis text using the full language name
-			translatedText, err := s.openai.TranslateAnalysis(string(textToTranslate), langName)
+			translatedText, err := s.openai.TranslateAnalysis(string(response), langName)
 			if err != nil {
 				log.Printf("Failed to translate analysis for report %d to %s: %v", report.Seq, langName, err)
 				return
 			}
 
 			// Parse the translated response
-			var translatedAnalysis parser.AnalysisResult
-			err = json.Unmarshal([]byte(translatedText), &translatedAnalysis)
+			translatedAnalysis, err := parser.ParseAnalysis(translatedText)
 			if err != nil {
 				log.Printf("Failed to parse translated analysis for report %d in %s: %v", report.Seq, langName, err)
 				return
 			}
-
-			// Put back the classification
-			translatedAnalysis.Classification = classification
-
 			// Normalize the brand name for translated analysis
 			normalizedTranslatedBrandName := s.brandService.NormalizeBrandName(translatedAnalysis.BrandName)
 			translatedBrandDisplayName := translatedAnalysis.BrandName

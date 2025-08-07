@@ -67,7 +67,7 @@ type UserInfo struct {
 }
 
 // extractJSONFromMarkdown extracts JSON from markdown code blocks
-func extractJSONFromMarkdown(response string) string {
+func ExtractJSONFromMarkdown(response string) string {
 	// Look for JSON code blocks with ``` markers
 	startMarker := "```"
 	endMarker := "```"
@@ -111,7 +111,7 @@ func ParseAnalysis(response string) (*AnalysisResult, error) {
 	cleaned := strings.TrimSpace(response)
 
 	// Extract JSON from markdown if present
-	jsonContent := extractJSONFromMarkdown(cleaned)
+	jsonContent := ExtractJSONFromMarkdown(cleaned)
 
 	// Try to parse as JSON
 	var result AnalysisResult

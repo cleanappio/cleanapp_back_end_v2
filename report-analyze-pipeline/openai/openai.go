@@ -145,7 +145,7 @@ func (c *Client) AnalyzeImage(imageData []byte, prompt string) (string, error) {
 }
 
 func (c *Client) TranslateAnalysis(jsonText, targetLanguage string) (string, error) {
-	translationPrompt := fmt.Sprintf("Please translate values in the following JSON to %s. Return the pure JSON only as you got it, no other text.\n\n%s", targetLanguage, jsonText)
+	translationPrompt := fmt.Sprintf("Please translate values in the following JSON to %s. Translate all values except the field classification.\n\n%s", targetLanguage, jsonText)
 
 	reqBody := ChatRequest{
 		Model: "gpt-4o",
