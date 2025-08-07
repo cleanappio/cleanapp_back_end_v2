@@ -64,6 +64,7 @@ func (s *DatabaseService) GetReportsByBrand(brandName string, n int) ([]models.R
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		LEFT JOIN report_status rs ON r.seq = rs.seq
 		WHERE ra.brand_name = ?
+		AND ra.classification = 'physical'
 		AND (rs.status IS NULL OR rs.status = 'active')
 		ORDER BY r.ts DESC
 		LIMIT ?
@@ -236,6 +237,7 @@ func (s *DatabaseService) getBrandReportCount(brandName string) (int, error) {
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		LEFT JOIN report_status rs ON r.seq = rs.seq
 		WHERE ra.brand_name IS NOT NULL AND ra.brand_name != ''
+		AND ra.classification = 'physical'
 		AND (rs.status IS NULL OR rs.status = 'active')
 	`
 

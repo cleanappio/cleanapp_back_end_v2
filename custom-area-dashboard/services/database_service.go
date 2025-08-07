@@ -84,6 +84,7 @@ func (s *DatabaseService) GetReportsByCustomArea(n int) ([]models.ReportWithAnal
 		LEFT JOIN report_status rs ON r.seq = rs.seq
 		WHERE ST_Within(rg.geom, ST_GeomFromText(?, 4326))
 		AND (rs.status IS NULL OR rs.status = 'active')
+		AND ra.classification = 'physical'
 		ORDER BY r.ts DESC
 		LIMIT ?
 	`

@@ -86,6 +86,7 @@ func (h *Handlers) HealthCheck(c *gin.Context) {
 func (h *Handlers) GetLastNAnalyzedReports(c *gin.Context) {
 	// Get the limit parameter from query string, default to 10 if not provided
 	limitStr := c.DefaultQuery("n", "10")
+	classification := c.DefaultQuery("classification", "physical")
 
 	limit := 10 // default value
 	if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
@@ -111,7 +112,7 @@ func (h *Handlers) GetLastNAnalyzedReports(c *gin.Context) {
 	}
 
 	// Get the reports from the database
-	reportsInterface, err := h.db.GetLastNAnalyzedReports(c.Request.Context(), limit, fullData)
+	reportsInterface, err := h.db.GetLastNAnalyzedReports(c.Request.Context(), limit, classification, fullData)
 	if err != nil {
 		log.Printf("Failed to get last N analyzed reports: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve reports"})
@@ -211,6 +212,7 @@ func (h *Handlers) GetLastNReportsByID(c *gin.Context) {
 
 	// Get the N parameter from query string, default to 10 if not provided
 	nStr := c.DefaultQuery("N", "10")
+	classification := c.DefaultQuery("classification", "physical")
 
 	n := 10 // default value
 	if parsedN, err := strconv.Atoi(nStr); err == nil && parsedN > 0 {
@@ -226,7 +228,7 @@ func (h *Handlers) GetLastNReportsByID(c *gin.Context) {
 	}
 
 	// Get the reports from the database
-	reports, err := h.db.GetLastNReportsByID(c.Request.Context(), reportID, n)
+	reports, err := h.db.GetLastNReportsByID(c.Request.Context(), reportID, classification, n)
 	if err != nil {
 		log.Printf("Failed to get last N reports by ID %s: %v", reportID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve reports"})

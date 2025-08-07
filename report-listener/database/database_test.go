@@ -29,7 +29,7 @@ func TestReportFilteringWithStatus(t *testing.T) {
 	ctx := context.Background()
 
 	// Test GetLastNAnalyzedReports with the new filtering (full_data=true)
-	reportsInterface, err := db.GetLastNAnalyzedReports(ctx, 10, true)
+	reportsInterface, err := db.GetLastNAnalyzedReports(ctx, 10, "physical", true)
 	if err != nil {
 		t.Skipf("Skipping test - cannot query reports: %v", err)
 		return
@@ -64,7 +64,7 @@ func TestReportFilteringWithStatus(t *testing.T) {
 	}
 
 	// Test GetLastNAnalyzedReports with full_data=false (reports only)
-	reportsOnlyInterface, err := db.GetLastNAnalyzedReports(ctx, 10, false)
+	reportsOnlyInterface, err := db.GetLastNAnalyzedReports(ctx, 10, "physical", false)
 	if err != nil {
 		t.Skipf("Skipping test - cannot query reports: %v", err)
 		return

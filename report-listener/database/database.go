@@ -111,7 +111,7 @@ func (d *Database) GetReportsSince(ctx context.Context, sinceSeq int) ([]models.
 			ra.seq, ra.source, ra.analysis_text, ra.analysis_image,
 			ra.title, ra.description, ra.brand_name, ra.brand_display_name,
 			ra.litter_probability, ra.hazard_probability, 
-			ra.severity_level, ra.summary, ra.language, ra.created_at
+			ra.severity_level, ra.summary, ra.language, ra.classification, ra.created_at
 		FROM report_analysis ra
 		WHERE ra.seq IN (%s)
 		ORDER BY ra.seq ASC, ra.language ASC
@@ -182,9 +182,9 @@ func (d *Database) GetLatestReportSeq(ctx context.Context) (int, error) {
 }
 
 // GetReportCount returns the total number of reports
-func (d *Database) GetReportCount(ctx context.Context) (int, error) {
+func (d *Database) GetReportCount(ctx context.Context, classification string) (int, error) {
 	var count int
-	err := d.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM reports").Scan(&count)
+	err := d.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM reports r JOIN report_analysis ra ON r.seq = ra.seq WHERE ra.classification = ?", classification).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get report count: %w", err)
 	}
@@ -247,20 +247,20 @@ func (d *Database) EnsureServiceStateTable(ctx context.Context) error {
 
 // GetLastNAnalyzedReports retrieves the last N analyzed reports
 // If full_data is true, returns reports with analysis. If false, returns only reports.
-func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int, full_data bool) (interface{}, error) {
+func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int, classification string, full_data bool) (interface{}, error) {
 	// First, get the last N reports that have analysis and are not resolved
 	reportsQuery := `
 		SELECT DISTINCT r.seq, r.ts, r.id, r.latitude, r.longitude
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		LEFT JOIN report_status rs ON r.seq = rs.seq
-		WHERE (rs.status IS NULL OR rs.status = 'active') AND (ra.hazard_probability >= 0.5 OR ra.litter_probability >= 0.5)
+		WHERE (rs.status IS NULL OR rs.status = 'active') AND (ra.hazard_probability >= 0.5 OR ra.litter_probability >= 0.5) AND ra.classification = ?
 		AND ra.is_valid = TRUE
 		ORDER BY r.seq DESC
 		LIMIT ?
 	`
 
-	reportRows, err := d.db.QueryContext(ctx, reportsQuery, limit)
+	reportRows, err := d.db.QueryContext(ctx, reportsQuery, classification, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query last N analyzed reports: %w", err)
 	}
@@ -315,7 +315,7 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int, full_
 			ra.seq, ra.source, ra.analysis_text, ra.analysis_image,
 			ra.title, ra.description, ra.brand_name, ra.brand_display_name,
 			ra.litter_probability, ra.hazard_probability, 
-			ra.severity_level, ra.summary, ra.language, ra.created_at
+			ra.severity_level, ra.summary, ra.language, ra.classification, ra.created_at
 		FROM report_analysis ra
 		WHERE ra.seq IN (%s)
 		ORDER BY ra.seq DESC, ra.language ASC
@@ -408,7 +408,7 @@ func (d *Database) GetReportBySeq(ctx context.Context, seq int) (*models.ReportW
 			ra.seq, ra.source, ra.analysis_text, ra.analysis_image,
 			ra.title, ra.description, ra.brand_name, ra.brand_display_name,
 			ra.litter_probability, ra.hazard_probability, 
-			ra.severity_level, ra.summary, ra.language, ra.created_at
+			ra.severity_level, ra.summary, ra.language, ra.classification, ra.created_at
 		FROM report_analysis ra
 		WHERE ra.seq = ?
 		ORDER BY ra.language ASC
@@ -460,7 +460,7 @@ func (d *Database) GetReportBySeq(ctx context.Context, seq int) (*models.ReportW
 }
 
 // GetLastNReportsByID retrieves the last N reports with analysis for a given report ID
-func (d *Database) GetLastNReportsByID(ctx context.Context, reportID string, limit int) ([]models.ReportWithAnalysis, error) {
+func (d *Database) GetLastNReportsByID(ctx context.Context, reportID string, classification string, limit int) ([]models.ReportWithAnalysis, error) {
 	// First, get the last N reports for the given ID that are not resolved
 	reportsQuery := `
 		SELECT DISTINCT r.seq, r.ts, r.id, r.latitude, r.longitude, r.image
@@ -468,12 +468,12 @@ func (d *Database) GetLastNReportsByID(ctx context.Context, reportID string, lim
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		LEFT JOIN report_status rs ON r.seq = rs.seq
 		WHERE r.id = ? AND (rs.status IS NULL OR rs.status = 'active') AND ra.is_valid = TRUE
-		AND (ra.hazard_probability >= 0.5 OR ra.litter_probability >= 0.5)
+		AND (ra.hazard_probability >= 0.5 OR ra.litter_probability >= 0.5) AND ra.classification = ?
 		ORDER BY r.seq DESC
 		LIMIT ?
 	`
 
-	reportRows, err := d.db.QueryContext(ctx, reportsQuery, reportID, limit)
+	reportRows, err := d.db.QueryContext(ctx, reportsQuery, reportID, classification, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query reports by ID: %w", err)
 	}
@@ -521,7 +521,7 @@ func (d *Database) GetLastNReportsByID(ctx context.Context, reportID string, lim
 			ra.seq, ra.source, ra.analysis_text, ra.analysis_image,
 			ra.title, ra.description, ra.brand_name, ra.brand_display_name,
 			ra.litter_probability, ra.hazard_probability, 
-			ra.severity_level, ra.summary, ra.language, ra.created_at
+			ra.severity_level, ra.summary, ra.language, ra.classification, ra.created_at
 		FROM report_analysis ra
 		WHERE ra.seq IN (%s)
 		ORDER BY ra.seq DESC, ra.language ASC
@@ -604,6 +604,7 @@ func (d *Database) GetReportsByLatLng(ctx context.Context, latitude, longitude f
 		AND (rs.status IS NULL OR rs.status = 'active')
 		AND (ra.hazard_probability >= 0.5 OR ra.litter_probability >= 0.5)
 		AND ra.is_valid = TRUE
+		AND ra.classification = 'physical'
 		ORDER BY r.ts DESC
 		LIMIT ?
 	`
@@ -656,7 +657,7 @@ func (d *Database) GetReportsByLatLng(ctx context.Context, latitude, longitude f
 			ra.seq, ra.source, ra.analysis_text, ra.analysis_image,
 			ra.title, ra.description, ra.brand_name, ra.brand_display_name,
 			ra.litter_probability, ra.hazard_probability, 
-			ra.severity_level, ra.summary, ra.language, ra.created_at
+			ra.severity_level, ra.summary, ra.language, ra.classification, ra.created_at
 		FROM report_analysis ra
 		WHERE ra.seq IN (%s)
 		ORDER BY ra.seq DESC, ra.language ASC
