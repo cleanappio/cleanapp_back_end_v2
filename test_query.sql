@@ -1,0 +1,1 @@
+SELECT ra.seq, ra.source, ra.analysis_text, ra.analysis_image, ra.title, ra.description, ra.brand_name, ra.brand_display_name, ra.litter_probability, ra.hazard_probability, ra.digital_bug_probability, ra.severity_level, ra.summary, ra.language, ra.classification, ra.created_at FROM report_analysis ra WHERE ra.seq IN (76) ORDER BY ra.seq DESC, ra.language ASC;

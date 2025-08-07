@@ -59,7 +59,8 @@ func (d *Database) GetReportsSince(ctx context.Context, sinceSeq int) ([]models.
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		LEFT JOIN report_status rs ON r.seq = rs.seq
 		WHERE r.seq > ? 
-		AND (rs.status IS NULL OR rs.status = 'active') AND (ra.hazard_probability >= 0.5 OR ra.litter_probability >= 0.5)
+		AND (rs.status IS NULL OR rs.status = 'active')
+		AND (ra.hazard_probability >= 0.5 OR ra.litter_probability >= 0.5 OR ra.classification = 'digital')
 		AND ra.is_valid = TRUE
 		ORDER BY r.seq ASC
 	`
@@ -110,7 +111,7 @@ func (d *Database) GetReportsSince(ctx context.Context, sinceSeq int) ([]models.
 		SELECT 
 			ra.seq, ra.source, ra.analysis_text, ra.analysis_image,
 			ra.title, ra.description, ra.brand_name, ra.brand_display_name,
-			ra.litter_probability, ra.hazard_probability, 
+			ra.litter_probability, ra.hazard_probability, ra.digital_bug_probability,
 			ra.severity_level, ra.summary, ra.language, ra.classification, ra.created_at
 		FROM report_analysis ra
 		WHERE ra.seq IN (%s)
@@ -138,9 +139,11 @@ func (d *Database) GetReportsSince(ctx context.Context, sinceSeq int) ([]models.
 			&analysis.BrandDisplayName,
 			&analysis.LitterProbability,
 			&analysis.HazardProbability,
+			&analysis.DigitalBugProbability,
 			&analysis.SeverityLevel,
 			&analysis.Summary,
 			&analysis.Language,
+			&analysis.Classification,
 			&analysis.CreatedAt,
 		)
 		if err != nil {
@@ -254,7 +257,8 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int, class
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		LEFT JOIN report_status rs ON r.seq = rs.seq
-		WHERE (rs.status IS NULL OR rs.status = 'active') AND (ra.hazard_probability >= 0.5 OR ra.litter_probability >= 0.5) AND ra.classification = ?
+		WHERE (rs.status IS NULL OR rs.status = 'active')
+		AND (ra.hazard_probability >= 0.5 OR ra.litter_probability >= 0.5 OR ra.classification = 'digital') AND ra.classification = ?
 		AND ra.is_valid = TRUE
 		ORDER BY r.seq DESC
 		LIMIT ?
@@ -314,7 +318,7 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int, class
 		SELECT 
 			ra.seq, ra.source, ra.analysis_text, ra.analysis_image,
 			ra.title, ra.description, ra.brand_name, ra.brand_display_name,
-			ra.litter_probability, ra.hazard_probability, 
+			ra.litter_probability, ra.hazard_probability, ra.digital_bug_probability,
 			ra.severity_level, ra.summary, ra.language, ra.classification, ra.created_at
 		FROM report_analysis ra
 		WHERE ra.seq IN (%s)
@@ -342,9 +346,11 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int, class
 			&analysis.BrandDisplayName,
 			&analysis.LitterProbability,
 			&analysis.HazardProbability,
+			&analysis.DigitalBugProbability,
 			&analysis.SeverityLevel,
 			&analysis.Summary,
 			&analysis.Language,
+			&analysis.Classification,
 			&analysis.CreatedAt,
 		)
 		if err != nil {
@@ -407,7 +413,7 @@ func (d *Database) GetReportBySeq(ctx context.Context, seq int) (*models.ReportW
 		SELECT 
 			ra.seq, ra.source, ra.analysis_text, ra.analysis_image,
 			ra.title, ra.description, ra.brand_name, ra.brand_display_name,
-			ra.litter_probability, ra.hazard_probability, 
+			ra.litter_probability, ra.hazard_probability, ra.digital_bug_probability,
 			ra.severity_level, ra.summary, ra.language, ra.classification, ra.created_at
 		FROM report_analysis ra
 		WHERE ra.seq = ?
@@ -434,9 +440,11 @@ func (d *Database) GetReportBySeq(ctx context.Context, seq int) (*models.ReportW
 			&analysis.BrandDisplayName,
 			&analysis.LitterProbability,
 			&analysis.HazardProbability,
+			&analysis.DigitalBugProbability,
 			&analysis.SeverityLevel,
 			&analysis.Summary,
 			&analysis.Language,
+			&analysis.Classification,
 			&analysis.CreatedAt,
 		)
 		if err != nil {
@@ -468,7 +476,7 @@ func (d *Database) GetLastNReportsByID(ctx context.Context, reportID string, cla
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		LEFT JOIN report_status rs ON r.seq = rs.seq
 		WHERE r.id = ? AND (rs.status IS NULL OR rs.status = 'active') AND ra.is_valid = TRUE
-		AND (ra.hazard_probability >= 0.5 OR ra.litter_probability >= 0.5) AND ra.classification = ?
+		AND (ra.hazard_probability >= 0.5 OR ra.litter_probability >= 0.5 OR ra.classification = 'digital') AND ra.classification = ?
 		ORDER BY r.seq DESC
 		LIMIT ?
 	`
@@ -520,7 +528,7 @@ func (d *Database) GetLastNReportsByID(ctx context.Context, reportID string, cla
 		SELECT 
 			ra.seq, ra.source, ra.analysis_text, ra.analysis_image,
 			ra.title, ra.description, ra.brand_name, ra.brand_display_name,
-			ra.litter_probability, ra.hazard_probability, 
+			ra.litter_probability, ra.hazard_probability, ra.digital_bug_probability,	
 			ra.severity_level, ra.summary, ra.language, ra.classification, ra.created_at
 		FROM report_analysis ra
 		WHERE ra.seq IN (%s)
@@ -548,9 +556,11 @@ func (d *Database) GetLastNReportsByID(ctx context.Context, reportID string, cla
 			&analysis.BrandDisplayName,
 			&analysis.LitterProbability,
 			&analysis.HazardProbability,
+			&analysis.DigitalBugProbability,
 			&analysis.SeverityLevel,
 			&analysis.Summary,
 			&analysis.Language,
+			&analysis.Classification,
 			&analysis.CreatedAt,
 		)
 		if err != nil {
@@ -602,7 +612,7 @@ func (d *Database) GetReportsByLatLng(ctx context.Context, latitude, longitude f
 		WHERE r.latitude BETWEEN ? AND ?
 		AND r.longitude BETWEEN ? AND ?
 		AND (rs.status IS NULL OR rs.status = 'active')
-		AND (ra.hazard_probability >= 0.5 OR ra.litter_probability >= 0.5)
+		AND (ra.hazard_probability >= 0.5 OR ra.litter_probability >= 0.5 OR ra.classification = 'digital')
 		AND ra.is_valid = TRUE
 		AND ra.classification = 'physical'
 		ORDER BY r.ts DESC
@@ -656,7 +666,7 @@ func (d *Database) GetReportsByLatLng(ctx context.Context, latitude, longitude f
 		SELECT 
 			ra.seq, ra.source, ra.analysis_text, ra.analysis_image,
 			ra.title, ra.description, ra.brand_name, ra.brand_display_name,
-			ra.litter_probability, ra.hazard_probability, 
+			ra.litter_probability, ra.hazard_probability, ra.digital_bug_probability,
 			ra.severity_level, ra.summary, ra.language, ra.classification, ra.created_at
 		FROM report_analysis ra
 		WHERE ra.seq IN (%s)
@@ -684,9 +694,11 @@ func (d *Database) GetReportsByLatLng(ctx context.Context, latitude, longitude f
 			&analysis.BrandDisplayName,
 			&analysis.LitterProbability,
 			&analysis.HazardProbability,
+			&analysis.DigitalBugProbability,
 			&analysis.SeverityLevel,
 			&analysis.Summary,
 			&analysis.Language,
+			&analysis.Classification,
 			&analysis.CreatedAt,
 		)
 		if err != nil {

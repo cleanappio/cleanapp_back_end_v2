@@ -150,21 +150,22 @@ func (s *Service) analyzeReport(report *database.Report, wg *sync.WaitGroup) {
 
 	// Create the English analysis result
 	analysisResult := &database.ReportAnalysis{
-		Seq:               report.Seq,
-		Source:            "ChatGPT",
-		AnalysisText:      response,
-		AnalysisImage:     nil, // OpenAI doesn't return images in this context
-		Title:             analysis.Title,
-		Description:       analysis.Description,
-		BrandName:         normalizedBrandName,
-		BrandDisplayName:  brandDisplayName,
-		LitterProbability: analysis.LitterProbability,
-		HazardProbability: analysis.HazardProbability,
-		SeverityLevel:     analysis.SeverityLevel,
-		Summary:           analysis.Title + ": " + analysis.Description,
-		Language:          "en",
-		IsValid:           true,
-		Classification:    analysis.Classification.String(),
+		Seq:                   report.Seq,
+		Source:                "ChatGPT",
+		AnalysisText:          response,
+		AnalysisImage:         nil, // OpenAI doesn't return images in this context
+		Title:                 analysis.Title,
+		Description:           analysis.Description,
+		BrandName:             normalizedBrandName,
+		BrandDisplayName:      brandDisplayName,
+		LitterProbability:     analysis.LitterProbability,
+		HazardProbability:     analysis.HazardProbability,
+		DigitalBugProbability: analysis.DigitalBugProbability,
+		SeverityLevel:         analysis.SeverityLevel,
+		Summary:               analysis.Title + ": " + analysis.Description,
+		Language:              "en",
+		IsValid:               true,
+		Classification:        analysis.Classification.String(),
 	}
 
 	// Save the English analysis to the database
@@ -207,21 +208,22 @@ func (s *Service) analyzeReport(report *database.Report, wg *sync.WaitGroup) {
 
 			// Create the translated analysis result
 			translatedResult := &database.ReportAnalysis{
-				Seq:               report.Seq,
-				Source:            "ChatGPT",
-				AnalysisText:      translatedText,
-				AnalysisImage:     nil,
-				Title:             translatedAnalysis.Title,
-				Description:       translatedAnalysis.Description,
-				BrandName:         normalizedTranslatedBrandName,
-				BrandDisplayName:  translatedBrandDisplayName,
-				LitterProbability: translatedAnalysis.LitterProbability,
-				HazardProbability: translatedAnalysis.HazardProbability,
-				SeverityLevel:     translatedAnalysis.SeverityLevel,
-				Summary:           translatedAnalysis.Title + ": " + translatedAnalysis.Description,
-				Language:          langCode, // Store the language code in the database
-				IsValid:           true,
-				Classification:    translatedAnalysis.Classification.String(),
+				Seq:                   report.Seq,
+				Source:                "ChatGPT",
+				AnalysisText:          translatedText,
+				AnalysisImage:         nil,
+				Title:                 translatedAnalysis.Title,
+				Description:           translatedAnalysis.Description,
+				BrandName:             normalizedTranslatedBrandName,
+				BrandDisplayName:      translatedBrandDisplayName,
+				LitterProbability:     translatedAnalysis.LitterProbability,
+				HazardProbability:     translatedAnalysis.HazardProbability,
+				DigitalBugProbability: translatedAnalysis.DigitalBugProbability,
+				SeverityLevel:         translatedAnalysis.SeverityLevel,
+				Summary:               translatedAnalysis.Title + ": " + translatedAnalysis.Description,
+				Language:              langCode, // Store the language code in the database
+				IsValid:               true,
+				Classification:        translatedAnalysis.Classification.String(),
 			}
 
 			// Save the translated analysis to the database

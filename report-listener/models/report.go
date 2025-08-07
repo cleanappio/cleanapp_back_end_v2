@@ -26,9 +26,11 @@ type ReportAnalysis struct {
 	BrandDisplayName  string    `json:"brand_display_name" db:"brand_display_name"`
 	LitterProbability float64   `json:"litter_probability" db:"litter_probability"`
 	HazardProbability float64   `json:"hazard_probability" db:"hazard_probability"`
+	DigitalBugProbability float64   `json:"digital_bug_probability" db:"digital_bug_probability"`
 	SeverityLevel     float64   `json:"severity_level" db:"severity_level"`
 	Summary           string    `json:"summary" db:"summary"`
 	Language          string    `json:"language" db:"language"`
+	Classification    string    `json:"classification" db:"classification"`
 	CreatedAt         time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at" db:"updated_at"`
 }

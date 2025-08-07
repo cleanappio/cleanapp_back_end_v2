@@ -32,21 +32,22 @@ type Report struct {
 
 // ReportAnalysis represents an analysis result
 type ReportAnalysis struct {
-	Seq               int
-	Source            string
-	AnalysisText      string
-	AnalysisImage     []byte
-	Title             string
-	Description       string
-	BrandName         string
-	BrandDisplayName  string
-	LitterProbability float64
-	HazardProbability float64
-	SeverityLevel     float64
-	Summary           string
-	Language          string
-	IsValid           bool
-	Classification    string
+	Seq                   int
+	Source                string
+	AnalysisText          string
+	AnalysisImage         []byte
+	Title                 string
+	Description           string
+	BrandName             string
+	BrandDisplayName      string
+	LitterProbability     float64
+	HazardProbability     float64
+	DigitalBugProbability float64
+	SeverityLevel         float64
+	Summary               string
+	Language              string
+	IsValid               bool
+	Classification        string
 }
 
 // NewDatabase creates a new database connection
@@ -91,6 +92,7 @@ func (d *Database) CreateReportAnalysisTable() error {
 		brand_display_name VARCHAR(255) DEFAULT '',
 		litter_probability FLOAT,
 		hazard_probability FLOAT,
+		digital_bug_probability FLOAT DEFAULT 0.0,
 		severity_level FLOAT,
 		summary TEXT,
 		language VARCHAR(2) NOT NULL DEFAULT 'en',
@@ -189,6 +191,24 @@ func (d *Database) MigrateReportAnalysisTable() error {
 		log.Printf("classification column already exists in report_analysis table, skipping migration")
 	}
 
+	// Check and add digital_bug_probability column
+	exists, err = d.columnExists("report_analysis", "digital_bug_probability")
+	if err != nil {
+		return fmt.Errorf("failed to check if digital_bug_probability column exists: %w", err)
+	}
+
+	if !exists {
+		log.Printf("Adding digital_bug_probability column to report_analysis table...")
+		query := "ALTER TABLE report_analysis ADD COLUMN digital_bug_probability FLOAT DEFAULT 0.0"
+		_, err = d.db.Exec(query)
+		if err != nil {
+			return fmt.Errorf("failed to add digital_bug_probability column: %w", err)
+		}
+		log.Printf("Successfully added digital_bug_probability column to report_analysis table")
+	} else {
+		log.Printf("digital_bug_probability column already exists in report_analysis table, skipping migration")
+	}
+
 	// Add indexes
 	fields := []string{"is_valid", "classification"}
 	for _, field := range fields {
@@ -259,9 +279,9 @@ func (d *Database) SaveAnalysis(analysis *ReportAnalysis) error {
 	INSERT INTO report_analysis (
 		seq, source, analysis_text, analysis_image, 
 		title, description, brand_name, brand_display_name,
-		litter_probability, hazard_probability, severity_level, summary, language, is_valid, classification
+		litter_probability, hazard_probability, digital_bug_probability, severity_level, summary, language, is_valid, classification
 	)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err := d.db.Exec(query,
 		analysis.Seq,
@@ -274,6 +294,7 @@ func (d *Database) SaveAnalysis(analysis *ReportAnalysis) error {
 		analysis.BrandDisplayName,
 		analysis.LitterProbability,
 		analysis.HazardProbability,
+		analysis.DigitalBugProbability,
 		analysis.SeverityLevel,
 		analysis.Summary,
 		analysis.Language,
