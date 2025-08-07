@@ -6,14 +6,64 @@ import (
 	"strings"
 )
 
+// Classification represents the type of issue
+type Classification string
+
+const (
+	ClassificationPhysical Classification = "physical"
+	ClassificationDigital  Classification = "digital"
+)
+
+// IsValid checks if the classification is valid
+func (c Classification) IsValid() bool {
+	return c == ClassificationPhysical || c == ClassificationDigital
+}
+
+// String returns the string representation of the classification
+func (c Classification) String() string {
+	return string(c)
+}
+
+// UnmarshalJSON implements custom JSON unmarshaling for Classification
+func (c *Classification) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+
+	classification := Classification(strings.ToLower(s))
+	if !classification.IsValid() {
+		return errors.New("invalid classification: must be 'physical' or 'digital'")
+	}
+
+	*c = classification
+	return nil
+}
+
 // AnalysisResult represents the parsed analysis from OpenAI
 type AnalysisResult struct {
-	Title             string  `json:"title"`
-	Description       string  `json:"description"`
-	BrandName         string  `json:"brand_name"`
-	LitterProbability float64 `json:"litter_probability"`
-	HazardProbability float64 `json:"hazard_probability"`
-	SeverityLevel     float64 `json:"severity_level"`
+	Title                 string         `json:"title"`
+	Description           string         `json:"description"`
+	Classification        Classification `json:"classification"`
+	UserInfo              UserInfo       `json:"user_info"`
+	Location              string         `json:"location"`
+	BrandName             string         `json:"brand_name"`
+	ResponsibleParty      string         `json:"responsible_party"`
+	InferredContactEmails []string       `json:"inferred_contact_emails"`
+	SuggestedRemediation  []string       `json:"suggested_remediation"`
+	LitterProbability     float64        `json:"litter_probability"`
+	HazardProbability     float64        `json:"hazard_probability"`
+	DigitalBugProbability float64        `json:"digital_bug_probabilty"`
+	SeverityLevel         float64        `json:"severity_level"`
+}
+
+// UserInfo represents user information in the analysis
+type UserInfo struct {
+	Name        string `json:"name"`
+	Email       string `json:"email"`
+	Company     string `json:"company"`
+	Role        string `json:"role"`
+	CompanySize string `json:"company_size"`
 }
 
 // extractJSONFromMarkdown extracts JSON from markdown code blocks
@@ -74,11 +124,17 @@ func ParseAnalysis(response string) (*AnalysisResult, error) {
 		if result.Description == "" {
 			return nil, errors.New("description is required")
 		}
+		if !result.Classification.IsValid() {
+			return nil, errors.New("classification is required")
+		}
 		if result.LitterProbability < 0 || result.LitterProbability > 1 {
 			return nil, errors.New("litter_probability must be between 0 and 1")
 		}
 		if result.HazardProbability < 0 || result.HazardProbability > 1 {
 			return nil, errors.New("hazard_probability must be between 0 and 1")
+		}
+		if result.DigitalBugProbability < 0 || result.DigitalBugProbability > 1 {
+			return nil, errors.New("digital_bug_probabilty must be between 0 and 1")
 		}
 		if result.SeverityLevel < 0 || result.SeverityLevel > 1 {
 			return nil, errors.New("severity_level must be between 0 and 1")

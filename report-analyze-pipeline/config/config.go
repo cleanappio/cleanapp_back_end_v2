@@ -27,8 +27,9 @@ type Config struct {
 	Port string
 
 	// OpenAI configuration
-	OpenAIAPIKey string
-	OpenAIModel  string
+	OpenAIAPIKey      string
+	OpenAIAssistantID string
+	OpenAIModel       string
 
 	// Analysis configuration
 	AnalysisInterval time.Duration
@@ -60,7 +61,8 @@ func Load() *Config {
 
 		// OpenAI defaults
 		OpenAIAPIKey: getEnv("OPENAI_API_KEY", ""),
-		OpenAIModel:  getEnv("OPENAI_MODEL", "gpt-4o"),
+		OpenAIAssistantID: getEnv("OPENAI_ASSISTANT_ID", ""),
+		OpenAIModel:       getEnv("OPENAI_MODEL", "gpt-4o"),
 
 		// Analysis defaults (30 seconds)
 		AnalysisInterval: getDurationEnv("ANALYSIS_INTERVAL", 30*time.Second),

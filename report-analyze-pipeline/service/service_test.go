@@ -62,6 +62,7 @@ func TestReportAnalysisWithBrandDisplayName(t *testing.T) {
 		SeverityLevel:     0.4,
 		Summary:           "Test Summary",
 		Language:          "en",
+		Classification:    "physical",
 	}
 
 	// Verify the fields are set correctly
@@ -71,5 +72,9 @@ func TestReportAnalysisWithBrandDisplayName(t *testing.T) {
 
 	if analysis.BrandDisplayName != "Coca-Cola" {
 		t.Errorf("Expected BrandDisplayName to be 'Coca-Cola', got %q", analysis.BrandDisplayName)
+	}
+
+	if analysis.Classification != "physical" {
+		t.Errorf("Expected Classification to be 'physical', got %q", analysis.Classification)
 	}
 }

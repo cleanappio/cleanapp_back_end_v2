@@ -46,6 +46,7 @@ type ReportAnalysis struct {
 	Summary           string
 	Language          string
 	IsValid           bool
+	Classification    string
 }
 
 // NewDatabase creates a new database connection
@@ -94,6 +95,7 @@ func (d *Database) CreateReportAnalysisTable() error {
 		summary TEXT,
 		language VARCHAR(2) NOT NULL DEFAULT 'en',
 		is_valid BOOLEAN DEFAULT TRUE,
+		classification ENUM('physical', 'digital') DEFAULT 'physical',
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 		INDEX seq_index (seq),
@@ -101,7 +103,8 @@ func (d *Database) CreateReportAnalysisTable() error {
 		INDEX idx_report_analysis_brand_name (brand_name),
 		INDEX idx_report_analysis_brand_display_name (brand_display_name),
 		INDEX idx_report_analysis_language (language),
-		INDEX idx_report_analysis_is_valid (is_valid)
+		INDEX idx_report_analysis_is_valid (is_valid),
+		INDEX idx_report_analysis_classification (classification)
 	)`
 
 	_, err := d.db.Exec(query)
@@ -150,46 +153,63 @@ func (d *Database) indexExists(tableName, indexName string) (bool, error) {
 }
 
 func (d *Database) MigrateReportAnalysisTable() error {
-	// Check if is_valid column already exists
-	isValidExists, err := d.columnExists("report_analysis", "is_valid")
+	// Check and add is_valid column
+	exists, err := d.columnExists("report_analysis", "is_valid")
 	if err != nil {
 		return fmt.Errorf("failed to check if is_valid column exists: %w", err)
 	}
 
-	if !isValidExists {
-		log.Println("Adding is_valid column to report_analysis table...")
-
-		query := `ALTER TABLE report_analysis ADD COLUMN is_valid BOOLEAN DEFAULT TRUE`
+	if !exists {
+		log.Printf("Adding is_valid column to report_analysis table...")
+		query := "ALTER TABLE report_analysis ADD COLUMN is_valid BOOLEAN DEFAULT TRUE"
 		_, err = d.db.Exec(query)
 		if err != nil {
 			return fmt.Errorf("failed to add is_valid column: %w", err)
 		}
-
-		log.Println("Successfully added is_valid column to report_analysis table")
+		log.Printf("Successfully added is_valid column to report_analysis table")
 	} else {
-		log.Println("is_valid column already exists in report_analysis table, skipping migration")
+		log.Printf("is_valid column already exists in report_analysis table, skipping migration")
 	}
 
-	// Check if is_valid index already exists
-	isValidIndexExists, err := d.indexExists("report_analysis", "idx_report_analysis_is_valid")
+	// Check and add classification column
+	exists, err = d.columnExists("report_analysis", "classification")
 	if err != nil {
-		return fmt.Errorf("failed to check if is_valid index exists: %w", err)
+		return fmt.Errorf("failed to check if classification column exists: %w", err)
 	}
 
-	if !isValidIndexExists {
-		log.Println("Adding index for is_valid column to report_analysis table...")
-
-		indexQuery := `ALTER TABLE report_analysis ADD INDEX idx_report_analysis_is_valid (is_valid)`
-		_, err = d.db.Exec(indexQuery)
+	if !exists {
+		log.Printf("Adding classification column to report_analysis table...")
+		query := "ALTER TABLE report_analysis ADD COLUMN classification ENUM('physical', 'digital') DEFAULT 'physical'"
+		_, err = d.db.Exec(query)
 		if err != nil {
-			return fmt.Errorf("failed to add is_valid index: %w", err)
+			return fmt.Errorf("failed to add classification column: %w", err)
+		}
+		log.Printf("Successfully added classification column to report_analysis table")
+	} else {
+		log.Printf("classification column already exists in report_analysis table, skipping migration")
+	}
+
+	// Add indexes
+	fields := []string{"is_valid", "classification"}
+	for _, field := range fields {
+		indexName := fmt.Sprintf("idx_report_analysis_%s", field)
+		exists, err = d.indexExists("report_analysis", indexName)
+		if err != nil {
+			return fmt.Errorf("failed to check if %s index exists: %w", indexName, err)
 		}
 
-		log.Println("Successfully added index for is_valid column to report_analysis table")
-	} else {
-		log.Println("is_valid index already exists in report_analysis table, skipping migration")
+		if !exists {
+			log.Printf("Adding %s index to report_analysis table...", indexName)
+			query := fmt.Sprintf("ALTER TABLE report_analysis ADD INDEX %s (%s)", indexName, field)
+			_, err = d.db.Exec(query)
+			if err != nil {
+				return fmt.Errorf("failed to add %s index: %w", indexName, err)
+			}
+			log.Printf("Successfully added %s index to report_analysis table", indexName)
+		} else {
+			log.Printf("%s index already exists in report_analysis table, skipping migration", indexName)
+		}
 	}
-
 	return nil
 }
 
@@ -239,9 +259,9 @@ func (d *Database) SaveAnalysis(analysis *ReportAnalysis) error {
 	INSERT INTO report_analysis (
 		seq, source, analysis_text, analysis_image, 
 		title, description, brand_name, brand_display_name,
-		litter_probability, hazard_probability, severity_level, summary, language, is_valid
+		litter_probability, hazard_probability, severity_level, summary, language, is_valid, classification
 	)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err := d.db.Exec(query,
 		analysis.Seq,
@@ -258,6 +278,7 @@ func (d *Database) SaveAnalysis(analysis *ReportAnalysis) error {
 		analysis.Summary,
 		analysis.Language,
 		analysis.IsValid,
+		analysis.Classification,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to save analysis: %w", err)

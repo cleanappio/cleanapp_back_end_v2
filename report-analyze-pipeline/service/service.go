@@ -1,7 +1,7 @@
 package service
 
 import (
-	"fmt"
+	"encoding/json"
 	"log"
 	"sync"
 	"time"
@@ -15,24 +15,27 @@ import (
 
 // Service represents the report analysis service
 type Service struct {
-	config       *config.Config
-	db           *database.Database
-	openai       *openai.Client
-	brandService *services.BrandService
-	stopChan     chan bool
+	config          *config.Config
+	db              *database.Database
+	openai          *openai.Client
+	openaiAssistant *openai.AssistantClient
+	brandService    *services.BrandService
+	stopChan        chan bool
 }
 
 // NewService creates a new report analysis service
 func NewService(cfg *config.Config, db *database.Database) *Service {
 	client := openai.NewClient(cfg.OpenAIAPIKey, cfg.OpenAIModel)
+	openaiAssistant := openai.NewAssistantClient(cfg.OpenAIAPIKey, cfg.OpenAIAssistantID)
 	brandService := services.NewBrandService()
 
 	return &Service{
-		config:       cfg,
-		db:           db,
-		openai:       client,
-		brandService: brandService,
-		stopChan:     make(chan bool),
+		config:          cfg,
+		db:              db,
+		openai:          client,
+		openaiAssistant: openaiAssistant,
+		brandService:    brandService,
+		stopChan:        make(chan bool),
 	}
 }
 
@@ -104,30 +107,16 @@ func (s *Service) processUnanalyzedReports() {
 func (s *Service) analyzeReport(report *database.Report, wg *sync.WaitGroup) {
 	defer wg.Done()
 
-	// Prepare the prompt for OpenAI
-	prompt := fmt.Sprintf(`
-%s
-
-Analyze this image and provide a JSON response with the following structure:
-{
-  "title": "A descriptive title for the issue",
-  "description": "A detailed description of what you see in the image",
-  "brand_name": "A brand name, if present, otherwise null",
-  "litter_probability": 0.0-1.0,
-  "hazard_probability": 0.0-1.0,
-  "severity_level": 0.0-1.0
-}
-`, s.config.AnalysisPrompt)
-
-	// Call OpenAI API for initial analysis in English
-	response, err := s.openai.AnalyzeImage(report.Image, prompt)
+	// Call OpenAI API with assistant for initial analysis in English
+	response, err := s.openaiAssistant.AnalyseImageWithAssistant(report.Image)
 	if err != nil {
 		log.Printf("Failed to analyze report %d: %v", report.Seq, err)
 		// Save error report
 		errorAnalysis := &database.ReportAnalysis{
-			Seq:     report.Seq,
-			Source:  "ChatGPT",
-			IsValid: false,
+			Seq:            report.Seq,
+			Source:         "ChatGPT",
+			IsValid:        false,
+			Classification: "physical",
 		}
 		if saveErr := s.db.SaveAnalysis(errorAnalysis); saveErr != nil {
 			log.Printf("Failed to save error analysis for report %d: %v", report.Seq, saveErr)
@@ -144,9 +133,10 @@ Analyze this image and provide a JSON response with the following structure:
 		log.Printf("Failed to parse analysis for report %d: %v", report.Seq, err)
 		// Save error report
 		errorAnalysis := &database.ReportAnalysis{
-			Seq:     report.Seq,
-			Source:  "ChatGPT",
-			IsValid: false,
+			Seq:            report.Seq,
+			Source:         "ChatGPT",
+			IsValid:        false,
+			Classification: "physical",
 		}
 		if saveErr := s.db.SaveAnalysis(errorAnalysis); saveErr != nil {
 			log.Printf("Failed to save error analysis for report %d: %v", report.Seq, saveErr)
@@ -176,6 +166,7 @@ Analyze this image and provide a JSON response with the following structure:
 		Summary:           analysis.Title + ": " + analysis.Description,
 		Language:          "en",
 		IsValid:           true,
+		Classification:    analysis.Classification.String(),
 	}
 
 	// Save the English analysis to the database
@@ -199,19 +190,31 @@ Analyze this image and provide a JSON response with the following structure:
 		log.Printf("Translating to %s", langName)
 		go func() {
 			defer transWg.Done()
+			toTranslate := *analysis
+			classification := toTranslate.Classification
+			toTranslate.Classification = ""
+			textToTranslate, err := json.Marshal(toTranslate)
+			if err != nil {
+				log.Printf("Failed to marshal analysis for report %d to %s: %v", report.Seq, langName, err)
+				return
+			}
 			// Translate the analysis text using the full language name
-			translatedText, err := s.openai.TranslateAnalysis(response, langName)
+			translatedText, err := s.openai.TranslateAnalysis(string(textToTranslate), langName)
 			if err != nil {
 				log.Printf("Failed to translate analysis for report %d to %s: %v", report.Seq, langName, err)
 				return
 			}
 
 			// Parse the translated response
-			translatedAnalysis, err := parser.ParseAnalysis(translatedText)
+			var translatedAnalysis parser.AnalysisResult
+			err = json.Unmarshal([]byte(translatedText), &translatedAnalysis)
 			if err != nil {
 				log.Printf("Failed to parse translated analysis for report %d in %s: %v", report.Seq, langName, err)
 				return
 			}
+
+			// Put back the classification
+			translatedAnalysis.Classification = classification
 
 			// Normalize the brand name for translated analysis
 			normalizedTranslatedBrandName := s.brandService.NormalizeBrandName(translatedAnalysis.BrandName)
@@ -233,6 +236,7 @@ Analyze this image and provide a JSON response with the following structure:
 				Summary:           translatedAnalysis.Title + ": " + translatedAnalysis.Description,
 				Language:          langCode, // Store the language code in the database
 				IsValid:           true,
+				Classification:    translatedAnalysis.Classification.String(),
 			}
 
 			// Save the translated analysis to the database
