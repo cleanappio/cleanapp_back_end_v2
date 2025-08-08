@@ -297,12 +297,7 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int, class
 		if full_data {
 			return []models.ReportWithAnalysis{}, nil
 		}
-		return []models.Report{}, nil
-	}
-
-	// If full_data is false, return only reports
-	if !full_data {
-		return reports, nil
+		return []models.ReportWithSimplifiedAnalysis{}, nil
 	}
 
 	// Build placeholders for the IN clause
@@ -311,6 +306,64 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int, class
 	for i, seq := range reportSeqs {
 		placeholders[i] = "?"
 		args[i] = seq
+	}
+
+	// If full_data is false, return reports with simplified analysis
+	if !full_data {
+		// Get simplified analysis data (only severity and classification)
+		simplifiedAnalysesQuery := fmt.Sprintf(`
+			SELECT 
+				ra.seq, ra.severity_level, ra.classification
+			FROM report_analysis ra
+			WHERE ra.seq IN (%s)
+			ORDER BY ra.seq DESC, ra.language ASC
+		`, strings.Join(placeholders, ","))
+
+		simplifiedAnalysisRows, err := d.db.QueryContext(ctx, simplifiedAnalysesQuery, args...)
+		if err != nil {
+			return nil, fmt.Errorf("failed to query simplified analyses: %w", err)
+		}
+		defer simplifiedAnalysisRows.Close()
+
+		// Group simplified analyses by report sequence (take the first one for each report)
+		simplifiedAnalysesBySeq := make(map[int]models.SimplifiedAnalysis)
+		for simplifiedAnalysisRows.Next() {
+			var seq int
+			var simplifiedAnalysis models.SimplifiedAnalysis
+			err := simplifiedAnalysisRows.Scan(
+				&seq,
+				&simplifiedAnalysis.SeverityLevel,
+				&simplifiedAnalysis.Classification,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("failed to scan simplified analysis: %w", err)
+			}
+			// Only store the first analysis for each report
+			if _, exists := simplifiedAnalysesBySeq[seq]; !exists {
+				simplifiedAnalysesBySeq[seq] = simplifiedAnalysis
+			}
+		}
+
+		if err = simplifiedAnalysisRows.Err(); err != nil {
+			return nil, fmt.Errorf("error iterating simplified analyses: %w", err)
+		}
+
+		// Combine reports with their simplified analyses
+		var result []models.ReportWithSimplifiedAnalysis
+		for _, report := range reports {
+			analysis, exists := simplifiedAnalysesBySeq[report.Seq]
+			if !exists {
+				// Skip reports without analyses
+				continue
+			}
+
+			result = append(result, models.ReportWithSimplifiedAnalysis{
+				Report:   report,
+				Analysis: analysis,
+			})
+		}
+
+		return result, nil
 	}
 
 	// Then, get all analyses for these reports

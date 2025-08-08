@@ -145,26 +145,26 @@ func (h *Handlers) GetLastNAnalyzedReports(c *gin.Context) {
 
 		c.JSON(http.StatusOK, response)
 	} else {
-		// Type assertion to get only reports
-		reportsOnly, ok := reportsInterface.([]models.Report)
+		// Type assertion to get reports with simplified analysis
+		reportsWithSimplifiedAnalysis, ok := reportsInterface.([]models.ReportWithSimplifiedAnalysis)
 		if !ok {
-			log.Printf("Failed to type assert reports to []models.Report")
+			log.Printf("Failed to type assert reports to []models.ReportWithSimplifiedAnalysis")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve reports"})
 			return
 		}
 
-		// Create a simplified response for reports only
+		// Create response with reports and simplified analysis
 		response := gin.H{
-			"reports": reportsOnly,
-			"count":   len(reportsOnly),
+			"reports": reportsWithSimplifiedAnalysis,
+			"count":   len(reportsWithSimplifiedAnalysis),
 			"from_seq": 0,
 			"to_seq":   0,
 		}
 
 		// Set FromSeq and ToSeq if there are reports
-		if len(reportsOnly) > 0 {
-			response["from_seq"] = reportsOnly[0].Seq
-			response["to_seq"] = reportsOnly[len(reportsOnly)-1].Seq
+		if len(reportsWithSimplifiedAnalysis) > 0 {
+			response["from_seq"] = reportsWithSimplifiedAnalysis[0].Report.Seq
+			response["to_seq"] = reportsWithSimplifiedAnalysis[len(reportsWithSimplifiedAnalysis)-1].Report.Seq
 		}
 
 		c.JSON(http.StatusOK, response)
