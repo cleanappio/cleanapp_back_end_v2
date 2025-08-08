@@ -52,23 +52,29 @@ chmod +x test_api.sh
 curl "http://localhost:8080/api/reports/last?n=5"
 ```
 
-**Get only reports without analysis:**
+**Get reports with simplified analysis:**
 
 ```bash
-curl "http://localhost:8080/api/reports/last?n=5&full_data=false"
+curl "http://localhost:8080/api/reports/last?n=5&full_data=false&classification=physical"
+```
+
+**Get reports with digital classification:**
+
+```bash
+curl "http://localhost:8080/api/reports/last?n=5&full_data=false&classification=digital"
 ```
 
 **Custom limit:**
 
 ```bash
-curl "http://localhost:8080/api/reports/last?n=10&full_data=true"
+curl "http://localhost:8080/api/reports/last?n=10&full_data=true&classification=physical"
 ```
 
 **Error handling - invalid parameters:**
 
 ```bash
-curl "http://localhost:8080/api/reports/last?n=invalid"
-curl "http://localhost:8080/api/reports/last?n=5&full_data=invalid"
+curl "http://localhost:8080/api/reports/last?n=invalid&classification=physical"
+curl "http://localhost:8080/api/reports/last?n=5&full_data=invalid&classification=physical"
 ```
 
 ## API Endpoints
@@ -81,6 +87,7 @@ Returns the last N analyzed reports.
 
 - `n` (optional): Number of reports to return (default: 10, max: 50000)
 - `full_data` (optional): Whether to include analysis data (default: true)
+- `classification` (optional): Type of reports to return (default: "physical", options: "physical", "digital")
 
 **Response Formats:**
 
@@ -121,11 +128,19 @@ When `full_data=false`:
 {
   "reports": [
     {
-      "seq": 123,
-      "timestamp": "2024-01-01T12:00:00Z",
-      "id": "report_id",
-      "latitude": 40.7128,
-      "longitude": -74.006
+      "report": {
+        "seq": 123,
+        "timestamp": "2024-01-01T12:00:00Z",
+        "id": "report_id",
+        "latitude": 40.7128,
+        "longitude": -74.006
+      },
+      "analysis": [
+        {
+          "severity_level": 0.8,
+          "classification": "physical"
+        }
+      ]
     }
   ],
   "count": 1,

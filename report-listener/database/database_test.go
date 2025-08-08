@@ -63,37 +63,37 @@ func TestReportFilteringWithStatus(t *testing.T) {
 		}
 	}
 
-	// Test GetLastNAnalyzedReports with full_data=false (reports only)
-	reportsOnlyInterface, err := db.GetLastNAnalyzedReports(ctx, 10, "physical", false)
+	// Test GetLastNAnalyzedReports with full_data=false (reports with simplified analysis)
+	reportsWithSimplifiedAnalysisInterface, err := db.GetLastNAnalyzedReports(ctx, 10, "physical", false)
 	if err != nil {
 		t.Skipf("Skipping test - cannot query reports: %v", err)
 		return
 	}
 
-	// Type assertion to get only reports
-	reportsOnly, ok := reportsOnlyInterface.([]models.Report)
+	// Type assertion to get reports with simplified analysis
+	reportsWithSimplifiedAnalysis, ok := reportsWithSimplifiedAnalysisInterface.([]models.ReportWithSimplifiedAnalysis)
 	if !ok {
-		t.Skipf("Skipping test - failed to type assert reports only: %v", err)
+		t.Skipf("Skipping test - failed to type assert reports with simplified analysis: %v", err)
 		return
 	}
 
 	// Log the number of reports found
-	t.Logf("Found %d non-resolved reports only", len(reportsOnly))
+	t.Logf("Found %d non-resolved reports with simplified analysis", len(reportsWithSimplifiedAnalysis))
 
 	// Verify that all returned reports are either not in report_status or have status 'active'
-	for _, report := range reportsOnly {
+	for _, reportWithAnalysis := range reportsWithSimplifiedAnalysis {
 		// Check if this report has a status entry
 		var status string
-		err := db.db.QueryRowContext(ctx, "SELECT status FROM report_status WHERE seq = ?", report.Seq).Scan(&status)
+		err := db.db.QueryRowContext(ctx, "SELECT status FROM report_status WHERE seq = ?", reportWithAnalysis.Report.Seq).Scan(&status)
 		if err != nil {
 			// No status entry found - this is valid (should be included)
-			t.Logf("Report %d has no status entry (valid)", report.Seq)
+			t.Logf("Report %d has no status entry (valid)", reportWithAnalysis.Report.Seq)
 		} else {
 			// Status entry found - should be 'active'
 			if status != "active" {
-				t.Errorf("Report %d has status '%s' but should be 'active' or not exist", report.Seq, status)
+				t.Errorf("Report %d has status '%s' but should be 'active' or not exist", reportWithAnalysis.Report.Seq, status)
 			} else {
-				t.Logf("Report %d has status 'active' (valid)", report.Seq)
+				t.Logf("Report %d has status 'active' (valid)", reportWithAnalysis.Report.Seq)
 			}
 		}
 	}
