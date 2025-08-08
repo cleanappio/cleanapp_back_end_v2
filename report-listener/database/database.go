@@ -325,8 +325,8 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int, class
 		}
 		defer simplifiedAnalysisRows.Close()
 
-		// Group simplified analyses by report sequence
-		simplifiedAnalysesBySeq := make(map[int][]models.SimplifiedAnalysis)
+		// Group simplified analyses by report sequence (take the first one for each report)
+		simplifiedAnalysesBySeq := make(map[int]models.SimplifiedAnalysis)
 		for simplifiedAnalysisRows.Next() {
 			var seq int
 			var simplifiedAnalysis models.SimplifiedAnalysis
@@ -338,7 +338,10 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int, class
 			if err != nil {
 				return nil, fmt.Errorf("failed to scan simplified analysis: %w", err)
 			}
-			simplifiedAnalysesBySeq[seq] = append(simplifiedAnalysesBySeq[seq], simplifiedAnalysis)
+			// Only store the first analysis for each report
+			if _, exists := simplifiedAnalysesBySeq[seq]; !exists {
+				simplifiedAnalysesBySeq[seq] = simplifiedAnalysis
+			}
 		}
 
 		if err = simplifiedAnalysisRows.Err(); err != nil {
@@ -348,15 +351,15 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int, class
 		// Combine reports with their simplified analyses
 		var result []models.ReportWithSimplifiedAnalysis
 		for _, report := range reports {
-			analyses := simplifiedAnalysesBySeq[report.Seq]
-			if len(analyses) == 0 {
+			analysis, exists := simplifiedAnalysesBySeq[report.Seq]
+			if !exists {
 				// Skip reports without analyses
 				continue
 			}
 
 			result = append(result, models.ReportWithSimplifiedAnalysis{
 				Report:   report,
-				Analysis: analyses,
+				Analysis: analysis,
 			})
 		}
 

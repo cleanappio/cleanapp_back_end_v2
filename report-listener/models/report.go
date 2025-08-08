@@ -49,8 +49,8 @@ type ReportWithAnalysis struct {
 
 // ReportWithSimplifiedAnalysis represents a report with simplified analysis
 type ReportWithSimplifiedAnalysis struct {
-	Report   Report                `json:"report"`
-	Analysis []SimplifiedAnalysis  `json:"analysis"`
+	Report   Report            `json:"report"`
+	Analysis SimplifiedAnalysis `json:"analysis"`
 }
 
 // ReportBatch represents a batch of reports to be broadcasted

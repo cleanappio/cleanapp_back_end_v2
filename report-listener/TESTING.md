@@ -135,12 +135,10 @@ When `full_data=false`:
         "latitude": 40.7128,
         "longitude": -74.006
       },
-      "analysis": [
-        {
-          "severity_level": 0.8,
-          "classification": "physical"
-        }
-      ]
+      "analysis": {
+        "severity_level": 0.8,
+        "classification": "physical"
+      }
     }
   ],
   "count": 1,
