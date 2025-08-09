@@ -145,26 +145,26 @@ func (h *Handlers) GetLastNAnalyzedReports(c *gin.Context) {
 
 		c.JSON(http.StatusOK, response)
 	} else {
-		// Type assertion to get reports with simplified analysis
-		reportsWithSimplifiedAnalysis, ok := reportsInterface.([]models.ReportWithSimplifiedAnalysis)
+		// Type assertion to get reports with minimal analysis
+		reportsWithMinimalAnalysis, ok := reportsInterface.([]models.ReportWithAnalysis)
 		if !ok {
-			log.Printf("Failed to type assert reports to []models.ReportWithSimplifiedAnalysis")
+			log.Printf("Failed to type assert reports to []models.ReportWithAnalysis")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve reports"})
 			return
 		}
 
-		// Create response with reports and simplified analysis
-		response := gin.H{
-			"reports": reportsWithSimplifiedAnalysis,
-			"count":   len(reportsWithSimplifiedAnalysis),
-			"from_seq": 0,
-			"to_seq":   0,
+		// Create the response in the same format as WebSocket broadcasts for consistency
+		response := models.ReportBatch{
+			Reports: reportsWithMinimalAnalysis,
+			Count:   len(reportsWithMinimalAnalysis),
+			FromSeq: 0,
+			ToSeq:   0,
 		}
 
 		// Set FromSeq and ToSeq if there are reports
-		if len(reportsWithSimplifiedAnalysis) > 0 {
-			response["from_seq"] = reportsWithSimplifiedAnalysis[0].Report.Seq
-			response["to_seq"] = reportsWithSimplifiedAnalysis[len(reportsWithSimplifiedAnalysis)-1].Report.Seq
+		if len(reportsWithMinimalAnalysis) > 0 {
+			response.FromSeq = reportsWithMinimalAnalysis[0].Report.Seq
+			response.ToSeq = reportsWithMinimalAnalysis[len(reportsWithMinimalAnalysis)-1].Report.Seq
 		}
 
 		c.JSON(http.StatusOK, response)
