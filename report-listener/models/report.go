@@ -35,6 +35,20 @@ type ReportAnalysis struct {
 	UpdatedAt         time.Time `json:"updated_at" db:"updated_at"`
 }
 
+// MinimalAnalysis represents only the essential analysis fields for lite API responses
+type MinimalAnalysis struct {
+	SeverityLevel  float64 `json:"severity_level"`
+	Classification string  `json:"classification"`
+	Language       string  `json:"language"`
+	Title          string  `json:"title"`
+}
+
+// ReportWithMinimalAnalysis represents a report with minimal analysis data
+type ReportWithMinimalAnalysis struct {
+	Report   Report            `json:"report"`
+	Analysis []MinimalAnalysis `json:"analysis"`  // Array of minimal analysis objects
+}
+
 // ReportWithAnalysis represents a report with its corresponding analysis
 type ReportWithAnalysis struct {
 	Report   Report           `json:"report"`

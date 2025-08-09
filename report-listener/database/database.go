@@ -322,11 +322,11 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int, class
 		}
 		defer minimalAnalysisRows.Close()
 
-		// Group minimal analyses by report sequence (take the first one for each report)
-		minimalAnalysesBySeq := make(map[int]models.ReportAnalysis)
+		// Group minimal analyses by report sequence (collect all analyses for each report)
+		minimalAnalysesBySeq := make(map[int][]models.MinimalAnalysis)
 		for minimalAnalysisRows.Next() {
 			var seq int
-			var analysis models.ReportAnalysis
+			var analysis models.MinimalAnalysis
 			err := minimalAnalysisRows.Scan(
 				&seq,
 				&analysis.SeverityLevel,
@@ -337,10 +337,8 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int, class
 			if err != nil {
 				return nil, fmt.Errorf("failed to scan minimal analysis: %w", err)
 			}
-			// Only store the first analysis for each report
-			if _, exists := minimalAnalysesBySeq[seq]; !exists {
-				minimalAnalysesBySeq[seq] = analysis
-			}
+			// Store all analyses for each report
+			minimalAnalysesBySeq[seq] = append(minimalAnalysesBySeq[seq], analysis)
 		}
 
 		if err = minimalAnalysisRows.Err(); err != nil {
@@ -348,7 +346,7 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int, class
 		}
 
 		// Combine reports with their minimal analyses
-		var result []models.ReportWithAnalysis
+		var result []models.ReportWithMinimalAnalysis
 		for _, report := range reports {
 			analysis, exists := minimalAnalysesBySeq[report.Seq]
 			if !exists {
@@ -356,9 +354,9 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int, class
 				continue
 			}
 
-			result = append(result, models.ReportWithAnalysis{
+			result = append(result, models.ReportWithMinimalAnalysis{
 				Report:   report,
-				Analysis: []models.ReportAnalysis{analysis},
+				Analysis: analysis,
 			})
 		}
 

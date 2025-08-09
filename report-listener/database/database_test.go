@@ -71,7 +71,7 @@ func TestReportFilteringWithStatus(t *testing.T) {
 	}
 
 	// Type assertion to get reports with minimal analysis
-	reportsWithMinimalAnalysis, ok := reportsWithMinimalAnalysisInterface.([]models.ReportWithAnalysis)
+	reportsWithMinimalAnalysis, ok := reportsWithMinimalAnalysisInterface.([]models.ReportWithMinimalAnalysis)
 	if !ok {
 		t.Skipf("Skipping test - failed to type assert reports with minimal analysis: %v", err)
 		return
@@ -105,19 +105,17 @@ func TestReportFilteringWithStatus(t *testing.T) {
 			continue
 		}
 
-		analysis := reportWithAnalysis.Analysis[0]
-		
-		// Check that required fields are populated
-		if analysis.SeverityLevel == 0 && analysis.Classification == "" && analysis.Language == "" && analysis.Title == "" {
-			t.Errorf("Report %d analysis has no populated fields", reportWithAnalysis.Report.Seq)
-		}
+		// Check each analysis object in the array
+		for i, analysis := range reportWithAnalysis.Analysis {
+			// Check that required fields are populated
+			if analysis.SeverityLevel == 0 && analysis.Classification == "" && analysis.Language == "" && analysis.Title == "" {
+				t.Errorf("Report %d analysis[%d] has no populated fields", reportWithAnalysis.Report.Seq, i)
+			}
 
-		// Check that other fields are empty/zero (since this is minimal analysis)
-		if analysis.Source != "" || analysis.AnalysisText != "" || len(analysis.AnalysisImage) > 0 ||
-			analysis.Description != "" || analysis.BrandName != "" || analysis.BrandDisplayName != "" ||
-			analysis.LitterProbability != 0 || analysis.HazardProbability != 0 || analysis.DigitalBugProbability != 0 ||
-			analysis.Summary != "" {
-			t.Logf("Report %d analysis has some non-minimal fields populated (this is expected for some databases)", reportWithAnalysis.Report.Seq)
+			// Verify that only the expected fields exist (no extra fields in the struct)
+			// This test ensures the payload is truly minimal
+			t.Logf("Report %d analysis[%d] has minimal fields: severity=%.2f, classification=%s, language=%s, title=%s", 
+				reportWithAnalysis.Report.Seq, i, analysis.SeverityLevel, analysis.Classification, analysis.Language, analysis.Title)
 		}
 	}
 }
