@@ -35,22 +35,24 @@ type ReportAnalysis struct {
 	UpdatedAt         time.Time `json:"updated_at" db:"updated_at"`
 }
 
-// SimplifiedAnalysis represents a minimal analysis with only severity and classification
-type SimplifiedAnalysis struct {
+// MinimalAnalysis represents only the essential analysis fields for lite API responses
+type MinimalAnalysis struct {
 	SeverityLevel  float64 `json:"severity_level"`
 	Classification string  `json:"classification"`
+	Language       string  `json:"language"`
+	Title          string  `json:"title"`
+}
+
+// ReportWithMinimalAnalysis represents a report with minimal analysis data
+type ReportWithMinimalAnalysis struct {
+	Report   Report            `json:"report"`
+	Analysis []MinimalAnalysis `json:"analysis"`  // Array of minimal analysis objects
 }
 
 // ReportWithAnalysis represents a report with its corresponding analysis
 type ReportWithAnalysis struct {
 	Report   Report           `json:"report"`
 	Analysis []ReportAnalysis `json:"analysis"`
-}
-
-// ReportWithSimplifiedAnalysis represents a report with simplified analysis
-type ReportWithSimplifiedAnalysis struct {
-	Report   Report            `json:"report"`
-	Analysis SimplifiedAnalysis `json:"analysis"`
 }
 
 // ReportBatch represents a batch of reports to be broadcasted

@@ -294,10 +294,7 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int, class
 	}
 
 	if len(reports) == 0 {
-		if full_data {
-			return []models.ReportWithAnalysis{}, nil
-		}
-		return []models.ReportWithSimplifiedAnalysis{}, nil
+		return []models.ReportWithAnalysis{}, nil
 	}
 
 	// Build placeholders for the IN clause
@@ -308,56 +305,56 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int, class
 		args[i] = seq
 	}
 
-	// If full_data is false, return reports with simplified analysis
+	// If full_data is false, return reports with minimal analysis (severity, classification, language, title)
 	if !full_data {
-		// Get simplified analysis data (only severity and classification)
-		simplifiedAnalysesQuery := fmt.Sprintf(`
+		// Get minimal analysis data (severity, classification, language, title)
+		minimalAnalysesQuery := fmt.Sprintf(`
 			SELECT 
-				ra.seq, ra.severity_level, ra.classification
+				ra.seq, ra.severity_level, ra.classification, ra.language, ra.title
 			FROM report_analysis ra
 			WHERE ra.seq IN (%s)
 			ORDER BY ra.seq DESC, ra.language ASC
 		`, strings.Join(placeholders, ","))
 
-		simplifiedAnalysisRows, err := d.db.QueryContext(ctx, simplifiedAnalysesQuery, args...)
+		minimalAnalysisRows, err := d.db.QueryContext(ctx, minimalAnalysesQuery, args...)
 		if err != nil {
-			return nil, fmt.Errorf("failed to query simplified analyses: %w", err)
+			return nil, fmt.Errorf("failed to query minimal analyses: %w", err)
 		}
-		defer simplifiedAnalysisRows.Close()
+		defer minimalAnalysisRows.Close()
 
-		// Group simplified analyses by report sequence (take the first one for each report)
-		simplifiedAnalysesBySeq := make(map[int]models.SimplifiedAnalysis)
-		for simplifiedAnalysisRows.Next() {
+		// Group minimal analyses by report sequence (collect all analyses for each report)
+		minimalAnalysesBySeq := make(map[int][]models.MinimalAnalysis)
+		for minimalAnalysisRows.Next() {
 			var seq int
-			var simplifiedAnalysis models.SimplifiedAnalysis
-			err := simplifiedAnalysisRows.Scan(
+			var analysis models.MinimalAnalysis
+			err := minimalAnalysisRows.Scan(
 				&seq,
-				&simplifiedAnalysis.SeverityLevel,
-				&simplifiedAnalysis.Classification,
+				&analysis.SeverityLevel,
+				&analysis.Classification,
+				&analysis.Language,
+				&analysis.Title,
 			)
 			if err != nil {
-				return nil, fmt.Errorf("failed to scan simplified analysis: %w", err)
+				return nil, fmt.Errorf("failed to scan minimal analysis: %w", err)
 			}
-			// Only store the first analysis for each report
-			if _, exists := simplifiedAnalysesBySeq[seq]; !exists {
-				simplifiedAnalysesBySeq[seq] = simplifiedAnalysis
-			}
+			// Store all analyses for each report
+			minimalAnalysesBySeq[seq] = append(minimalAnalysesBySeq[seq], analysis)
 		}
 
-		if err = simplifiedAnalysisRows.Err(); err != nil {
-			return nil, fmt.Errorf("error iterating simplified analyses: %w", err)
+		if err = minimalAnalysisRows.Err(); err != nil {
+			return nil, fmt.Errorf("error iterating minimal analyses: %w", err)
 		}
 
-		// Combine reports with their simplified analyses
-		var result []models.ReportWithSimplifiedAnalysis
+		// Combine reports with their minimal analyses
+		var result []models.ReportWithMinimalAnalysis
 		for _, report := range reports {
-			analysis, exists := simplifiedAnalysesBySeq[report.Seq]
+			analysis, exists := minimalAnalysesBySeq[report.Seq]
 			if !exists {
 				// Skip reports without analyses
 				continue
 			}
 
-			result = append(result, models.ReportWithSimplifiedAnalysis{
+			result = append(result, models.ReportWithMinimalAnalysis{
 				Report:   report,
 				Analysis: analysis,
 			})

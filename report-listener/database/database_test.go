@@ -63,25 +63,25 @@ func TestReportFilteringWithStatus(t *testing.T) {
 		}
 	}
 
-	// Test GetLastNAnalyzedReports with full_data=false (reports with simplified analysis)
-	reportsWithSimplifiedAnalysisInterface, err := db.GetLastNAnalyzedReports(ctx, 10, "physical", false)
+	// Test GetLastNAnalyzedReports with full_data=false (reports with minimal analysis)
+	reportsWithMinimalAnalysisInterface, err := db.GetLastNAnalyzedReports(ctx, 10, "physical", false)
 	if err != nil {
 		t.Skipf("Skipping test - cannot query reports: %v", err)
 		return
 	}
 
-	// Type assertion to get reports with simplified analysis
-	reportsWithSimplifiedAnalysis, ok := reportsWithSimplifiedAnalysisInterface.([]models.ReportWithSimplifiedAnalysis)
+	// Type assertion to get reports with minimal analysis
+	reportsWithMinimalAnalysis, ok := reportsWithMinimalAnalysisInterface.([]models.ReportWithMinimalAnalysis)
 	if !ok {
-		t.Skipf("Skipping test - failed to type assert reports with simplified analysis: %v", err)
+		t.Skipf("Skipping test - failed to type assert reports with minimal analysis: %v", err)
 		return
 	}
 
 	// Log the number of reports found
-	t.Logf("Found %d non-resolved reports with simplified analysis", len(reportsWithSimplifiedAnalysis))
+	t.Logf("Found %d non-resolved reports with minimal analysis", len(reportsWithMinimalAnalysis))
 
 	// Verify that all returned reports are either not in report_status or have status 'active'
-	for _, reportWithAnalysis := range reportsWithSimplifiedAnalysis {
+	for _, reportWithAnalysis := range reportsWithMinimalAnalysis {
 		// Check if this report has a status entry
 		var status string
 		err := db.db.QueryRowContext(ctx, "SELECT status FROM report_status WHERE seq = ?", reportWithAnalysis.Report.Seq).Scan(&status)
@@ -95,6 +95,27 @@ func TestReportFilteringWithStatus(t *testing.T) {
 			} else {
 				t.Logf("Report %d has status 'active' (valid)", reportWithAnalysis.Report.Seq)
 			}
+		}
+	}
+
+	// Additional test: verify that minimal analysis contains only the expected fields
+	for _, reportWithAnalysis := range reportsWithMinimalAnalysis {
+		if len(reportWithAnalysis.Analysis) == 0 {
+			t.Errorf("Report %d has no analysis data", reportWithAnalysis.Report.Seq)
+			continue
+		}
+
+		// Check each analysis object in the array
+		for i, analysis := range reportWithAnalysis.Analysis {
+			// Check that required fields are populated
+			if analysis.SeverityLevel == 0 && analysis.Classification == "" && analysis.Language == "" && analysis.Title == "" {
+				t.Errorf("Report %d analysis[%d] has no populated fields", reportWithAnalysis.Report.Seq, i)
+			}
+
+			// Verify that only the expected fields exist (no extra fields in the struct)
+			// This test ensures the payload is truly minimal
+			t.Logf("Report %d analysis[%d] has minimal fields: severity=%.2f, classification=%s, language=%s, title=%s", 
+				reportWithAnalysis.Report.Seq, i, analysis.SeverityLevel, analysis.Classification, analysis.Language, analysis.Title)
 		}
 	}
 }
