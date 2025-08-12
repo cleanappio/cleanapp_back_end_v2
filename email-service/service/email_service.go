@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"email-service/config"
@@ -21,6 +22,29 @@ type EmailService struct {
 	db     *sql.DB
 	config *config.Config
 	email  *email.EmailSender
+}
+
+// isValidEmail checks if a string is a valid email address
+func (s *EmailService) isValidEmail(email string) bool {
+	// Updated regex to prevent consecutive dots and ensure proper email format
+	emailRegex := regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$`)
+	return emailRegex.MatchString(email)
+}
+
+// isEmailOptedOut checks if an email address has opted out from receiving emails
+func (s *EmailService) isEmailOptedOut(ctx context.Context, email string) (bool, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*) 
+		FROM opted_out_emails 
+		WHERE email = ?
+	`, email).Scan(&count)
+
+	if err != nil {
+		return false, fmt.Errorf("failed to check if email %s is opted out: %w", email, err)
+	}
+
+	return count > 0, nil
 }
 
 // NewEmailService creates a new email service
@@ -89,6 +113,7 @@ func (s *EmailService) getUnprocessedReports(ctx context.Context) ([]models.Repo
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		LEFT JOIN sent_reports_emails sre ON r.seq = sre.seq
 		WHERE sre.seq IS NULL
+		AND ra.language = 'en'
 		ORDER BY r.ts ASC
 		LIMIT 100
 	`
@@ -119,6 +144,44 @@ func (s *EmailService) processReport(ctx context.Context, report models.Report) 
 		return fmt.Errorf("failed to get analysis for report %d: %w", report.Seq, err)
 	}
 
+	// Check if we have inferred contact emails
+	if analysis.InferredContactEmails != "" {
+		// Split the comma-separated emails and send to each
+		emails := strings.Split(strings.TrimSpace(analysis.InferredContactEmails), ",")
+		var cleanEmails []string
+
+		// Clean up each email (remove whitespace) and validate
+		for _, email := range emails {
+			cleanEmail := strings.TrimSpace(email)
+			if cleanEmail != "" && s.isValidEmail(cleanEmail) {
+				cleanEmails = append(cleanEmails, cleanEmail)
+			} else if cleanEmail != "" {
+				log.Warnf("Report %d: Invalid email address found in inferred contacts: %s", report.Seq, cleanEmail)
+			}
+		}
+
+		if len(cleanEmails) > 0 {
+			log.Infof("Report %d: Using %d valid inferred contact emails (priority over area emails): %v", report.Seq, len(cleanEmails), cleanEmails)
+
+			// Send emails to inferred contacts (no area context needed)
+			if err := s.sendEmailsToInferredContacts(ctx, report, analysis, cleanEmails); err != nil {
+				log.Errorf("Failed to send emails to inferred contacts for report %d: %v", report.Seq, err)
+			} else {
+				log.Infof("Successfully sent emails to inferred contacts for report %d (%s report)", report.Seq, analysis.Classification)
+			}
+
+			// Mark report as processed and return
+			return s.markReportAsProcessed(ctx, report.Seq)
+		} else {
+			log.Infof("Report %d: No valid inferred contact emails found after validation", report.Seq)
+		}
+	} else {
+		log.Infof("Report %d: No inferred contact emails field found", report.Seq)
+	}
+
+	// Fall back to area-based email logic if no inferred emails
+	log.Infof("Report %d: Falling back to area-based email logic (%s report)", report.Seq, analysis.Classification)
+
 	// Find areas that contain this report point
 	features, emails, err := s.findAreasForReport(ctx, report)
 	if err != nil {
@@ -127,8 +190,11 @@ func (s *EmailService) processReport(ctx context.Context, report models.Report) 
 
 	// If no areas found, mark as processed and return
 	if len(emails) == 0 {
+		log.Infof("Report %d: No areas found, marking as processed", report.Seq)
 		return s.markReportAsProcessed(ctx, report.Seq)
 	}
+
+	log.Infof("Report %d: Found %d areas with emails, sending area-based emails", report.Seq, len(emails))
 
 	// Send emails for each area
 	for areaID, emailAddrs := range emails {
@@ -145,7 +211,7 @@ func (s *EmailService) processReport(ctx context.Context, report models.Report) 
 // findAreasForReport finds areas that contain the report point and their associated emails
 func (s *EmailService) findAreasForReport(ctx context.Context, report models.Report) (map[uint64]*geojson.Feature, map[uint64][]string, error) {
 	// Convert point to WKT format
-	ptWKT := fmt.Sprintf("POINT(%g %g)", report.Longitude, report.Latitude)
+	ptWKT := fmt.Sprintf("POINT(%g %g)", report.Latitude, report.Longitude)
 
 	// Find areas that contain this point
 	rows, err := s.db.QueryContext(ctx,
@@ -166,8 +232,11 @@ func (s *EmailService) findAreasForReport(ctx context.Context, report models.Rep
 	}
 
 	if len(areaMap) == 0 {
+		log.Infof("Report %d: No areas found, marking as processed", report.Seq)
 		return nil, nil, nil
 	}
+
+	log.Infof("Report %d: Found %d areas", report.Seq, len(areaMap))
 
 	// Get area features
 	areaFeatures, err := s.getAreaFeatures(ctx, areaMap)
@@ -261,31 +330,98 @@ func (s *EmailService) getAreaEmails(ctx context.Context, areaMap map[uint64]boo
 	return areaEmails, nil
 }
 
+// sendEmailsToInferredContacts sends emails to inferred contact emails without area context
+func (s *EmailService) sendEmailsToInferredContacts(ctx context.Context, report models.Report, analysis *models.ReportAnalysis, emails []string) error {
+	if len(emails) == 0 {
+		return nil
+	}
+
+	// Filter out opted-out emails
+	var validEmails []string
+	for _, email := range emails {
+		optedOut, err := s.isEmailOptedOut(ctx, email)
+		if err != nil {
+			log.Warnf("Failed to check if email %s is opted out: %v, skipping", email, err)
+			continue
+		}
+
+		if optedOut {
+			log.Infof("Skipping opted-out email: %s", email)
+			continue
+		}
+
+		validEmails = append(validEmails, email)
+	}
+
+	if len(validEmails) == 0 {
+		log.Infof("All emails for report %d are opted out, no emails sent", report.Seq)
+		return nil
+	}
+
+	log.Infof("Sending emails to %d valid inferred contacts for report %d (filtered from %d total)", len(validEmails), report.Seq, len(emails))
+
+	// Generate map image for inferred contacts (1km map centered on report coordinates)
+	mapImg, err := email.GeneratePolygonImg(nil, report.Latitude, report.Longitude)
+	if err != nil {
+		log.Warnf("Failed to generate map image for report %d: %v, sending email without map", report.Seq, err)
+		// Continue without map image
+	}
+
+	// Send emails with analysis data and map image
+	return s.email.SendEmailsWithAnalysis(validEmails, report.Image, mapImg, analysis)
+}
+
 // sendEmailsForArea sends emails for a specific area
 func (s *EmailService) sendEmailsForArea(ctx context.Context, report models.Report, analysis *models.ReportAnalysis, feature *geojson.Feature, emails []string) error {
 	if len(emails) == 0 {
 		return nil
 	}
 
+	// Filter out opted-out emails
+	var validEmails []string
+	for _, email := range emails {
+		optedOut, err := s.isEmailOptedOut(ctx, email)
+		if err != nil {
+			log.Warnf("Failed to check if email %s is opted out: %v, skipping", email, err)
+			continue
+		}
+
+		if optedOut {
+			log.Infof("Skipping opted-out email: %s", email)
+			continue
+		}
+
+		validEmails = append(validEmails, email)
+	}
+
+	if len(validEmails) == 0 {
+		log.Infof("All emails for area are opted out, no emails sent")
+		return nil
+	}
+
+	log.Infof("Sending emails to %d valid contacts for area (filtered from %d total)", len(validEmails), len(emails))
+
 	// Generate polygon image
-	polyImg, err := s.email.GeneratePolygonImage(feature, report.Latitude, report.Longitude)
+	polyImg, err := email.GeneratePolygonImg(feature, report.Latitude, report.Longitude)
 	if err != nil {
 		return fmt.Errorf("failed to generate polygon image: %w", err)
 	}
 
 	// Send emails with analysis data
-	return s.email.SendEmailsWithAnalysis(emails, report.Image, polyImg, analysis)
+	return s.email.SendEmailsWithAnalysis(validEmails, report.Image, polyImg, analysis)
 }
 
 // getReportAnalysis gets the analysis data for a specific report
 func (s *EmailService) getReportAnalysis(ctx context.Context, seq int64) (*models.ReportAnalysis, error) {
 	query := `
-		SELECT seq, source, title, description, litter_probability, hazard_probability, severity_level, summary
+		SELECT seq, source, title, description, litter_probability, hazard_probability,
+		severity_level, inferred_contact_emails, classification
 		FROM report_analysis
-		WHERE seq = ?
+		WHERE seq = ? AND language = 'en'
 		LIMIT 1
 	`
 
+	var contact_emails sql.NullString
 	var analysis models.ReportAnalysis
 	err := s.db.QueryRowContext(ctx, query, seq).Scan(
 		&analysis.Seq,
@@ -295,11 +431,14 @@ func (s *EmailService) getReportAnalysis(ctx context.Context, seq int64) (*model
 		&analysis.LitterProbability,
 		&analysis.HazardProbability,
 		&analysis.SeverityLevel,
-		&analysis.Summary,
+		&contact_emails,
+		&analysis.Classification,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get analysis for seq %d: %w", seq, err)
 	}
+
+	analysis.InferredContactEmails = contact_emails.String
 
 	return &analysis, nil
 }
@@ -368,6 +507,43 @@ func verifyAndCreateTables(db *sql.DB) error {
 		} else {
 			log.Info("seq index verified on sent_reports_emails table")
 		}
+	}
+
+	// Check if opted_out_emails table exists
+	var optedOutTableExists int
+	err = db.QueryRowContext(ctx, `
+		SELECT COUNT(*) 
+		FROM information_schema.tables 
+		WHERE table_schema = DATABASE() 
+		AND table_name = 'opted_out_emails'
+	`).Scan(&optedOutTableExists)
+
+	if err != nil {
+		return fmt.Errorf("failed to check if opted_out_emails table exists: %w", err)
+	}
+
+	if optedOutTableExists == 0 {
+		log.Info("Creating opted_out_emails table...")
+
+		// Create the opted_out_emails table with proper indexing
+		createOptedOutTableSQL := `
+			CREATE TABLE opted_out_emails (
+				id INT AUTO_INCREMENT PRIMARY KEY,
+				email VARCHAR(255) NOT NULL UNIQUE,
+				opted_out_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				INDEX idx_email (email),
+				INDEX idx_opted_out_at (opted_out_at)
+			) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+		`
+
+		_, err = db.ExecContext(ctx, createOptedOutTableSQL)
+		if err != nil {
+			return fmt.Errorf("failed to create opted_out_emails table: %w", err)
+		}
+
+		log.Info("opted_out_emails table created successfully")
+	} else {
+		log.Info("opted_out_emails table already exists")
 	}
 
 	// Verify that required tables exist

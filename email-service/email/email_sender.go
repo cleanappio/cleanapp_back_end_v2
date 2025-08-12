@@ -9,7 +9,6 @@ import (
 	"email-service/models"
 
 	"github.com/apex/log"
-	geojson "github.com/paulmach/go.geojson"
 	"github.com/sendgrid/sendgrid-go"
 	"github.com/sendgrid/sendgrid-go/helpers/mail"
 	"golang.org/x/image/font"
@@ -71,28 +70,16 @@ func (e *EmailSender) sendOneEmail(recipient string, reportImage, mapImage []byt
 	subject := "You got a CleanApp report"
 	to := mail.NewEmail(recipient, recipient)
 
-	// Encode images
+	// Encode report image
 	encodedReportImage := base64.StdEncoding.EncodeToString(reportImage)
-	encodedMapImage := base64.StdEncoding.EncodeToString(mapImage)
 
-	// Create attachments
+	// Create report attachment
 	reportAttachment := mail.NewAttachment()
 	reportAttachment.SetContent(encodedReportImage)
 	reportAttachment.SetType("image/jpg")
 	reportAttachment.SetFilename("report.jpg")
 	reportAttachment.SetDisposition("inline")
 	reportAttachment.SetContentID(reportImgCid)
-
-	mapAttachment := mail.NewAttachment()
-	mapAttachment.SetContent(encodedMapImage)
-	mapAttachment.SetType("image/png")
-	mapAttachment.SetFilename("map.png")
-	mapAttachment.SetDisposition("inline")
-	mapAttachment.SetContentID(mapImgCid)
-
-	// Create email content
-	plainTextContent := e.getEmailText(recipient)
-	htmlContent := e.getEmailHtml(recipient)
 
 	// Create message
 	message := mail.NewV3Mail()
@@ -103,10 +90,21 @@ func (e *EmailSender) sendOneEmail(recipient string, reportImage, mapImage []byt
 	p.AddTos(to)
 	message.AddPersonalizations(p)
 
-	message.AddContent(mail.NewContent("text/plain", plainTextContent))
-	message.AddContent(mail.NewContent("text/html", htmlContent))
+	message.AddContent(mail.NewContent("text/plain", e.getEmailText(recipient)))
+	message.AddContent(mail.NewContent("text/html", e.getEmailHtml(recipient)))
 	message.AddAttachment(reportAttachment)
-	message.AddAttachment(mapAttachment)
+
+	// Add map attachment only if mapImage is provided
+	if len(mapImage) > 0 {
+		encodedMapImage := base64.StdEncoding.EncodeToString(mapImage)
+		mapAttachment := mail.NewAttachment()
+		mapAttachment.SetContent(encodedMapImage)
+		mapAttachment.SetType("image/png")
+		mapAttachment.SetFilename("map.png")
+		mapAttachment.SetDisposition("inline")
+		mapAttachment.SetContentID(mapImgCid)
+		message.AddAttachment(mapAttachment)
+	}
 
 	// Send email
 	response, err := e.client.Send(message)
@@ -130,28 +128,16 @@ func (e *EmailSender) sendOneEmailWithAnalysis(recipient string, reportImage, ma
 
 	to := mail.NewEmail(recipient, recipient)
 
-	// Encode images
+	// Encode report image
 	encodedReportImage := base64.StdEncoding.EncodeToString(reportImage)
-	encodedMapImage := base64.StdEncoding.EncodeToString(mapImage)
 
-	// Create attachments
+	// Create report attachment
 	reportAttachment := mail.NewAttachment()
 	reportAttachment.SetContent(encodedReportImage)
 	reportAttachment.SetType("image/jpg")
 	reportAttachment.SetFilename("report.jpg")
 	reportAttachment.SetDisposition("inline")
 	reportAttachment.SetContentID(reportImgCid)
-
-	mapAttachment := mail.NewAttachment()
-	mapAttachment.SetContent(encodedMapImage)
-	mapAttachment.SetType("image/png")
-	mapAttachment.SetFilename("map.png")
-	mapAttachment.SetDisposition("inline")
-	mapAttachment.SetContentID(mapImgCid)
-
-	// Create email content with analysis data
-	plainTextContent := e.getEmailTextWithAnalysis(recipient, analysis)
-	htmlContent := e.getEmailHtmlWithAnalysis(recipient, analysis)
 
 	// Create message
 	message := mail.NewV3Mail()
@@ -162,10 +148,21 @@ func (e *EmailSender) sendOneEmailWithAnalysis(recipient string, reportImage, ma
 	p.AddTos(to)
 	message.AddPersonalizations(p)
 
-	message.AddContent(mail.NewContent("text/plain", plainTextContent))
-	message.AddContent(mail.NewContent("text/html", htmlContent))
+	message.AddContent(mail.NewContent("text/plain", e.getEmailTextWithAnalysis(recipient, analysis)))
+	message.AddContent(mail.NewContent("text/html", e.getEmailHtmlWithAnalysis(recipient, analysis)))
 	message.AddAttachment(reportAttachment)
-	message.AddAttachment(mapAttachment)
+
+	// Add map attachment only if mapImage is provided
+	if len(mapImage) > 0 {
+		encodedMapImage := base64.StdEncoding.EncodeToString(mapImage)
+		mapAttachment := mail.NewAttachment()
+		mapAttachment.SetContent(encodedMapImage)
+		mapAttachment.SetType("image/png")
+		mapAttachment.SetFilename("map.png")
+		mapAttachment.SetDisposition("inline")
+		mapAttachment.SetContentID(mapImgCid)
+		message.AddAttachment(mapAttachment)
+	}
 
 	// Send email
 	response, err := e.client.Send(message)
@@ -175,35 +172,6 @@ func (e *EmailSender) sendOneEmailWithAnalysis(recipient string, reportImage, ma
 
 	log.Infof("Email with analysis sent to %s! Status: %d", recipient, response.StatusCode)
 	return nil
-}
-
-// GeneratePolygonImage generates a polygon image for the given feature
-func (e *EmailSender) GeneratePolygonImage(feature *geojson.Feature, reportLat, reportLon float64) ([]byte, error) {
-	// This is a simplified version - in a real implementation, you would:
-	// 1. Parse the GeoJSON feature
-	// 2. Create a map image with the polygon drawn on it
-	// 3. Mark the report location on the map
-	// 4. Return the image as bytes
-
-	// For now, we'll create a simple placeholder image
-	img := image.NewRGBA(image.Rect(0, 0, 400, 300))
-
-	// Draw a simple background
-	for y := 0; y < 300; y++ {
-		for x := 0; x < 400; x++ {
-			img.Set(x, y, image.White)
-		}
-	}
-
-	// Add some text
-	e.addLabel(img, "Map View", 10, 20)
-	e.addLabel(img, fmt.Sprintf("Report at: %.4f, %.4f", reportLat, reportLon), 10, 40)
-
-	// Encode as PNG
-	var buf []byte
-	// In a real implementation, you would encode the image here
-	// For now, return empty bytes
-	return buf, nil
 }
 
 // addLabel adds text to an image
@@ -258,21 +226,43 @@ func (e *EmailSender) getEmailHtml(recipient string) string {
 
 // getEmailTextWithAnalysis returns the plain text content for emails with analysis data
 func (e *EmailSender) getEmailTextWithAnalysis(recipient string, analysis *models.ReportAnalysis) string {
-	content := fmt.Sprintf(`Hello,
+	var content string
+
+	if analysis.Classification == "digital" {
+		content = fmt.Sprintf(`Hello,
+
+You have received a new CleanApp digital issue report with analysis.
+
+REPORT ANALYSIS:
+Title: %s
+Description: %s
+Type: Digital Issue
+
+This email contains:
+- The report image
+- A map showing the location
+- AI analysis results
+
+Note: This is a digital issue report. Physical metrics (litter/hazard probability) are not applicable.
+
+Best regards,
+The CleanApp Team`,
+			analysis.Title,
+			analysis.Description)
+	} else {
+		content = fmt.Sprintf(`Hello,
 
 You have received a new CleanApp report with analysis.
 
 REPORT ANALYSIS:
 Title: %s
 Description: %s
+Type: Physical Issue
 
 PROBABILITY SCORES:
 - Litter Probability: %.1f%%
 - Hazard Probability: %.1f%%
-- Severity Level: %.1f%%
-
-SUMMARY:
-%s
+- Severity Level: %.1f
 
 This email contains:
 - The report image
@@ -281,12 +271,12 @@ This email contains:
 
 Best regards,
 The CleanApp Team`,
-		analysis.Title,
-		analysis.Description,
-		analysis.LitterProbability*100,
-		analysis.HazardProbability*100,
-		analysis.SeverityLevel*100,
-		analysis.Summary)
+			analysis.Title,
+			analysis.Description,
+			analysis.LitterProbability*100,
+			analysis.HazardProbability*100,
+			analysis.SeverityLevel)
+	}
 
 	return content
 }
@@ -296,7 +286,10 @@ func (e *EmailSender) getEmailHtmlWithAnalysis(recipient string, analysis *model
 	// Calculate gauge colors based on values
 	litterColor := e.getGaugeColor(analysis.LitterProbability)
 	hazardColor := e.getGaugeColor(analysis.HazardProbability)
-	severityColor := e.getGaugeColor(analysis.SeverityLevel)
+	severityColor := e.getSeverityGaugeColor(analysis.SeverityLevel)
+
+	// Determine if this is a digital report
+	isDigital := analysis.Classification == "digital"
 
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html>
@@ -315,12 +308,12 @@ func (e *EmailSender) getEmailHtmlWithAnalysis(recipient string, analysis *model
         .gauge-fill::after { content: ''; position: absolute; top: 2px; right: 2px; width: 8px; height: calc(100%% - 4px); background: rgba(255,255,255,0.3); border-radius: 4px; }
         .gauge-value { font-size: 1.3em; font-weight: bold; margin-top: 8px; }
         .gauge-label { font-size: 0.8em; color: #666; margin-top: 5px; }
-        .summary { background-color: #d1ecf1; padding: 15px; border-radius: 5px; margin: 15px 0; }
         .images { margin: 20px 0; }
         .image-container { margin: 15px 0; }
         .low { background: linear-gradient(90deg, #28a745, #20c997); }
         .medium { background: linear-gradient(90deg, #ffc107, #fd7e14); }
         .high { background: linear-gradient(90deg, #dc3545, #e83e8c); }
+        .digital-notice { background-color: #fff3cd; padding: 15px; border-radius: 5px; margin: 15px 0; border-left: 4px solid #ffc107; }
     </style>
 </head>
 <body>
@@ -333,8 +326,44 @@ func (e *EmailSender) getEmailHtmlWithAnalysis(recipient string, analysis *model
         <h3>Report Details</h3>
         <p><strong>Title:</strong> %s</p>
         <p><strong>Description:</strong> %s</p>
+        <p><strong>Type:</strong> %s</p>
     </div>
     
+    %s
+    
+    <div class="images">
+        <div class="image-container">
+            <h3>Report Image:</h3>
+            <img src="cid:%s" alt="Report Image" style="max-width: 100%%; height: auto; border-radius: 5px;">
+        </div>
+        
+        <div class="image-container">
+            <h3>Location Map:</h3>
+            <img src="cid:%s" alt="Map" style="max-width: 100%%; height: auto; border-radius: 5px;">
+        </div>
+    </div>
+    
+    <p><em>Best regards,<br>The CleanApp Team</em></p>
+</body>
+</html>`,
+		analysis.Title,
+		analysis.Title,
+		analysis.Description,
+		analysis.Classification,
+		e.getMetricsSection(analysis, isDigital, litterColor, hazardColor, severityColor),
+		reportImgCid,
+		mapImgCid)
+}
+
+// getMetricsSection returns the appropriate metrics section based on report type
+func (e *EmailSender) getMetricsSection(analysis *models.ReportAnalysis, isDigital bool, litterColor, hazardColor, severityColor string) string {
+	if isDigital {
+		// For digital reports, show a notice instead of metrics
+		return ""
+	}
+
+	// For physical reports, show the metrics gauge
+	return fmt.Sprintf(`
     <div class="gauge-grid">
         <div class="gauge-item">
             <div class="gauge-title">Litter Probability</div>
@@ -359,40 +388,13 @@ func (e *EmailSender) getEmailHtmlWithAnalysis(recipient string, analysis *model
             <div class="gauge-container">
                 <div class="gauge-fill %s" style="width: %.1f%%;"></div>
             </div>
-            <div class="gauge-value">%.1f%%</div>
+            <div class="gauge-value">%.1f</div>
             <div class="gauge-label">%s</div>
         </div>
-    </div>
-    
-    <div class="summary">
-        <h3>Analysis Summary</h3>
-        <p>%s</p>
-    </div>
-    
-    <div class="images">
-        <div class="image-container">
-            <h3>Report Image:</h3>
-            <img src="cid:%s" alt="Report Image" style="max-width: 100%%; height: auto; border-radius: 5px;">
-        </div>
-        
-        <div class="image-container">
-            <h3>Location Map:</h3>
-            <img src="cid:%s" alt="Map" style="max-width: 100%%; height: auto; border-radius: 5px;">
-        </div>
-    </div>
-    
-    <p><em>Best regards,<br>The CleanApp Team</em></p>
-</body>
-</html>`,
-		analysis.Title,
-		analysis.Title,
-		analysis.Description,
+    </div>`,
 		litterColor, analysis.LitterProbability*100, analysis.LitterProbability*100, e.getGaugeLabel(analysis.LitterProbability),
 		hazardColor, analysis.HazardProbability*100, analysis.HazardProbability*100, e.getGaugeLabel(analysis.HazardProbability),
-		severityColor, analysis.SeverityLevel*10, analysis.SeverityLevel*10, e.getGaugeLabel(analysis.SeverityLevel),
-		analysis.Summary,
-		reportImgCid,
-		mapImgCid)
+		severityColor, analysis.SeverityLevel*10, analysis.SeverityLevel*10, e.getSeverityGaugeLabel(analysis.SeverityLevel))
 }
 
 // getGaugeColor returns the CSS class for gauge color based on value
@@ -411,6 +413,28 @@ func (e *EmailSender) getGaugeLabel(value float64) string {
 	if value < 0.3 {
 		return "Low"
 	} else if value < 0.7 {
+		return "Medium"
+	} else {
+		return "High"
+	}
+}
+
+// getSeverityGaugeColor returns the CSS class for severity gauge color based on 0-10 scale
+func (e *EmailSender) getSeverityGaugeColor(value float64) string {
+	if value < 3.0 {
+		return "low"
+	} else if value < 7.0 {
+		return "medium"
+	} else {
+		return "high"
+	}
+}
+
+// getSeverityGaugeLabel returns a descriptive label for severity based on 0-10 scale
+func (e *EmailSender) getSeverityGaugeLabel(value float64) string {
+	if value < 3.0 {
+		return "Low"
+	} else if value < 7.0 {
 		return "Medium"
 	} else {
 		return "High"

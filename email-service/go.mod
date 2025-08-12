@@ -10,8 +10,11 @@ require (
 	golang.org/x/image v0.19.0
 )
 
+require github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0 // indirect
+
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
+	github.com/fogleman/gg v1.3.0
 	github.com/pkg/errors v0.8.1 // indirect
 	github.com/sendgrid/rest v2.6.9+incompatible // indirect
 )

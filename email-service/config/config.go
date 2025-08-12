@@ -24,11 +24,11 @@ func Load() *Config {
 	cfg := &Config{}
 
 	// Database configuration
-	cfg.DBHost = getEnv("MYSQL_HOST", "localhost")
-	cfg.DBPort = getEnv("MYSQL_PORT", "3306")
-	cfg.DBUser = getEnv("MYSQL_USER", "server")
-	cfg.DBPassword = getEnv("MYSQL_PASSWORD", "secret")
-	cfg.DBName = getEnv("MYSQL_DB", "cleanapp")
+	cfg.DBHost = getEnv("DB_HOST", "localhost")
+	cfg.DBPort = getEnv("DB_PORT", "3306")
+	cfg.DBUser = getEnv("DB_USER", "server")
+	cfg.DBPassword = getEnv("DB_PASSWORD", "secret")
+	cfg.DBName = getEnv("DB_NAME", "cleanapp")
 
 	// SendGrid configuration
 	cfg.SendGridAPIKey = getEnv("SENDGRID_API_KEY", "")
