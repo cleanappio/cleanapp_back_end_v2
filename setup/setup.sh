@@ -454,7 +454,7 @@ services:
       - OPT_OUT_URL=${OPT_OUT_URL}
       - GIN_MODE=${GIN_MODE}
     ports:
-      - 9088:8080
+      - 9089:8080
 
 volumes:
   mysql:
