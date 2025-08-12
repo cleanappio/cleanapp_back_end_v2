@@ -50,19 +50,20 @@ func TestBrandDisplayNamePopulation(t *testing.T) {
 func TestReportAnalysisWithBrandDisplayName(t *testing.T) {
 	// Create a mock analysis result
 	analysis := &database.ReportAnalysis{
-		Seq:               1,
-		Source:            "test",
-		AnalysisText:      "Test analysis",
-		Title:             "Test Title",
-		Description:       "Test Description",
-		BrandName:         "cocacola",
-		BrandDisplayName:  "Coca-Cola",
-		LitterProbability: 0.5,
-		HazardProbability: 0.3,
-		SeverityLevel:     0.4,
-		Summary:           "Test Summary",
-		Language:          "en",
-		Classification:    "physical",
+		Seq:                   1,
+		Source:                "test",
+		AnalysisText:          "Test analysis",
+		Title:                 "Test Title",
+		Description:           "Test Description",
+		BrandName:             "cocacola",
+		BrandDisplayName:      "Coca-Cola",
+		LitterProbability:     0.5,
+		HazardProbability:     0.3,
+		SeverityLevel:         0.4,
+		Summary:               "Test Summary",
+		Language:              "en",
+		Classification:        "physical",
+		InferredContactEmails: "test@example.com, contact@brand.com",
 	}
 
 	// Verify the fields are set correctly
@@ -76,5 +77,9 @@ func TestReportAnalysisWithBrandDisplayName(t *testing.T) {
 
 	if analysis.Classification != "physical" {
 		t.Errorf("Expected Classification to be 'physical', got %q", analysis.Classification)
+	}
+
+	if analysis.InferredContactEmails != "test@example.com, contact@brand.com" {
+		t.Errorf("Expected InferredContactEmails to be 'test@example.com, contact@brand.com', got %q", analysis.InferredContactEmails)
 	}
 }

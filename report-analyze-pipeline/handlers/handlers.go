@@ -56,18 +56,33 @@ func (h *Handlers) GetAnalysisBySeq(c *gin.Context) {
 
 	// Query the database for analysis
 	query := `
-	SELECT seq, source, analysis_text, analysis_image, created_at
+	SELECT seq, source, analysis_text, analysis_image, title, description, brand_name, brand_display_name, 
+	       litter_probability, hazard_probability, digital_bug_probability, severity_level, summary, 
+	       language, is_valid, classification, inferred_contact_emails, created_at
 	FROM report_analysis
 	WHERE seq = ?
 	ORDER BY created_at DESC
 	LIMIT 1`
 
 	var analysis struct {
-		Seq           int    `json:"seq"`
-		Source        string `json:"source"`
-		AnalysisText  string `json:"analysis_text"`
-		AnalysisImage []byte `json:"analysis_image,omitempty"`
-		CreatedAt     string `json:"created_at"`
+		Seq                   int     `json:"seq"`
+		Source                string  `json:"source"`
+		AnalysisText          string  `json:"analysis_text"`
+		AnalysisImage         []byte  `json:"analysis_image,omitempty"`
+		Title                 string  `json:"title"`
+		Description           string  `json:"description"`
+		BrandName             string  `json:"brand_name"`
+		BrandDisplayName      string  `json:"brand_display_name"`
+		LitterProbability     float64 `json:"litter_probability"`
+		HazardProbability     float64 `json:"hazard_probability"`
+		DigitalBugProbability float64 `json:"digital_bug_probability"`
+		SeverityLevel         float64 `json:"severity_level"`
+		Summary               string  `json:"summary"`
+		Language              string  `json:"language"`
+		IsValid               bool    `json:"is_valid"`
+		Classification        string  `json:"classification"`
+		InferredContactEmails string  `json:"inferred_contact_emails"`
+		CreatedAt             string  `json:"created_at"`
 	}
 
 	err = h.db.GetDB().QueryRow(query, seq).Scan(
@@ -75,6 +90,19 @@ func (h *Handlers) GetAnalysisBySeq(c *gin.Context) {
 		&analysis.Source,
 		&analysis.AnalysisText,
 		&analysis.AnalysisImage,
+		&analysis.Title,
+		&analysis.Description,
+		&analysis.BrandName,
+		&analysis.BrandDisplayName,
+		&analysis.LitterProbability,
+		&analysis.HazardProbability,
+		&analysis.DigitalBugProbability,
+		&analysis.SeverityLevel,
+		&analysis.Summary,
+		&analysis.Language,
+		&analysis.IsValid,
+		&analysis.Classification,
+		&analysis.InferredContactEmails,
 		&analysis.CreatedAt,
 	)
 

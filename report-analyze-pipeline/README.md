@@ -24,16 +24,26 @@ CREATE TABLE report_analysis (
     analysis_image LONGBLOB,
     title VARCHAR(500),
     description TEXT,
+    brand_name VARCHAR(255) DEFAULT '',
+    brand_display_name VARCHAR(255) DEFAULT '',
     litter_probability FLOAT,
     hazard_probability FLOAT,
+    digital_bug_probability FLOAT DEFAULT 0.0,
     severity_level FLOAT,
     summary TEXT,
     language VARCHAR(2) NOT NULL DEFAULT 'en',
+    is_valid BOOLEAN DEFAULT TRUE,
+    classification ENUM('physical', 'digital') DEFAULT 'physical',
+    inferred_contact_emails TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX seq_index (seq),
     INDEX source_index (source),
-    INDEX idx_report_analysis_language (language)
+    INDEX idx_report_analysis_brand_name (brand_name),
+    INDEX idx_report_analysis_brand_display_name (brand_display_name),
+    INDEX idx_report_analysis_language (language),
+    INDEX idx_report_analysis_is_valid (is_valid),
+    INDEX idx_report_analysis_classification (classification)
 );
 ```
 

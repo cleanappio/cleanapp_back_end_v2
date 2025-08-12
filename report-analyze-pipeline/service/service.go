@@ -2,6 +2,7 @@ package service
 
 import (
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -148,6 +149,9 @@ func (s *Service) analyzeReport(report *database.Report, wg *sync.WaitGroup) {
 	normalizedBrandName := s.brandService.NormalizeBrandName(analysis.BrandName)
 	brandDisplayName := analysis.BrandName
 
+	// Convert inferred contact emails to comma-separated string
+	inferredContactEmails := strings.Join(analysis.InferredContactEmails, ", ")
+
 	// Create the English analysis result
 	analysisResult := &database.ReportAnalysis{
 		Seq:                   report.Seq,
@@ -166,6 +170,7 @@ func (s *Service) analyzeReport(report *database.Report, wg *sync.WaitGroup) {
 		Language:              "en",
 		IsValid:               analysis.IsValid,
 		Classification:        analysis.Classification.String(),
+		InferredContactEmails: inferredContactEmails,
 	}
 
 	// Save the English analysis to the database
@@ -206,6 +211,9 @@ func (s *Service) analyzeReport(report *database.Report, wg *sync.WaitGroup) {
 			normalizedTranslatedBrandName := s.brandService.NormalizeBrandName(translatedAnalysis.BrandName)
 			translatedBrandDisplayName := translatedAnalysis.BrandName
 
+			// Convert inferred contact emails to comma-separated string
+			inferredTranslatedContactEmails := strings.Join(translatedAnalysis.InferredContactEmails, ", ")
+
 			// Create the translated analysis result
 			translatedResult := &database.ReportAnalysis{
 				Seq:                   report.Seq,
@@ -224,6 +232,7 @@ func (s *Service) analyzeReport(report *database.Report, wg *sync.WaitGroup) {
 				Language:              langCode, // Store the language code in the database
 				IsValid:               translatedAnalysis.IsValid,
 				Classification:        translatedAnalysis.Classification.String(),
+				InferredContactEmails: inferredTranslatedContactEmails,
 			}
 
 			// Save the translated analysis to the database
