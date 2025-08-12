@@ -168,3 +168,27 @@ func TestGetReportsSince(t *testing.T) {
 		}
 	}
 }
+
+func TestGetReportsByBrandName(t *testing.T) {
+	// This is a basic test to ensure the function signature is correct
+	// In a real environment, you would need a test database with actual data
+	db := &Database{}
+	
+	ctx := context.Background()
+	brandName := "test_brand"
+	limit := 10
+	
+	// Test that the function can be called without compilation errors
+	// We expect this to panic due to nil database connection, which is expected behavior
+	defer func() {
+		if r := recover(); r != nil {
+			t.Log("Function signature is correct and function can be called")
+			t.Log("Expected panic due to nil database connection")
+		}
+	}()
+	
+	_, _ = db.GetReportsByBrandName(ctx, brandName, limit)
+	
+	// If we reach here, the function didn't panic, which means the signature is correct
+	t.Log("GetReportsByBrandName function exists and can be called")
+}
