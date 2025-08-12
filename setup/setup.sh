@@ -81,6 +81,7 @@ case ${OPT} in
       MONTENEGRO_AREA_SUB_IDS="6753,6754,6755,6757,6758,6759,6760,6761,6762,6763,6764,6765,6766,6767,6768,6769,6770,6778,6895,6910,6948,6951,6953,6954,6955"
       NEW_YORK_AREA_ID=6970
       NEW_YORK_AREA_SUB_IDS="6971,6972,6973,6974,6975"
+      OPT_OUT_URL="http://dev.cleanapp.io/api/optout"
       ;;
   "prod")
       echo "Using prod environment"
@@ -112,6 +113,7 @@ case ${OPT} in
       NEW_YORK_AREA_ID=6636
       NEW_YORK_AREA_SUB_IDS="6637,6638,6639,6640,6641"
       GIN_MODE=release
+      OPT_OUT_URL="https://cleanapp.io/api/optout"
       ;;
   "quit")
       exit
@@ -447,6 +449,12 @@ services:
       - SENDGRID_API_KEY=\${SENDGRID_API_KEY}
       - SENDGRID_FROM_NAME=${SENDGRID_FROM_NAME}
       - SENDGRID_FROM_EMAIL=${SENDGRID_FROM_EMAIL}
+      - HTTP_PORT=8080
+      - POLL_INTERVAL=10s
+      - OPT_OUT_URL=${OPT_OUT_URL}
+      - GIN_MODE=${GIN_MODE}
+    ports:
+      - 9088:8080
 
 volumes:
   mysql:
