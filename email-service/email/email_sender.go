@@ -356,7 +356,7 @@ func (e *EmailSender) getEmailHtmlWithAnalysis(recipient string, analysis *model
     <p><em>Best regards,<br>The CleanApp Team</em></p>
     
     <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; font-size: 0.9em; color: #666;">
-        <p>To unsubscribe from these emails, please <a href="%s?email=%s" style="color: #007bff; text-decoration: none;">click here</a> or visit: %s</p>
+        <p>To unsubscribe from these emails, please <a href="%s?email=%s" style="color: #007bff; text-decoration: none;">click here</a></p>
     </div>
 </body>
 </html>`,
@@ -368,8 +368,7 @@ func (e *EmailSender) getEmailHtmlWithAnalysis(recipient string, analysis *model
 		reportImgCid,
 		mapImgCid,
 		e.config.OptOutURL,
-		recipient,
-		e.config.OptOutURL)
+		recipient)
 }
 
 // getMetricsSection returns the appropriate metrics section based on report type
