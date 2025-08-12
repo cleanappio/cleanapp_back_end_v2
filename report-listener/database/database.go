@@ -784,7 +784,7 @@ func (d *Database) GetReportsByLatLng(ctx context.Context, latitude, longitude f
 func (d *Database) GetReportsByBrandName(ctx context.Context, brandName string, limit int) ([]models.ReportWithAnalysis, error) {
 	// First, get all reports for the given brand that are not resolved
 	reportsQuery := `
-		SELECT DISTINCT r.seq, r.ts, r.id, r.latitude, r.longitude
+		SELECT DISTINCT r.seq, r.ts, r.id, r.latitude, r.longitude, r.image
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		LEFT JOIN report_status rs ON r.seq = rs.seq
@@ -813,6 +813,7 @@ func (d *Database) GetReportsByBrandName(ctx context.Context, brandName string, 
 			&report.ID,
 			&report.Latitude,
 			&report.Longitude,
+			&report.Image,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan report: %w", err)
