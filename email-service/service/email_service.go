@@ -569,3 +569,34 @@ func verifyAndCreateTables(db *sql.DB) error {
 	log.Info("All required tables verified")
 	return nil
 }
+
+// AddOptedOutEmail adds an email to the opted_out_emails table
+func (s *EmailService) AddOptedOutEmail(email string) error {
+	ctx := context.Background()
+
+	// Check if email already exists
+	var count int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM opted_out_emails WHERE email = ?
+	`, email).Scan(&count)
+
+	if err != nil {
+		return fmt.Errorf("failed to check if email %s already exists: %w", email, err)
+	}
+
+	if count > 0 {
+		return fmt.Errorf("email %s is already opted out", email)
+	}
+
+	// Insert new opted out email
+	_, err = s.db.ExecContext(ctx, `
+		INSERT INTO opted_out_emails (email) VALUES (?)
+	`, email)
+
+	if err != nil {
+		return fmt.Errorf("failed to add email %s to opted out list: %w", email, err)
+	}
+
+	log.Infof("Email %s has been opted out successfully", email)
+	return nil
+}

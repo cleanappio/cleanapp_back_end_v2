@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Opt-Out Error - CleanApp</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #f8f9fa;
+        }
+        .container {
+            background-color: white;
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        .error-icon {
+            color: #dc3545;
+            font-size: 48px;
+            margin-bottom: 20px;
+        }
+        h1 {
+            color: #dc3545;
+            margin-bottom: 20px;
+        }
+        .error-message {
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .info {
+            background-color: #e2e3e5;
+            border: 1px solid #d6d8db;
+            color: #383d41;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+            text-align: left;
+        }
+        .footer {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+            color: #666;
+            font-size: 0.9em;
+        }
+        .back-link {
+            display: inline-block;
+            margin-top: 20px;
+            padding: 10px 20px;
+            background-color: #6c757d;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            transition: background-color 0.3s;
+        }
+        .back-link:hover {
+            background-color: #545b62;
+        }
+        .try-again {
+            display: inline-block;
+            margin-top: 10px;
+            margin-left: 10px;
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            transition: background-color 0.3s;
+        }
+        .try-again:hover {
+            background-color: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="error-icon">✗</div>
+        <h1>Opt-Out Error</h1>
+        
+        <div class="error-message">
+            <p><strong>{{.error}}</strong></p>
+        </div>
+        
+        <div class="info">
+            <h3>What went wrong:</h3>
+            <p>The system encountered an error while processing your opt-out request. This could be due to:</p>
+            <ul>
+                <li>Missing or invalid email address</li>
+                <li>Technical difficulties with our system</li>
+                <li>Database connection issues</li>
+            </ul>
+            
+            <h3>What you can do:</h3>
+            <ul>
+                <li>Check that the email address in the link is correct</li>
+                <li>Try clicking the opt-out link again</li>
+                <li>Contact our support team for assistance</li>
+                <li>Reply to any CleanApp email with "UNSUBSCRIBE" in the subject line</li>
+            </ul>
+        </div>
+        
+        <a href="/" class="back-link">Return to Home</a>
+        <a href="javascript:history.back()" class="try-again">Try Again</a>
+        
+        <div class="footer">
+            <p>We apologize for the inconvenience. If the problem persists, please contact our support team.</p>
+        </div>
+    </div>
+</body>
+</html>

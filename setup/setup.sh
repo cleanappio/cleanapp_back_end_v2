@@ -463,18 +463,6 @@ volumes:
 
 COMPOSE
 
-	# cfg.DBHost = getEnv("MYSQL_HOST", "localhost")
-	# cfg.DBPort = getEnv("MYSQL_PORT", "3306")
-	# cfg.DBUser = getEnv("MYSQL_USER", "server")
-	# cfg.DBPassword = getEnv("MYSQL_PASSWORD", "secret")
-	# cfg.DBName = getEnv("MYSQL_DB", "cleanapp")
-
-	# // SendGrid configuration
-	# cfg.SendGridAPIKey = getEnv("SENDGRID_API_KEY", "")
-	# cfg.SendGridFromName = getEnv("SENDGRID_FROM_NAME", "CleanApp")
-	# cfg.SendGridFromEmail = getEnv("SENDGRID_FROM_EMAIL", "info@cleanapp.io")
-
-
 set -e
 
 # Pull images:

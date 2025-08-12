@@ -12,6 +12,40 @@ This microservice handles sending emails for CleanApp reports. It polls the data
 - Tracks processed reports in `sent_reports_emails` table
 - Automatically creates required tables and indexes on startup
 - Handles cases where no areas are found for a report
+- **HTTP API for email opt-out management**
+- **Health check endpoint for monitoring**
+
+## HTTP API Endpoints
+
+The service now includes HTTP endpoints alongside the existing polling functionality:
+
+### Opt-Out Email
+**POST** `/api/v3/optout`
+- Allows users to opt out of receiving emails
+- Request body: `{"email": "user@example.com"}`
+- Returns success/error status with appropriate HTTP codes
+- **Built with Gin framework for high performance**
+
+### Opt-Out Link (Email Integration)
+**GET** `/opt-out?email=user@example.com`
+- Web-based opt-out for email links
+- Accepts email parameter via query string
+- Returns HTML confirmation pages
+- **Integrated into all email templates**
+
+### Health Check
+**GET** `/health`
+- Returns service status and timestamp
+- Useful for monitoring and load balancer health checks
+
+### Configuration
+- **Port**: Configurable via `--http_port` flag (default: 8080)
+- **Graceful shutdown**: Handles SIGINT/SIGTERM signals
+- **Concurrent operation**: HTTP server runs alongside email polling
+- **Framework**: Uses Gin for optimal performance and validation
+- **HTML templates**: Professional opt-out confirmation pages
+
+For detailed API documentation, see [OPT_OUT_API_ENDPOINT.md](OPT_OUT_API_ENDPOINT.md).
 
 ## Architecture
 
@@ -68,7 +102,9 @@ The service uses environment variables for configuration:
 - `SENDGRID_FROM_EMAIL`: From email (default: info@cleanapp.io)
 
 ### Service
-- `--poll_interval`: How often to poll for new reports (default: 30s)
+- `POLL_INTERVAL`: How often to poll for new reports (default: 10s)
+- `HTTP_PORT`: HTTP server port for API endpoints (default: 8080)
+- `OPT_OUT_URL`: URL for email opt-out links (default: http://localhost:8080/opt-out)
 
 ## Running the Service
 
@@ -76,6 +112,11 @@ The service uses environment variables for configuration:
 ```bash
 # Set your SendGrid API key
 export SENDGRID_API_KEY=your_api_key_here
+
+# Set custom configuration (optional)
+export POLL_INTERVAL=60s
+export HTTP_PORT=9090
+export OPT_OUT_URL="https://yourdomain.com/opt-out"
 
 # Start the service
 docker-compose up -d
@@ -91,6 +132,9 @@ docker run -d \
   -e SENDGRID_API_KEY=your_api_key_here \
   -e MYSQL_HOST=your_mysql_host \
   -e MYSQL_PASSWORD=your_mysql_password \
+  -e POLL_INTERVAL=60s \
+  -e HTTP_PORT=9090 \
+  -e OPT_OUT_URL="https://yourdomain.com/opt-out" \
   email-service
 ```
 
@@ -106,6 +150,12 @@ export MYSQL_PASSWORD=your_password
 
 # Run the service
 go run main.go
+
+# Run with custom configuration via environment variables
+export POLL_INTERVAL=60s
+export HTTP_PORT=9090
+export OPT_OUT_URL="https://yourdomain.com/opt-out"
+go run main.go
 ```
 
 ## Email Content
@@ -120,6 +170,8 @@ The service sends emails containing:
   - Severity level assessment
   - Analysis summary
 - HTML and plain text versions with styled layout
+- **Automatic opt-out links** in all email templates
+- **Professional footer** with unsubscribe instructions
 
 ## Error Handling
 
@@ -140,4 +192,5 @@ The service logs:
 
 - Go 1.24+
 - MySQL 8.0+ with spatial extensions
-- SendGrid account and API key 
+- SendGrid account and API key
+- **Gin framework** for high-performance HTTP API 

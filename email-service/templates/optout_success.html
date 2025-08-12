@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Successfully Opted Out - CleanApp</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #f8f9fa;
+        }
+        .container {
+            background-color: white;
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        .success-icon {
+            color: #28a745;
+            font-size: 48px;
+            margin-bottom: 20px;
+        }
+        h1 {
+            color: #28a745;
+            margin-bottom: 20px;
+        }
+        .message {
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .email {
+            font-weight: bold;
+            color: #007bff;
+        }
+        .info {
+            background-color: #e2e3e5;
+            border: 1px solid #d6d8db;
+            color: #383d41;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+            text-align: left;
+        }
+        .footer {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+            color: #666;
+            font-size: 0.9em;
+        }
+        .back-link {
+            display: inline-block;
+            margin-top: 20px;
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            transition: background-color 0.3s;
+        }
+        .back-link:hover {
+            background-color: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="success-icon">✓</div>
+        <h1>Successfully Opted Out</h1>
+        
+        <div class="message">
+            <p><strong>Email address <span class="email">{{.email}}</span> has been successfully opted out from CleanApp emails.</strong></p>
+        </div>
+        
+        <div class="info">
+            <h3>What this means:</h3>
+            <ul>
+                <li>You will no longer receive CleanApp report notifications</li>
+                <li>Your email address has been added to our opt-out list</li>
+                <li>This change takes effect immediately</li>
+            </ul>
+            
+            <h3>If you change your mind:</h3>
+            <p>You can contact our support team to opt back in, or if you have access to the CleanApp system, you can re-enable notifications through your account settings.</p>
+        </div>
+        
+        <a href="/" class="back-link">Return to Home</a>
+        
+        <div class="footer">
+            <p>Thank you for using CleanApp. We're sorry to see you go!</p>
+            <p>If you have any questions, please contact our support team.</p>
+        </div>
+    </div>
+</body>
+</html>

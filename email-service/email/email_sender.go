@@ -245,10 +245,15 @@ This email contains:
 
 Note: This is a digital issue report. Physical metrics (litter/hazard probability) are not applicable.
 
+To unsubscribe from these emails, please visit: %s?email=%s
+You can also reply to this email with "UNSUBSCRIBE" in the subject line.
+
 Best regards,
 The CleanApp Team`,
 			analysis.Title,
-			analysis.Description)
+			analysis.Description,
+			e.config.OptOutURL,
+			recipient)
 	} else {
 		content = fmt.Sprintf(`Hello,
 
@@ -269,13 +274,18 @@ This email contains:
 - A map showing the location
 - AI analysis results
 
+To unsubscribe from these emails, please visit: %s?email=%s
+You can also reply to this email with "UNSUBSCRIBE" in the subject line.
+
 Best regards,
 The CleanApp Team`,
 			analysis.Title,
 			analysis.Description,
 			analysis.LitterProbability*100,
 			analysis.HazardProbability*100,
-			analysis.SeverityLevel)
+			analysis.SeverityLevel,
+			e.config.OptOutURL,
+			recipient)
 	}
 
 	return content
@@ -344,6 +354,10 @@ func (e *EmailSender) getEmailHtmlWithAnalysis(recipient string, analysis *model
     </div>
     
     <p><em>Best regards,<br>The CleanApp Team</em></p>
+    
+    <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; font-size: 0.9em; color: #666;">
+        <p>To unsubscribe from these emails, please <a href="%s?email=%s" style="color: #007bff; text-decoration: none;">click here</a> or visit: %s</p>
+    </div>
 </body>
 </html>`,
 		analysis.Title,
@@ -352,7 +366,10 @@ func (e *EmailSender) getEmailHtmlWithAnalysis(recipient string, analysis *model
 		analysis.Classification,
 		e.getMetricsSection(analysis, isDigital, litterColor, hazardColor, severityColor),
 		reportImgCid,
-		mapImgCid)
+		mapImgCid,
+		e.config.OptOutURL,
+		recipient,
+		e.config.OptOutURL)
 }
 
 // getMetricsSection returns the appropriate metrics section based on report type

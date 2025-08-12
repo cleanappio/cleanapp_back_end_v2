@@ -25,4 +25,5 @@ WORKDIR /root/
 COPY --from=builder /app/main .
 
 # Run the application
+EXPOSE 8080
 CMD ["./main"] 

@@ -1,21 +1,22 @@
 package main
 
 import (
-	"flag"
+	"context"
 	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"email-service/config"
+	"email-service/handlers"
 	"email-service/service"
-)
 
-var (
-	pollInterval = flag.Duration("poll_interval", 30*time.Second, "Interval to poll for new reports")
+	"github.com/gin-gonic/gin"
 )
 
 func main() {
-	flag.Parse()
-
 	// Load configuration
 	cfg := config.Load()
 
@@ -26,13 +27,67 @@ func main() {
 	}
 	defer emailService.Close()
 
-	log.Printf("Email service started. Polling every %v", *pollInterval)
+	// Create HTTP handler
+	handler := handlers.NewEmailServiceHandler(emailService)
 
-	// Start polling for reports
-	for {
-		if err := emailService.ProcessReports(); err != nil {
-			log.Printf("Error processing reports: %v", err)
-		}
-		time.Sleep(*pollInterval)
+	// Create Gin router
+	router := gin.Default()
+
+	// API v3 routes
+	apiV3 := router.Group("/api/v3")
+	{
+		apiV3.POST("/optout", handler.HandleOptOut)
 	}
+
+	// Opt-out link route (for email links)
+	router.GET("/opt-out", handler.HandleOptOutLink)
+
+	// Health check
+	router.GET("/health", handler.HandleHealth)
+
+	// Create HTTP server
+	server := &http.Server{
+		Addr:         ":" + cfg.HTTPPort,
+		Handler:      router,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
+	// Start HTTP server in a goroutine
+	go func() {
+		log.Printf("HTTP server starting on port %s", cfg.HTTPPort)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("HTTP server error: %v", err)
+		}
+	}()
+
+	// Start polling for reports in a goroutine
+	go func() {
+		pollInterval := cfg.GetPollInterval()
+		log.Printf("Email service started. Polling every %v", pollInterval)
+		for {
+			if err := emailService.ProcessReports(); err != nil {
+				log.Printf("Error processing reports: %v", err)
+			}
+			time.Sleep(pollInterval)
+		}
+	}()
+
+	// Wait for interrupt signal to gracefully shutdown the server
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	log.Println("Server is shutting down...")
+
+	// Graceful shutdown
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := server.Shutdown(ctx); err != nil {
+		log.Printf("Server forced to shutdown: %v", err)
+	}
+
+	log.Println("Server exited")
 }
