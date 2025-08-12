@@ -55,6 +55,7 @@ type AnalysisResult struct {
 	HazardProbability     float64        `json:"hazard_probability"`
 	DigitalBugProbability float64        `json:"digital_bug_probabilty"`
 	SeverityLevel         float64        `json:"severity_level"`
+	IsValid               bool           `json:"is_valid"`
 }
 
 // UserInfo represents user information in the analysis

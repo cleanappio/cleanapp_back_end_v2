@@ -279,7 +279,8 @@ func (d *Database) SaveAnalysis(analysis *ReportAnalysis) error {
 	INSERT INTO report_analysis (
 		seq, source, analysis_text, analysis_image, 
 		title, description, brand_name, brand_display_name,
-		litter_probability, hazard_probability, digital_bug_probability, severity_level, summary, language, is_valid, classification
+		litter_probability, hazard_probability, digital_bug_probability,
+		severity_level, summary, language, is_valid, classification
 	)
 	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 

@@ -164,7 +164,7 @@ func (s *Service) analyzeReport(report *database.Report, wg *sync.WaitGroup) {
 		SeverityLevel:         analysis.SeverityLevel,
 		Summary:               analysis.Title + ": " + analysis.Description,
 		Language:              "en",
-		IsValid:               true,
+		IsValid:               analysis.IsValid,
 		Classification:        analysis.Classification.String(),
 	}
 
@@ -222,7 +222,7 @@ func (s *Service) analyzeReport(report *database.Report, wg *sync.WaitGroup) {
 				SeverityLevel:         translatedAnalysis.SeverityLevel,
 				Summary:               translatedAnalysis.Title + ": " + translatedAnalysis.Description,
 				Language:              langCode, // Store the language code in the database
-				IsValid:               true,
+				IsValid:               translatedAnalysis.IsValid,
 				Classification:        translatedAnalysis.Classification.String(),
 			}
 
