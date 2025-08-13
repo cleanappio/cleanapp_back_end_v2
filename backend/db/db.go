@@ -3,14 +3,14 @@ package db
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
+	// "encoding/json"
 	"fmt"
 	"math/big"
-	"strings"
+	// "strings"
 	"time"
 
-	"cleanapp/backend/area_index"
-	"cleanapp/backend/email"
+	// "cleanapp/backend/area_index"
+	// "cleanapp/backend/email"
 	imgpkg "cleanapp/backend/image"
 	"cleanapp/backend/server/api"
 	"cleanapp/backend/util"
@@ -20,7 +20,7 @@ import (
 	"github.com/apex/log"
 	ethcommon "github.com/ethereum/go-ethereum/common"
 	_ "github.com/go-sql-driver/mysql"
-	geojson "github.com/paulmach/go.geojson"
+	// geojson "github.com/paulmach/go.geojson"
 )
 
 func CreateOrUpdateUser(db *sql.DB, u *api.UserArgs, teamGen func(string) util.TeamColor, disbursers []*disburse.Disburser) (*api.UserResp, error) {
@@ -178,7 +178,7 @@ func SaveReport(db *sql.DB, r *api.ReportArgs) error {
 	}
 
 	// Send emails
-	go sendAffectedPolygonsEmails(r)
+	// go sendAffectedPolygonsEmails(r)
 	return nil
 }
 
@@ -639,108 +639,108 @@ func DeleteAction(db *sql.DB, req *api.ActionModifyArgs) error {
 }
 
 // TODO: Remove after the email sender microservice is launched
-func sendAffectedPolygonsEmails(report *api.ReportArgs) {
-	dbc, err := common.DBConnect()
-	if err != nil {
-		log.Errorf("DB connection error: %w", err)
-		return
-	}
-	defer dbc.Close()
+// func sendAffectedPolygonsEmails(report *api.ReportArgs) {
+// 	dbc, err := common.DBConnect()
+// 	if err != nil {
+// 		log.Errorf("DB connection error: %w", err)
+// 		return
+// 	}
+// 	defer dbc.Close()
 
-	features, emails, err := findAreasForReport(dbc, report)
-	if err != nil {
-		log.Errorf("Error sending emails to affected areas: %w", err)
-		return
-	}
+// 	features, emails, err := findAreasForReport(dbc, report)
+// 	if err != nil {
+// 		log.Errorf("Error sending emails to affected areas: %w", err)
+// 		return
+// 	}
 
-	for areaId, emailAddrs := range emails {
-		polyImg, err := email.GeneratePolygonImg(features[areaId], report.Latitude, report.Longitude)
-		if err != nil {
-			log.Errorf("Error generating polygon image: %w", err)
-			return
-		}
-		email.SendEmails(emailAddrs, report.Image, polyImg)
-	}
-}
+// 	for areaId, emailAddrs := range emails {
+// 		polyImg, err := email.GeneratePolygonImg(features[areaId], report.Latitude, report.Longitude)
+// 		if err != nil {
+// 			log.Errorf("Error generating polygon image: %w", err)
+// 			return
+// 		}
+// 		email.SendEmails(emailAddrs, report.Image, polyImg)
+// 	}
+// }
 
 // TODO: Remove after the email sender microservice is launched
-func findAreasForReport(db *sql.DB, report *api.ReportArgs) (map[uint64]*geojson.Feature, map[uint64][]string, error) {
-	ptWKT := area_index.PointToWKT(report.Longitude, report.Latitude)
+// func findAreasForReport(db *sql.DB, report *api.ReportArgs) (map[uint64]*geojson.Feature, map[uint64][]string, error) {
+// 	ptWKT := area_index.PointToWKT(report.Longitude, report.Latitude)
 
-	rows, err := db.Query("SELECT area_id FROM area_index WHERE MBRWithin(ST_GeomFromText(?, 4326), geom)", ptWKT)
-	if err != nil {
-		return nil, nil, err
-	}
-	aMap := map[uint64]bool{}
+// 	rows, err := db.Query("SELECT area_id FROM area_index WHERE MBRWithin(ST_GeomFromText(?, 4326), geom)", ptWKT)
+// 	if err != nil {
+// 		return nil, nil, err
+// 	}
+// 	aMap := map[uint64]bool{}
 
-	for rows.Next() {
-		var areaId uint64
-		if err := rows.Scan(&areaId); err != nil {
-			rows.Close()
-			return nil, nil, err
-		}
-		aMap[areaId] = true
-	}
-	rows.Close()
+// 	for rows.Next() {
+// 		var areaId uint64
+// 		if err := rows.Scan(&areaId); err != nil {
+// 			rows.Close()
+// 			return nil, nil, err
+// 		}
+// 		aMap[areaId] = true
+// 	}
+// 	rows.Close()
 
-	areaIds := make([]any, len(aMap))
-	ap := make([]string, len(aMap))
-	i := 0
-	for areaId := range aMap {
-		areaIds[i] = areaId
-		ap[i] = "?"
-		i++
-	}
+// 	areaIds := make([]any, len(aMap))
+// 	ap := make([]string, len(aMap))
+// 	i := 0
+// 	for areaId := range aMap {
+// 		areaIds[i] = areaId
+// 		ap[i] = "?"
+// 		i++
+// 	}
 
-	areasSql := fmt.Sprintf("SELECT id, area_json FROM areas WHERE id in(%s)", strings.Join(ap, ","))
-	rows, err = db.Query(areasSql, areaIds...)
-	if err != nil {
-		return nil, nil, err
-	}
+// 	areasSql := fmt.Sprintf("SELECT id, area_json FROM areas WHERE id in(%s)", strings.Join(ap, ","))
+// 	rows, err = db.Query(areasSql, areaIds...)
+// 	if err != nil {
+// 		return nil, nil, err
+// 	}
 
-	areaFeatures := map[uint64]*geojson.Feature{}
-	for rows.Next() {
-		var (
-			areaId   uint64
-			areaJson string
-		)
-		if err := rows.Scan(&areaId, &areaJson); err != nil {
-			rows.Close()
-			return nil, nil, err
-		}
-		feat := &geojson.Feature{}
-		if err := json.Unmarshal([]byte(areaJson), feat); err != nil {
-			rows.Close()
-			return nil, nil, err
-		}
-		areaFeatures[areaId] = feat
-	}
+// 	areaFeatures := map[uint64]*geojson.Feature{}
+// 	for rows.Next() {
+// 		var (
+// 			areaId   uint64
+// 			areaJson string
+// 		)
+// 		if err := rows.Scan(&areaId, &areaJson); err != nil {
+// 			rows.Close()
+// 			return nil, nil, err
+// 		}
+// 		feat := &geojson.Feature{}
+// 		if err := json.Unmarshal([]byte(areaJson), feat); err != nil {
+// 			rows.Close()
+// 			return nil, nil, err
+// 		}
+// 		areaFeatures[areaId] = feat
+// 	}
 
-	emailsSql := fmt.Sprintf("SELECT area_id, email FROM contact_emails WHERE area_id IN(%s) AND consent_report = true", strings.Join(ap, ","))
-	rows, err = db.Query(emailsSql, areaIds...)
-	if err != nil {
-		return nil, nil, err
-	}
+// 	emailsSql := fmt.Sprintf("SELECT area_id, email FROM contact_emails WHERE area_id IN(%s) AND consent_report = true", strings.Join(ap, ","))
+// 	rows, err = db.Query(emailsSql, areaIds...)
+// 	if err != nil {
+// 		return nil, nil, err
+// 	}
 
-	areasEmails := map[uint64][]string{}
-	for rows.Next() {
-		var (
-			areaId uint64
-			email  string
-		)
-		if err := rows.Scan(&areaId, &email); err != nil {
-			rows.Close()
-			return nil, nil, err
-		}
-		if areasEmails[areaId] == nil {
-			areasEmails[areaId] = []string{}
-		}
-		areasEmails[areaId] = append(areasEmails[areaId], email)
-	}
-	rows.Close()
+// 	areasEmails := map[uint64][]string{}
+// 	for rows.Next() {
+// 		var (
+// 			areaId uint64
+// 			email  string
+// 		)
+// 		if err := rows.Scan(&areaId, &email); err != nil {
+// 			rows.Close()
+// 			return nil, nil, err
+// 		}
+// 		if areasEmails[areaId] == nil {
+// 			areasEmails[areaId] = []string{}
+// 		}
+// 		areasEmails[areaId] = append(areasEmails[areaId], email)
+// 	}
+// 	rows.Close()
 
-	return areaFeatures, areasEmails, nil
-}
+// 	return areaFeatures, areasEmails, nil
+// }
 
 // TODO: Remove after the email sender microservice is launched
 func GetAreasCount(db *sql.DB) (uint64, error) {
