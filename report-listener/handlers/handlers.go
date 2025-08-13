@@ -335,3 +335,52 @@ func (h *Handlers) GetReportsByLatLng(c *gin.Context) {
 
 	c.JSON(http.StatusOK, response)
 }
+
+func (h *Handlers) GetReportsByBrand(c *gin.Context) {
+	// Get the brand name parameter from query string
+	brandName := c.Query("brand_name")
+	if brandName == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing 'brand_name' parameter"})
+		return
+	}
+
+	// Get the limit parameter from query string, default to 10 if not provided
+	limitStr := c.DefaultQuery("n", "10")
+
+	limit := 10 // default value
+	if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
+		limit = parsedLimit
+	} else {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'n' parameter. Must be a positive integer."})
+		return
+	}
+
+	// Limit the maximum number of reports to prevent abuse
+	if limit > MaxReportsLimit {
+		limit = MaxReportsLimit
+	}
+
+	// Get the reports from the database
+	reports, err := h.db.GetReportsByBrandName(c.Request.Context(), brandName, limit)
+	if err != nil {
+		log.Printf("Failed to get reports by brand '%s': %v", brandName, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve reports"})
+		return
+	}
+
+	// Create the response in the same format as other endpoints
+	response := models.ReportBatch{
+		Reports: reports,
+		Count:   len(reports),
+		FromSeq: 0,
+		ToSeq:   0,
+	}
+
+	// Set FromSeq and ToSeq if there are reports
+	if len(reports) > 0 {
+		response.FromSeq = reports[0].Report.Seq
+		response.ToSeq = reports[len(reports)-1].Report.Seq
+	}
+
+	c.JSON(http.StatusOK, response)
+}
