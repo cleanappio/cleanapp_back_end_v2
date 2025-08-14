@@ -108,7 +108,7 @@ func (s *Service) analyzeReport(report *database.Report, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	// Call OpenAI API with assistant for initial analysis in English
-	response, err := s.openaiAssistant.AnalyseImageWithAssistant(report.Image)
+	response, err := s.openaiAssistant.AnalyseImageWithAssistant(report.Image, report.Description)
 	if err != nil {
 		log.Printf("Failed to analyze report %d: %v", report.Seq, err)
 		// Save error report

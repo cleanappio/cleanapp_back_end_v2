@@ -219,16 +219,20 @@ func (c *AssistantClient) createThread() (string, error) {
 	return threadResp.ID, nil
 }
 
-// addMessageToThread adds a message with an image to the thread
-func (c *AssistantClient) addMessageToThread(threadID, fileID string) error {
+// addMessageToThread adds a message with an image and an extra description to the thread
+func (c *AssistantClient) addMessageToThread(threadID, fileID, description string) error {
 	reqBody := map[string]interface{}{
 		"role": "user",
-		"content": []map[string]interface{}{
+		"content": []map[string]any{
 			{
 				"type": "image_file",
-				"image_file": map[string]interface{}{
+				"image_file": map[string]any{
 					"file_id": fileID,
 				},
+			},
+			{
+				"type": "text",
+				"text": description,
 			},
 		},
 	}
@@ -403,7 +407,7 @@ func (c *AssistantClient) getMessages(threadID string) ([]ThreadMessage, error) 
 }
 
 // AnalyseImageWithAssistant takes an image buffer and returns an analysis result
-func (c *AssistantClient) AnalyseImageWithAssistant(imageBuffer []byte) (string, error) {
+func (c *AssistantClient) AnalyseImageWithAssistant(imageBuffer []byte, description string) (string, error) {
 	// Step 1: Upload the image file
 	fileID, err := c.uploadFile(imageBuffer)
 	if err != nil {
@@ -417,7 +421,7 @@ func (c *AssistantClient) AnalyseImageWithAssistant(imageBuffer []byte) (string,
 	}
 
 	// Step 3: Add the image message to the thread
-	err = c.addMessageToThread(threadID, fileID)
+	err = c.addMessageToThread(threadID, fileID, description)
 	if err != nil {
 		return "", fmt.Errorf("failed to add message to thread: %w", err)
 	}

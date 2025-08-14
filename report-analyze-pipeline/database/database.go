@@ -18,16 +18,17 @@ type Database struct {
 
 // Report represents a report from the reports table
 type Report struct {
-	Seq       int
-	Timestamp time.Time
-	ID        string
-	Team      int
-	Latitude  float64
-	Longitude float64
-	X         *float64
-	Y         *float64
-	Image     []byte
-	ActionID  *string
+	Seq         int
+	Timestamp   time.Time
+	ID          string
+	Team        int
+	Latitude    float64
+	Longitude   float64
+	X           float64
+	Y           float64
+	Image       []byte
+	ActionID    string
+	Description string
 }
 
 // ReportAnalysis represents an analysis result
@@ -256,7 +257,7 @@ func (d *Database) MigrateReportAnalysisTable() error {
 // GetUnanalyzedReports gets reports that haven't been analyzed yet
 func (d *Database) GetUnanalyzedReports(cfg *config.Config, limit int) ([]Report, error) {
 	query := `
-	SELECT r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.image, r.action_id
+	SELECT r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.image, r.action_id, r.description
 	FROM reports r
 	LEFT JOIN report_analysis ra ON r.seq = ra.seq
 	WHERE ra.seq IS NULL AND r.seq > ?
@@ -283,6 +284,7 @@ func (d *Database) GetUnanalyzedReports(cfg *config.Config, limit int) ([]Report
 			&report.Y,
 			&report.Image,
 			&report.ActionID,
+			&report.Description,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan report: %w", err)
