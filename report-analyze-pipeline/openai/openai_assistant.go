@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"mime/multipart"
 	"net/http"
 	"time"
@@ -221,21 +222,38 @@ func (c *AssistantClient) createThread() (string, error) {
 
 // addMessageToThread adds a message with an image and an extra description to the thread
 func (c *AssistantClient) addMessageToThread(threadID, fileID, description string) error {
-	reqBody := map[string]interface{}{
-		"role": "user",
-		"content": []map[string]any{
-			{
-				"type": "image_file",
-				"image_file": map[string]any{
-					"file_id": fileID,
+	var reqBody map[string]any
+	if description == "" {
+		reqBody = map[string]any{
+			"role": "user",
+			"content": []map[string]any{
+				{
+					"type": "image_file",
+					"image_file": map[string]any{
+						"file_id": fileID,
+					},
 				},
 			},
-			{
-				"type": "text",
-				"text": description,
+		}
+	} else {
+		reqBody = map[string]any{
+			"role": "user",
+			"content": []any{
+				map[string]any{
+					"type": "image_file",
+					"image_file": map[string]any{
+						"file_id": fileID,
+					},
+				},
+				map[string]any{
+					"type": "text",
+					"text": description,
+				},
 			},
-		},
+		}
 	}
+
+	log.Printf("reqBody: %+v", reqBody)
 
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {

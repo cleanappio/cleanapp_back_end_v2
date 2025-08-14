@@ -270,6 +270,8 @@ func (d *Database) GetUnanalyzedReports(cfg *config.Config, limit int) ([]Report
 	}
 	defer rows.Close()
 
+	var description sql.NullString
+
 	var reports []Report
 	for rows.Next() {
 		var report Report
@@ -284,11 +286,12 @@ func (d *Database) GetUnanalyzedReports(cfg *config.Config, limit int) ([]Report
 			&report.Y,
 			&report.Image,
 			&report.ActionID,
-			&report.Description,
+			&description,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan report: %w", err)
 		}
+		report.Description = description.String
 		reports = append(reports, report)
 	}
 
