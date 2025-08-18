@@ -20,7 +20,8 @@ type Config struct {
 	Host string
 
 	// Auth Service
-	AuthServiceURL string
+	AuthServiceURL       string
+	ReportAuthServiceURL string
 
 	// Brand Dashboard Configuration
 	BrandNames           []string
@@ -29,14 +30,16 @@ type Config struct {
 
 func Load() *Config {
 	cfg := &Config{
-		DBUser:         getEnv("DB_USER", "server"),
-		DBPassword:     getEnv("DB_PASSWORD", "secret_app"),
-		DBHost:         getEnv("DB_HOST", "localhost"),
-		DBPort:         getEnv("DB_PORT", "3306"),
-		DBName:         getEnv("DB_NAME", "cleanapp"),
-		Port:           getEnv("PORT", "8080"),
-		Host:           getEnv("HOST", "0.0.0.0"),
-		AuthServiceURL: getEnv("AUTH_SERVICE_URL", "http://auth-service:8080"),
+		DBUser:     getEnv("DB_USER", "server"),
+		DBPassword: getEnv("DB_PASSWORD", "secret_app"),
+		DBHost:     getEnv("DB_HOST", "localhost"),
+		DBPort:     getEnv("DB_PORT", "3306"),
+		DBName:     getEnv("DB_NAME", "cleanapp"),
+		Port:       getEnv("PORT", "8080"),
+		Host:       getEnv("HOST", "0.0.0.0"),
+
+		AuthServiceURL:       getEnv("AUTH_SERVICE_URL", "http://auth-service:8080"),
+		ReportAuthServiceURL: getEnv("REPORT_AUTH_SERVICE_URL", "http://report-auth-service:8080"),
 	}
 
 	// Load brand names from environment variable

@@ -21,7 +21,6 @@ type AuthService struct {
 	db                *sql.DB
 	encryptor         *encryption.Encryptor
 	jwtSecret         []byte
-	reportAuthService *ReportAuthService
 }
 
 // NewAuthService creates a new authentication service instance
@@ -30,7 +29,6 @@ func NewAuthService(db *sql.DB, encryptor *encryption.Encryptor, jwtSecret strin
 		db:                db,
 		encryptor:         encryptor,
 		jwtSecret:         []byte(jwtSecret),
-		reportAuthService: NewReportAuthService(db),
 	}
 }
 
@@ -436,11 +434,6 @@ func (s *AuthService) UserExistsByEmail(ctx context.Context, email string) (bool
 	}
 
 	return false, nil
-}
-
-// GetReportAuthService returns the report authorization service
-func (s *AuthService) GetReportAuthService() *ReportAuthService {
-	return s.reportAuthService
 }
 
 // Helper methods

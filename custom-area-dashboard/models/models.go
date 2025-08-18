@@ -118,3 +118,20 @@ type BroadcastMessage struct {
 	Data      interface{} `json:"data"`
 	Timestamp time.Time   `json:"timestamp"`
 }
+
+// ReportAuthorizationRequest represents a request to check report authorization
+type ReportAuthorizationRequest struct {
+	ReportSeqs []int `json:"report_seqs"`
+}
+
+// ReportAuthorization represents the authorization status for a single report
+type ReportAuthorization struct {
+	ReportSeq  int    `json:"report_seq"`
+	Authorized bool   `json:"authorized"`
+	Reason     string `json:"reason,omitempty"`
+}
+
+// ReportAuthorizationResponse represents the response for report authorization check
+type ReportAuthorizationResponse struct {
+	Authorizations []ReportAuthorization `json:"authorizations"`
+}

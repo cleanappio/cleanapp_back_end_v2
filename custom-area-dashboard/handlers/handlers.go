@@ -15,14 +15,14 @@ import (
 // AreasHandler handles HTTP requests for areas-related endpoints
 type AreasHandler struct {
 	databaseService *services.DatabaseService
-	cfg *config.Config
+	cfg             *config.Config
 }
 
 // NewAreasHandler creates a new areas handler
 func NewAreasHandler(databaseService *services.DatabaseService, cfg *config.Config) *AreasHandler {
 	return &AreasHandler{
 		databaseService: databaseService,
-		cfg: cfg,
+		cfg:             cfg,
 	}
 }
 
@@ -48,8 +48,8 @@ func (h *AreasHandler) AreasHandler(c *gin.Context) {
 	}
 
 	response := models.AreasResponse{
-		Count:      len(areas),
-		Areas:      areas,
+		Count: len(areas),
+		Areas: areas,
 	}
 	c.JSON(200, response)
 }
@@ -66,12 +66,11 @@ func (h *AreasHandler) SubAreasHandler(c *gin.Context) {
 	}
 
 	response := models.AreasResponse{
-		Count:      len(areas),
-		Areas:      areas,
+		Count: len(areas),
+		Areas: areas,
 	}
 	c.JSON(200, response)
 }
-
 
 // ReportsHandler handles requests for reports within a custom area
 func (h *AreasHandler) ReportsHandler(c *gin.Context) {
@@ -95,7 +94,10 @@ func (h *AreasHandler) ReportsHandler(c *gin.Context) {
 		return
 	}
 
-	reports, err := h.databaseService.GetReportsByCustomArea(n)
+	// Get bearer token from context
+	bearerToken := middleware.GetTokenFromContext(c)
+
+	reports, err := h.databaseService.GetReportsByCustomArea(n, bearerToken)
 	if err != nil {
 		log.Printf("Error getting reports for custom area: %v", err)
 		c.JSON(500, gin.H{"error": "Internal server error"})

@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  report-auth-service:
+    build: .
+    ports:
+      - "8081:8081"
+    environment:
+      - DB_HOST=db
+      - DB_PORT=3306
+      - DB_USER=root
+      - DB_PASSWORD=password
+      - PORT=8081
+      - AUTH_SERVICE_URL=http://auth-service:8080
+    depends_on:
+      - db
+      - auth-service
+    networks:
+      - cleanapp-network
+
+  db:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: password
+      MYSQL_DATABASE: cleanapp
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - cleanapp-network
+
+volumes:
+  mysql_data:
+
+networks:
+  cleanapp-network:
+    driver: bridge

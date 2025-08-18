@@ -89,7 +89,10 @@ func (h *BrandHandler) ReportsHandler(c *gin.Context) {
 		return
 	}
 
-	reports, err := h.databaseService.GetReportsByBrand(matchedBrand, n)
+	// Get bearer token from context
+	bearerToken := middleware.GetBearerTokenFromContext(c)
+
+	reports, err := h.databaseService.GetReportsByBrand(matchedBrand, n, bearerToken)
 	if err != nil {
 		log.Printf("Error getting reports for brand %s: %v", brandName, err)
 		c.JSON(500, gin.H{"error": "Internal server error"})

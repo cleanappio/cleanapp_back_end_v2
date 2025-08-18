@@ -122,9 +122,6 @@ func setupRouter(service *database.AuthService, cfg *config.Config) *gin.Engine 
 		protected.GET("/users/me", h.GetUser)
 		protected.PUT("/users/me", h.UpdateUser)
 		protected.DELETE("/users/me", h.DeleteUser)
-
-		// Report authorization
-		protected.POST("/reports/authorization", h.CheckReportAuthorization)
 	}
 
 	return router

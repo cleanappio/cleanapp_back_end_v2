@@ -44,8 +44,9 @@ func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		// Store user ID in context
+		// Store user ID and bearer token in context
 		c.Set("user_id", userID)
+		c.Set("bearer_token", token)
 		c.Next()
 	}
 }
@@ -107,6 +108,16 @@ func GetUserIDFromContext(c *gin.Context) string {
 	if userID, exists := c.Get("user_id"); exists {
 		if id, ok := userID.(string); ok {
 			return id
+		}
+	}
+	return ""
+}
+
+// GetBearerTokenFromContext extracts the bearer token from Gin context
+func GetBearerTokenFromContext(c *gin.Context) string {
+	if token, exists := c.Get("bearer_token"); exists {
+		if t, ok := token.(string); ok {
+			return t
 		}
 	}
 	return ""

@@ -17,8 +17,9 @@ import (
 
 // DatabaseService manages database connections and queries
 type DatabaseService struct {
-	db           *sql.DB
-	cfg          *config.Config
+	db         *sql.DB
+	cfg        *config.Config
+	reportAuthClient *ReportAuthClient
 }
 
 // NewDatabaseService creates a new database service
@@ -50,9 +51,12 @@ func NewDatabaseService(cfg *config.Config) (*DatabaseService, error) {
 	db.SetMaxIdleConns(25)
 	db.SetConnMaxLifetime(5 * time.Minute)
 
+	// Create auth client
+	reportAuthClient := NewReportAuthClient(cfg.ReportAuthServiceURL)
+
 	log.Printf("Database connection established to %s:%s/%s", dbHost, dbPort, dbName)
 
-	return &DatabaseService{db: db, cfg: cfg}, nil
+	return &DatabaseService{db: db, cfg: cfg, reportAuthClient: reportAuthClient}, nil
 }
 
 // Close closes the database connection
@@ -61,7 +65,7 @@ func (s *DatabaseService) Close() error {
 }
 
 // GetReportsByCustomArea gets the last n reports with analysis that are contained within the custom area defined in config
-func (s *DatabaseService) GetReportsByCustomArea(n int) ([]models.ReportWithAnalysis, error) {
+func (s *DatabaseService) GetReportsByCustomArea(n int, bearerToken string) ([]models.ReportWithAnalysis, error) {
 	// Fetch the geometry for the cfg.CustomAreaID
 	geometryQuery := `
 		SELECT ST_AsText(geom)
@@ -221,6 +225,18 @@ func (s *DatabaseService) GetReportsByCustomArea(n int) ([]models.ReportWithAnal
 		})
 	}
 
+	// Check authorization for all reports
+	if bearerToken != "" && len(result) > 0 {
+		authorizations, err := s.reportAuthClient.CheckReportAuthorization(bearerToken, reportSeqs)
+		if err != nil {
+			log.Printf("WARNING: Failed to check report authorization: %v", err)
+			// Continue without authorization filtering if auth service is unavailable
+		} else {
+			// Filter reports based on authorization
+			result = s.reportAuthClient.FilterAuthorizedReports(result, authorizations)
+		}
+	}
+
 	return result, nil
 }
 
@@ -245,13 +261,13 @@ func (s *DatabaseService) GetReportsAggregatedData() ([]models.AreaAggrData, err
 		JOIN area_index ai ON a.id = ai.area_id
 		WHERE a.id IN (%s)
 	`, strings.Join(placeholders, ","))
-	
+
 	rows, err := s.db.Query(geometriesQuery, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query geometries: %w", err)
 	}
 	defer rows.Close()
-	
+
 	var geometries []string
 	var areasData []models.AreaAggrData
 	for rows.Next() {

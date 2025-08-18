@@ -19,11 +19,12 @@ type Config struct {
 	Host string
 
 	// Auth Service
-	AuthServiceURL string
+	AuthServiceURL       string
+	ReportAuthServiceURL string
 
 	// Custom Area Configuration
-	CustomAreaID            int64
-	CustomAreaSubIDs        []int64
+	CustomAreaID     int64
+	CustomAreaSubIDs []int64
 }
 
 func Load() *Config {
@@ -35,11 +36,12 @@ func Load() *Config {
 		Port:       getEnv("PORT", "8080"),
 		Host:       getEnv("HOST", "0.0.0.0"),
 
-		AuthServiceURL: getEnv("AUTH_SERVICE_URL", "http://auth-service:8080"),
+		AuthServiceURL:       getEnv("AUTH_SERVICE_URL", "http://auth-service:8080"),
+		ReportAuthServiceURL: getEnv("REPORT_AUTH_SERVICE_URL", "http://report-auth-service:8080"),
 
 		// Custom Area Configuration
-		CustomAreaID:            getRequiredEnvAsInt64("CUSTOM_AREA_ID"),
-		CustomAreaSubIDs:        getRequiredEnvAsInt64Slice("CUSTOM_AREA_SUB_IDS"),
+		CustomAreaID:     getRequiredEnvAsInt64("CUSTOM_AREA_ID"),
+		CustomAreaSubIDs: getRequiredEnvAsInt64Slice("CUSTOM_AREA_SUB_IDS"),
 	}
 
 	return cfg

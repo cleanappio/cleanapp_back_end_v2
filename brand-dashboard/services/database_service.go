@@ -16,8 +16,9 @@ import (
 
 // DatabaseService manages database connections and queries for brand-related reports
 type DatabaseService struct {
-	db  *sql.DB
-	Cfg *config.Config
+	db               *sql.DB
+	Cfg              *config.Config
+	reportAuthClient *ReportAuthClient
 }
 
 // NewDatabaseService creates a new database service
@@ -42,9 +43,12 @@ func NewDatabaseService(cfg *config.Config) (*DatabaseService, error) {
 	db.SetMaxIdleConns(25)
 	db.SetConnMaxLifetime(5 * time.Minute)
 
+	// Create auth client
+	reportAuthClient := NewReportAuthClient(cfg.ReportAuthServiceURL)
+
 	log.Printf("Database connection established to %s:%s/%s", cfg.DBHost, cfg.DBPort, cfg.DBName)
 
-	return &DatabaseService{db: db, Cfg: cfg}, nil
+	return &DatabaseService{db: db, Cfg: cfg, reportAuthClient: reportAuthClient}, nil
 }
 
 // Close closes the database connection
@@ -53,7 +57,7 @@ func (s *DatabaseService) Close() error {
 }
 
 // GetReportsByBrand gets the last n reports with analysis that match a specific brand
-func (s *DatabaseService) GetReportsByBrand(brandName string, n int) ([]models.ReportWithAnalysis, error) {
+func (s *DatabaseService) GetReportsByBrand(brandName string, n int, bearerToken string) ([]models.ReportWithAnalysis, error) {
 	// Normalize the brand name for exact matching
 	normalizedBrandName := utils.NormalizeBrandName(brandName)
 
@@ -202,6 +206,18 @@ func (s *DatabaseService) GetReportsByBrand(brandName string, n int) ([]models.R
 			Report:   report,
 			Analysis: analyses,
 		})
+	}
+
+	// Check authorization for all reports
+	if bearerToken != "" && len(result) > 0 {
+		authorizations, err := s.reportAuthClient.CheckReportAuthorization(bearerToken, reportSeqs)
+		if err != nil {
+			log.Printf("WARNING: Failed to check report authorization: %v", err)
+			// Continue without authorization filtering if auth service is unavailable
+		} else {
+			// Filter reports based on authorization
+			result = s.reportAuthClient.FilterAuthorizedReports(result, authorizations)
+		}
 	}
 
 	return result, nil

@@ -36,20 +36,20 @@ type Config struct {
 
 func Load() *Config {
 	cfg := &Config{
-		DBUser:             getEnv("DB_USER", "root"),
-		DBPassword:         getEnv("DB_PASSWORD", "password"),
-		DBHost:             getEnv("DB_HOST", "localhost"),
-		DBPort:             getEnv("DB_PORT", "3306"),
-		JWTSecret:          getEnv("JWT_SECRET", "your-secret-key-here"),
-		Port:               getEnv("PORT", "8080"),
-		GoogleClientID:     getEnv("GOOGLE_CLIENT_ID", ""),
-		GoogleClientSecret: getEnv("GOOGLE_CLIENT_SECRET", ""),
-		FacebookAppID:      getEnv("FACEBOOK_APP_ID", ""),
-		FacebookAppSecret:  getEnv("FACEBOOK_APP_SECRET", ""),
-		AppleClientID:      getEnv("APPLE_CLIENT_ID", ""),
-		AppleTeamID:        getEnv("APPLE_TEAM_ID", ""),
-		AppleKeyID:         getEnv("APPLE_KEY_ID", ""),
-		ApplePrivateKey:    getEnv("APPLE_PRIVATE_KEY", ""),
+		DBUser:               getEnv("DB_USER", "root"),
+		DBPassword:           getEnv("DB_PASSWORD", "password"),
+		DBHost:               getEnv("DB_HOST", "localhost"),
+		DBPort:               getEnv("DB_PORT", "3306"),
+		JWTSecret:            getEnv("JWT_SECRET", "your-secret-key-here"),
+		Port:                 getEnv("PORT", "8080"),
+		GoogleClientID:       getEnv("GOOGLE_CLIENT_ID", ""),
+		GoogleClientSecret:   getEnv("GOOGLE_CLIENT_SECRET", ""),
+		FacebookAppID:        getEnv("FACEBOOK_APP_ID", ""),
+		FacebookAppSecret:    getEnv("FACEBOOK_APP_SECRET", ""),
+		AppleClientID:        getEnv("APPLE_CLIENT_ID", ""),
+		AppleTeamID:          getEnv("APPLE_TEAM_ID", ""),
+		AppleKeyID:           getEnv("APPLE_KEY_ID", ""),
+		ApplePrivateKey:      getEnv("APPLE_PRIVATE_KEY", ""),
 	}
 
 	// Handle encryption key
