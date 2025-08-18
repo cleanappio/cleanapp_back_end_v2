@@ -179,6 +179,7 @@ BRAND_DASHBOARD_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-brand-dashboard-image:${
 AREAS_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-areas-service-image:${OPT}"
 REPORT_PROCESSOR_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-processor-image:${OPT}"
 EMAIL_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-email-service-image:${OPT}"
+REPORT_AUTH_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-auth-service-image:${OPT}"
 
 ANALYSIS_PROMPT="What kind of litter or hazard can you see on this image? Please describe the litter or hazard in detail. Also, please extract any brand name from the image, if present. Extract only a brand name without any context info. If there are multiple brands, extract the one with the highest probability of being present."
 OPENAI_ASSISTANT_ID="asst_kBtuzDRWNorZgw9o2OJTGOn0"
@@ -344,6 +345,7 @@ services:
       - LOG_LEVEL=info
       - LOG_FORMAT=json
       - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
+      - REPORT_AUTH_SERVICE_URL=http://cleanapp_report_auth_service:8080
       - GIN_MODE=${GIN_MODE}
       - CUSTOM_AREA_ID=${MONTENEGRO_AREA_ID}
       - CUSTOM_AREA_SUB_IDS=${MONTENEGRO_AREA_SUB_IDS}
@@ -364,6 +366,7 @@ services:
       - LOG_LEVEL=info
       - LOG_FORMAT=json
       - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
+      - REPORT_AUTH_SERVICE_URL=http://cleanapp_report_auth_service:8080
       - GIN_MODE=${GIN_MODE}
       - CUSTOM_AREA_ID=${NEW_YORK_AREA_ID}
       - CUSTOM_AREA_SUB_IDS=${NEW_YORK_AREA_SUB_IDS}
@@ -401,6 +404,7 @@ services:
       - DB_NAME=cleanapp
       - GIN_MODE=${GIN_MODE}
       - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
+      - REPORT_AUTH_SERVICE_URL=http://cleanapp_report_auth_service:8080
       - BRAND_NAMES=${RED_BULL_BRAND_NAMES}
     ports:
       - 9085:8080
@@ -429,6 +433,7 @@ services:
       - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
       - DB_NAME=cleanapp
       - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
+      - REPORT_AUTH_SERVICE_URL=http://cleanapp_report_auth_service:8080
       - GIN_MODE=${GIN_MODE}
     ports:
       - 9087:8080
@@ -451,6 +456,22 @@ services:
       - GIN_MODE=${GIN_MODE}
     ports:
       - 9089:8080
+    depends_on:
+      - cleanapp_db
+
+  cleanapp_report_auth_service:
+    container_name: cleanapp_report_auth_service
+    image: ${REPORT_AUTH_SERVICE_DOCKER_IMAGE}
+    environment:
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+      - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
+      - DB_NAME=cleanapp
+      - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
+      - GIN_MODE=${GIN_MODE}
+    depends_on:
+      - cleanapp_db
 
 volumes:
   mysql:
@@ -478,6 +499,7 @@ docker pull ${BRAND_DASHBOARD_DOCKER_IMAGE}
 docker pull ${AREAS_SERVICE_DOCKER_IMAGE}
 docker pull ${REPORT_PROCESSOR_DOCKER_IMAGE}
 docker pull ${EMAIL_SERVICE_DOCKER_IMAGE}
+docker pull ${REPORT_AUTH_SERVICE_DOCKER_IMAGE}
 
 # Start our docker images.
 ./up.sh
