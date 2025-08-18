@@ -468,8 +468,11 @@ services:
       - DB_USER=server
       - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
       - DB_NAME=cleanapp
+      - HTTP_PORT=8080
       - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
       - GIN_MODE=${GIN_MODE}
+    ports:
+      - 9090:8080
     depends_on:
       - cleanapp_db
 
