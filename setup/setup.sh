@@ -458,6 +458,21 @@ services:
     depends_on:
       - cleanapp_db
 
+  cleanapp_report_ownership_service:
+    container_name: cleanapp_report_ownership_service
+    image: ${REPORT_OWNERSHIP_SERVICE_DOCKER_IMAGE}
+    environment:
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+      - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
+      - DB_NAME=cleanapp
+      - POLL_INTERVAL=1s
+      - BATCH_SIZE=100
+      - GIN_MODE=${GIN_MODE}
+    ports:
+      - 9090:8080
+
 volumes:
   mysql:
     name: eko_mysql
