@@ -19,7 +19,6 @@ import (
 type DatabaseService struct {
 	db         *sql.DB
 	cfg        *config.Config
-	reportAuthClient *ReportAuthClient
 }
 
 // NewDatabaseService creates a new database service
@@ -52,11 +51,9 @@ func NewDatabaseService(cfg *config.Config) (*DatabaseService, error) {
 	db.SetConnMaxLifetime(5 * time.Minute)
 
 	// Create auth client
-	reportAuthClient := NewReportAuthClient(cfg.ReportAuthServiceURL)
-
 	log.Printf("Database connection established to %s:%s/%s", dbHost, dbPort, dbName)
 
-	return &DatabaseService{db: db, cfg: cfg, reportAuthClient: reportAuthClient}, nil
+	return &DatabaseService{db: db, cfg: cfg}, nil
 }
 
 // Close closes the database connection
@@ -223,18 +220,6 @@ func (s *DatabaseService) GetReportsByCustomArea(n int, bearerToken string) ([]m
 			Report:   report,
 			Analysis: analyses,
 		})
-	}
-
-	// Check authorization for all reports
-	if bearerToken != "" && len(result) > 0 {
-		authorizations, err := s.reportAuthClient.CheckReportAuthorization(bearerToken, reportSeqs)
-		if err != nil {
-			log.Printf("WARNING: Failed to check report authorization: %v", err)
-			// Continue without authorization filtering if auth service is unavailable
-		} else {
-			// Filter reports based on authorization
-			result = s.reportAuthClient.FilterAuthorizedReports(result, authorizations)
-		}
 	}
 
 	return result, nil
