@@ -26,7 +26,7 @@ func Load() *Config {
 		DBPassword:     getEnv("DB_PASSWORD", "password"),
 		DBHost:         getEnv("DB_HOST", "localhost"),
 		DBPort:         getEnv("DB_PORT", "3306"),
-		Port:           getEnv("PORT", "8081"),
+		Port:           getEnv("HTTP_PORT", "8080"),
 		AuthServiceURL: getEnv("AUTH_SERVICE_URL", "http://localhost:8080"),
 	}
 

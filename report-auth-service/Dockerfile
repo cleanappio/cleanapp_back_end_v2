@@ -24,7 +24,7 @@ WORKDIR /root/
 COPY --from=builder /app/main .
 
 # Expose port
-EXPOSE 8081
+EXPOSE 8080
 
 # Run the binary
 CMD ["./main"]

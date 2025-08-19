@@ -140,7 +140,7 @@ func (s *ReportAuthService) checkLocationAuthorization(ctx context.Context, user
 		FROM customer_areas ca
 		JOIN areas a ON ca.area_id = a.id
 		JOIN area_index ai ON a.id = ai.area_id
-		WHERE ST_Contains(ai.geom, ST_Point(?, ?))
+		WHERE ST_Contains(ai.geom, ST_GeomFromText(CONCAT('POINT(', ?, ' ', ?, ')'), 4326))
 		LIMIT 1
 	`, longitude, latitude).Scan(&areaOwnerID)
 
