@@ -12,6 +12,7 @@ import (
 
 // AuthMiddleware validates JWT tokens for protected routes by calling auth-service
 // It also supports internal service communication via X-User-ID header
+// If no authentication is provided, the request continues with empty user_id
 func AuthMiddleware(authServiceURL string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Check for internal service communication header first
@@ -26,9 +27,10 @@ func AuthMiddleware(authServiceURL string) gin.HandlerFunc {
 		// Standard JWT token validation
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
-			log.Printf("WARNING: Missing authorization header from %s", c.ClientIP())
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "missing authorization header"})
-			c.Abort()
+			// No authentication provided - continue with empty user_id for public access
+			log.Printf("DEBUG: No authentication provided from %s - allowing public access", c.ClientIP())
+			c.Set("user_id", "")
+			c.Next()
 			return
 		}
 

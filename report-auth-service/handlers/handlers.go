@@ -26,24 +26,19 @@ func NewHandlers(service *database.ReportAuthService) *Handlers {
 func (h *Handlers) CheckReportAuthorization(c *gin.Context) {
 	// Get user ID from context (set by auth middleware)
 	userID := c.GetString("user_id")
-	if userID == "" {
-		log.Printf("ERROR: User ID not found in context")
-		c.JSON(http.StatusUnauthorized, models.ErrorResponse{Error: "unauthorized"})
-		return
-	}
 
 	var req models.ReportAuthorizationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		log.Printf("ERROR: Invalid JSON in CheckReportAuthorization request for user %s: %v", userID, err)
+		log.Printf("ERROR: Invalid JSON in CheckReportAuthorization request: %v", err)
 		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
 		return
 	}
 
-	log.Printf("INFO: Checking report authorization for user %s with %d reports", userID, len(req.ReportSeqs))
+	log.Printf("INFO: Checking report authorization for user '%s' with %d reports", userID, len(req.ReportSeqs))
 
 	authorizations, err := h.service.CheckReportAuthorization(c.Request.Context(), userID, req.ReportSeqs)
 	if err != nil {
-		log.Printf("ERROR: Failed to check report authorization for user %s: %v", userID, err)
+		log.Printf("ERROR: Failed to check report authorization for user '%s': %v", userID, err)
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to check report authorization"})
 		return
 	}
@@ -52,7 +47,7 @@ func (h *Handlers) CheckReportAuthorization(c *gin.Context) {
 		Authorizations: authorizations,
 	}
 
-	log.Printf("INFO: Successfully checked report authorization for user %s with %d reports", userID, len(req.ReportSeqs))
+	log.Printf("INFO: Successfully checked report authorization for user '%s' with %d reports", userID, len(req.ReportSeqs))
 	c.JSON(http.StatusOK, response)
 }
 

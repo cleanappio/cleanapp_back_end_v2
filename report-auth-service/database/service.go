@@ -1,11 +1,11 @@
 package database
 
 import (
-	"slices"
 	"context"
 	"database/sql"
 	"fmt"
 	"log"
+	"slices"
 	"strings"
 
 	"report-auth-service/models"
@@ -27,6 +27,12 @@ func NewReportAuthService(db *sql.DB) *ReportAuthService {
 func (s *ReportAuthService) CheckReportAuthorization(ctx context.Context, userID string, reportSeqs []int) ([]models.ReportAuthorization, error) {
 	if len(reportSeqs) == 0 {
 		return []models.ReportAuthorization{}, nil
+	}
+
+	// If no user ID provided, only authorize reports that don't belong to any customer
+	if userID == "" {
+		// For public access, we'll use the existing functions with empty user ID
+		// which will only authorize reports not restricted to any user
 	}
 
 	// Build the IN clause for the query
@@ -168,6 +174,13 @@ func (s *ReportAuthService) checkLocationAuthorization(ctx context.Context, user
 		return nil
 	}
 
+	// If no user ID provided (public access), deny access to restricted areas
+	if userID == "" {
+		auth.Authorized = false
+		auth.Reason = "Location within restricted areas - requires authentication"
+		return nil
+	}
+
 	log.Printf("DEBUG: Location (%.6f, %.6f) is within areas owned by users: %v, current user %s", latitude, longitude, areaUserIDs, userID)
 
 	// Check if current user is in the list of area owners
@@ -219,6 +232,13 @@ func (s *ReportAuthService) checkBrandAuthorization(ctx context.Context, userID 
 		// Brand doesn't belong to any user - authorize
 		auth.Authorized = true
 		auth.Reason = "Brand not restricted to any user"
+		return nil
+	}
+
+	// If no user ID provided (public access), deny access to restricted brands
+	if userID == "" {
+		auth.Authorized = false
+		auth.Reason = "Brand belongs to restricted users - requires authentication"
 		return nil
 	}
 

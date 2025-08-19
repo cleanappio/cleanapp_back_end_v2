@@ -19,11 +19,12 @@ This service is responsible for checking whether users are authorized to view sp
 ## API Endpoints
 
 ### POST /api/v3/reports/authorization
-Check authorization for multiple reports. **Requires authentication.**
+Check authorization for multiple reports. **Authentication is optional.**
 
-**Authentication:**
+**Authentication Options:**
 - **Option 1**: Include a valid JWT token in the `Authorization: Bearer <token>` header
 - **Option 2**: For internal service communication, include `X-User-ID: <user_id>` header
+- **Option 3**: No authentication (for public access to unrestricted reports)
 
 **Request Body:**
 ```json
@@ -32,7 +33,14 @@ Check authorization for multiple reports. **Requires authentication.**
 }
 ```
 
-**Note**: The `user_id` is no longer required in the request body as it's extracted from the authentication token or internal service header.
+**Note**: When no authentication is provided, the service will only authorize reports that are not restricted to any user (public reports).
+
+**Public Access Behavior:**
+When no authentication is provided, the service will:
+- Only authorize reports that are not located within any user's restricted areas
+- Only authorize reports that do not belong to any user's restricted brands
+- Deny access to reports that are restricted to specific users
+- Provide clear reasons for authorization decisions
 
 **Response:**
 ```json
