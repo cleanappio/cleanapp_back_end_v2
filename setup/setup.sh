@@ -179,6 +179,7 @@ BRAND_DASHBOARD_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-brand-dashboard-image:${
 AREAS_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-areas-service-image:${OPT}"
 REPORT_PROCESSOR_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-processor-image:${OPT}"
 EMAIL_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-email-service-image:${OPT}"
+REPORT_OWNERSHIP_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-ownership-service-image:${OPT}"
 
 ANALYSIS_PROMPT="What kind of litter or hazard can you see on this image? Please describe the litter or hazard in detail. Also, please extract any brand name from the image, if present. Extract only a brand name without any context info. If there are multiple brands, extract the one with the highest probability of being present."
 OPENAI_ASSISTANT_ID="asst_kBtuzDRWNorZgw9o2OJTGOn0"
@@ -499,6 +500,7 @@ docker pull ${BRAND_DASHBOARD_DOCKER_IMAGE}
 docker pull ${AREAS_SERVICE_DOCKER_IMAGE}
 docker pull ${REPORT_PROCESSOR_DOCKER_IMAGE}
 docker pull ${EMAIL_SERVICE_DOCKER_IMAGE}
+docker pull ${REPORT_OWNERSHIP_SERVICE_DOCKER_IMAGE}
 
 # Start our docker images.
 ./up.sh
