@@ -120,7 +120,7 @@ func TestCustomerBrandsService(t *testing.T) {
 
 			// Test AddCustomerBrands
 			if len(tt.brandNames) > 0 {
-				err := service.AddCustomerBrands(context.Background(), tt.customerID, tt.brandNames)
+				err := service.AddCustomerBrands(context.Background(), tt.customerID, tt.brandNames, false)
 				if tt.hasError && err == nil {
 					t.Errorf("Expected error for AddCustomerBrands, got none")
 				}
@@ -135,7 +135,7 @@ func TestCustomerBrandsService(t *testing.T) {
 			}
 
 			// Test UpdateCustomerBrands
-			err := service.UpdateCustomerBrands(context.Background(), tt.customerID, tt.brandNames)
+			err := service.UpdateCustomerBrands(context.Background(), tt.customerID, tt.brandNames, false)
 			if tt.hasError && err == nil {
 				t.Errorf("Expected error for UpdateCustomerBrands, got none")
 			}

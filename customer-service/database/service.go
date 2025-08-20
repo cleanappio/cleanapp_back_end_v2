@@ -55,7 +55,7 @@ func (s *CustomerService) CreateCustomer(ctx context.Context, customerID string,
 
 	// Insert customer areas
 	for _, areaID := range req.AreaIDs {
-		if err := s.insertCustomerArea(ctx, tx, customerID, areaID); err != nil {
+		if err := s.insertCustomerArea(ctx, tx, customerID, areaID, req.IsPublic); err != nil {
 			log.Printf("ERROR: Failed to insert customer area for customer %s, area %d: %v", customerID, areaID, err)
 			return nil, fmt.Errorf("failed to insert customer area: %w", err)
 		}
@@ -135,7 +135,7 @@ func (s *CustomerService) UpdateCustomer(ctx context.Context, customerID string,
 
 	// Insert new areas
 	for _, areaID := range req.AreaIDs {
-		if err := s.insertCustomerArea(ctx, tx, customerID, areaID); err != nil {
+		if err := s.insertCustomerArea(ctx, tx, customerID, areaID, req.IsPublic); err != nil {
 			return fmt.Errorf("failed to insert customer area: %w", err)
 		}
 	}
@@ -780,7 +780,7 @@ func (s *CustomerService) GetCustomerBrands(ctx context.Context, customerID stri
 }
 
 // AddCustomerBrands adds brands to a customer's brand list
-func (s *CustomerService) AddCustomerBrands(ctx context.Context, customerID string, brandNames []string) error {
+func (s *CustomerService) AddCustomerBrands(ctx context.Context, customerID string, brandNames []string, isPublic bool) error {
 	if len(brandNames) == 0 {
 		return nil
 	}
@@ -795,7 +795,7 @@ func (s *CustomerService) AddCustomerBrands(ctx context.Context, customerID stri
 	// Insert new brands
 	for _, brandName := range brandNames {
 		normalized := utils.NormalizeBrandName(brandName)
-		if err := s.insertCustomerBrand(ctx, tx, customerID, normalized); err != nil {
+		if err := s.insertCustomerBrand(ctx, tx, customerID, normalized, isPublic); err != nil {
 			return fmt.Errorf("failed to insert customer brand: %w", err)
 		}
 	}
@@ -851,7 +851,7 @@ func (s *CustomerService) RemoveCustomerBrands(ctx context.Context, customerID s
 }
 
 // UpdateCustomerBrands replaces all brands for a customer with the new list
-func (s *CustomerService) UpdateCustomerBrands(ctx context.Context, customerID string, brandNames []string) error {
+func (s *CustomerService) UpdateCustomerBrands(ctx context.Context, customerID string, brandNames []string, isPublic bool) error {
 	// Start transaction
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -868,7 +868,7 @@ func (s *CustomerService) UpdateCustomerBrands(ctx context.Context, customerID s
 	// Insert new brands
 	for _, brandName := range brandNames {
 		normalized := utils.NormalizeBrandName(brandName)
-		if err := s.insertCustomerBrand(ctx, tx, customerID, normalized); err != nil {
+		if err := s.insertCustomerBrand(ctx, tx, customerID, normalized, isPublic); err != nil {
 			return fmt.Errorf("failed to insert customer brand: %w", err)
 		}
 	}
@@ -1072,10 +1072,10 @@ func (s *CustomerService) insertCustomer(ctx context.Context, tx *sql.Tx, id str
 	return err
 }
 
-func (s *CustomerService) insertCustomerArea(ctx context.Context, tx *sql.Tx, customerID string, areaID int) error {
+func (s *CustomerService) insertCustomerArea(ctx context.Context, tx *sql.Tx, customerID string, areaID int, isPublic bool) error {
 	_, err := tx.ExecContext(ctx,
-		"INSERT INTO customer_areas (customer_id, area_id) VALUES (?, ?)",
-		customerID, areaID)
+		"INSERT INTO customer_areas (customer_id, area_id, is_public) VALUES (?, ?, ?)",
+		customerID, areaID, isPublic)
 	return err
 }
 
@@ -1084,7 +1084,7 @@ func (s *CustomerService) GetCustomerAreas(ctx context.Context, customerID strin
 	log.Printf("DEBUG: Getting areas for customer %s", customerID)
 
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT customer_id, area_id, created_at FROM customer_areas WHERE customer_id = ? ORDER BY created_at",
+		"SELECT customer_id, area_id, is_public, created_at FROM customer_areas WHERE customer_id = ? ORDER BY created_at",
 		customerID)
 	if err != nil {
 		log.Printf("ERROR: Failed to query customer areas for customer %s: %v", customerID, err)
@@ -1095,7 +1095,7 @@ func (s *CustomerService) GetCustomerAreas(ctx context.Context, customerID strin
 	var areas []models.CustomerArea
 	for rows.Next() {
 		var area models.CustomerArea
-		if err := rows.Scan(&area.CustomerID, &area.AreaID, &area.CreatedAt); err != nil {
+		if err := rows.Scan(&area.CustomerID, &area.AreaID, &area.IsPublic, &area.CreatedAt); err != nil {
 			log.Printf("ERROR: Failed to scan customer area for customer %s: %v", customerID, err)
 			return nil, fmt.Errorf("failed to scan customer area: %w", err)
 		}
@@ -1107,8 +1107,8 @@ func (s *CustomerService) GetCustomerAreas(ctx context.Context, customerID strin
 }
 
 // AddCustomerAreas adds areas to a customer
-func (s *CustomerService) AddCustomerAreas(ctx context.Context, customerID string, areaIDs []int) error {
-	log.Printf("INFO: Adding %d areas to customer %s", len(areaIDs), customerID)
+func (s *CustomerService) AddCustomerAreas(ctx context.Context, customerID string, areaIDs []int, isPublic bool) error {
+	log.Printf("INFO: Adding %d areas to customer %s with is_public=%t", len(areaIDs), customerID, isPublic)
 
 	// Start transaction
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -1126,7 +1126,7 @@ func (s *CustomerService) AddCustomerAreas(ctx context.Context, customerID strin
 
 	// Add each area
 	for _, areaID := range areaIDs {
-		if err := s.insertCustomerAreaIfNotExists(ctx, tx, customerID, areaID); err != nil {
+		if err := s.insertCustomerAreaIfNotExists(ctx, tx, customerID, areaID, isPublic); err != nil {
 			log.Printf("ERROR: Failed to add area %d to customer %s: %v", areaID, customerID, err)
 			return fmt.Errorf("failed to add area %d: %w", areaID, err)
 		}
@@ -1143,8 +1143,8 @@ func (s *CustomerService) AddCustomerAreas(ctx context.Context, customerID strin
 }
 
 // UpdateCustomerAreas replaces all areas for a customer
-func (s *CustomerService) UpdateCustomerAreas(ctx context.Context, customerID string, areaIDs []int) error {
-	log.Printf("INFO: Updating areas for customer %s with %d areas", customerID, len(areaIDs))
+func (s *CustomerService) UpdateCustomerAreas(ctx context.Context, customerID string, areaIDs []int, isPublic bool) error {
+	log.Printf("INFO: Updating areas for customer %s with %d areas and is_public=%t", customerID, len(areaIDs), isPublic)
 
 	// Start transaction
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -1168,7 +1168,7 @@ func (s *CustomerService) UpdateCustomerAreas(ctx context.Context, customerID st
 
 	// Add new areas
 	for _, areaID := range areaIDs {
-		if err := s.insertCustomerArea(ctx, tx, customerID, areaID); err != nil {
+		if err := s.insertCustomerArea(ctx, tx, customerID, areaID, isPublic); err != nil {
 			log.Printf("ERROR: Failed to add area %d to customer %s: %v", areaID, customerID, err)
 			return fmt.Errorf("failed to add area %d: %w", areaID, err)
 		}
@@ -1222,7 +1222,7 @@ func (s *CustomerService) DeleteCustomerAreas(ctx context.Context, customerID st
 
 // Helper methods for customer areas operations
 
-func (s *CustomerService) insertCustomerAreaIfNotExists(ctx context.Context, tx *sql.Tx, customerID string, areaID int) error {
+func (s *CustomerService) insertCustomerAreaIfNotExists(ctx context.Context, tx *sql.Tx, customerID string, areaID int, isPublic bool) error {
 	// Check if the area already exists for this customer
 	var exists int
 	err := tx.QueryRowContext(ctx,
@@ -1231,7 +1231,7 @@ func (s *CustomerService) insertCustomerAreaIfNotExists(ctx context.Context, tx 
 
 	if err == sql.ErrNoRows {
 		// Area doesn't exist, insert it
-		return s.insertCustomerArea(ctx, tx, customerID, areaID)
+		return s.insertCustomerArea(ctx, tx, customerID, areaID, isPublic)
 	} else if err != nil {
 		return err
 	}
@@ -1283,10 +1283,10 @@ func (s *CustomerService) ensureCustomerExistsInTx(ctx context.Context, tx *sql.
 }
 
 // insertCustomerBrand inserts a brand for a customer (brandName should already be normalized)
-func (s *CustomerService) insertCustomerBrand(ctx context.Context, tx *sql.Tx, customerID string, brandName string) error {
+func (s *CustomerService) insertCustomerBrand(ctx context.Context, tx *sql.Tx, customerID string, brandName string, isPublic bool) error {
 	_, err := tx.ExecContext(ctx,
-		"INSERT INTO customer_brands (customer_id, brand_name) VALUES (?, ?)",
-		customerID, brandName)
+		"INSERT INTO customer_brands (customer_id, brand_name, is_public) VALUES (?, ?, ?)",
+		customerID, brandName, isPublic)
 	return err
 }
 

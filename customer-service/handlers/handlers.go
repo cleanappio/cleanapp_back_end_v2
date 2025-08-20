@@ -239,9 +239,9 @@ func (h *Handlers) AddCustomerBrands(c *gin.Context) {
 		return
 	}
 
-	log.Printf("INFO: Adding %d brands to customer %s from %s", len(req.BrandNames), customerID, c.ClientIP())
+	log.Printf("INFO: Adding %d brands to customer %s with is_public=%t from %s", len(req.BrandNames), customerID, req.IsPublic, c.ClientIP())
 
-	if err := h.service.AddCustomerBrands(c.Request.Context(), customerID, req.BrandNames); err != nil {
+	if err := h.service.AddCustomerBrands(c.Request.Context(), customerID, req.BrandNames, req.IsPublic); err != nil {
 		log.Printf("ERROR: Failed to add customer brands for customer %s from %s: %v", customerID, c.ClientIP(), err)
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to add customer brands"})
 		return
@@ -295,9 +295,9 @@ func (h *Handlers) UpdateCustomerBrands(c *gin.Context) {
 		return
 	}
 
-	log.Printf("INFO: Updating brands for customer %s with %d brands from %s", customerID, len(req.BrandNames), c.ClientIP())
+	log.Printf("INFO: Updating brands for customer %s with %d brands and is_public=%t from %s", customerID, len(req.BrandNames), req.IsPublic, c.ClientIP())
 
-	if err := h.service.UpdateCustomerBrands(c.Request.Context(), customerID, req.BrandNames); err != nil {
+	if err := h.service.UpdateCustomerBrands(c.Request.Context(), customerID, req.BrandNames, req.IsPublic); err != nil {
 		log.Printf("ERROR: Failed to update brands for customer %s from %s: %v", customerID, c.ClientIP(), err)
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to update customer brands"})
 		return
@@ -327,8 +327,8 @@ func (h *Handlers) GetCustomerAreas(c *gin.Context) {
 
 	log.Printf("DEBUG: Found %d areas for customer %s from %s", len(areas), customerID, c.ClientIP())
 	c.JSON(http.StatusOK, models.CustomerAreasResponse{
-		Areas:      areas,
-		Count:      len(areas),
+		Areas: areas,
+		Count: len(areas),
 	})
 }
 
@@ -348,9 +348,9 @@ func (h *Handlers) AddCustomerAreas(c *gin.Context) {
 		return
 	}
 
-	log.Printf("INFO: Adding %d areas to customer %s from %s", len(req.AreaIDs), customerID, c.ClientIP())
+	log.Printf("INFO: Adding %d areas to customer %s with is_public=%t from %s", len(req.AreaIDs), customerID, req.IsPublic, c.ClientIP())
 
-	if err := h.service.AddCustomerAreas(c.Request.Context(), customerID, req.AreaIDs); err != nil {
+	if err := h.service.AddCustomerAreas(c.Request.Context(), customerID, req.AreaIDs, req.IsPublic); err != nil {
 		log.Printf("ERROR: Failed to add areas for customer %s from %s: %v", customerID, c.ClientIP(), err)
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to add customer areas"})
 		return
@@ -377,9 +377,9 @@ func (h *Handlers) UpdateCustomerAreas(c *gin.Context) {
 	}
 
 	// Validate that the request customer_id matches the authenticated customer
-	log.Printf("INFO: Updating areas for customer %s with %d areas from %s", customerID, len(req.AreaIDs), c.ClientIP())
+	log.Printf("INFO: Updating areas for customer %s with %d areas and is_public=%t from %s", customerID, len(req.AreaIDs), req.IsPublic, c.ClientIP())
 
-	if err := h.service.UpdateCustomerAreas(c.Request.Context(), customerID, req.AreaIDs); err != nil {
+	if err := h.service.UpdateCustomerAreas(c.Request.Context(), customerID, req.AreaIDs, req.IsPublic); err != nil {
 		log.Printf("ERROR: Failed to update areas for customer %s from %s: %v", customerID, c.ClientIP(), err)
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to update customer areas"})
 		return

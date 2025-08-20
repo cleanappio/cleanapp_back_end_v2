@@ -22,18 +22,22 @@ CREATE TABLE IF NOT EXISTS customers (
 CREATE TABLE IF NOT EXISTS customer_areas (
     customer_id VARCHAR(256) NOT NULL,
     area_id INT NOT NULL,
+    is_public BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (customer_id, area_id),
     FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
-    FOREIGN KEY (area_id) REFERENCES areas(id) ON DELETE CASCADE
+    FOREIGN KEY (area_id) REFERENCES areas(id) ON DELETE CASCADE,
+    INDEX idx_customer_areas_is_public (is_public)
 );
 
 CREATE TABLE IF NOT EXISTS customer_brands (
     customer_id VARCHAR(256) NOT NULL,
     brand_name VARCHAR(255) NOT NULL,
+    is_public BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (customer_id, brand_name),
-    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
+    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
+    INDEX idx_customer_brands_is_public (is_public)
 );
 
 CREATE TABLE IF NOT EXISTS subscriptions (
@@ -115,6 +119,16 @@ func runMigrations(db *sql.DB) error {
 		return fmt.Errorf("failed to add customer_id foreign key to customer_areas table: %w", err)
 	}
 
+	// Migration: Add is_public field to customer_areas table if it doesn't exist
+	if err := addIsPublicFieldToCustomerAreas(db); err != nil {
+		return fmt.Errorf("failed to add is_public field to customer_areas table: %w", err)
+	}
+
+	// Migration: Add is_public field to customer_brands table if it doesn't exist
+	if err := addIsPublicFieldToCustomerBrands(db); err != nil {
+		return fmt.Errorf("failed to add is_public field to customer_brands table: %w", err)
+	}
+
 	log.Println("Database migrations completed successfully")
 	return nil
 }
@@ -184,6 +198,96 @@ func addCustomerIdForeignKeyToCustomerAreas(db *sql.DB) error {
 		log.Println("Added customer_id foreign key constraint to customer_areas table")
 	} else {
 		log.Println("Customer_id foreign key constraint already exists in customer_areas table")
+	}
+
+	return nil
+}
+
+// addIsPublicFieldToCustomerAreas adds the is_public field to customer_areas table if it doesn't exist
+func addIsPublicFieldToCustomerAreas(db *sql.DB) error {
+	// Check if is_public column already exists
+	var count int
+	err := db.QueryRow(`
+		SELECT COUNT(*) 
+		FROM INFORMATION_SCHEMA.COLUMNS 
+		WHERE TABLE_SCHEMA = DATABASE() 
+		AND TABLE_NAME = 'customer_areas'
+		AND COLUMN_NAME = 'is_public';`).Scan(&count)
+
+	if err != nil {
+		log.Printf("Could not check for existing is_public column: %v", err)
+		return err
+	}
+
+	if count == 0 {
+		// Add is_public column
+		_, err := db.Exec(`
+			ALTER TABLE customer_areas 
+			ADD COLUMN is_public BOOLEAN DEFAULT FALSE
+		`)
+		if err != nil {
+			log.Printf("Could not add is_public column to customer_areas table: %v", err)
+			return err
+		}
+
+		// Add index for is_public column
+		_, err = db.Exec(`
+			ALTER TABLE customer_areas 
+			ADD INDEX idx_customer_areas_is_public (is_public)
+		`)
+		if err != nil {
+			log.Printf("Could not add is_public index to customer_areas table: %v", err)
+			return err
+		}
+
+		log.Println("Added is_public field and index to customer_areas table")
+	} else {
+		log.Println("is_public field already exists in customer_areas table")
+	}
+
+	return nil
+}
+
+// addIsPublicFieldToCustomerBrands adds the is_public field to customer_brands table if it doesn't exist
+func addIsPublicFieldToCustomerBrands(db *sql.DB) error {
+	// Check if is_public column already exists
+	var count int
+	err := db.QueryRow(`
+		SELECT COUNT(*) 
+		FROM INFORMATION_SCHEMA.COLUMNS 
+		WHERE TABLE_SCHEMA = DATABASE() 
+		AND TABLE_NAME = 'customer_brands'
+		AND COLUMN_NAME = 'is_public';`).Scan(&count)
+
+	if err != nil {
+		log.Printf("Could not check for existing is_public column: %v", err)
+		return err
+	}
+
+	if count == 0 {
+		// Add is_public column
+		_, err := db.Exec(`
+			ALTER TABLE customer_brands 
+			ADD COLUMN is_public BOOLEAN DEFAULT FALSE
+		`)
+		if err != nil {
+			log.Printf("Could not add is_public column to customer_brands table: %v", err)
+			return err
+		}
+
+		// Add index for is_public column
+		_, err = db.Exec(`
+			ALTER TABLE customer_brands 
+			ADD INDEX idx_customer_brands_is_public (is_public)
+		`)
+		if err != nil {
+			log.Printf("Could not add is_public index to customer_brands table: %v", err)
+			return err
+		}
+
+		log.Println("Added is_public field and index to customer_brands table")
+	} else {
+		log.Println("is_public field already exists in customer_brands table")
 	}
 
 	return nil
