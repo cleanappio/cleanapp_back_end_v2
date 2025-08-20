@@ -125,7 +125,7 @@ func (s *Service) processReport(ctx context.Context, reportWithAnalysis models.R
 	}
 
 	// Determine owners based on brand
-	var brandOwners []string
+	var brandOwners []models.OwnerWithPublicFlag
 	if analysis.BrandName != "" {
 		brandOwners, err = s.db.DetermineBrandOwners(ctx, analysis.BrandName)
 		if err != nil {
@@ -133,23 +133,32 @@ func (s *Service) processReport(ctx context.Context, reportWithAnalysis models.R
 		}
 	}
 
-	// Combine all owners (remove duplicates)
-	allOwners := make(map[string]bool)
+	// Combine all owners (remove duplicates) and preserve their public flags
+	allOwnersMap := make(map[string]bool) // customer_id -> is_public
 	for _, owner := range locationOwners {
-		allOwners[owner] = true
+		allOwnersMap[owner.CustomerID] = owner.IsPublic
 	}
 	for _, owner := range brandOwners {
-		allOwners[owner] = true
+		// If customer already exists from location, keep the more restrictive (private) setting
+		if existingPublic, exists := allOwnersMap[owner.CustomerID]; exists {
+			// If existing is private (false) and new is public (true), keep private
+			// If existing is public (true) and new is private (false), update to private
+			allOwnersMap[owner.CustomerID] = existingPublic && owner.IsPublic
+		} else {
+			allOwnersMap[owner.CustomerID] = owner.IsPublic
+		}
 	}
 
-	// Convert map keys to slice
+	// Convert map to separate slices for storage
 	var uniqueOwners []string
-	for owner := range allOwners {
-		uniqueOwners = append(uniqueOwners, owner)
+	var publicFlags []bool
+	for customerID, isPublic := range allOwnersMap {
+		uniqueOwners = append(uniqueOwners, customerID)
+		publicFlags = append(publicFlags, isPublic)
 	}
 
 	// Store ownership information
-	if err := s.db.StoreReportOwners(ctx, report.Seq, uniqueOwners); err != nil {
+	if err := s.db.StoreReportOwners(ctx, report.Seq, uniqueOwners, publicFlags); err != nil {
 		return fmt.Errorf("failed to store report owners: %w", err)
 	}
 

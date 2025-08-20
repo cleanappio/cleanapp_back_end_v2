@@ -30,6 +30,12 @@ type ReportOwner struct {
 	Owner string `json:"owner" db:"owner"`
 }
 
+// OwnerWithPublicFlag represents an owner with their public/private status
+type OwnerWithPublicFlag struct {
+	CustomerID string `json:"customer_id"`
+	IsPublic   bool   `json:"is_public"`
+}
+
 // ReportOwnership represents the complete ownership information for a report
 type ReportOwnership struct {
 	Seq     int      `json:"seq"`

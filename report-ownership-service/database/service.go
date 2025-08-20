@@ -71,9 +71,9 @@ func (s *OwnershipService) GetUnprocessedReports(ctx context.Context, batchSize 
 }
 
 // DetermineLocationOwners determines owners based on report location
-func (s *OwnershipService) DetermineLocationOwners(ctx context.Context, latitude, longitude float64) ([]string, error) {
+func (s *OwnershipService) DetermineLocationOwners(ctx context.Context, latitude, longitude float64) ([]models.OwnerWithPublicFlag, error) {
 	query := `
-		SELECT DISTINCT ca.customer_id
+		SELECT DISTINCT ca.customer_id, ca.is_public
 		FROM customer_areas ca
 		JOIN areas a ON ca.area_id = a.id
 		JOIN area_index ai ON a.id = ai.area_id
@@ -86,14 +86,14 @@ func (s *OwnershipService) DetermineLocationOwners(ctx context.Context, latitude
 	}
 	defer rows.Close()
 
-	var owners []string
+	var owners []models.OwnerWithPublicFlag
 	for rows.Next() {
-		var customerID string
-		if err := rows.Scan(&customerID); err != nil {
-			log.Printf("ERROR: Failed to scan customer ID: %v", err)
+		var owner models.OwnerWithPublicFlag
+		if err := rows.Scan(&owner.CustomerID, &owner.IsPublic); err != nil {
+			log.Printf("ERROR: Failed to scan customer ID and is_public: %v", err)
 			continue
 		}
-		owners = append(owners, customerID)
+		owners = append(owners, owner)
 	}
 
 	if err = rows.Err(); err != nil {
@@ -104,14 +104,14 @@ func (s *OwnershipService) DetermineLocationOwners(ctx context.Context, latitude
 }
 
 // DetermineBrandOwners determines owners based on report brand
-func (s *OwnershipService) DetermineBrandOwners(ctx context.Context, brandName string) ([]string, error) {
+func (s *OwnershipService) DetermineBrandOwners(ctx context.Context, brandName string) ([]models.OwnerWithPublicFlag, error) {
 	if brandName == "" {
-		return []string{}, nil
+		return []models.OwnerWithPublicFlag{}, nil
 	}
 
 	normalizedBrand := normalizeBrandName(brandName)
 	query := `
-		SELECT DISTINCT customer_id
+		SELECT DISTINCT customer_id, is_public
 		FROM customer_brands
 		WHERE brand_name = ?
 	`
@@ -122,14 +122,14 @@ func (s *OwnershipService) DetermineBrandOwners(ctx context.Context, brandName s
 	}
 	defer rows.Close()
 
-	var owners []string
+	var owners []models.OwnerWithPublicFlag
 	for rows.Next() {
-		var customerID string
-		if err := rows.Scan(&customerID); err != nil {
-			log.Printf("ERROR: Failed to scan customer ID: %v", err)
+		var owner models.OwnerWithPublicFlag
+		if err := rows.Scan(&owner.CustomerID, &owner.IsPublic); err != nil {
+			log.Printf("ERROR: Failed to scan customer ID and is_public: %v", err)
 			continue
 		}
-		owners = append(owners, customerID)
+		owners = append(owners, owner)
 	}
 
 	if err = rows.Err(); err != nil {
@@ -142,7 +142,7 @@ func (s *OwnershipService) DetermineBrandOwners(ctx context.Context, brandName s
 }
 
 // StoreReportOwners stores ownership information for a report
-func (s *OwnershipService) StoreReportOwners(ctx context.Context, seq int, owners []string) error {
+func (s *OwnershipService) StoreReportOwners(ctx context.Context, seq int, owners []string, public_flags []bool) error {
 	// Always store at least one record, even if no owners
 	if len(owners) == 0 {
 		// Store a record with empty owner and is_public = TRUE to mark this report as processed and public
@@ -156,12 +156,13 @@ func (s *OwnershipService) StoreReportOwners(ctx context.Context, seq int, owner
 
 	// Build the INSERT statement for reports with owners
 	placeholders := make([]string, len(owners))
-	args := make([]interface{}, len(owners)*3) // seq, owner, is_public
+	args := make([]any, len(owners)*3) // seq, owner, is_public
 
 	for i, owner := range owners {
-		placeholders[i] = "(?, ?, FALSE)" // is_public = FALSE for reports with owners
+		placeholders[i] = "(?, ?, ?)" // is_public = FALSE for reports with owners
 		args[i*3] = seq
 		args[i*3+1] = owner
+		args[i*3+2] = public_flags[i]
 		// is_public is set to FALSE in the placeholder
 	}
 
