@@ -80,7 +80,7 @@ func (s *OwnershipService) DetermineLocationOwners(ctx context.Context, latitude
 		WHERE ST_Contains(ai.geom, ST_GeomFromText(CONCAT('POINT(', ?, ' ', ?, ')'), 4326))
 	`
 
-	rows, err := s.db.QueryContext(ctx, query, longitude, latitude)
+	rows, err := s.db.QueryContext(ctx, query, latitude, longitude)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query location ownership: %w", err)
 	}
@@ -136,27 +136,37 @@ func (s *OwnershipService) DetermineBrandOwners(ctx context.Context, brandName s
 		return nil, fmt.Errorf("error iterating brand ownership: %w", err)
 	}
 
+	log.Printf("DEBUG: Brand: %s, Brand owners: %+v", brandName, owners)
+
 	return owners, nil
 }
 
 // StoreReportOwners stores ownership information for a report
 func (s *OwnershipService) StoreReportOwners(ctx context.Context, seq int, owners []string) error {
+	// Always store at least one record, even if no owners
 	if len(owners) == 0 {
-		return nil // No owners to store
+		// Store a record with empty owner and is_public = TRUE to mark this report as processed and public
+		query := `INSERT IGNORE INTO reports_owners (seq, owner, is_public) VALUES (?, '', FALSE)`
+		_, err := s.db.ExecContext(ctx, query, seq)
+		if err != nil {
+			return fmt.Errorf("failed to store report with no owners: %w", err)
+		}
+		return nil
 	}
 
-	// Build the INSERT statement
+	// Build the INSERT statement for reports with owners
 	placeholders := make([]string, len(owners))
-	args := make([]interface{}, len(owners)*2)
+	args := make([]interface{}, len(owners)*3) // seq, owner, is_public
 
 	for i, owner := range owners {
-		placeholders[i] = "(?, ?)"
-		args[i*2] = seq
-		args[i*2+1] = owner
+		placeholders[i] = "(?, ?, FALSE)" // is_public = FALSE for reports with owners
+		args[i*3] = seq
+		args[i*3+1] = owner
+		// is_public is set to FALSE in the placeholder
 	}
 
 	query := fmt.Sprintf(`
-		INSERT IGNORE INTO reports_owners (seq, owner)
+		INSERT IGNORE INTO reports_owners (seq, owner, is_public)
 		VALUES %s
 	`, strings.Join(placeholders, ","))
 
@@ -196,6 +206,33 @@ func (s *OwnershipService) GetTotalProcessedReports(ctx context.Context) (int, e
 		return 0, fmt.Errorf("failed to get total processed reports: %w", err)
 	}
 	return count, nil
+}
+
+// GetPublicReports gets reports that are public (have no owners)
+func (s *OwnershipService) GetPublicReports(ctx context.Context) ([]int, error) {
+	query := `SELECT DISTINCT seq FROM reports_owners WHERE is_public = TRUE`
+
+	rows, err := s.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query public reports: %w", err)
+	}
+	defer rows.Close()
+
+	var seqs []int
+	for rows.Next() {
+		var seq int
+		if err := rows.Scan(&seq); err != nil {
+			log.Printf("ERROR: Failed to scan seq: %v", err)
+			continue
+		}
+		seqs = append(seqs, seq)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating public reports: %w", err)
+	}
+
+	return seqs, nil
 }
 
 // normalizeBrandName normalizes a brand name for consistent comparison

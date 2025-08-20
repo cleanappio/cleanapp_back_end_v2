@@ -16,7 +16,11 @@ echo "2. Testing status endpoint:"
 curl -s "$SERVICE_URL/status" | jq .
 echo ""
 
-echo "3. Checking if service is running:"
+echo "3. Testing reports with no owners endpoint:"
+curl -s "$SERVICE_URL/reports/no-owners" | jq .
+echo ""
+
+echo "4. Checking if service is running:"
 if curl -s "$SERVICE_URL/health" > /dev/null; then
     echo "✅ Service is running and responding"
 else
@@ -27,6 +31,7 @@ echo ""
 echo "4. Service information:"
 echo "   - Health endpoint: $SERVICE_URL/health"
 echo "   - Status endpoint: $SERVICE_URL/status"
+echo "   - Reports with no owners: $SERVICE_URL/reports/no-owners"
 echo "   - Port: 8082"
 echo ""
 
@@ -45,4 +50,5 @@ echo "- It processes reports in batches of 100 (configurable)"
 echo "- Ownership is determined by location and brand analysis"
 echo "- Results are stored in the reports_owners table"
 echo "- One report can have multiple owners"
+echo "- Reports with no owners are marked with empty string owner"
 echo "- The service runs continuously in the background"

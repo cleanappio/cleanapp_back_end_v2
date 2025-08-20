@@ -94,7 +94,6 @@ func (s *Service) processBatch() error {
 	}
 
 	if len(reportsWithAnalysis) == 0 {
-		log.Printf("DEBUG: No unprocessed reports found")
 		return nil
 	}
 
@@ -183,4 +182,9 @@ func (s *Service) GetStatus() (*models.ServiceStatus, error) {
 	}
 
 	return status, nil
+}
+
+// GetDatabaseService returns the database service for direct access
+func (s *Service) GetDatabaseService() *database.OwnershipService {
+	return s.db
 }
