@@ -217,7 +217,7 @@ func (h *Handlers) GetCustomerBrands(c *gin.Context) {
 
 	response := models.CustomerBrandsResponse{
 		CustomerID: customerID,
-		BrandNames: brands,
+		Brands:     brands,
 	}
 
 	c.JSON(http.StatusOK, response)

@@ -94,10 +94,17 @@ type UpdateCustomerBrandsRequest struct {
 	IsPublic   bool     `json:"is_public"`
 }
 
+// CustomerBrand represents a customer's brand association with public/private status
+type CustomerBrand struct {
+	CustomerID string `json:"customer_id"`
+	BrandName  string `json:"brand_name"`
+	IsPublic   bool   `json:"is_public"`
+}
+
 // CustomerBrandsResponse represents the response for customer brands
 type CustomerBrandsResponse struct {
-	CustomerID string   `json:"customer_id"`
-	BrandNames []string `json:"brand_names"`
+	CustomerID string          `json:"customer_id"`
+	Brands     []CustomerBrand `json:"brands"`
 }
 
 // CreateSubscriptionRequest represents the request to create a subscription

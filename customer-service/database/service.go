@@ -760,20 +760,22 @@ func (s *CustomerService) GetAreas(ctx context.Context) ([]models.Area, error) {
 }
 
 // GetCustomerBrands retrieves all brands for a customer
-func (s *CustomerService) GetCustomerBrands(ctx context.Context, customerID string) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx, "SELECT brand_name FROM customer_brands WHERE customer_id = ? ORDER BY brand_name", customerID)
+func (s *CustomerService) GetCustomerBrands(ctx context.Context, customerID string) ([]models.CustomerBrand, error) {
+	rows, err := s.db.QueryContext(ctx, "SELECT customer_id, brand_name, is_public FROM customer_brands WHERE customer_id = ? ORDER BY brand_name", customerID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query customer brands: %w", err)
 	}
 	defer rows.Close()
 
-	var brands []string
+	var brands []models.CustomerBrand
 	for rows.Next() {
-		var brandName string
-		if err := rows.Scan(&brandName); err != nil {
-			return nil, fmt.Errorf("failed to scan brand name: %w", err)
+		var brand models.CustomerBrand
+		if err := rows.Scan(&brand.CustomerID, &brand.BrandName, &brand.IsPublic); err != nil {
+			return nil, fmt.Errorf("failed to scan brand: %w", err)
 		}
-		brands = append(brands, utils.GetBrandDisplayName(brandName))
+		// Apply brand display name normalization
+		brand.BrandName = utils.GetBrandDisplayName(brand.BrandName)
+		brands = append(brands, brand)
 	}
 
 	return brands, nil
