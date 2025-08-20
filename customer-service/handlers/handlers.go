@@ -54,7 +54,7 @@ func (h *Handlers) UpdateCustomer(c *gin.Context) {
 		return
 	}
 
-	log.Printf("INFO: Updating customer %s with %d areas from %s", customerID, len(req.AreaIDs), c.ClientIP())
+	log.Printf("INFO: Updating customer %s with %d areas from %s", customerID, len(req.Areas), c.ClientIP())
 
 	if err := h.service.UpdateCustomer(c.Request.Context(), customerID, req); err != nil {
 		log.Printf("ERROR: Failed to update customer %s from %s: %v", customerID, c.ClientIP(), err)
@@ -348,15 +348,15 @@ func (h *Handlers) AddCustomerAreas(c *gin.Context) {
 		return
 	}
 
-	log.Printf("INFO: Adding %d areas to customer %s with is_public=%t from %s", len(req.AreaIDs), customerID, req.IsPublic, c.ClientIP())
+	log.Printf("INFO: Adding %d areas to customer %s from %s", len(req.Areas), customerID, c.ClientIP())
 
-	if err := h.service.AddCustomerAreas(c.Request.Context(), customerID, req.AreaIDs, req.IsPublic); err != nil {
+	if err := h.service.AddCustomerAreas(c.Request.Context(), customerID, req.Areas); err != nil {
 		log.Printf("ERROR: Failed to add areas for customer %s from %s: %v", customerID, c.ClientIP(), err)
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to add customer areas"})
 		return
 	}
 
-	log.Printf("INFO: Successfully added %d areas to customer %s from %s", len(req.AreaIDs), customerID, c.ClientIP())
+	log.Printf("INFO: Successfully added %d areas to customer %s from %s", len(req.Areas), customerID, c.ClientIP())
 	c.JSON(http.StatusOK, models.MessageResponse{Message: "areas added successfully"})
 }
 
@@ -377,9 +377,9 @@ func (h *Handlers) UpdateCustomerAreas(c *gin.Context) {
 	}
 
 	// Validate that the request customer_id matches the authenticated customer
-	log.Printf("INFO: Updating areas for customer %s with %d areas and is_public=%t from %s", customerID, len(req.AreaIDs), req.IsPublic, c.ClientIP())
+	log.Printf("INFO: Updating areas for customer %s with %d areas from %s", customerID, len(req.Areas), c.ClientIP())
 
-	if err := h.service.UpdateCustomerAreas(c.Request.Context(), customerID, req.AreaIDs, req.IsPublic); err != nil {
+	if err := h.service.UpdateCustomerAreas(c.Request.Context(), customerID, req.Areas); err != nil {
 		log.Printf("ERROR: Failed to update areas for customer %s from %s: %v", customerID, c.ClientIP(), err)
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to update customer areas"})
 		return
@@ -405,15 +405,15 @@ func (h *Handlers) DeleteCustomerAreas(c *gin.Context) {
 		return
 	}
 
-	log.Printf("INFO: Deleting %d areas from customer %s from %s", len(req.AreaIDs), customerID, c.ClientIP())
+	log.Printf("INFO: Deleting %d areas from customer %s from %s", len(req.Areas), customerID, c.ClientIP())
 
-	if err := h.service.DeleteCustomerAreas(c.Request.Context(), customerID, req.AreaIDs); err != nil {
+	if err := h.service.DeleteCustomerAreas(c.Request.Context(), customerID, req.Areas); err != nil {
 		log.Printf("ERROR: Failed to delete areas for customer %s from %s: %v", customerID, c.ClientIP(), err)
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to delete customer areas"})
 		return
 	}
 
-	log.Printf("INFO: Successfully deleted %d areas from customer %s from %s", len(req.AreaIDs), customerID, c.ClientIP())
+	log.Printf("INFO: Successfully deleted %d areas from customer %s from %s", len(req.Areas), customerID, c.ClientIP())
 	c.JSON(http.StatusOK, models.MessageResponse{Message: "areas deleted successfully"})
 }
 

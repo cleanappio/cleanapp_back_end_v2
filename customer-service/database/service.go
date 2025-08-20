@@ -37,7 +37,7 @@ func NewCustomerService(db *sql.DB, stripeClient *stripe.Client, authServiceURL 
 // CreateCustomer creates a new customer record for subscription purposes
 // Note: Auth data (name, email) is managed by the auth-service
 func (s *CustomerService) CreateCustomer(ctx context.Context, customerID string, req models.CreateCustomerRequest) (*models.Customer, error) {
-	log.Printf("INFO: Creating customer %s with %d areas", customerID, len(req.AreaIDs))
+	log.Printf("INFO: Creating customer %s with %d areas", customerID, len(req.Areas))
 
 	// Start transaction
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -54,9 +54,9 @@ func (s *CustomerService) CreateCustomer(ctx context.Context, customerID string,
 	}
 
 	// Insert customer areas
-	for _, areaID := range req.AreaIDs {
-		if err := s.insertCustomerArea(ctx, tx, customerID, areaID, req.IsPublic); err != nil {
-			log.Printf("ERROR: Failed to insert customer area for customer %s, area %d: %v", customerID, areaID, err)
+	for _, area := range req.Areas {
+		if err := s.insertCustomerArea(ctx, tx, customerID, area.AreaID, area.IsPublic); err != nil {
+			log.Printf("ERROR: Failed to insert customer area for customer %s, area %d: %v", customerID, area.AreaID, err)
 			return nil, fmt.Errorf("failed to insert customer area: %w", err)
 		}
 	}
@@ -116,7 +116,7 @@ func (s *CustomerService) UpdateCustomer(ctx context.Context, customerID string,
 
 	// For now, only area updates are supported
 	// Name and email updates should be done through auth-service
-	if len(req.AreaIDs) == 0 {
+	if len(req.Areas) == 0 {
 		return nil
 	}
 
@@ -134,16 +134,10 @@ func (s *CustomerService) UpdateCustomer(ctx context.Context, customerID string,
 	}
 
 	// Insert new areas
-	for _, areaID := range req.AreaIDs {
-		if err := s.insertCustomerArea(ctx, tx, customerID, areaID, req.IsPublic); err != nil {
+	for _, area := range req.Areas {
+		if err := s.insertCustomerArea(ctx, tx, customerID, area.AreaID, area.IsPublic); err != nil {
 			return fmt.Errorf("failed to insert customer area: %w", err)
 		}
-	}
-
-	// Update customer timestamp
-	_, err = tx.ExecContext(ctx, "UPDATE customers SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", customerID)
-	if err != nil {
-		return fmt.Errorf("failed to update customer timestamp: %w", err)
 	}
 
 	// Commit transaction
@@ -1109,8 +1103,8 @@ func (s *CustomerService) GetCustomerAreas(ctx context.Context, customerID strin
 }
 
 // AddCustomerAreas adds areas to a customer
-func (s *CustomerService) AddCustomerAreas(ctx context.Context, customerID string, areaIDs []int, isPublic bool) error {
-	log.Printf("INFO: Adding %d areas to customer %s with is_public=%t", len(areaIDs), customerID, isPublic)
+func (s *CustomerService) AddCustomerAreas(ctx context.Context, customerID string, areas []models.CustomerArea) error {
+	log.Printf("INFO: Adding %d areas to customer %s", len(areas), customerID)
 
 	// Start transaction
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -1127,10 +1121,10 @@ func (s *CustomerService) AddCustomerAreas(ctx context.Context, customerID strin
 	}
 
 	// Add each area
-	for _, areaID := range areaIDs {
-		if err := s.insertCustomerAreaIfNotExists(ctx, tx, customerID, areaID, isPublic); err != nil {
-			log.Printf("ERROR: Failed to add area %d to customer %s: %v", areaID, customerID, err)
-			return fmt.Errorf("failed to add area %d: %w", areaID, err)
+	for _, area := range areas {
+		if err := s.insertCustomerAreaIfNotExists(ctx, tx, customerID, area.AreaID, area.IsPublic); err != nil {
+			log.Printf("ERROR: Failed to add area %d to customer %s: %v", area.AreaID, customerID, err)
+			return fmt.Errorf("failed to add area %d: %w", area.AreaID, err)
 		}
 	}
 
@@ -1140,13 +1134,13 @@ func (s *CustomerService) AddCustomerAreas(ctx context.Context, customerID strin
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	log.Printf("INFO: Successfully added %d areas to customer %s", len(areaIDs), customerID)
+	log.Printf("INFO: Successfully added %d areas to customer %s", len(areas), customerID)
 	return nil
 }
 
 // UpdateCustomerAreas replaces all areas for a customer
-func (s *CustomerService) UpdateCustomerAreas(ctx context.Context, customerID string, areaIDs []int, isPublic bool) error {
-	log.Printf("INFO: Updating areas for customer %s with %d areas and is_public=%t", customerID, len(areaIDs), isPublic)
+func (s *CustomerService) UpdateCustomerAreas(ctx context.Context, customerID string, areas []models.CustomerArea) error {
+	log.Printf("INFO: Updating areas for customer %s with %d areas", customerID, len(areas))
 
 	// Start transaction
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -1169,10 +1163,10 @@ func (s *CustomerService) UpdateCustomerAreas(ctx context.Context, customerID st
 	}
 
 	// Add new areas
-	for _, areaID := range areaIDs {
-		if err := s.insertCustomerArea(ctx, tx, customerID, areaID, isPublic); err != nil {
-			log.Printf("ERROR: Failed to add area %d to customer %s: %v", areaID, customerID, err)
-			return fmt.Errorf("failed to add area %d: %w", areaID, err)
+	for _, area := range areas {
+		if err := s.insertCustomerArea(ctx, tx, customerID, area.AreaID, area.IsPublic); err != nil {
+			log.Printf("ERROR: Failed to add area %d to customer %s: %v", area.AreaID, customerID, err)
+			return fmt.Errorf("failed to add area %d: %w", area.AreaID, err)
 		}
 	}
 
@@ -1187,8 +1181,8 @@ func (s *CustomerService) UpdateCustomerAreas(ctx context.Context, customerID st
 }
 
 // DeleteCustomerAreas removes specific areas from a customer
-func (s *CustomerService) DeleteCustomerAreas(ctx context.Context, customerID string, areaIDs []int) error {
-	log.Printf("INFO: Deleting %d areas from customer %s", len(areaIDs), customerID)
+func (s *CustomerService) DeleteCustomerAreas(ctx context.Context, customerID string, areas []models.CustomerArea) error {
+	log.Printf("INFO: Deleting %d areas from customer %s", len(areas), customerID)
 
 	// Start transaction
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -1204,11 +1198,11 @@ func (s *CustomerService) DeleteCustomerAreas(ctx context.Context, customerID st
 		return fmt.Errorf("failed to ensure customer exists: %w", err)
 	}
 
-	// Delete each area
-	for _, areaID := range areaIDs {
-		if err := s.deleteCustomerArea(ctx, tx, customerID, areaID); err != nil {
-			log.Printf("ERROR: Failed to delete area %d from customer %s: %v", areaID, customerID, err)
-			return fmt.Errorf("failed to delete area %d: %w", areaID, err)
+	// Delete specified areas
+	for _, area := range areas {
+		if err := s.deleteCustomerArea(ctx, tx, customerID, area.AreaID); err != nil {
+			log.Printf("ERROR: Failed to delete area %d from customer %s: %v", area.AreaID, customerID, err)
+			return fmt.Errorf("failed to delete area %d: %w", area.AreaID, err)
 		}
 	}
 
@@ -1218,7 +1212,7 @@ func (s *CustomerService) DeleteCustomerAreas(ctx context.Context, customerID st
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	log.Printf("INFO: Successfully deleted %d areas from customer %s", len(areaIDs), customerID)
+	log.Printf("INFO: Successfully deleted %d areas from customer %s", len(areas), customerID)
 	return nil
 }
 

@@ -66,15 +66,13 @@ type Area struct {
 // Note: name, email, and password are handled by auth-service
 // This request is for creating a customer record for subscription purposes
 type CreateCustomerRequest struct {
-	AreaIDs  []int `json:"area_ids" binding:"required,min=1"`
-	IsPublic bool  `json:"is_public"`
+	Areas []CustomerArea `json:"areas" binding:"required,min=1"`
 }
 
 // UpdateCustomerRequest represents the request to update customer information
 // Note: name and email are handled by auth-service
 type UpdateCustomerRequest struct {
-	AreaIDs  []int `json:"area_ids,omitempty"`
-	IsPublic bool  `json:"is_public"`
+	Areas []CustomerArea `json:"areas,omitempty"`
 }
 
 // AddCustomerBrandsRequest represents the request to add brands to a customer
@@ -168,19 +166,17 @@ type CustomerArea struct {
 
 // AddCustomerAreasRequest represents the request to add areas to a customer
 type AddCustomerAreasRequest struct {
-	AreaIDs  []int `json:"area_ids" binding:"required,min=1"`
-	IsPublic bool  `json:"is_public"`
+	Areas []CustomerArea `json:"areas" binding:"required,min=1"`
 }
 
 // UpdateCustomerAreasRequest represents the request to replace all areas for a customer
 type UpdateCustomerAreasRequest struct {
-	AreaIDs  []int `json:"area_ids" binding:"required"`
-	IsPublic bool  `json:"is_public"`
+	Areas []CustomerArea `json:"areas" binding:"required"`
 }
 
 // DeleteCustomerAreasRequest represents the request to remove areas from a customer
 type DeleteCustomerAreasRequest struct {
-	AreaIDs []int `json:"area_ids" binding:"required,min=1"`
+	Areas []CustomerArea `json:"areas" binding:"required,min=1"`
 }
 
 // CustomerAreasResponse represents the response for customer areas
