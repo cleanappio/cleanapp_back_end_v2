@@ -3,6 +3,8 @@ package database
 import (
 	"context"
 	"testing"
+
+	"customer-service/models"
 )
 
 func TestCustomerService(t *testing.T) {
@@ -120,7 +122,16 @@ func TestCustomerBrandsService(t *testing.T) {
 
 			// Test AddCustomerBrands
 			if len(tt.brandNames) > 0 {
-				err := service.AddCustomerBrands(context.Background(), tt.customerID, tt.brandNames, false)
+				// Convert string array to CustomerBrand array for testing
+				var brands []models.CustomerBrand
+				for _, brandName := range tt.brandNames {
+					brands = append(brands, models.CustomerBrand{
+						CustomerID: tt.customerID,
+						BrandName:  brandName,
+						IsPublic:   false, // Default to false for testing
+					})
+				}
+				err := service.AddCustomerBrands(context.Background(), tt.customerID, brands)
 				if tt.hasError && err == nil {
 					t.Errorf("Expected error for AddCustomerBrands, got none")
 				}
@@ -128,14 +139,32 @@ func TestCustomerBrandsService(t *testing.T) {
 
 			// Test RemoveCustomerBrands
 			if len(tt.brandNames) > 0 {
-				err := service.RemoveCustomerBrands(context.Background(), tt.customerID, tt.brandNames)
+				// Convert string array to CustomerBrand array for testing
+				var brands []models.CustomerBrand
+				for _, brandName := range tt.brandNames {
+					brands = append(brands, models.CustomerBrand{
+						CustomerID: tt.customerID,
+						BrandName:  brandName,
+						IsPublic:   false, // Default to false for testing
+					})
+				}
+				err := service.RemoveCustomerBrands(context.Background(), tt.customerID, brands)
 				if tt.hasError && err == nil {
 					t.Errorf("Expected error for RemoveCustomerBrands, got none")
 				}
 			}
 
 			// Test UpdateCustomerBrands
-			err := service.UpdateCustomerBrands(context.Background(), tt.customerID, tt.brandNames, false)
+			// Convert string array to CustomerBrand array for testing
+			var brands []models.CustomerBrand
+			for _, brandName := range tt.brandNames {
+				brands = append(brands, models.CustomerBrand{
+					CustomerID: tt.customerID,
+					BrandName:  brandName,
+					IsPublic:   false, // Default to false for testing
+				})
+			}
+			err := service.UpdateCustomerBrands(context.Background(), tt.customerID, brands)
 			if tt.hasError && err == nil {
 				t.Errorf("Expected error for UpdateCustomerBrands, got none")
 			}

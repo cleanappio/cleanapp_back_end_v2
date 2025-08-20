@@ -782,8 +782,8 @@ func (s *CustomerService) GetCustomerBrands(ctx context.Context, customerID stri
 }
 
 // AddCustomerBrands adds brands to a customer's brand list
-func (s *CustomerService) AddCustomerBrands(ctx context.Context, customerID string, brandNames []string, isPublic bool) error {
-	if len(brandNames) == 0 {
+func (s *CustomerService) AddCustomerBrands(ctx context.Context, customerID string, brands []models.CustomerBrand) error {
+	if len(brands) == 0 {
 		return nil
 	}
 
@@ -795,9 +795,9 @@ func (s *CustomerService) AddCustomerBrands(ctx context.Context, customerID stri
 	defer tx.Rollback()
 
 	// Insert new brands
-	for _, brandName := range brandNames {
-		normalized := utils.NormalizeBrandName(brandName)
-		if err := s.insertCustomerBrand(ctx, tx, customerID, normalized, isPublic); err != nil {
+	for _, brand := range brands {
+		normalized := utils.NormalizeBrandName(brand.BrandName)
+		if err := s.insertCustomerBrand(ctx, tx, customerID, normalized, brand.IsPublic); err != nil {
 			return fmt.Errorf("failed to insert customer brand: %w", err)
 		}
 	}
@@ -817,8 +817,8 @@ func (s *CustomerService) AddCustomerBrands(ctx context.Context, customerID stri
 }
 
 // RemoveCustomerBrands removes brands from a customer's brand list
-func (s *CustomerService) RemoveCustomerBrands(ctx context.Context, customerID string, brandNames []string) error {
-	if len(brandNames) == 0 {
+func (s *CustomerService) RemoveCustomerBrands(ctx context.Context, customerID string, brands []models.CustomerBrand) error {
+	if len(brands) == 0 {
 		return nil
 	}
 
@@ -830,8 +830,8 @@ func (s *CustomerService) RemoveCustomerBrands(ctx context.Context, customerID s
 	defer tx.Rollback()
 
 	// Remove specified brands
-	for _, brandName := range brandNames {
-		normalized := utils.NormalizeBrandName(brandName)
+	for _, brand := range brands {
+		normalized := utils.NormalizeBrandName(brand.BrandName)
 		_, err = tx.ExecContext(ctx, "DELETE FROM customer_brands WHERE customer_id = ? AND brand_name = ?", customerID, normalized)
 		if err != nil {
 			return fmt.Errorf("failed to remove customer brand: %w", err)
@@ -853,7 +853,7 @@ func (s *CustomerService) RemoveCustomerBrands(ctx context.Context, customerID s
 }
 
 // UpdateCustomerBrands replaces all brands for a customer with the new list
-func (s *CustomerService) UpdateCustomerBrands(ctx context.Context, customerID string, brandNames []string, isPublic bool) error {
+func (s *CustomerService) UpdateCustomerBrands(ctx context.Context, customerID string, brands []models.CustomerBrand) error {
 	// Start transaction
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -868,9 +868,9 @@ func (s *CustomerService) UpdateCustomerBrands(ctx context.Context, customerID s
 	}
 
 	// Insert new brands
-	for _, brandName := range brandNames {
-		normalized := utils.NormalizeBrandName(brandName)
-		if err := s.insertCustomerBrand(ctx, tx, customerID, normalized, isPublic); err != nil {
+	for _, brand := range brands {
+		normalized := utils.NormalizeBrandName(brand.BrandName)
+		if err := s.insertCustomerBrand(ctx, tx, customerID, normalized, brand.IsPublic); err != nil {
 			return fmt.Errorf("failed to insert customer brand: %w", err)
 		}
 	}

@@ -79,19 +79,17 @@ type UpdateCustomerRequest struct {
 
 // AddCustomerBrandsRequest represents the request to add brands to a customer
 type AddCustomerBrandsRequest struct {
-	BrandNames []string `json:"brand_names" binding:"required,min=1"`
-	IsPublic   bool     `json:"is_public"`
+	Brands []CustomerBrand `json:"brands" binding:"required,min=1"`
 }
 
 // RemoveCustomerBrandsRequest represents the request to remove brands from a customer
 type RemoveCustomerBrandsRequest struct {
-	BrandNames []string `json:"brand_names" binding:"required,min=1"`
+	Brands []CustomerBrand `json:"brands" binding:"required,min=1"`
 }
 
 // UpdateCustomerBrandsRequest represents the request to update all brands for a customer
 type UpdateCustomerBrandsRequest struct {
-	BrandNames []string `json:"brand_names" binding:"required"`
-	IsPublic   bool     `json:"is_public"`
+	Brands []CustomerBrand `json:"brands" binding:"required"`
 }
 
 // CustomerBrand represents a customer's brand association with public/private status

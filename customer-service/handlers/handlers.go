@@ -239,15 +239,15 @@ func (h *Handlers) AddCustomerBrands(c *gin.Context) {
 		return
 	}
 
-	log.Printf("INFO: Adding %d brands to customer %s with is_public=%t from %s", len(req.BrandNames), customerID, req.IsPublic, c.ClientIP())
+	log.Printf("INFO: Adding %d brands to customer %s from %s", len(req.Brands), customerID, c.ClientIP())
 
-	if err := h.service.AddCustomerBrands(c.Request.Context(), customerID, req.BrandNames, req.IsPublic); err != nil {
+	if err := h.service.AddCustomerBrands(c.Request.Context(), customerID, req.Brands); err != nil {
 		log.Printf("ERROR: Failed to add customer brands for customer %s from %s: %v", customerID, c.ClientIP(), err)
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to add customer brands"})
 		return
 	}
 
-	log.Printf("INFO: Successfully added %d brands to customer %s from %s", len(req.BrandNames), customerID, c.ClientIP())
+	log.Printf("INFO: Successfully added %d brands to customer %s from %s", len(req.Brands), customerID, c.ClientIP())
 	c.JSON(http.StatusOK, models.MessageResponse{Message: "brands added successfully"})
 }
 
@@ -267,15 +267,15 @@ func (h *Handlers) RemoveCustomerBrands(c *gin.Context) {
 		return
 	}
 
-	log.Printf("INFO: Removing %d brands from customer %s from %s", len(req.BrandNames), customerID, c.ClientIP())
+	log.Printf("INFO: Removing %d brands from customer %s from %s", len(req.Brands), customerID, c.ClientIP())
 
-	if err := h.service.RemoveCustomerBrands(c.Request.Context(), customerID, req.BrandNames); err != nil {
+	if err := h.service.RemoveCustomerBrands(c.Request.Context(), customerID, req.Brands); err != nil {
 		log.Printf("ERROR: Failed to remove customer brands for customer %s from %s: %v", customerID, c.ClientIP(), err)
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to remove customer brands"})
 		return
 	}
 
-	log.Printf("INFO: Successfully removed %d brands from customer %s from %s", len(req.BrandNames), customerID, c.ClientIP())
+	log.Printf("INFO: Successfully removed %d brands from customer %s from %s", len(req.Brands), customerID, c.ClientIP())
 	c.JSON(http.StatusOK, models.MessageResponse{Message: "brands removed successfully"})
 }
 
@@ -295,9 +295,9 @@ func (h *Handlers) UpdateCustomerBrands(c *gin.Context) {
 		return
 	}
 
-	log.Printf("INFO: Updating brands for customer %s with %d brands and is_public=%t from %s", customerID, len(req.BrandNames), req.IsPublic, c.ClientIP())
+	log.Printf("INFO: Updating brands for customer %s with %d brands from %s", customerID, len(req.Brands), c.ClientIP())
 
-	if err := h.service.UpdateCustomerBrands(c.Request.Context(), customerID, req.BrandNames, req.IsPublic); err != nil {
+	if err := h.service.UpdateCustomerBrands(c.Request.Context(), customerID, req.Brands); err != nil {
 		log.Printf("ERROR: Failed to update brands for customer %s from %s: %v", customerID, c.ClientIP(), err)
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to update customer brands"})
 		return
