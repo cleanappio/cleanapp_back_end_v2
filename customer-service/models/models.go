@@ -77,17 +77,17 @@ type UpdateCustomerRequest struct {
 
 // AddCustomerBrandsRequest represents the request to add brands to a customer
 type AddCustomerBrandsRequest struct {
-	Brands []CustomerBrand `json:"brands" binding:"required,min=1"`
+	Brands []CustomerBrand `json:"brands"`
 }
 
 // RemoveCustomerBrandsRequest represents the request to remove brands from a customer
 type RemoveCustomerBrandsRequest struct {
-	Brands []CustomerBrand `json:"brands" binding:"required,min=1"`
+	Brands []CustomerBrand `json:"brands"`
 }
 
 // UpdateCustomerBrandsRequest represents the request to update all brands for a customer
 type UpdateCustomerBrandsRequest struct {
-	Brands []CustomerBrand `json:"brands" binding:"required"`
+	Brands []CustomerBrand `json:"brands"`
 }
 
 // CustomerBrand represents a customer's brand association with public/private status
@@ -166,17 +166,17 @@ type CustomerArea struct {
 
 // AddCustomerAreasRequest represents the request to add areas to a customer
 type AddCustomerAreasRequest struct {
-	Areas []CustomerArea `json:"areas" binding:"required,min=1"`
+	Areas []CustomerArea `json:"areas"`
 }
 
 // UpdateCustomerAreasRequest represents the request to replace all areas for a customer
 type UpdateCustomerAreasRequest struct {
-	Areas []CustomerArea `json:"areas" binding:"required"`
+	Areas []CustomerArea `json:"areas"`
 }
 
 // DeleteCustomerAreasRequest represents the request to remove areas from a customer
 type DeleteCustomerAreasRequest struct {
-	Areas []CustomerArea `json:"areas" binding:"required,min=1"`
+	Areas []CustomerArea `json:"areas"`
 }
 
 // CustomerAreasResponse represents the response for customer areas
