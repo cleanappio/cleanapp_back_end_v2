@@ -94,10 +94,7 @@ func (h *AreasHandler) ReportsHandler(c *gin.Context) {
 		return
 	}
 
-	// Get bearer token from context
-	bearerToken := middleware.GetTokenFromContext(c)
-
-	reports, err := h.databaseService.GetReportsByCustomArea(n, bearerToken)
+	reports, err := h.databaseService.GetReportsByCustomArea(n, userID)
 	if err != nil {
 		log.Printf("Error getting reports for custom area: %v", err)
 		c.JSON(500, gin.H{"error": "Internal server error"})
@@ -116,7 +113,7 @@ func (h *AreasHandler) ReportsAggrHandler(c *gin.Context) {
 	userID := middleware.GetUserIDFromContext(c)
 	log.Printf("INFO: ReportsAggr request from user %s", userID)
 
-	areasData, err := h.databaseService.GetReportsAggregatedData()
+	areasData, err := h.databaseService.GetReportsAggregatedData(userID)
 	if err != nil {
 		log.Printf("Error getting aggregated reports data: %v", err)
 		c.JSON(500, gin.H{"error": "Internal server error"})

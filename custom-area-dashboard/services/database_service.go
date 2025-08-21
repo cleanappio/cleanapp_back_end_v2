@@ -17,8 +17,8 @@ import (
 
 // DatabaseService manages database connections and queries
 type DatabaseService struct {
-	db         *sql.DB
-	cfg        *config.Config
+	db  *sql.DB
+	cfg *config.Config
 }
 
 // NewDatabaseService creates a new database service
@@ -62,7 +62,8 @@ func (s *DatabaseService) Close() error {
 }
 
 // GetReportsByCustomArea gets the last n reports with analysis that are contained within the custom area defined in config
-func (s *DatabaseService) GetReportsByCustomArea(n int, bearerToken string) ([]models.ReportWithAnalysis, error) {
+// Only returns reports that are not privately owned by other users
+func (s *DatabaseService) GetReportsByCustomArea(n int, userID string) ([]models.ReportWithAnalysis, error) {
 	// Fetch the geometry for the cfg.CustomAreaID
 	geometryQuery := `
 		SELECT ST_AsText(geom)
@@ -77,20 +78,23 @@ func (s *DatabaseService) GetReportsByCustomArea(n int, bearerToken string) ([]m
 	}
 
 	// Get all reports within the area using area_index table
+	// Filter out reports that are privately owned by other users
 	reportsQuery := `
 		SELECT DISTINCT r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.action_id
 		FROM reports r
 		JOIN reports_geometry rg ON r.seq = rg.seq
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		LEFT JOIN report_status rs ON r.seq = rs.seq
+		LEFT JOIN reports_owners ro ON r.seq = ro.seq
 		WHERE ST_Within(rg.geom, ST_GeomFromText(?, 4326))
 		AND (rs.status IS NULL OR rs.status = 'active')
 		AND ra.classification = 'physical'
+		AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE OR ro.owner = ?)
 		ORDER BY r.ts DESC
 		LIMIT ?
 	`
 
-	reportRows, err := s.db.Query(reportsQuery, geometry, n)
+	reportRows, err := s.db.Query(reportsQuery, geometry, userID, n)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query reports: %w", err)
 	}
@@ -226,7 +230,8 @@ func (s *DatabaseService) GetReportsByCustomArea(n int, bearerToken string) ([]m
 }
 
 // GetReportsAggregatedData returns aggregated reports data for all areas of the configured sub admin level
-func (s *DatabaseService) GetReportsAggregatedData() ([]models.AreaAggrData, error) {
+// Only counts reports that are not privately owned by other users
+func (s *DatabaseService) GetReportsAggregatedData(userID string) ([]models.AreaAggrData, error) {
 	if len(s.cfg.CustomAreaSubIDs) == 0 {
 		return []models.AreaAggrData{}, nil
 	}
@@ -278,6 +283,7 @@ func (s *DatabaseService) GetReportsAggregatedData() ([]models.AreaAggrData, err
 		go func(i int, geometry string) {
 			defer wg.Done()
 			// Get aggregated data for all areas using area_index table
+			// Filter out reports that are privately owned by other users
 			reportsCount := 0
 			meanSeverity := 0.0
 			meanLitterProbability := 0.0
@@ -292,10 +298,12 @@ func (s *DatabaseService) GetReportsAggregatedData() ([]models.AreaAggrData, err
 				LEFT JOIN reports_geometry rg ON r.seq = rg.seq
 				INNER JOIN report_analysis ra ON r.seq = ra.seq AND ra.language = 'en'
 				LEFT JOIN report_status rs ON r.seq = rs.seq
+				LEFT JOIN reports_owners ro ON r.seq = ro.seq
 				WHERE ST_Within(rg.geom, ST_GeomFromText(?, 4326))
+				AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE OR ro.owner = ?)
 			`
 
-			err = s.db.QueryRow(query, geometry).Scan(
+			err = s.db.QueryRow(query, geometry, userID).Scan(
 				&reportsCount,
 				&meanSeverity,
 				&meanLitterProbability,

@@ -39,7 +39,7 @@ func (h *BrandHandler) BrandsHandler(c *gin.Context) {
 	userID := middleware.GetUserIDFromContext(c)
 	log.Printf("INFO: Brands request from user %s", userID)
 
-	brandsInfo, err := h.databaseService.GetBrandsInfo()
+	brandsInfo, err := h.databaseService.GetBrandsInfo(userID)
 	if err != nil {
 		log.Printf("Error getting brands info: %v", err)
 		c.JSON(500, gin.H{"error": "Internal server error"})
@@ -55,6 +55,7 @@ func (h *BrandHandler) BrandsHandler(c *gin.Context) {
 
 // ReportsHandler handles requests for reports with brand analysis
 func (h *BrandHandler) ReportsHandler(c *gin.Context) {
+	// Get user ID from context
 	userID := middleware.GetUserIDFromContext(c)
 	log.Printf("INFO: Reports request from user %s", userID)
 
@@ -89,10 +90,7 @@ func (h *BrandHandler) ReportsHandler(c *gin.Context) {
 		return
 	}
 
-	// Get bearer token from context
-	bearerToken := middleware.GetBearerTokenFromContext(c)
-
-	reports, err := h.databaseService.GetReportsByBrand(matchedBrand, n, bearerToken)
+	reports, err := h.databaseService.GetReportsByBrand(matchedBrand, n, userID)
 	if err != nil {
 		log.Printf("Error getting reports for brand %s: %v", brandName, err)
 		c.JSON(500, gin.H{"error": "Internal server error"})

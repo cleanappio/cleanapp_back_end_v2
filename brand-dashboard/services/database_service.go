@@ -16,8 +16,8 @@ import (
 
 // DatabaseService manages database connections and queries for brand-related reports
 type DatabaseService struct {
-	db               *sql.DB
-	Cfg              *config.Config
+	db  *sql.DB
+	Cfg *config.Config
 }
 
 // NewDatabaseService creates a new database service
@@ -53,24 +53,28 @@ func (s *DatabaseService) Close() error {
 }
 
 // GetReportsByBrand gets the last n reports with analysis that match a specific brand
-func (s *DatabaseService) GetReportsByBrand(brandName string, n int, bearerToken string) ([]models.ReportWithAnalysis, error) {
+// Only returns reports that are not privately owned by other users
+func (s *DatabaseService) GetReportsByBrand(brandName string, n int, userID string) ([]models.ReportWithAnalysis, error) {
 	// Normalize the brand name for exact matching
 	normalizedBrandName := utils.NormalizeBrandName(brandName)
 
 	// Get reports with analyses that match the brand name exactly
+	// Filter out reports that are privately owned by other users
 	reportsQuery := `
 		SELECT DISTINCT r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.action_id
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		LEFT JOIN report_status rs ON r.seq = rs.seq
+		LEFT JOIN reports_owners ro ON r.seq = ro.seq
 		WHERE ra.brand_name = ?
 		AND ra.classification = 'physical'
 		AND (rs.status IS NULL OR rs.status = 'active')
+		AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE OR ro.owner = ?)
 		ORDER BY r.ts DESC
 		LIMIT ?
 	`
 
-	reportRows, err := s.db.Query(reportsQuery, normalizedBrandName, n)
+	reportRows, err := s.db.Query(reportsQuery, normalizedBrandName, userID, n)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query reports: %w", err)
 	}
@@ -208,12 +212,12 @@ func (s *DatabaseService) GetReportsByBrand(brandName string, n int, bearerToken
 }
 
 // GetBrandsInfo returns information about all configured brands with their report counts
-func (s *DatabaseService) GetBrandsInfo() ([]models.BrandInfo, error) {
+func (s *DatabaseService) GetBrandsInfo(userID string) ([]models.BrandInfo, error) {
 	var brandsInfo []models.BrandInfo
 
 	for _, brandName := range s.Cfg.BrandNames {
 		// Count reports for this brand
-		count, err := s.getBrandReportCount(brandName)
+		count, err := s.getBrandReportCount(brandName, userID)
 		if err != nil {
 			log.Printf("Warning: failed to get report count for brand %s: %v", brandName, err)
 			count = 0
@@ -230,18 +234,21 @@ func (s *DatabaseService) GetBrandsInfo() ([]models.BrandInfo, error) {
 }
 
 // getBrandReportCount gets the count of reports for a specific brand
-func (s *DatabaseService) getBrandReportCount(brandName string) (int, error) {
+// Only counts reports that are not privately owned by other users
+func (s *DatabaseService) getBrandReportCount(brandName string, userID string) (int, error) {
 	query := `
 		SELECT COUNT(DISTINCT r.seq)
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		LEFT JOIN report_status rs ON r.seq = rs.seq
+		LEFT JOIN reports_owners ro ON r.seq = ro.seq
 		WHERE ra.brand_name IS NOT NULL AND ra.brand_name != ''
 		AND ra.classification = 'physical'
 		AND (rs.status IS NULL OR rs.status = 'active')
+		AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE OR ro.owner = ?)
 	`
 
-	rows, err := s.db.Query(query)
+	rows, err := s.db.Query(query, userID)
 	if err != nil {
 		return 0, fmt.Errorf("failed to query brand report count: %w", err)
 	}

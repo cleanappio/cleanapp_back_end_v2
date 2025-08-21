@@ -51,17 +51,21 @@ func (d *Database) Close() error {
 
 // GetReportsSince retrieves reports with analysis since a given sequence number
 // Only returns reports that are not resolved (either no status or status = 'active')
+// and are not privately owned (either no owner or is_public = true)
 func (d *Database) GetReportsSince(ctx context.Context, sinceSeq int) ([]models.ReportWithAnalysis, error) {
 	// First, get all reports since the given sequence that are not resolved
+	// and are not privately owned
 	reportsQuery := `
 		SELECT DISTINCT r.seq, r.ts, r.id, r.latitude, r.longitude
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		LEFT JOIN report_status rs ON r.seq = rs.seq
+		LEFT JOIN reports_owners ro ON r.seq = ro.seq
 		WHERE r.seq > ? 
 		AND (rs.status IS NULL OR rs.status = 'active')
 		AND (ra.hazard_probability >= 0.5 OR ra.litter_probability >= 0.5 OR ra.classification = 'digital')
 		AND ra.is_valid = TRUE
+		AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE)
 		ORDER BY r.seq ASC
 	`
 
@@ -250,16 +254,20 @@ func (d *Database) EnsureServiceStateTable(ctx context.Context) error {
 
 // GetLastNAnalyzedReports retrieves the last N analyzed reports
 // If full_data is true, returns reports with analysis. If false, returns only reports.
+// Only returns reports that are not resolved and are not privately owned
 func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int, classification string, full_data bool) (interface{}, error) {
 	// First, get the last N reports that have analysis and are not resolved
+	// and are not privately owned
 	reportsQuery := `
 		SELECT DISTINCT r.seq, r.ts, r.id, r.latitude, r.longitude
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		LEFT JOIN report_status rs ON r.seq = rs.seq
+		LEFT JOIN reports_owners ro ON r.seq = ro.seq
 		WHERE (rs.status IS NULL OR rs.status = 'active')
 		AND (ra.hazard_probability >= 0.5 OR ra.litter_probability >= 0.5 OR ra.classification = 'digital') AND ra.classification = ?
 		AND ra.is_valid = TRUE
+		AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE)
 		ORDER BY r.seq DESC
 		LIMIT ?
 	`
@@ -433,13 +441,17 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int, class
 
 // GetReportBySeq retrieves a single report with analysis by sequence ID
 // Only returns reports that are not resolved (either no status or status = 'active')
+// and are not privately owned (either no owner or is_public = true)
 func (d *Database) GetReportBySeq(ctx context.Context, seq int) (*models.ReportWithAnalysis, error) {
-	// First, get the report if it's not resolved
+	// First, get the report if it's not resolved and not privately owned
 	reportQuery := `
 		SELECT r.seq, r.ts, r.id, r.latitude, r.longitude, r.image
 		FROM reports r
 		LEFT JOIN report_status rs ON r.seq = rs.seq
-		WHERE r.seq = ? AND (rs.status IS NULL OR rs.status = 'active')
+		LEFT JOIN reports_owners ro ON r.seq = ro.seq
+		WHERE r.seq = ? 
+		AND (rs.status IS NULL OR rs.status = 'active')
+		AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE)
 	`
 
 	var report models.Report
@@ -453,7 +465,7 @@ func (d *Database) GetReportBySeq(ctx context.Context, seq int) (*models.ReportW
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("report with seq %d not found or is resolved", seq)
+			return nil, fmt.Errorf("report with seq %d not found or is unavailable", seq)
 		}
 		return nil, fmt.Errorf("failed to get report by seq: %w", err)
 	}
@@ -518,15 +530,20 @@ func (d *Database) GetReportBySeq(ctx context.Context, seq int) (*models.ReportW
 }
 
 // GetLastNReportsByID retrieves the last N reports with analysis for a given report ID
+// Only returns reports that are not resolved (either no status or status = 'active')
+// and are not privately owned (either no owner or is_public = true)
 func (d *Database) GetLastNReportsByID(ctx context.Context, reportID string, classification string, limit int) ([]models.ReportWithAnalysis, error) {
 	// First, get the last N reports for the given ID that are not resolved
+	// and are not privately owned
 	reportsQuery := `
 		SELECT DISTINCT r.seq, r.ts, r.id, r.latitude, r.longitude, r.image
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		LEFT JOIN report_status rs ON r.seq = rs.seq
+		LEFT JOIN reports_owners ro ON r.seq = ro.seq
 		WHERE r.id = ? AND (rs.status IS NULL OR rs.status = 'active') AND ra.is_valid = TRUE
 		AND (ra.hazard_probability >= 0.5 OR ra.litter_probability >= 0.5 OR ra.classification = 'digital') AND ra.classification = ?
+		AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE)
 		ORDER BY r.seq DESC
 		LIMIT ?
 	`
@@ -643,6 +660,7 @@ func (d *Database) GetLastNReportsByID(ctx context.Context, reportID string, cla
 
 // GetReportsByLatLng retrieves reports within a bounding box around given coordinates
 // Only returns reports that are not resolved (either no status or status = 'active')
+// and are not privately owned (either no owner or is_public = true)
 func (d *Database) GetReportsByLatLng(ctx context.Context, latitude, longitude float64, radiusKm float64, n int) ([]models.ReportWithAnalysis, error) {
 	// Calculate bounding box coordinates
 	// Convert radius from km to degrees (approximate: 1 degree ≈ 111 km)
@@ -654,17 +672,20 @@ func (d *Database) GetReportsByLatLng(ctx context.Context, latitude, longitude f
 	maxLng := longitude + radiusDegrees
 
 	// First, get all reports within the bounding box that are not resolved
+	// and are not privately owned
 	reportsQuery := `
 		SELECT DISTINCT r.seq, r.ts, r.id, r.latitude, r.longitude, r.image
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		LEFT JOIN report_status rs ON r.seq = rs.seq
+		LEFT JOIN reports_owners ro ON r.seq = ro.seq
 		WHERE r.latitude BETWEEN ? AND ?
 		AND r.longitude BETWEEN ? AND ?
 		AND (rs.status IS NULL OR rs.status = 'active')
 		AND (ra.hazard_probability >= 0.5 OR ra.litter_probability >= 0.5 OR ra.classification = 'digital')
 		AND ra.is_valid = TRUE
 		AND ra.classification = 'physical'
+		AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE)
 		ORDER BY r.ts DESC
 		LIMIT ?
 	`
@@ -781,17 +802,21 @@ func (d *Database) GetReportsByLatLng(ctx context.Context, latitude, longitude f
 
 // GetReportsByBrandName retrieves reports with analysis by brand name
 // Only returns reports that are not resolved (either no status or status = 'active')
+// and are not privately owned (either no owner or is_public = true)
 func (d *Database) GetReportsByBrandName(ctx context.Context, brandName string, limit int) ([]models.ReportWithAnalysis, error) {
 	// First, get all reports for the given brand that are not resolved
+	// and are not privately owned
 	reportsQuery := `
 		SELECT DISTINCT r.seq, r.ts, r.id, r.latitude, r.longitude, r.image
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		LEFT JOIN report_status rs ON r.seq = rs.seq
+		LEFT JOIN reports_owners ro ON r.seq = ro.seq
 		WHERE ra.brand_name = ? 
 		AND (rs.status IS NULL OR rs.status = 'active')
 		AND (ra.hazard_probability >= 0.5 OR ra.litter_probability >= 0.5 OR ra.classification = 'digital')
 		AND ra.is_valid = TRUE
+		AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE)
 		ORDER BY r.ts DESC
 		LIMIT ?
 	`
