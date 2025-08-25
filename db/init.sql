@@ -150,6 +150,21 @@ CREATE TABLE IF NOT EXISTS sent_emails (
   seq INT PRIMARY KEY
 );
 
+-- Create GDPR tracking tables
+CREATE TABLE IF NOT EXISTS users_gdpr(
+  id VARCHAR(255) NOT NULL,
+  processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE INDEX id_unique (id)
+);
+
+CREATE TABLE IF NOT EXISTS reports_gdpr(
+  seq INT NOT NULL,
+  processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (seq),
+  UNIQUE INDEX seq_unique (seq)
+);
+
 -- Migration Statement:
 -- SELECT CONCAT('INSERT INTO area_index (area_id, geom) VALUES(', area_id, ',', ST_AsText(geom), ');') AS insert_statement FROM area_index;
 

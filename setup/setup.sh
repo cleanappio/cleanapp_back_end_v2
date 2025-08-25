@@ -180,6 +180,7 @@ AREAS_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-areas-service-image:${OPT}
 REPORT_PROCESSOR_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-processor-image:${OPT}"
 EMAIL_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-email-service-image:${OPT}"
 REPORT_OWNERSHIP_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-ownership-service-image:${OPT}"
+GDPR_PROCESS_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-gdpr-process-service-image:${OPT}"
 
 ANALYSIS_PROMPT="What kind of litter or hazard can you see on this image? Please describe the litter or hazard in detail. Also, please extract any brand name from the image, if present. Extract only a brand name without any context info. If there are multiple brands, extract the one with the highest probability of being present."
 OPENAI_ASSISTANT_ID="asst_kBtuzDRWNorZgw9o2OJTGOn0"
@@ -321,7 +322,7 @@ services:
       - DB_NAME=cleanapp
       - OPENAI_API_KEY=\${OPENAI_API_KEY}
       - OPENAI_ASSISTANT_ID=${OPENAI_ASSISTANT_ID}
-      - OPENAI_MODEL=gpt-4.1
+      - OPENAI_MODEL=gpt-5
       - ANALYSIS_INTERVAL=500ms
       - MAX_RETRIES=3
       - ANALYSIS_PROMPT=${ANALYSIS_PROMPT}
@@ -474,6 +475,23 @@ services:
     ports:
       - 9090:8080
 
+  cleanapp_gdpr_process_service:
+    container_name: cleanapp_gdpr_process_service
+    image: ${GDPR_PROCESS_SERVICE_DOCKER_IMAGE}
+    environment:
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+      - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
+      - DB_NAME=cleanapp
+      - OPENAI_API_KEY=\${OPENAI_API_KEY}
+      - OPENAI_MODEL=gpt-5
+      - GIN_MODE=${GIN_MODE}
+    ports:
+      - 9091:8080
+    depends_on:
+      - cleanapp_db
+
 volumes:
   mysql:
     name: eko_mysql
@@ -501,6 +519,7 @@ docker pull ${AREAS_SERVICE_DOCKER_IMAGE}
 docker pull ${REPORT_PROCESSOR_DOCKER_IMAGE}
 docker pull ${EMAIL_SERVICE_DOCKER_IMAGE}
 docker pull ${REPORT_OWNERSHIP_SERVICE_DOCKER_IMAGE}
+docker pull ${GDPR_PROCESS_SERVICE_DOCKER_IMAGE}
 
 # Start our docker images.
 ./up.sh
