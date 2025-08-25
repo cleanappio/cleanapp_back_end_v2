@@ -1,12 +1,14 @@
 package main
 
 import (
+	"fmt"
 	"gdpr-process-service/config"
 	"gdpr-process-service/database"
 	"gdpr-process-service/openai"
 	"gdpr-process-service/processor"
 	"gdpr-process-service/utils"
 	"log"
+	"sync"
 	"time"
 )
 
@@ -45,7 +47,7 @@ func main() {
 
 	// Start the polling loop
 	for {
-		if err := processBatch(gdprService, gdprProcessor); err != nil {
+		if err := processBatch(gdprService, gdprProcessor, cfg); err != nil {
 			log.Printf("Error processing batch: %v", err)
 		}
 
@@ -55,29 +57,16 @@ func main() {
 }
 
 // processBatch processes a batch of unprocessed users and reports
-func processBatch(gdprService *database.GdprService, gdprProcessor *processor.GdprProcessor) error {
-	// Process users
+func processBatch(gdprService *database.GdprService, gdprProcessor *processor.GdprProcessor, cfg *config.Config) error {
+	// Process users in parallel batches
 	userIDs, err := gdprService.GetUnprocessedUsers()
 	if err != nil {
 		return err
 	}
 
-	for _, userID := range userIDs {
-		// Fetch user avatar data
-		avatar, err := gdprService.GetUserData(userID)
-		if err != nil {
-			log.Printf("Failed to fetch user data for %s: %v", userID, err)
-			continue
-		}
-
-		if err := gdprProcessor.ProcessUser(userID, avatar, gdprService.UpdateUserAvatar); err != nil {
-			log.Printf("Failed to process user %s: %v", userID, err)
-			continue
-		}
-
-		if err := gdprService.MarkUserProcessed(userID); err != nil {
-			log.Printf("Failed to mark user %s as processed: %v", userID, err)
-			continue
+	if len(userIDs) > 0 {
+		if err := processUsersInParallel(gdprService, gdprProcessor, userIDs, cfg.BatchSize, cfg.MaxWorkers); err != nil {
+			log.Printf("Error processing users in parallel: %v", err)
 		}
 	}
 
@@ -105,4 +94,94 @@ func processBatch(gdprService *database.GdprService, gdprProcessor *processor.Gd
 	}
 
 	return nil
+}
+
+// processUsersInParallel processes users in parallel batches
+func processUsersInParallel(gdprService *database.GdprService, gdprProcessor *processor.GdprProcessor, userIDs []string, batchSize int, maxWorkers int) error {
+
+	log.Printf("Processing %d users in parallel batches of %d", len(userIDs), batchSize)
+
+	// Create a channel to collect results
+	resultChan := make(chan userProcessResult, len(userIDs))
+
+	// Create a semaphore to limit concurrent workers
+	semaphore := make(chan struct{}, maxWorkers)
+
+	// Process users in batches
+	for i := 0; i < len(userIDs); i += batchSize {
+		end := i + batchSize
+		if end > len(userIDs) {
+			end = len(userIDs)
+		}
+
+		batch := userIDs[i:end]
+		log.Printf("Processing batch %d-%d (%d users)", i+1, end, len(batch))
+
+		// Process batch concurrently
+		var wg sync.WaitGroup
+		for _, userID := range batch {
+			wg.Add(1)
+			go func(uid string) {
+				defer wg.Done()
+
+				// Acquire semaphore
+				semaphore <- struct{}{}
+				defer func() { <-semaphore }()
+
+				// Process user
+				result := processSingleUser(gdprService, gdprProcessor, uid)
+				resultChan <- result
+			}(userID)
+		}
+
+		// Wait for current batch to complete
+		wg.Wait()
+	}
+
+	// Close result channel after all goroutines complete
+	close(resultChan)
+
+	// Collect and process results
+	successCount := 0
+	errorCount := 0
+
+	for result := range resultChan {
+		if result.err != nil {
+			errorCount++
+			log.Printf("Failed to process user %s: %v", result.userID, result.err)
+		} else {
+			successCount++
+			log.Printf("Successfully processed user %s", result.userID)
+		}
+	}
+
+	log.Printf("Batch processing completed: %d successful, %d failed", successCount, errorCount)
+	return nil
+}
+
+// userProcessResult represents the result of processing a single user
+type userProcessResult struct {
+	userID string
+	err    error
+}
+
+// processSingleUser processes a single user and returns the result
+func processSingleUser(gdprService *database.GdprService, gdprProcessor *processor.GdprProcessor, userID string) userProcessResult {
+	// Fetch user avatar data
+	avatar, err := gdprService.GetUserData(userID)
+	if err != nil {
+		return userProcessResult{userID: userID, err: fmt.Errorf("failed to fetch user data: %w", err)}
+	}
+
+	// Process user with OpenAI
+	if err := gdprProcessor.ProcessUser(userID, avatar, gdprService.UpdateUserAvatar, gdprService.GenerateUniqueAvatar); err != nil {
+		return userProcessResult{userID: userID, err: fmt.Errorf("failed to process user: %w", err)}
+	}
+
+	// Mark user as processed
+	if err := gdprService.MarkUserProcessed(userID); err != nil {
+		return userProcessResult{userID: userID, err: fmt.Errorf("failed to mark user as processed: %w", err)}
+	}
+
+	return userProcessResult{userID: userID, err: nil}
 }

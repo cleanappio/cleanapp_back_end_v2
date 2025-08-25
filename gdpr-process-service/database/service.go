@@ -3,6 +3,7 @@ package database
 import (
 	"database/sql"
 	"fmt"
+	"time"
 
 	"github.com/apex/log"
 )
@@ -62,6 +63,19 @@ func (s *GdprService) GetUserData(userID string) (string, error) {
 	return avatar, nil
 }
 
+// AvatarExists checks if an avatar value already exists in the users table
+func (s *GdprService) AvatarExists(avatar string) (bool, error) {
+	query := `SELECT COUNT(*) FROM users WHERE avatar = ?`
+
+	var count int
+	err := s.db.QueryRow(query, avatar).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("failed to check if avatar exists: %w", err)
+	}
+
+	return count > 0, nil
+}
+
 // UpdateUserAvatar updates the avatar field for a specific user
 func (s *GdprService) UpdateUserAvatar(userID string, obfuscatedAvatar string) error {
 	query := `UPDATE users SET avatar = ? WHERE id = ?`
@@ -73,6 +87,38 @@ func (s *GdprService) UpdateUserAvatar(userID string, obfuscatedAvatar string) e
 
 	log.Infof("Updated avatar for user %s to obfuscated value", userID)
 	return nil
+}
+
+// GenerateUniqueAvatar generates a unique avatar by adding asterisks until uniqueness is achieved
+func (s *GdprService) GenerateUniqueAvatar(obfuscatedAvatar string) (string, error) {
+	uniqueAvatar := obfuscatedAvatar
+	maxAttempts := 100 // Prevent infinite loops
+
+	// Keep adding asterisks until we get a unique avatar
+	for attempts := 0; attempts < maxAttempts; attempts++ {
+		exists, err := s.AvatarExists(uniqueAvatar)
+		if err != nil {
+			return "", fmt.Errorf("failed to check avatar uniqueness: %w", err)
+		}
+
+		if !exists {
+			// Avatar is unique, return it
+			if attempts > 0 {
+				log.Infof("Generated unique avatar after %d attempts: '%s' -> '%s'", attempts, obfuscatedAvatar, uniqueAvatar)
+			}
+			return uniqueAvatar, nil
+		}
+
+		// Avatar already exists, add an asterisk
+		uniqueAvatar += "*"
+		log.Infof("Avatar '%s' already exists, adding asterisk (attempt %d): '%s'", obfuscatedAvatar, attempts+1, uniqueAvatar)
+	}
+
+	// If we've reached the maximum attempts, generate a unique ID-based avatar
+	fallbackAvatar := fmt.Sprintf("%s_%d", obfuscatedAvatar, time.Now().UnixNano())
+	log.Warnf("Reached maximum attempts for avatar uniqueness, using fallback: '%s'", fallbackAvatar)
+
+	return fallbackAvatar, nil
 }
 
 // GetUnprocessedReports returns reports that haven't been processed for GDPR

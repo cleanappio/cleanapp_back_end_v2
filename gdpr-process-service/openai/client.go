@@ -50,7 +50,8 @@ func NewClient(apiKey, model string) *Client {
 
 // DetectAndObfuscatePII analyzes text for PII and returns obfuscated version
 func (c *Client) DetectAndObfuscatePII(text string) (string, error) {
-	prompt := fmt.Sprintf(`Please detect if the text below contains any PII and obfuscate it by replacing of some chars with '*'. Use this fixed length sequence regardless of the length of obfuscated substring. 
+	prompt := fmt.Sprintf(`
+Please detect if the text below contains any PII and obfuscate it by replacing of some chars with '*'.
 
 %s 
 

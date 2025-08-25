@@ -20,6 +20,10 @@ type Config struct {
 	// OpenAI configuration
 	OpenAIAPIKey string
 	OpenAIModel  string
+
+	// Parallel processing configuration
+	BatchSize  int // number of users to process in each batch
+	MaxWorkers int // maximum number of concurrent OpenAI API calls
 }
 
 // Load loads configuration from environment variables
@@ -37,7 +41,11 @@ func Load() *Config {
 
 		// OpenAI defaults
 		OpenAIAPIKey: getEnv("OPENAI_API_KEY", ""),
-		OpenAIModel:  getEnv("OPENAI_MODEL", "gpt-4o"),
+		OpenAIModel:  getEnv("OPENAI_MODEL", "gpt-5"),
+
+		// Parallel processing defaults
+		BatchSize:  getIntEnv("BATCH_SIZE", 10),
+		MaxWorkers: getIntEnv("MAX_WORKERS", 10),
 	}
 
 	return config

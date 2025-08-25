@@ -42,9 +42,10 @@ The GDPR Process Service is a microservice designed to continuously monitor and 
 - Processes records in chronological order (oldest first)
 
 ### Data Processing
-- **Users**: Identified by `id` field from `users` table, with automatic avatar PII detection and database updates
+- **Users**: Identified by `id` field from `users` table, with automatic avatar PII detection, unique name generation, and database updates in parallel batches
 - **Reports**: Identified by `seq` field from `reports` table
 - Batch size limited to 100 records per cycle for performance
+- Parallel processing with configurable batch sizes and worker counts
 
 ### Progress Tracking
 - Successfully processed records are marked in tracking tables
@@ -89,6 +90,8 @@ DB_NAME=cleanapp          # Database name
 POLL_INTERVAL=60          # Polling interval in seconds
 OPENAI_API_KEY=           # OpenAI API key for PII detection
 OPENAI_MODEL=gpt-4o       # OpenAI model to use for analysis
+BATCH_SIZE=10             # Number of users to process in each batch
+MAX_WORKERS=10            # Maximum number of concurrent OpenAI API calls
 ```
 
 ### Docker Configuration
@@ -191,11 +194,49 @@ The service now integrates with OpenAI's API to automatically detect and obfusca
 - **JSON Response**: Returns results in structured JSON format for easy processing
 - **Fallback Handling**: Gracefully handles API failures and malformed responses
 - **Database Updates**: Automatically updates the users table with obfuscated avatars when PII is detected
+- **Unique Avatar Generation**: Automatically generates unique avatar names by adding asterisks to prevent conflicts
+
+### Parallel Processing
+The service implements efficient parallel processing for OpenAI API calls:
+
+- **Batch Processing**: Processes users in configurable batches (default: 10 users per batch)
+- **Concurrent Workers**: Limits concurrent OpenAI API calls (default: 10 workers)
+- **Semaphore Control**: Prevents overwhelming the OpenAI API with too many simultaneous requests
+- **Result Collection**: Gathers results from all concurrent operations for comprehensive logging
+- **Error Isolation**: Individual user processing failures don't affect other users in the batch
 
 ### Configuration Requirements
 - `OPENAI_API_KEY`: Valid OpenAI API key
 - `OPENAI_MODEL`: Model to use (default: gpt-4o)
 - Network access to OpenAI API endpoints
+
+## Unique Avatar Generation
+
+### Conflict Resolution Strategy
+The service implements intelligent avatar uniqueness to prevent database conflicts:
+
+- **Conflict Detection**: Automatically checks if an obfuscated avatar already exists in the database
+- **Asterisk Addition**: Systematically adds asterisks (*) until uniqueness is achieved
+- **Maximum Attempts**: Limits attempts to 100 to prevent infinite loops
+- **Fallback Strategy**: Uses timestamp-based unique names if maximum attempts reached
+- **Comprehensive Logging**: Tracks all uniqueness generation attempts and results
+
+### Example Uniqueness Generation
+```
+Original: "john.doe@example.com"
+Obfuscated: "****.****@*******.com"
+If exists: "****.****@*******.com*"
+If still exists: "****.****@*******.com**"
+Final unique: "****.****@*******.com***"
+```
+
+### Benefits
+- **Data Integrity**: Prevents avatar field conflicts in the database
+- **Automatic Resolution**: No manual intervention required
+- **Audit Trail**: Complete history of uniqueness generation
+- **Performance**: Efficient database queries for conflict detection
+- **Scalability**: Handles large numbers of similar PII patterns
+
 - **Docker**: Containerized deployment with existing infrastructure
 - **Networking**: Integration with CleanApp service network
 

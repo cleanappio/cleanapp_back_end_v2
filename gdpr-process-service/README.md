@@ -11,6 +11,7 @@ This service continuously monitors the database for unprocessed users and report
 - **Continuous Polling**: Automatically checks for new users and reports at configurable intervals
 - **GDPR Processing**: Placeholder functions for GDPR compliance processing
 - **Progress Tracking**: Maintains tables to track processed records
+- **Parallel Processing**: Processes users in concurrent batches of 10 for optimal performance
 - **Batch Processing**: Processes records in batches for efficiency
 - **Error Handling**: Continues processing even if individual records fail
 
@@ -38,6 +39,8 @@ Environment variables:
 | `POLL_INTERVAL` | `60` | Polling interval in seconds |
 | `OPENAI_API_KEY` | `` | OpenAI API key for PII detection |
 | `OPENAI_MODEL` | `gpt-4o` | OpenAI model to use for analysis |
+| `BATCH_SIZE` | `10` | Number of users to process in each batch |
+| `MAX_WORKERS` | `10` | Maximum number of concurrent OpenAI API calls |
 
 ## Architecture
 
@@ -57,12 +60,12 @@ Environment variables:
 ## Processing Logic
 
 ### Current Implementation
-- **Users**: Fetches avatar field, processes it through OpenAI API for PII detection and obfuscation, and updates the database with obfuscated values when changes are detected
+- **Users**: Fetches avatar field, processes it through OpenAI API for PII detection and obfuscation in parallel batches of 10, generates unique avatar names to prevent conflicts, and updates the database with obfuscated values when changes are detected
 - **Reports**: Placeholder function that logs processing (to be implemented)
 
 ### Future Implementation
 The placeholder functions can be extended to include:
-- **User Processing**: Currently implements avatar PII detection and obfuscation via OpenAI API, with automatic database updates when PII is detected
+- **User Processing**: Currently implements avatar PII detection and obfuscation via OpenAI API in parallel batches, with automatic database updates and unique avatar name generation to prevent conflicts
 - Data anonymization
 - Consent management
 - Data retention policy enforcement

@@ -20,7 +20,7 @@ func NewGdprProcessor(openaiClient *openai.Client) *GdprProcessor {
 }
 
 // ProcessUser processes a single user for GDPR compliance
-func (p *GdprProcessor) ProcessUser(userID string, avatar string, updateAvatar func(string, string) error) error {
+func (p *GdprProcessor) ProcessUser(userID string, avatar string, updateAvatar func(string, string) error, generateUniqueAvatar func(string) (string, error)) error {
 	log.Infof("Processing user %s for GDPR compliance", userID)
 
 	if avatar == "" {
@@ -38,14 +38,24 @@ func (p *GdprProcessor) ProcessUser(userID string, avatar string, updateAvatar f
 
 	// Check if the avatar was changed (obfuscated)
 	if obfuscatedAvatar != avatar {
-		log.Infof("Avatar changed for user %s, updating database", userID)
+		log.Infof("Avatar changed for user %s, generating unique avatar", userID)
+
+		// Generate a unique avatar by adding asterisks if needed
+		uniqueAvatar, err := generateUniqueAvatar(obfuscatedAvatar)
+		if err != nil {
+			return fmt.Errorf("failed to generate unique avatar for user %s: %w", userID, err)
+		}
+
+		if uniqueAvatar != obfuscatedAvatar {
+			log.Infof("Generated unique avatar for user %s: '%s' -> '%s'", userID, obfuscatedAvatar, uniqueAvatar)
+		}
 
 		// Update the user's avatar in the database
-		if err := updateAvatar(userID, obfuscatedAvatar); err != nil {
+		if err := updateAvatar(userID, uniqueAvatar); err != nil {
 			return fmt.Errorf("failed to update avatar for user %s: %w", userID, err)
 		}
 
-		log.Infof("Successfully updated avatar for user %s in database", userID)
+		log.Infof("Successfully updated avatar for user %s in database with unique value", userID)
 	} else {
 		log.Infof("No PII detected in avatar for user %s, no update needed", userID)
 	}
