@@ -1,0 +1,150 @@
+syntax = "proto3";
+
+package stxn.io;
+
+message CallObjectProto {
+  uint64 id = 1;
+  uint64 chain_id = 2;
+  bytes salt = 3;
+  bytes amount = 4;
+  bytes gas = 5;
+  bytes address = 6;
+  bool skippable = 7;
+  bool verifiable = 8;
+  bytes callvalue = 9;
+  bytes returnvalue = 10;
+}
+
+message UserObjectiveProto {
+  bytes app_id = 1;
+  uint64 nonse = 2;
+  uint64 chain_id = 3;
+  repeated CallObjectProto call_objects = 4;
+}
+
+message AdditionalDataProto {
+  bytes key = 1;
+  bytes value = 2;
+}
+
+message UserEventProto {
+  bytes intent_id = 1;
+  bytes app_id = 2;
+  uint64 chain_id = 3;
+  uint64 block_number = 4;
+  UserObjectiveProto user_objective = 5;
+  repeated AdditionalDataProto additional_data = 6;
+}
+
+enum AppChainResultStatus {
+  OK = 0;
+  EVENT_NOT_FOUND = 20;
+  ERROR = 30;
+}
+
+message AppChainResultProto {
+  AppChainResultStatus status = 1;
+  optional string message = 2;
+}
+
+message AppChainPayloadProto {
+  // A workaround, will be formalised for the appchain later
+  // The solana transaction ID
+  string solana_txid = 1;
+}
+
+enum SolanaCluster {
+  // The default value, considering unspecified
+  UNSPECIFIED = 0;
+  // Mainnet
+  MAINNET = 1;
+  // Devnet
+  DEVNET = 2;
+}
+
+message PollRequestProto {
+  uint64 last_sequence_id = 1;
+}
+
+message PollResponseProto {
+  uint64 sequence_id = 1;
+  AppChainResultProto result = 2;
+  optional bytes intent_id = 3;
+  UserEventProto event = 4;
+}
+
+// New push API for external submitters (e.g., CleanApp ReportsPusher)
+message PushRequestProto {
+  // A fully-formed UserEventProto to register
+  UserEventProto event = 1;
+}
+
+message PushResponseProto {
+  AppChainResultProto result = 1;
+  uint64 sequence_id = 2;
+}
+
+message ChainSelectionProto {
+  // The chain to send the transaction to.
+  oneof chain {
+    uint64 evm_chain_id = 1;
+    SolanaCluster solana_cluster = 2;
+  }
+}
+
+message SubmitSolutionRequestProto {
+  // The sequence ID from the solver
+  uint64 request_sequence_id = 1;
+  // The chain to send the transaction to.
+  ChainSelectionProto chain = 2;
+  // The transaction to be sent to the chain.
+  bytes transaction = 4;
+}
+
+message SubmitSolutionResponseProto {
+  AppChainResultProto result = 1;
+  AppChainPayloadProto payload = 2;
+}
+
+message SubmitSolutionForValidationRequestProto {
+  string intent_id = 1;
+  // The generic field for solution to be validated in the encoding specified in the exact app proto description `*SolutionForValidationProto`
+  bytes solution_for_validation = 3;
+}
+
+message SubmitSolutionForValidationResponseProto {
+  AppChainResultProto result = 1;
+  // The generic field with solution validation details in the encoding specified in the exact app proto description `*SolutionValidatedDetailsProto`
+  bytes solution_validated_details = 2;
+}
+
+
+service RequestRegistratorService {
+  // To be called periodically from the solver to the request registrator
+  // to check if there are new requests to be solved.
+  rpc Poll(PollRequestProto) returns (PollResponseProto);
+  // To be called by external submitters to push new events directly into the appchain store.
+  rpc Push(PushRequestProto) returns (PushResponseProto);
+}
+
+message LatestBlockHashRequestProto {
+  // The chain to fetch the block hash from.
+  ChainSelectionProto chain = 1;
+}
+
+message LatestBlockHashResponseProto{
+  AppChainResultProto result = 1;
+  bytes block_hash = 2;
+}
+
+service OrchestratorService{
+  // To be called from the solver to the orchestrator to deliver the solver decision.
+  rpc SubmitSolution(SubmitSolutionRequestProto) returns (SubmitSolutionResponseProto);
+  // Getting the recent block hash.
+  rpc GetLatestBlockHash(LatestBlockHashRequestProto) returns (LatestBlockHashResponseProto);
+}
+
+service ValidatorService{
+  // To be called from the solver to the orchestrator to deliver the solver decision.
+  rpc SubmitSolution(SubmitSolutionForValidationRequestProto) returns (SubmitSolutionForValidationResponseProto);
+} 
