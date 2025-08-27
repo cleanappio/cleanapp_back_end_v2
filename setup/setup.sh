@@ -181,6 +181,7 @@ REPORT_PROCESSOR_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-processor-image:
 EMAIL_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-email-service-image:${OPT}"
 REPORT_OWNERSHIP_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-ownership-service-image:${OPT}"
 GDPR_PROCESS_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-gdpr-process-service-image:${OPT}"
+REPORTS_PUSHER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-reports-pusher-image:${OPT}"
 
 ANALYSIS_PROMPT="What kind of litter or hazard can you see on this image? Please describe the litter or hazard in detail. Also, please extract any brand name from the image, if present. Extract only a brand name without any context info. If there are multiple brands, extract the one with the highest probability of being present."
 OPENAI_ASSISTANT_ID="asst_kBtuzDRWNorZgw9o2OJTGOn0"
@@ -492,6 +493,18 @@ services:
     depends_on:
       - cleanapp_db
 
+  cleanapp_reports_pusher:
+    container_name: cleanapp_reports_pusher
+    image: ${REPORTS_PUSHER_DOCKER_IMAGE}
+    environment:
+      - MYSQL_URL=mysql://server:\${MYSQL_APP_PASSWORD}@cleanapp_db:3306/cleanapp
+      - REQUEST_REGISTRATOR_URL=http://127.0.0.1:50051
+      - APP_ID_HEX=0000000000000000000000000000000000000000000000000000000000000000
+      - CHAIN_ID=${CHAIN_ID}
+      - POLL_SECS=5
+    depends_on:
+      - cleanapp_db
+
 volumes:
   mysql:
     name: eko_mysql
@@ -520,6 +533,7 @@ docker pull ${REPORT_PROCESSOR_DOCKER_IMAGE}
 docker pull ${EMAIL_SERVICE_DOCKER_IMAGE}
 docker pull ${REPORT_OWNERSHIP_SERVICE_DOCKER_IMAGE}
 docker pull ${GDPR_PROCESS_SERVICE_DOCKER_IMAGE}
+docker pull ${REPORTS_PUSHER_DOCKER_IMAGE}
 
 # Start our docker images.
 ./up.sh
