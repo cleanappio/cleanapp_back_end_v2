@@ -5,3 +5,4 @@ numpy<2
 python-dotenv==1.0.0
 mtcnn==1.0.0
 tensorflow==2.20.0
+requests==2.31.0

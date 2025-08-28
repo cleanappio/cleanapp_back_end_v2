@@ -17,10 +17,41 @@ setup-env: ## Create .env file from example
 	fi
 
 run: ## Run the Flask application
-	python app.py
+	@if [ -f .env ]; then \
+		echo "Loading environment from .env file..."; \
+		set -a && source .env && set +a && source venv/bin/activate && python app.py; \
+	else \
+		echo "No .env file found. Please run 'make setup-env' first."; \
+		exit 1; \
+	fi
+
+run-venv: ## Run the Flask application with virtual environment and .env loaded
+	@if [ -f .env ]; then \
+		echo "Loading environment from .env file..."; \
+		set -a && source .env && set +a && source venv/bin/activate && python app.py; \
+	else \
+		echo "No .env file found. Please run 'make setup-env' first."; \
+		exit 1; \
+	fi
+
+run-simple: ## Run the Flask application with virtual environment only (no .env)
+	source venv/bin/activate && python app.py
 
 test: ## Run tests (placeholder)
 	@echo "Tests not implemented yet"
+
+test-service: ## Test the face-detector service with an image
+	@echo "Usage: make test-service IMAGE=path/to/image.jpg"
+	@if [ -z "$(IMAGE)" ]; then \
+		echo "❌ Please specify an image file: make test-service IMAGE=path/to/image.jpg"; \
+		exit 1; \
+	fi
+	@if [ ! -f "$(IMAGE)" ]; then \
+		echo "❌ Image file not found: $(IMAGE)"; \
+		exit 1; \
+	fi
+	@echo "🧪 Testing service with image: $(IMAGE)"
+	@source venv/bin/activate && python test_service.py "$(IMAGE)"
 
 test-imports: ## Test that all imports work correctly
 	python -c "from config import Config; from app import app; print('All imports successful!')"

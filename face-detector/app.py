@@ -16,10 +16,6 @@ app = Flask(__name__)
 
 # Apply configuration
 app.config['MAX_CONTENT_LENGTH'] = Config.MAX_IMAGE_SIZE
-app.config['UPLOAD_FOLDER'] = Config.UPLOAD_FOLDER
-
-# Ensure upload directory exists
-os.makedirs(Config.UPLOAD_FOLDER, exist_ok=True)
 
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -32,7 +28,6 @@ def health_check():
         health_status = {
             "status": "healthy",
             "service": "face-detector",
-            "version": Config.API_VERSION,
             "environment": Config.FLASK_ENV,
             "config": Config.to_dict()
         }
@@ -82,19 +77,15 @@ def api_status():
     """API status endpoint"""
     return jsonify({
         "service": "face-detector",
-        "version": Config.API_VERSION,
         "status": "operational",
         "features": {
             "face_detection": True,
-            "pii_detection": Config.PII_DETECTION_ENABLED,
             "image_processing": True,
             "base64_support": True,
             "face_blurring": True
         },
         "limits": {
-            "max_image_size": Config.MAX_IMAGE_SIZE,
-            "max_upload_files": Config.MAX_UPLOAD_FILES,
-            "allowed_image_types": Config.ALLOWED_IMAGE_TYPES
+            "max_image_size": Config.MAX_IMAGE_SIZE
         }
     })
 

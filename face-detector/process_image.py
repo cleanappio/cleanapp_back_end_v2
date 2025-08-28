@@ -31,8 +31,8 @@ def process_base64_image(base64_image: str) -> dict:
             raise ValueError(f"Image too large. Maximum size: {Config.MAX_IMAGE_SIZE / (1024*1024):.1f}MB")
         
         # Convert base64 to numpy array using utility function
-        numpy_image = base64_to_numpy(base64_image)
-        logger.info(f"Successfully converted base64 to numpy array: {numpy_image.shape}")
+        numpy_image, original_bytes, original_format = base64_to_numpy(base64_image)
+        logger.info(f"Successfully converted base64 to numpy array: {numpy_image.shape}, original format: {original_format}")
         
         # Get image information
         image_info = get_image_info(numpy_image)
@@ -40,11 +40,9 @@ def process_base64_image(base64_image: str) -> dict:
         # Detect faces
         faces = detect_face(numpy_image)
         
-        # Blur faces
-        blurred_image = blur_faces(numpy_image, faces)
-        
-        # Convert back to base64
-        processed_base64 = numpy_to_base64(blurred_image)
+        # Apply face blurring directly to JPEG bytes to preserve original colors
+        from utils import apply_face_blurring_to_jpeg_bytes
+        processed_base64 = apply_face_blurring_to_jpeg_bytes(original_bytes, faces)
         
         logger.info(f"Image processing completed: faces detected: {len(faces)}, processed image size: {len(processed_base64)} chars")
         

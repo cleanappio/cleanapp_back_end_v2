@@ -10,11 +10,11 @@ def blur_faces(numpy_image: np.ndarray, faces: list) -> np.ndarray:
     Blur face regions in a numpy image based on detected face boxes.
     
     Args:
-        numpy_image (np.ndarray): Input image as numpy array (BGR format)
+        numpy_image (np.ndarray): Input image as numpy array (RGB format)
         faces (list): List of face detection results, each containing {'box': [left, top, width, height]}
         
     Returns:
-        np.ndarray: Modified image with blurred face regions
+        np.ndarray: Modified image with blurred face regions (RGB format)
         
     Raises:
         ValueError: If the input image is invalid
@@ -26,7 +26,7 @@ def blur_faces(numpy_image: np.ndarray, faces: list) -> np.ndarray:
             raise ValueError("Input image is empty or None")
         
         if len(numpy_image.shape) != 3 or numpy_image.shape[2] != 3:
-            raise ValueError("Input image must be a 3-channel BGR image")
+            raise ValueError("Input image must be a 3-channel RGB image")
         
         # Create a copy of the image to avoid modifying the original
         blurred_image = numpy_image.copy()
@@ -40,6 +40,9 @@ def blur_faces(numpy_image: np.ndarray, faces: list) -> np.ndarray:
         
         # Get blur strength from configuration
         blur_strength = Config.BLUR_STRENGTH
+        
+        # Convert RGB to BGR for OpenCV operations
+        bgr_image = cv2.cvtColor(blurred_image, cv2.COLOR_RGB2BGR)
         
         # Process each detected face
         for i, face in enumerate(faces):
@@ -59,16 +62,16 @@ def blur_faces(numpy_image: np.ndarray, faces: list) -> np.ndarray:
                 # Ensure coordinates are within image bounds
                 left = max(0, int(left))
                 top = max(0, int(top))
-                width = min(int(width), blurred_image.shape[1] - left)
-                height = min(int(height), blurred_image.shape[0] - top)
+                width = min(int(width), bgr_image.shape[1] - left)
+                height = min(int(height), bgr_image.shape[0] - top)
                 
                 # Skip if invalid dimensions
                 if width <= 0 or height <= 0:
                     logger.warning(f"Invalid face dimensions for face {i}: {width}x{height}")
                     continue
                 
-                # Extract face region
-                face_region = blurred_image[top:top+height, left:left+width]
+                # Extract face region from BGR image
+                face_region = bgr_image[top:top+height, left:left+width]
                 
                 # Apply Gaussian blur to the face region
                 # Use odd kernel size for Gaussian blur
@@ -78,13 +81,16 @@ def blur_faces(numpy_image: np.ndarray, faces: list) -> np.ndarray:
                 blurred_face = cv2.GaussianBlur(face_region, (kernel_size, kernel_size), sigma)
                 
                 # Replace the face region with blurred version
-                blurred_image[top:top+height, left:left+width] = blurred_face
+                bgr_image[top:top+height, left:left+width] = blurred_face
                 
                 logger.debug(f"Blurred face {i} at ({left}, {top}) with size {width}x{height}")
                 
             except Exception as e:
                 logger.error(f"Error processing face {i}: {str(e)}")
                 continue
+        
+        # Convert back to RGB format
+        blurred_image = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2RGB)
         
         logger.info(f"Successfully blurred {len(faces)} faces")
         return blurred_image
