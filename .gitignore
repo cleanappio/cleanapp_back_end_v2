@@ -7,3 +7,6 @@ setup/down.sh
 setup/docker-compose.yml
 transactiontest
 **/target
+# IntelliJ IDEA metafiles
+/cleanapp_back_end_v2.iml
+/.idea/
