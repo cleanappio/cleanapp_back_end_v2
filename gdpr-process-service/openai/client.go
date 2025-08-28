@@ -60,6 +60,8 @@ Consider following data as PII:
 - email address; 
 - physical address; 
 - credit card data; 
+- phone number;
+- any other data that can be considered PII.
 
 Please output the result as JSON: 
 { "obfuscated": "value" } 
