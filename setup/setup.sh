@@ -479,25 +479,6 @@ services:
     ports:
       - 9090:8080
 
-  cleanapp_gdpr_process_service:
-    container_name: cleanapp_gdpr_process_service
-    image: ${GDPR_PROCESS_SERVICE_DOCKER_IMAGE}
-    environment:
-      - DB_HOST=cleanapp_db
-      - DB_PORT=3306
-      - DB_USER=server
-      - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
-      - DB_NAME=cleanapp
-      - OPENAI_API_KEY=\${OPENAI_API_KEY}
-      - OPENAI_MODEL=gpt-5
-      - FACE_DETECTOR_URL=http://cleanapp_face_detector:8080
-      - POLL_INTERVAL=500ms
-      - GIN_MODE=${GIN_MODE}
-    ports:
-      - 9091:8080
-    depends_on:
-      - cleanapp_db
-
   cleanapp_reports_pusher:
     container_name: cleanapp_reports_pusher
     image: ${REPORTS_PUSHER_DOCKER_IMAGE}
@@ -510,22 +491,44 @@ services:
     depends_on:
       - cleanapp_db
   
-  cleanapp_face_detector:
-    container_name: cleanapp_face_detector
-    image: ${FACE_DETECTOR_DOCKER_IMAGE}
-    environment:
-      - BLUR_STRENGTH=50
-      - DEBUG=${FACE_DETECTOR_DEBUG}
-      - WORKERS=1
-      - RELOAD=false
-      - ACCESS_LOG=true
-
 volumes:
   mysql:
     name: eko_mysql
     external: true
 
 COMPOSE
+
+# TODO: Add gdpr-process-service and face detector
+  # cleanapp_gdpr_process_service:
+  #   container_name: cleanapp_gdpr_process_service
+  #   image: ${GDPR_PROCESS_SERVICE_DOCKER_IMAGE}
+  #   environment:
+  #     - DB_HOST=cleanapp_db
+  #     - DB_PORT=3306
+  #     - DB_USER=server
+  #     - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
+  #     - DB_NAME=cleanapp
+  #     - OPENAI_API_KEY=\${OPENAI_API_KEY}
+  #     - OPENAI_MODEL=gpt-5
+  #     - FACE_DETECTOR_URL=http://cleanapp_face_detector:8080
+  #     - POLL_INTERVAL=500ms
+  #     - GIN_MODE=${GIN_MODE}
+  #   ports:
+  #     - 9091:8080
+  #   depends_on:
+  #     - cleanapp_db
+
+  # cleanapp_face_detector:
+  #   container_name: cleanapp_face_detector
+  #   image: ${FACE_DETECTOR_DOCKER_IMAGE}
+  #   environment:
+  #     - BLUR_STRENGTH=50
+  #     - DEBUG=${FACE_DETECTOR_DEBUG}
+  #     - WORKERS=1
+  #     - RELOAD=false
+  #     - ACCESS_LOG=true
+
+
 
 set -e
 
