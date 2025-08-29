@@ -67,7 +67,7 @@ func (p *GdprProcessor) ProcessUser(userID string, avatar string, updateAvatar f
 }
 
 // ProcessReport processes a single report for GDPR compliance
-func (p *GdprProcessor) ProcessReport(seq int, getImage func(int) ([]byte, error), updateImage func(int, []byte) error) error {
+func (p *GdprProcessor) ProcessReport(seq int, getImage func(int) ([]byte, error), updateImage func(int, []byte) error, getPlaceholder func(string) ([]byte, error), placeholderPath string) error {
 	log.Infof("Processing report %d for GDPR compliance", seq)
 
 	// Fetch the report image
@@ -78,20 +78,48 @@ func (p *GdprProcessor) ProcessReport(seq int, getImage func(int) ([]byte, error
 
 	log.Infof("Retrieved image for report %d, size: %d bytes", seq, len(imageData))
 
-	// Send the image to the face detector service for processing
-	processedImageData, err := p.faceDetectorClient.ProcessImage(imageData)
+	// Step 1: Detect if the image contains a document with potential PII
+	isDocument, err := p.openaiClient.DetectDocument(imageData)
+	if err != nil {
+		log.Warnf("Failed to detect document type for report %d: %v, proceeding with face blurring", seq, err)
+		isDocument = false // Default to false for safety
+	}
+
+	if isDocument {
+		log.Infof("Report %d contains a document with potential PII, replacing with placeholder image", seq)
+
+		// For documents, replace the image with a placeholder for GDPR compliance
+		placeholderImage, err := getPlaceholder(placeholderPath)
+		if err != nil {
+			return fmt.Errorf("failed to get placeholder image for report %d: %w", seq, err)
+		}
+
+		// Update the report with the placeholder image
+		if err := updateImage(seq, placeholderImage); err != nil {
+			return fmt.Errorf("failed to update report %d with placeholder image: %w", seq, err)
+		}
+
+		log.Infof("Successfully replaced document image for report %d with placeholder", seq)
+		return nil
+	}
+
+	// Step 2: Send the image to the face detector service for processing (only for non-document images)
+	processedImageData, facesDetected, err := p.faceDetectorClient.ProcessImage(imageData)
 	if err != nil {
 		return fmt.Errorf("failed to process image for report %d: %w", seq, err)
 	}
 
-	log.Infof("Image processed by face detector service for report %d: original size: %d bytes, processed size: %d bytes",
-		seq, len(imageData), len(processedImageData))
+	log.Infof("Image processed by face detector service for report %d: original size: %d bytes, processed size: %d bytes, faces detected: %t",
+		seq, len(imageData), len(processedImageData), facesDetected)
 
-	// Update the report with the processed image
-	if err := updateImage(seq, processedImageData); err != nil {
-		return fmt.Errorf("failed to update image for report %d: %w", seq, err)
+	// Step 3: Update the report with the processed image only if faces were detected
+	if facesDetected {
+		if err := updateImage(seq, processedImageData); err != nil {
+			return fmt.Errorf("failed to update image for report %d: %w", seq, err)
+		}
+		log.Infof("Successfully updated report %d with processed image (faces were detected and blurred)", seq)
+	} else {
+		log.Infof("No faces detected in report %d, keeping original image unchanged", seq)
 	}
-
-	log.Infof("Successfully updated report %d with processed image", seq)
 	return nil
 }

@@ -56,7 +56,7 @@ func main() {
 		}
 
 		// Wait before next polling cycle
-		time.Sleep(time.Duration(cfg.PollInterval) * time.Second)
+		time.Sleep(cfg.PollInterval)
 	}
 }
 
@@ -81,7 +81,7 @@ func processBatch(gdprService *database.GdprService, gdprProcessor *processor.Gd
 	}
 
 	for _, seq := range reportSeqs {
-		if err := gdprProcessor.ProcessReport(seq, gdprService.GetReportImage, gdprService.UpdateReportImage); err != nil {
+		if err := gdprProcessor.ProcessReport(seq, gdprService.GetReportImage, gdprService.UpdateReportImage, gdprService.GetPlaceholderImage, cfg.ImagePlaceholderPath); err != nil {
 			log.Printf("Failed to process report %d: %v", seq, err)
 			continue
 		}

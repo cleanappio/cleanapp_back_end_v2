@@ -43,7 +43,7 @@ func NewClient(baseURL string) *Client {
 }
 
 // ProcessImage sends an image to the face detector service for processing
-func (c *Client) ProcessImage(imageData []byte) ([]byte, error) {
+func (c *Client) ProcessImage(imageData []byte) ([]byte, bool, error) {
 	// Encode image data to base64
 	base64Image := base64.StdEncoding.EncodeToString(imageData)
 
@@ -55,14 +55,14 @@ func (c *Client) ProcessImage(imageData []byte) ([]byte, error) {
 	// Marshal request to JSON
 	requestBody, err := json.Marshal(request)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
+		return nil, false, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	// Create HTTP request
 	url := fmt.Sprintf("%s/process-base64", c.baseURL)
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(requestBody))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, false, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	// Set headers
@@ -73,34 +73,37 @@ func (c *Client) ProcessImage(imageData []byte) ([]byte, error) {
 	// Send request
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to send request to face detector service: %w", err)
+		return nil, false, fmt.Errorf("failed to send request to face detector service: %w", err)
 	}
 	defer resp.Body.Close()
 
 	// Check response status
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("face detector service returned status %d", resp.StatusCode)
+		return nil, false, fmt.Errorf("face detector service returned status %d", resp.StatusCode)
 	}
 
 	// Parse response
 	var response ProcessImageResponse
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
+		return nil, false, fmt.Errorf("failed to decode response: %w", err)
 	}
 
 	// Check if processing was successful
 	if response.Status != "completed" {
-		return nil, fmt.Errorf("face detector service returned status: %s", response.Status)
+		return nil, false, fmt.Errorf("face detector service returned status: %s", response.Status)
 	}
 
 	// Decode processed image from base64
 	processedImageData, err := base64.StdEncoding.DecodeString(response.ProcessedImage)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode processed image: %w", err)
+		return nil, false, fmt.Errorf("failed to decode processed image: %w", err)
 	}
 
-	log.Infof("Successfully processed image: faces detected: %d, processed size: %d bytes",
-		response.FacesDetected, len(processedImageData))
+	// Determine if faces were detected
+	facesDetected := response.FacesDetected > 0
 
-	return processedImageData, nil
+	log.Infof("Successfully processed image: faces detected: %d, processed size: %d bytes, has faces: %t",
+		response.FacesDetected, len(processedImageData), facesDetected)
+
+	return processedImageData, facesDetected, nil
 }

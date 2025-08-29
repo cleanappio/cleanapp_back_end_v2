@@ -24,6 +24,9 @@ WORKDIR /root/
 # Copy the binary from builder stage
 COPY --from=builder /app/main .
 
+# Copy the placeholder image file
+COPY image_placeholder.jpg .
+
 # Expose port (though this service doesn't need HTTP endpoints)
 EXPOSE 8080
 

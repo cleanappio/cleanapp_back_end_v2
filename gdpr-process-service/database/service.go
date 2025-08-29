@@ -3,6 +3,7 @@ package database
 import (
 	"database/sql"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/apex/log"
@@ -204,6 +205,18 @@ func (s *GdprService) UpdateReportImage(seq int, imageData []byte) error {
 
 	log.Infof("Updated image for report %d, new size: %d bytes", seq, len(imageData))
 	return nil
+}
+
+// GetPlaceholderImage reads the placeholder image file for document replacement
+func (s *GdprService) GetPlaceholderImage(placeholderPath string) ([]byte, error) {
+	// Read the placeholder image file
+	imageData, err := os.ReadFile(placeholderPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read placeholder image from %s: %w", placeholderPath, err)
+	}
+
+	log.Infof("Retrieved placeholder image from %s, size: %d bytes", placeholderPath, len(imageData))
+	return imageData, nil
 }
 
 // GetProcessingStats returns statistics about GDPR processing

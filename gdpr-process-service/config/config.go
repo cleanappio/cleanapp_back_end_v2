@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"strconv"
+	"time"
 )
 
 // Config holds all configuration for the GDPR process service
@@ -15,7 +16,7 @@ type Config struct {
 	DBName     string
 
 	// Polling configuration
-	PollInterval int // seconds between polling cycles
+	PollInterval time.Duration // seconds between polling cycles
 
 	// OpenAI configuration
 	OpenAIAPIKey string
@@ -23,6 +24,9 @@ type Config struct {
 
 	// Face detector service configuration
 	FaceDetectorURL string
+
+	// Image placeholder configuration
+	ImagePlaceholderPath string
 
 	// Parallel processing configuration
 	BatchSize  int // number of users to process in each batch
@@ -40,7 +44,7 @@ func Load() *Config {
 		DBName:     getEnv("DB_NAME", "cleanapp"),
 
 		// Polling defaults
-		PollInterval: getIntEnv("POLL_INTERVAL", 60), // 60 seconds default
+		PollInterval: getDurationEnv("POLL_INTERVAL", 60*time.Second), // 60 seconds default
 
 		// OpenAI defaults
 		OpenAIAPIKey: getEnv("OPENAI_API_KEY", ""),
@@ -49,12 +53,24 @@ func Load() *Config {
 		// Face detector defaults
 		FaceDetectorURL: getEnv("FACE_DETECTOR_URL", "http://localhost:8000"),
 
+		// Image placeholder defaults
+		ImagePlaceholderPath: getEnv("IMAGE_PLACEHOLDER_PATH", "./image_placeholder.jpg"),
+
 		// Parallel processing defaults
 		BatchSize:  getIntEnv("BATCH_SIZE", 10),
 		MaxWorkers: getIntEnv("MAX_WORKERS", 10),
 	}
 
 	return config
+}
+
+func getDurationEnv(key string, defaultValue time.Duration) time.Duration {
+	if value := os.Getenv(key); value != "" {
+		if duration, err := time.ParseDuration(value); err == nil {
+			return duration
+		}
+	}
+	return defaultValue
 }
 
 // getEnv gets an environment variable or returns a default value
