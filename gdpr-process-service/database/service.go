@@ -179,6 +179,33 @@ func (s *GdprService) MarkReportProcessed(seq int) error {
 	return nil
 }
 
+// GetReportImage fetches the image data for a specific report
+func (s *GdprService) GetReportImage(seq int) ([]byte, error) {
+	query := `SELECT image FROM reports WHERE seq = ?`
+
+	var imageData []byte
+	err := s.db.QueryRow(query, seq).Scan(&imageData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get image for report %d: %w", seq, err)
+	}
+
+	log.Infof("Retrieved image for report %d, size: %d bytes", seq, len(imageData))
+	return imageData, nil
+}
+
+// UpdateReportImage updates the image data for a specific report
+func (s *GdprService) UpdateReportImage(seq int, imageData []byte) error {
+	query := `UPDATE reports SET image = ? WHERE seq = ?`
+
+	_, err := s.db.Exec(query, imageData, seq)
+	if err != nil {
+		return fmt.Errorf("failed to update image for report %d: %w", seq, err)
+	}
+
+	log.Infof("Updated image for report %d, new size: %d bytes", seq, len(imageData))
+	return nil
+}
+
 // GetProcessingStats returns statistics about GDPR processing
 func (s *GdprService) GetProcessingStats() (map[string]int, error) {
 	stats := make(map[string]int)

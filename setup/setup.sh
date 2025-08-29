@@ -490,6 +490,7 @@ services:
       - DB_NAME=cleanapp
       - OPENAI_API_KEY=\${OPENAI_API_KEY}
       - OPENAI_MODEL=gpt-5
+      - FACE_DETECTOR_URL=http://cleanapp_face_detector:8080
       - GIN_MODE=${GIN_MODE}
     ports:
       - 9091:8080

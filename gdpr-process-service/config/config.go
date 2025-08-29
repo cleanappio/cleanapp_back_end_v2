@@ -21,6 +21,9 @@ type Config struct {
 	OpenAIAPIKey string
 	OpenAIModel  string
 
+	// Face detector service configuration
+	FaceDetectorURL string
+
 	// Parallel processing configuration
 	BatchSize  int // number of users to process in each batch
 	MaxWorkers int // maximum number of concurrent OpenAI API calls
@@ -42,6 +45,9 @@ func Load() *Config {
 		// OpenAI defaults
 		OpenAIAPIKey: getEnv("OPENAI_API_KEY", ""),
 		OpenAIModel:  getEnv("OPENAI_MODEL", "gpt-5"),
+
+		// Face detector defaults
+		FaceDetectorURL: getEnv("FACE_DETECTOR_URL", "http://localhost:8000"),
 
 		// Parallel processing defaults
 		BatchSize:  getIntEnv("BATCH_SIZE", 10),

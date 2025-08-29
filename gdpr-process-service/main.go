@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"gdpr-process-service/config"
 	"gdpr-process-service/database"
+	"gdpr-process-service/face_detector"
 	"gdpr-process-service/openai"
 	"gdpr-process-service/processor"
 	"gdpr-process-service/utils"
@@ -33,9 +34,12 @@ func main() {
 	// Initialize OpenAI client
 	openaiClient := openai.NewClient(cfg.OpenAIAPIKey, cfg.OpenAIModel)
 
+	// Initialize face detector client
+	faceDetectorClient := face_detector.NewClient(cfg.FaceDetectorURL)
+
 	// Initialize services
 	gdprService := database.NewGdprService(db)
-	gdprProcessor := processor.NewGdprProcessor(openaiClient)
+	gdprProcessor := processor.NewGdprProcessor(openaiClient, faceDetectorClient)
 
 	log.Printf("GDPR process service started. Polling every %d seconds...", cfg.PollInterval)
 
@@ -77,7 +81,7 @@ func processBatch(gdprService *database.GdprService, gdprProcessor *processor.Gd
 	}
 
 	for _, seq := range reportSeqs {
-		if err := gdprProcessor.ProcessReport(seq); err != nil {
+		if err := gdprProcessor.ProcessReport(seq, gdprService.GetReportImage, gdprService.UpdateReportImage); err != nil {
 			log.Printf("Failed to process report %d: %v", seq, err)
 			continue
 		}

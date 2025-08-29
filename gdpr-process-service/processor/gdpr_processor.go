@@ -2,6 +2,7 @@ package processor
 
 import (
 	"fmt"
+	"gdpr-process-service/face_detector"
 	"gdpr-process-service/openai"
 
 	"github.com/apex/log"
@@ -9,13 +10,15 @@ import (
 
 // GdprProcessor handles the actual GDPR processing logic
 type GdprProcessor struct {
-	openaiClient *openai.Client
+	openaiClient       *openai.Client
+	faceDetectorClient *face_detector.Client
 }
 
 // NewGdprProcessor creates a new GDPR processor instance
-func NewGdprProcessor(openaiClient *openai.Client) *GdprProcessor {
+func NewGdprProcessor(openaiClient *openai.Client, faceDetectorClient *face_detector.Client) *GdprProcessor {
 	return &GdprProcessor{
-		openaiClient: openaiClient,
+		openaiClient:       openaiClient,
+		faceDetectorClient: faceDetectorClient,
 	}
 }
 
@@ -64,16 +67,31 @@ func (p *GdprProcessor) ProcessUser(userID string, avatar string, updateAvatar f
 }
 
 // ProcessReport processes a single report for GDPR compliance
-// This is a placeholder function that will be implemented later
-func (p *GdprProcessor) ProcessReport(seq int) error {
-	log.Infof("Processing report %d for GDPR compliance (placeholder)", seq)
+func (p *GdprProcessor) ProcessReport(seq int, getImage func(int) ([]byte, error), updateImage func(int, []byte) error) error {
+	log.Infof("Processing report %d for GDPR compliance", seq)
 
-	// TODO: Implement actual GDPR processing logic
-	// This could include:
-	// - Image data handling
-	// - Location data anonymization
-	// - Metadata processing
-	// - Data retention enforcement
+	// Fetch the report image
+	imageData, err := getImage(seq)
+	if err != nil {
+		return fmt.Errorf("failed to fetch image for report %d: %w", seq, err)
+	}
 
+	log.Infof("Retrieved image for report %d, size: %d bytes", seq, len(imageData))
+
+	// Send the image to the face detector service for processing
+	processedImageData, err := p.faceDetectorClient.ProcessImage(imageData)
+	if err != nil {
+		return fmt.Errorf("failed to process image for report %d: %w", seq, err)
+	}
+
+	log.Infof("Image processed by face detector service for report %d: original size: %d bytes, processed size: %d bytes",
+		seq, len(imageData), len(processedImageData))
+
+	// Update the report with the processed image
+	if err := updateImage(seq, processedImageData); err != nil {
+		return fmt.Errorf("failed to update image for report %d: %w", seq, err)
+	}
+
+	log.Infof("Successfully updated report %d with processed image", seq)
 	return nil
 }
