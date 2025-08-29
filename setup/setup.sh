@@ -82,6 +82,7 @@ case ${OPT} in
       NEW_YORK_AREA_ID=6970
       NEW_YORK_AREA_SUB_IDS="6971,6972,6973,6974,6975"
       OPT_OUT_URL="http://dev.cleanapp.io/api/optout"
+      FACE_DETECTOR_DEBUG=true
       ;;
   "prod")
       echo "Using prod environment"
@@ -114,6 +115,7 @@ case ${OPT} in
       NEW_YORK_AREA_SUB_IDS="6637,6638,6639,6640,6641"
       GIN_MODE=release
       OPT_OUT_URL="https://cleanapp.io/api/optout"
+      FACE_DETECTOR_DEBUG=false
       ;;
   "quit")
       exit
@@ -182,6 +184,7 @@ EMAIL_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-email-service-image:${OPT}
 REPORT_OWNERSHIP_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-ownership-service-image:${OPT}"
 GDPR_PROCESS_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-gdpr-process-service-image:${OPT}"
 REPORTS_PUSHER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-reports-pusher-image:${OPT}"
+FACE_DETECTOR_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-face-detector-image:${OPT}"
 
 ANALYSIS_PROMPT="What kind of litter or hazard can you see on this image? Please describe the litter or hazard in detail. Also, please extract any brand name from the image, if present. Extract only a brand name without any context info. If there are multiple brands, extract the one with the highest probability of being present."
 OPENAI_ASSISTANT_ID="asst_kBtuzDRWNorZgw9o2OJTGOn0"
@@ -504,6 +507,16 @@ services:
       - POLL_SECS=5
     depends_on:
       - cleanapp_db
+  
+  cleanapp_face_detector:
+    container_name: cleanapp_face_detector
+    image: ${FACE_DETECTOR_DOCKER_IMAGE}
+    environment:
+      - BLUR_STRENGTH=50
+      - DEBUG=${FACE_DETECTOR_DEBUG}
+      - WORKERS=1
+      - RELOAD=false
+      - ACCESS_LOG=true
 
 volumes:
   mysql:
@@ -534,6 +547,7 @@ docker pull ${EMAIL_SERVICE_DOCKER_IMAGE}
 docker pull ${REPORT_OWNERSHIP_SERVICE_DOCKER_IMAGE}
 docker pull ${GDPR_PROCESS_SERVICE_DOCKER_IMAGE}
 docker pull ${REPORTS_PUSHER_DOCKER_IMAGE}
+docker pull ${FACE_DETECTOR_DOCKER_IMAGE}
 
 # Start our docker images.
 ./up.sh

@@ -1,74 +1,59 @@
-.PHONY: help install setup-env run test test-imports clean docker-build docker-run
+# Makefile for face-detector service
 
-help: ## Show this help message
-	@echo "Available commands:"
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
+.PHONY: install run run-venv run-simple setup-env test-imports test-service clean docker-build docker-run
 
-install: ## Install Python dependencies
+# Install dependencies
+install:
 	pip install -r requirements.txt
 
-setup-env: ## Create .env file from example
-	@if [ ! -f .env ]; then \
-		cp env.example .env; \
-		echo "Created .env file from env.example"; \
-		echo "Please edit .env with your configuration"; \
-	else \
-		echo ".env file already exists"; \
-	fi
+# Run with virtual environment activation and .env loading
+run:
+	set -a && source .env && set +a && source venv/bin/activate && uvicorn app:app --host $(HOST) --port $(PORT)
 
-run: ## Run the Flask application
-	@if [ -f .env ]; then \
-		echo "Loading environment from .env file..."; \
-		set -a && source .env && set +a && source venv/bin/activate && python app.py; \
-	else \
-		echo "No .env file found. Please run 'make setup-env' first."; \
-		exit 1; \
-	fi
+# Run with virtual environment activation
+run-venv:
+	source venv/bin/activate && uvicorn app:app --host $(HOST) --port $(PORT)
 
-run-venv: ## Run the Flask application with virtual environment and .env loaded
-	@if [ -f .env ]; then \
-		echo "Loading environment from .env file..."; \
-		set -a && source .env && set +a && source venv/bin/activate && python app.py; \
-	else \
-		echo "No .env file found. Please run 'make setup-env' first."; \
-		exit 1; \
-	fi
+# Run without virtual environment (for testing)
+run-simple:
+	uvicorn app:app --host $(HOST) --port $(PORT)
 
-run-simple: ## Run the Flask application with virtual environment only (no .env)
-	source venv/bin/activate && python app.py
+# Run with development mode (auto-reload)
+run-dev:
+	set -a && source .env && set +a && source venv/bin/activate && uvicorn app:app --host $(HOST) --port $(PORT) --reload
 
-test: ## Run tests (placeholder)
-	@echo "Tests not implemented yet"
+# Run with production settings
+run-prod:
+	set -a && source .env && set +a && source venv/bin/activate && uvicorn app:app --host $(HOST) --port $(PORT) --workers $(WORKERS) --no-access-log
 
-test-service: ## Test the face-detector service with an image
-	@echo "Usage: make test-service IMAGE=path/to/image.jpg"
-	@if [ -z "$(IMAGE)" ]; then \
-		echo "❌ Please specify an image file: make test-service IMAGE=path/to/image.jpg"; \
-		exit 1; \
-	fi
-	@if [ ! -f "$(IMAGE)" ]; then \
-		echo "❌ Image file not found: $(IMAGE)"; \
-		exit 1; \
-	fi
-	@echo "🧪 Testing service with image: $(IMAGE)"
-	@source venv/bin/activate && python test_service.py "$(IMAGE)"
+# Setup virtual environment
+setup-env:
+	python -m venv venv
+	source venv/bin/activate && pip install --upgrade pip
+	source venv/bin/activate && pip install -r requirements.txt
 
-test-imports: ## Test that all imports work correctly
-	python -c "from config import Config; from app import app; print('All imports successful!')"
+# Test imports
+test-imports:
+	source venv/bin/activate && python -c "from app import app; print('All imports successful!')"
 
-clean: ## Clean up Python cache files
+# Test service
+test-service:
+	source venv/bin/activate && python test_service.py
+
+# Clean up
+clean:
+	rm -rf venv
 	find . -type f -name "*.pyc" -delete
 	find . -type d -name "__pycache__" -delete
-	find . -type d -name "*.egg-info" -delete
 
-docker-build: ## Build Docker image
+# Docker commands
+docker-build:
 	docker build -t face-detector .
 
-docker-run: ## Run Docker container
-	docker run -p 5000:5000 face-detector
+docker-run:
+	docker run -p $(PORT):$(PORT) --env-file .env face-detector
 
-docker-compose-up: ## Start services with docker-compose
-	docker-compose up --build
-
-docker-compose-down: ## Stop services with docker-compose
-	docker-compose down
+# Default values
+HOST ?= 0.0.0.0
+PORT ?= 8080
+WORKERS ?= 4

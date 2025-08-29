@@ -1,4 +1,6 @@
-from flask import Flask, request, jsonify
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 import logging
 import os
 from config import Config
@@ -11,71 +13,82 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Create Flask app
-app = Flask(__name__)
+# Create FastAPI app
+app = FastAPI(
+    title="Face Detector Service",
+    description="A service for detecting and blurring faces in images",
+    version="1.0.0"
+)
 
-# Apply configuration
-app.config['MAX_CONTENT_LENGTH'] = Config.MAX_IMAGE_SIZE
+# Pydantic model for request validation
+class ImageRequest(BaseModel):
+    image: str
 
-@app.route('/health', methods=['GET'])
-def health_check():
+# Pydantic model for response
+class ImageResponse(BaseModel):
+    message: str
+    estimated_size: int
+    faces_detected: int
+    processed_image: str
+    image_info: dict
+    status: str
+
+@app.get('/health')
+async def health_check():
     """Health check endpoint"""
     if not Config.HEALTH_CHECK_ENABLED:
-        return jsonify({"status": "health_check_disabled"}), 503
+        raise HTTPException(status_code=503, detail="health_check_disabled")
     
     try:
         # Basic health checks
         health_status = {
             "status": "healthy",
             "service": "face-detector",
-            "environment": Config.FLASK_ENV,
             "config": Config.to_dict()
         }
         
         # Validate configuration
         Config.validate()
         
-        return jsonify(health_status)
+        return health_status
     except Exception as e:
         logger.error(f"Health check failed: {str(e)}")
-        return jsonify({"status": "unhealthy", "error": str(e)}), 503
+        raise HTTPException(status_code=503, detail=f"Health check failed: {str(e)}")
 
-@app.route('/config', methods=['GET'])
-def get_config():
+@app.get('/config')
+async def get_config():
     """Get current configuration (excluding sensitive data)"""
-    return jsonify(Config.to_dict())
+    return Config.to_dict()
 
-@app.route('/process-base64', methods=['POST'])
-def process_base64_image_endpoint():
+@app.post('/process-base64', response_model=ImageResponse)
+async def process_base64_image_endpoint(request: ImageRequest):
     """
     Process base64 encoded image endpoint - detects faces and returns blurred image
     """
     try:
-        data = request.get_json()
-        if not data or 'image' not in data:
-            return jsonify({"error": "No base64 image data provided"}), 400
-        
-        base64_image = data['image']
+        base64_image = request.image
         
         # Process the image using the dedicated function
         try:
             result = process_base64_image(base64_image)
-            return jsonify(result)
+            return ImageResponse(**result)
             
         except ValueError as e:
-            return jsonify({"error": f"Invalid image data: {str(e)}"}), 400
+            raise HTTPException(status_code=400, detail=f"Invalid image data: {str(e)}")
         except Exception as e:
             logger.error(f"Error processing base64 image: {str(e)}")
-            return jsonify({"error": "Failed to process image data"}), 500
+            raise HTTPException(status_code=500, detail="Failed to process image data")
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error in process-base64 endpoint: {str(e)}")
-        return jsonify({"error": "Internal server error"}), 500
+        raise HTTPException(status_code=500, detail="Internal server error")
 
-@app.route('/api/status', methods=['GET'])
-def api_status():
+@app.get('/api/status')
+async def api_status():
     """API status endpoint"""
-    return jsonify({
+    return {
         "service": "face-detector",
         "status": "operational",
         "features": {
@@ -87,7 +100,23 @@ def api_status():
         "limits": {
             "max_image_size": Config.MAX_IMAGE_SIZE
         }
-    })
+    }
+
+@app.get('/')
+async def root():
+    """Root endpoint with service information"""
+    return {
+        "service": "face-detector",
+        "version": "1.0.0",
+        "description": "Face detection and blurring service",
+        "endpoints": {
+            "health": "/health",
+            "config": "/config",
+            "process_image": "/process-base64",
+            "status": "/api/status",
+            "docs": "/docs"
+        }
+    }
 
 if __name__ == '__main__':
     try:
@@ -95,13 +124,15 @@ if __name__ == '__main__':
         Config.validate()
         
         logger.info(f"Starting face-detector service on {Config.HOST}:{Config.PORT}")
-        logger.info(f"Environment: {Config.FLASK_ENV}")
         logger.info(f"Debug mode: {Config.DEBUG}")
         
-        app.run(
+        import uvicorn
+        uvicorn.run(
+            "app:app",
             host=Config.HOST,
             port=Config.PORT,
-            debug=Config.DEBUG
+            reload=Config.DEBUG,  # Use DEBUG for reload in development
+            log_level=Config.LOG_LEVEL.lower()
         )
     except Exception as e:
         logger.error(f"Failed to start service: {str(e)}")

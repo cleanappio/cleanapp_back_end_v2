@@ -1,17 +1,24 @@
 # Face Detector Service
 
-A Python web service for detecting and blurring faces in images using base64 encoding.
+A **FastAPI**-based web service for detecting and blurring faces in images. This service provides privacy protection by automatically identifying and blurring faces in uploaded images.
 
 ## Features
 
-- Base64 image processing endpoint for face detection and blurring
-- Face detection using MTCNN
-- Face blurring with configurable blur strength
-- RESTful API design
-- Comprehensive environment-based configuration
-- Health check and monitoring endpoints
-- Utility functions for image format conversion
-- Modular image processing architecture
+- **Face Detection**: Uses MTCNN (Multi-task Cascaded Convolutional Networks) for accurate face detection
+- **Face Blurring**: Applies configurable Gaussian blur to detected face regions
+- **Base64 Support**: Accepts and returns base64-encoded images
+- **FastAPI Framework**: Modern, fast web framework with automatic API documentation
+- **Docker Support**: Containerized deployment with health checks
+- **Configuration Management**: Environment-based configuration system
+
+## Technology Stack
+
+- **Web Framework**: FastAPI (replacing Flask)
+- **Face Detection**: MTCNN + TensorFlow
+- **Image Processing**: OpenCV (cv2)
+- **Image Format**: JPEG input/output with color preservation
+- **Containerization**: Docker + Docker Compose
+- **Server**: Uvicorn ASGI server
 
 ## Project Structure
 
@@ -26,12 +33,39 @@ face-detector/
 └── requirements.txt    # Python dependencies
 ```
 
-## Endpoints
+## API Endpoints
 
-- `GET /health` - Health check endpoint with configuration details
-- `GET /config` - Get current configuration (excluding sensitive data)
-- `GET /api/status` - API status and feature information
-- `POST /process-base64` - Process base64 encoded image and return blurred version
+### Health Check
+- **GET** `/health` - Service health status
+- **Response**: Service health information and configuration validation
+
+### Configuration
+- **GET** `/config` - Current service configuration
+- **Response**: Environment variables and settings (excluding sensitive data)
+
+### Image Processing
+- **POST** `/process-base64` - Process base64 encoded image
+- **Request Body**: `{"image": "base64_encoded_string"}`
+- **Response**: Processed image with blurred faces and metadata
+
+### Service Status
+- **GET** `/api/status` - Service operational status
+- **Response**: Feature availability and service limits
+
+### Root
+- **GET** `/` - Service information and available endpoints
+
+### API Documentation
+- **GET** `/docs` - Interactive API documentation (Swagger UI)
+- **GET** `/redoc` - Alternative API documentation (ReDoc)
+
+## FastAPI Benefits
+
+- **Automatic API Documentation**: Interactive docs at `/docs` and `/redoc`
+- **Request/Response Validation**: Pydantic models ensure data integrity
+- **Type Hints**: Full Python type support for better development experience
+- **Performance**: Built on Starlette for high performance
+- **Async Support**: Native async/await support for better scalability
 
 ## Utility Functions
 
@@ -50,69 +84,85 @@ The service includes utility functions for image processing:
 
 ## Configuration
 
-The service uses environment variables for all configuration. Copy `env.example` to `.env` and customize:
+The service uses environment-based configuration. Copy `env.example` to `.env` and customize as needed:
 
-```bash
-cp env.example .env
-# Edit .env with your settings
-```
+### Environment Variables
 
-### Key Configuration Categories
+#### FastAPI Server Configuration
+- `DEBUG` - Enable debug mode and auto-reload (default: false)
+- `PORT` - Server port (default: 8080)
+- `HOST` - Server host (default: 0.0.0.0)
 
-#### Flask Configuration
-- `FLASK_ENV` - Environment (development/production)
-- `DEBUG` - Enable debug mode
-- `PORT` - Service port (default: 5000)
-- `HOST` - Bind address (default: 0.0.0.0)
-
-#### Image Processing
+#### Image Processing Configuration
 - `MAX_IMAGE_SIZE` - Maximum image size in bytes (default: 10MB)
 
-#### Face Detection
-- `BLUR_STRENGTH` - Blur intensity for detected faces (default: 15)
+#### Face Detection Configuration
+- `BLUR_STRENGTH` - Face blurring intensity (default: 15)
 
-#### Logging
-- `LOG_LEVEL` - Log level (default: INFO)
+#### Logging Configuration
+- `LOG_LEVEL` - Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
 - `LOG_FORMAT` - Log message format
 
-#### Health Check
+#### Health Check Configuration
 - `HEALTH_CHECK_ENABLED` - Enable/disable health checks (default: true)
 
-## Setup
+### Configuration Examples
 
-1. Create a virtual environment:
 ```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+# Development configuration
+DEBUG=true
+PORT=9000
+LOG_LEVEL=DEBUG
+
+# Production configuration
+DEBUG=false
+PORT=8080
+LOG_LEVEL=INFO
 ```
 
-2. Install dependencies:
+## Makefile Commands
+
+The project includes a Makefile for common development tasks:
+
 ```bash
-pip install -r requirements.txt
+# Setup and installation
+make setup-env          # Create virtual environment and install dependencies
+make install            # Install Python dependencies
+
+# Running the service
+make run                # Run with virtual environment and .env loaded
+make run-venv           # Run with virtual environment only
+make run-simple         # Run without virtual environment (for testing)
+make run-dev            # Run with auto-reload for development
+make run-prod           # Run with production settings (multiple workers)
+
+# Testing and validation
+make test-imports       # Test that all imports work correctly
+make test-service       # Test the service with an image file
+
+# Docker operations
+make docker-build       # Build Docker image
+make docker-run         # Run Docker container
+
+# Cleanup
+make clean              # Remove virtual environment and cache files
 ```
 
-3. Configure environment:
-```bash
-cp env.example .env
-# Edit .env with your settings
-```
+### Running the Service
 
-4. Run the service:
 ```bash
-# Option 1: Run with .env loaded (recommended)
+# Basic run (uses .env configuration)
 make run
 
-# Option 2: Run with virtual environment and .env loaded
-make run-venv
+# Development mode with auto-reload
+make run-dev
 
-# Option 3: Run with virtual environment only (no .env)
-make run-simple
+# Production mode with multiple workers
+make run-prod
 
-# Option 4: Run directly (no .env loading, no venv activation)
-python app.py
+# With custom host/port
+make run HOST=127.0.0.1 PORT=9000
 ```
-
-The service will run on the configured host and port (default: `http://localhost:8080`).
 
 ## Usage
 
@@ -316,20 +366,3 @@ This ensures that images maintain their original colors without inversion or cha
 - Eliminates PIL color space conversion issues
 
 **Result**: Your face-detector service now works **exactly as requested** - JPEG input, JPEG output, with face blurring applied and colors preserved as much as possible within JPEG format limitations!
-
-### Output Format Configuration
-
-The service supports configurable output formats to balance quality vs. file size:
-
-- **PNG (Default)**: Lossless compression, perfect color preservation, larger file size
-- **JPEG**: Lossy compression, smaller file size, some color distortion possible
-
-Configure via environment variables:
-```bash
-OUTPUT_IMAGE_FORMAT=PNG    # PNG for best quality, JPEG for smaller size
-OUTPUT_IMAGE_QUALITY=95    # JPEG quality (1-100) when using JPEG format
-```
-
-**Recommendation**: Use PNG for applications where color accuracy is critical, JPEG for web applications where file size matters more.
-
-**Note**: With format preservation enabled, the service will automatically use the input format, making this configuration less critical for color accuracy.

@@ -7,16 +7,16 @@ load_dotenv()
 class Config:
     """Configuration class that reads all values from environment variables"""
     
-    # Flask Configuration
-    FLASK_ENV = os.getenv('FLASK_ENV', 'production')
+    # FastAPI Server Configuration
     DEBUG = os.getenv('DEBUG', 'false').lower() == 'true'
     PORT = int(os.getenv('PORT', 8080))
     HOST = os.getenv('HOST', '0.0.0.0')
+    WORKERS = int(os.getenv('WORKERS', 1))
+    RELOAD = os.getenv('RELOAD', 'false').lower() == 'true'
+    ACCESS_LOG = os.getenv('ACCESS_LOG', 'true').lower() == 'true'
     
     # Image Processing Configuration
     MAX_IMAGE_SIZE = int(os.getenv('MAX_IMAGE_SIZE', 10 * 1024 * 1024))  # 10MB default
-    OUTPUT_IMAGE_FORMAT = os.getenv('OUTPUT_IMAGE_FORMAT', 'JPEG')  # JPEG or PNG
-    OUTPUT_IMAGE_QUALITY = int(os.getenv('OUTPUT_IMAGE_QUALITY', 95))  # 1-100 for JPEG
     
     # Face Detection Configuration
     BLUR_STRENGTH = int(os.getenv('BLUR_STRENGTH', 15))
@@ -32,6 +32,23 @@ class Config:
     def validate(cls):
         """Validate required configuration values"""
         required_vars = []
+        
+        # Validate port range
+        if not (1 <= cls.PORT <= 65535):
+            raise ValueError(f"PORT must be between 1 and 65535, got {cls.PORT}")
+        
+        # Validate image size
+        if cls.MAX_IMAGE_SIZE <= 0:
+            raise ValueError(f"MAX_IMAGE_SIZE must be positive, got {cls.MAX_IMAGE_SIZE}")
+        
+        # Validate blur strength
+        if cls.BLUR_STRENGTH <= 0:
+            raise ValueError(f"BLUR_STRENGTH must be positive, got {cls.BLUR_STRENGTH}")
+        
+        # Validate log level
+        valid_log_levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
+        if cls.LOG_LEVEL not in valid_log_levels:
+            raise ValueError(f"LOG_LEVEL must be one of {valid_log_levels}, got {cls.LOG_LEVEL}")
         
         # Add validation logic here if needed
         # For example, check if required API keys are present
