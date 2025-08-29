@@ -15,7 +15,7 @@ A **FastAPI**-based web service for detecting and blurring faces in images. This
 
 - **Web Framework**: FastAPI (replacing Flask)
 - **Face Detection**: MTCNN + TensorFlow
-- **Image Processing**: OpenCV (cv2)
+- **Image Processing**: OpenCV (cv2) - Headless mode for Docker
 - **Image Format**: JPEG input/output with color preservation
 - **Containerization**: Docker + Docker Compose
 - **Server**: Uvicorn ASGI server
@@ -142,7 +142,10 @@ make test-service       # Test the service with an image file
 
 # Docker operations
 make docker-build       # Build Docker image
+make docker-build-clean # Build Docker image (no cache)
 make docker-run         # Run Docker container
+make docker-compose-up  # Start with docker-compose
+make docker-compose-down # Stop docker-compose services
 
 # Cleanup
 make clean              # Remove virtual environment and cache files
@@ -200,20 +203,91 @@ The service will:
 }
 ```
 
-## Docker
+## Docker Deployment
 
-Build and run with Docker:
+### Building the Image
 
 ```bash
-# Build image
+# Build the Docker image
+make docker-build
+
+# Or manually
 docker build -t face-detector .
-
-# Run container
-docker run -p 5000:5000 --env-file .env face-detector
-
-# Or use docker-compose
-docker-compose up --build
 ```
+
+### Docker Requirements
+
+The Docker build uses `requirements.docker.txt` which includes:
+- **opencv-python-headless** - Headless OpenCV build (no GUI dependencies)
+- **All other dependencies** - Same as development requirements
+
+This ensures OpenCV works properly in containerized environments without OpenGL issues.
+
+### Running with Docker
+
+```bash
+# Run the container
+make docker-run
+
+# Or manually
+docker run -p 8080:8080 --env-file .env face-detector
+
+# Run with custom port
+docker run -p 9000:8080 --env-file .env face-detector
+```
+
+### Docker Compose
+
+```bash
+# Start all services
+docker-compose up --build
+
+# Run in background
+docker-compose up -d --build
+
+# Stop services
+docker-compose down
+```
+
+### Docker Configuration
+
+The Dockerfile is optimized for production:
+- **Base Image**: Python 3.11-slim (minimal size)
+- **OpenCV**: Headless build with minimal system dependencies
+- **Installation Strategy**: Uses `--no-deps` to avoid system dependency conflicts
+- **Health Checks**: Built-in health monitoring with curl
+- **Port**: Exposes port 8080
+- **Volumes**: Mounts uploads directory
+
+### Troubleshooting Docker Build
+
+If you encounter build errors:
+
+1. **Ensure Docker is running**
+   ```bash
+   docker --version
+   docker ps
+   ```
+
+2. **Clean build cache**
+   ```bash
+   make docker-build-clean
+   # Or manually
+   docker build --no-cache -t face-detector .
+   ```
+
+3. **OpenGL/System Dependency Issues**
+   ```bash
+   # The new approach uses --no-deps to avoid system dependency conflicts
+   # This resolves "libGL.so.1: cannot open shared object file" errors
+   ```
+
+4. **OpenCV Installation Strategy**
+   ```bash
+   # Uses opencv-python-headless with --no-deps flag
+   # This prevents pip from trying to install system dependencies
+   # OpenCV will work in headless mode without GUI libraries
+   ```
 
 ## Development
 

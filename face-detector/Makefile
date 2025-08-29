@@ -50,8 +50,17 @@ clean:
 docker-build:
 	docker build -t face-detector .
 
+docker-build-clean:
+	docker build --no-cache -t face-detector .
+
 docker-run:
 	docker run -p $(PORT):$(PORT) --env-file .env face-detector
+
+docker-compose-up:
+	docker-compose up --build
+
+docker-compose-down:
+	docker-compose down
 
 # Default values
 HOST ?= 0.0.0.0
