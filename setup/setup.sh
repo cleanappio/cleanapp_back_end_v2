@@ -627,6 +627,7 @@ do
   cleanapp_face_detector_$i:
     container_name: cleanapp_face_detector_$i
     image: ${FACE_DETECTOR_DOCKER_IMAGE}
+    restart: unless-stopped
     environment:
       - BLUR_STRENGTH=50
       - DEBUG=${FACE_DETECTOR_DEBUG}
