@@ -14,6 +14,7 @@ import (
 // Client handles communication with the face detector service
 type Client struct {
 	baseURL    string
+	faceDetectorPortStart int
 	httpClient *http.Client
 }
 
@@ -33,9 +34,10 @@ type ProcessImageResponse struct {
 }
 
 // NewClient creates a new face detector client
-func NewClient(baseURL string) *Client {
+func NewClient(baseURL string, faceDetectorPortStart int) *Client {
 	return &Client{
 		baseURL: baseURL,
+		faceDetectorPortStart: faceDetectorPortStart,
 		httpClient: &http.Client{
 			Timeout: 60 * time.Second, // 60 second timeout for image processing
 		},
@@ -43,7 +45,7 @@ func NewClient(baseURL string) *Client {
 }
 
 // ProcessImage sends an image to the face detector service for processing
-func (c *Client) ProcessImage(imageData []byte) ([]byte, bool, error) {
+func (c *Client) ProcessImage(imageData []byte, processNumber int) ([]byte, bool, error) {
 	// Encode image data to base64
 	base64Image := base64.StdEncoding.EncodeToString(imageData)
 
@@ -59,7 +61,7 @@ func (c *Client) ProcessImage(imageData []byte) ([]byte, bool, error) {
 	}
 
 	// Create HTTP request
-	url := fmt.Sprintf("%s/process-base64", c.baseURL)
+	url := fmt.Sprintf("%s:%d/process-base64", c.baseURL, c.faceDetectorPortStart + processNumber)
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(requestBody))
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to create request: %w", err)

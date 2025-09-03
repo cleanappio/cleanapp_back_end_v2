@@ -40,6 +40,10 @@ while [[ $# -gt 0 ]]; do
       OPT="$2"
       shift 2
       ;;
+    "--ssh-keyfile")
+      SSH_KEYFILE="$2"
+      shift 2
+      ;;
     *)
       echo "Unknown option: $1"
       exit 1
@@ -55,6 +59,7 @@ fi
 case ${OPT} in
   "dev")
       echo "Using dev environment"
+      CLEANAPP_HOST=34.132.121.53
       SCHEDULER_HOST="dev.api.cleanapp.io"
       ETH_NETWORK_URL_MAIN="https://sepolia.base.org"
       CONTRACT_ADDRESS_MAIN="0xDc41655b749E8F2922A6E5e525Fc04a915aEaFAA"
@@ -82,10 +87,16 @@ case ${OPT} in
       NEW_YORK_AREA_ID=6970
       NEW_YORK_AREA_SUB_IDS="6971,6972,6973,6974,6975"
       OPT_OUT_URL="http://dev.cleanapp.io/api/optout"
+      FACE_DETECTOR_COUNT=10
+      FACE_DETECTOR_HOST=34.68.94.220
+      # FACE_DETECTOR_HOST=34.132.121.53
+      FACE_DETECTOR_PORT_START=9500
+      FACE_DETECTOR_INTERNAL_HOST=10.128.0.11
       FACE_DETECTOR_DEBUG=true
       ;;
   "prod")
       echo "Using prod environment"
+      CLEANAPP_HOST=34.122.15.16
       SCHEDULER_HOST="api.cleanapp.io"
       ETH_NETWORK_URL_MAIN="https://sepolia.base.org"  # TODO: Change to the mainnet URL after we run on the base mainnet
       CONTRACT_ADDRESS_MAIN="0xDc41655b749E8F2922A6E5e525Fc04a915aEaFAA"  # TODO: Change the contract address to the main when we run on the base mainnet
@@ -115,6 +126,10 @@ case ${OPT} in
       NEW_YORK_AREA_SUB_IDS="6637,6638,6639,6640,6641"
       GIN_MODE=release
       OPT_OUT_URL="https://cleanapp.io/api/optout"
+      FACE_DETECTOR_COUNT=10
+      FACE_DETECTOR_HOST=34.68.94.220
+      FACE_DETECTOR_PORT_START=9500
+      FACE_DETECTOR_INTERNAL_HOST=10.128.0.11
       FACE_DETECTOR_DEBUG=false
       ;;
   "quit")
@@ -124,43 +139,6 @@ case ${OPT} in
 esac
 
 SECRET_SUFFIX=$(echo ${OPT} | tr '[a-z]' '[A-Z]')
-
-# Create necessary files.
-cat >up.sh << UP
-# Turn up CleanApp service.
-# Assumes dependencies are in place (docker)
-
-# Secrets
-cat >.env << ENV
-MYSQL_ROOT_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_ROOT_PASSWORD_${SECRET_SUFFIX}")
-MYSQL_APP_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_APP_PASSWORD_${SECRET_SUFFIX}")
-MYSQL_READER_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_READER_PASSWORD_${SECRET_SUFFIX}")
-KITN_PRIVATE_KEY_MAIN=\$(gcloud secrets versions access 1 --secret="KITN_PRIVATE_KEY_${SECRET_SUFFIX}")
-KITN_PRIVATE_KEY_SHADOW=\$(gcloud secrets versions access 1 --secret="KITN_PRIVATE_KEY_${SECRET_SUFFIX}")
-SENDGRID_API_KEY=\$(gcloud secrets versions access 1 --secret="SENDGRID_API_KEY_${SECRET_SUFFIX}")
-CLEANAPP_IO_ENCRYPTION_KEY=\$(gcloud secrets versions access 1 --secret="CLEANAPP_IO_ENCRYPTION_KEY_${SECRET_SUFFIX}")
-CLEANAPP_IO_JWT_SECRET=\$(gcloud secrets versions access 1 --secret="CLEANAPP_IO_JWT_SECRET_${SECRET_SUFFIX}")
-STRIPE_SECRET_KEY=\$(gcloud secrets versions access 1 --secret="STRIPE_SECRET_KEY_${SECRET_SUFFIX}")
-STRIPE_WEBHOOK_SECRET=\$(gcloud secrets versions access 1 --secret="STRIPE_WEBHOOK_SECRET_${SECRET_SUFFIX}")
-OPENAI_API_KEY=\$(gcloud secrets versions access 1 --secret="CLEANAPP_CHATGPT_API_KEY")
-
-ENV
-
-sudo docker compose up -d --remove-orphans
-
-rm -f .env
-
-UP
-
-sudo chmod a+x up.sh
-
-cat >down.sh << DOWN
-# Turn down CleanApp service.
-sudo docker-compose down
-# To clean up the database:
-# sudo docker-compose down -v
-DOWN
-sudo chmod a+x down.sh
 
 # Docker images
 DOCKER_LOCATION="us-central1-docker.pkg.dev"
@@ -190,6 +168,124 @@ ANALYSIS_PROMPT="What kind of litter or hazard can you see on this image? Please
 OPENAI_ASSISTANT_ID="asst_kBtuzDRWNorZgw9o2OJTGOn0"
 
 RED_BULL_BRAND_NAMES="Red Bull"
+
+UP_CLEANAPP="up1.sh"
+UP_FACE_DETECTOR="up2.sh"
+DOWN_CLEANAPP="down1.sh"
+DOWN_FACE_DETECTOR="down2.sh"
+
+# Create necessary files.
+cat >up1.sh << UP
+# Turn up CleanApp service.
+# Assumes dependencies are in place (docker)
+
+docker pull ${SERVICE_DOCKER_IMAGE}
+docker pull ${PIPELINES_DOCKER_IMAGE}
+docker pull ${DB_DOCKER_IMAGE}
+docker pull ${WEB_DOCKER_IMAGE}
+docker pull ${STXN_KICKOFF_DOCKER_IMAGE}
+docker pull ${CLEANAPP_IO_FRONTEND_DOCKER_IMAGE}
+docker pull ${CLEANAPP_IO_FRONTEND_EMBEDDED_DOCKER_IMAGE}
+docker pull ${CLEANAPP_IO_BACKEND_DOCKER_IMAGE}
+docker pull ${REPORT_LISTENER_DOCKER_IMAGE}
+docker pull ${REPORT_ANALYZE_PIPELINE_DOCKER_IMAGE}
+docker pull ${AREAS_DASHBOARD_DOCKER_IMAGE}
+docker pull ${AUTH_SERVICE_DOCKER_IMAGE}
+docker pull ${BRAND_DASHBOARD_DOCKER_IMAGE}
+docker pull ${AREAS_SERVICE_DOCKER_IMAGE}
+docker pull ${REPORT_PROCESSOR_DOCKER_IMAGE}
+docker pull ${EMAIL_SERVICE_DOCKER_IMAGE}
+docker pull ${REPORT_OWNERSHIP_SERVICE_DOCKER_IMAGE}
+docker pull ${GDPR_PROCESS_SERVICE_DOCKER_IMAGE}
+docker pull ${REPORTS_PUSHER_DOCKER_IMAGE}
+
+# Secrets
+cat >.env << ENV
+MYSQL_ROOT_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_ROOT_PASSWORD_${SECRET_SUFFIX}")
+MYSQL_APP_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_APP_PASSWORD_${SECRET_SUFFIX}")
+MYSQL_READER_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_READER_PASSWORD_${SECRET_SUFFIX}")
+KITN_PRIVATE_KEY_MAIN=\$(gcloud secrets versions access 1 --secret="KITN_PRIVATE_KEY_${SECRET_SUFFIX}")
+KITN_PRIVATE_KEY_SHADOW=\$(gcloud secrets versions access 1 --secret="KITN_PRIVATE_KEY_${SECRET_SUFFIX}")
+SENDGRID_API_KEY=\$(gcloud secrets versions access 1 --secret="SENDGRID_API_KEY_${SECRET_SUFFIX}")
+CLEANAPP_IO_ENCRYPTION_KEY=\$(gcloud secrets versions access 1 --secret="CLEANAPP_IO_ENCRYPTION_KEY_${SECRET_SUFFIX}")
+CLEANAPP_IO_JWT_SECRET=\$(gcloud secrets versions access 1 --secret="CLEANAPP_IO_JWT_SECRET_${SECRET_SUFFIX}")
+STRIPE_SECRET_KEY=\$(gcloud secrets versions access 1 --secret="STRIPE_SECRET_KEY_${SECRET_SUFFIX}")
+STRIPE_WEBHOOK_SECRET=\$(gcloud secrets versions access 1 --secret="STRIPE_WEBHOOK_SECRET_${SECRET_SUFFIX}")
+OPENAI_API_KEY=\$(gcloud secrets versions access 1 --secret="CLEANAPP_CHATGPT_API_KEY")
+
+ENV
+
+sudo docker compose up -d --remove-orphans
+
+rm -f .env
+
+UP
+
+if [[ "${OPT}" == "prod" ]]; then
+
+cat >>up1.sh << UP1_TAIL
+
+# Referrals redeem schedule
+REFERRAL_SCHEDULER_NAME="referral-redeem-${OPT}"
+EXISTING_REFERRAL_SCHEDULER=\$(gcloud scheduler jobs list --location=us-central1 | grep \${REFERRAL_SCHEDULER_NAME} | awk '{print \$1}')
+
+if [[ "\${REFERRAL_SCHEDULER_NAME}" == "\${EXISTING_REFERRAL_SCHEDULER}" ]]; then
+  gcloud scheduler jobs delete \${REFERRAL_SCHEDULER_NAME} \
+    --location=us-central1 \
+    --quiet
+fi
+
+gcloud scheduler jobs create http \${REFERRAL_SCHEDULER_NAME} \
+  --location=us-central1 \
+  --schedule="0 16 * * *" \
+  --uri="http://${SCHEDULER_HOST}:${PIPELINES_MAIN_PORT}/referrals_redeem" \
+  --message-body="{\"version\": \"2.0\"}" \
+  --headers="Content-Type=application/json"
+
+# Tokens disbursement schedule
+DISBURSEMENT_MAIN_SCHEDULER_NAME="tokens-disburse-${OPT}"
+EXISTING_DISBURSEMENT_MAIN_SCHEDULER=\$(gcloud scheduler jobs list --location=us-central1 | grep \${DISBURSEMENT_MAIN_SCHEDULER_NAME} | awk '{print \$1}')
+
+if [[ "\${DISBURSEMENT_MAIN_SCHEDULER_NAME}" == "\${EXISTING_DISBURSEMENT_MAIN_SCHEDULER}" ]]; then
+  gcloud scheduler jobs delete \${DISBURSEMENT_MAIN_SCHEDULER_NAME} \
+    --location=us-central1 \
+    --quiet
+fi
+
+gcloud scheduler jobs create http \${DISBURSEMENT_MAIN_SCHEDULER_NAME} \
+  --location=us-central1 \
+  --schedule="${DISBURSEMENT_MAIN_SCHEDULE}" \
+  --uri="http://${SCHEDULER_HOST}:${PIPELINES_MAIN_PORT}/tokens_disburse" \
+  --message-body="{\"version\": \"2.0\"}" \
+  --headers="Content-Type=application/json"
+
+UP1_TAIL
+fi
+
+chmod a+x up1.sh
+
+cat >down1.sh << DOWN
+# Turn down CleanApp service.
+sudo docker compose down
+# To clean up the database:
+# sudo docker compose down -v
+DOWN
+chmod a+x down1.sh
+
+cat >up2.sh << UP2
+
+docker pull ${FACE_DETECTOR_DOCKER_IMAGE}
+
+sudo docker compose -f docker-compose-face-detector.yml up -d --remove-orphans
+UP2
+
+chmod a+x up2.sh
+
+cat >down2.sh << DOWN2
+sudo docker compose -f docker-compose-face-detector.yml down
+DOWN2
+
+chmod a+x down2.sh
 
 # Create docker-compose.yml file.
 cat >docker-compose.yml << COMPOSE
@@ -490,108 +586,81 @@ services:
       - POLL_SECS=5
     depends_on:
       - cleanapp_db
-  
+
+  cleanapp_gdpr_process_service:
+    container_name: cleanapp_gdpr_process_service
+    image: ${GDPR_PROCESS_SERVICE_DOCKER_IMAGE}
+    environment:
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+      - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
+      - DB_NAME=cleanapp
+      - OPENAI_API_KEY=\${OPENAI_API_KEY}
+      - OPENAI_MODEL=gpt-5
+      - FACE_DETECTOR_COUNT=${FACE_DETECTOR_COUNT}
+      - FACE_DETECTOR_URL=http://${FACE_DETECTOR_INTERNAL_HOST}
+      - FACE_DETECTOR_PORT_START=${FACE_DETECTOR_PORT_START}
+      - POLL_INTERVAL=500ms
+      - GIN_MODE=${GIN_MODE}
+    ports:
+      - 9091:8080
+    depends_on:
+      - cleanapp_db
+
+COMPOSE
+
+FACE_DETECTOR_COUNT=10
+FACE_DETECTOR_FILE="docker-compose.yml"
+
+if [[ "${CLEANAPP_HOST}" != "${FACE_DETECTOR_HOST}" ]]; then
+FACE_DETECTOR_FILE="docker-compose-face-detector.yml"
+cat >${FACE_DETECTOR_FILE} << COMPOSE2_HEAD
+services:
+
+COMPOSE2_HEAD
+fi
+
+for ((i=1; i<=${FACE_DETECTOR_COUNT}; i++))
+do
+  cat >>${FACE_DETECTOR_FILE} << COMPOSE2_BODY
+  cleanapp_face_detector_$i:
+    container_name: cleanapp_face_detector_$i
+    image: ${FACE_DETECTOR_DOCKER_IMAGE}
+    environment:
+      - BLUR_STRENGTH=50
+      - DEBUG=${FACE_DETECTOR_DEBUG}
+      - RELOAD=false
+      - ACCESS_LOG=true
+    ports:
+      - $((${FACE_DETECTOR_PORT_START} + $i)):8080
+
+COMPOSE2_BODY
+done
+
+cat >>docker-compose.yml << COMPOSE_TAIL
+
 volumes:
   mysql:
     name: eko_mysql
     external: true
 
-COMPOSE
-
-# TODO: Add gdpr-process-service and face detector
-  # cleanapp_gdpr_process_service:
-  #   container_name: cleanapp_gdpr_process_service
-  #   image: ${GDPR_PROCESS_SERVICE_DOCKER_IMAGE}
-  #   environment:
-  #     - DB_HOST=cleanapp_db
-  #     - DB_PORT=3306
-  #     - DB_USER=server
-  #     - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
-  #     - DB_NAME=cleanapp
-  #     - OPENAI_API_KEY=\${OPENAI_API_KEY}
-  #     - OPENAI_MODEL=gpt-5
-  #     - FACE_DETECTOR_URL=http://cleanapp_face_detector:8080
-  #     - POLL_INTERVAL=500ms
-  #     - GIN_MODE=${GIN_MODE}
-  #   ports:
-  #     - 9091:8080
-  #   depends_on:
-  #     - cleanapp_db
-
-  # cleanapp_face_detector:
-  #   container_name: cleanapp_face_detector
-  #   image: ${FACE_DETECTOR_DOCKER_IMAGE}
-  #   environment:
-  #     - BLUR_STRENGTH=50
-  #     - DEBUG=${FACE_DETECTOR_DEBUG}
-  #     - WORKERS=1
-  #     - RELOAD=false
-  #     - ACCESS_LOG=true
-
-
+COMPOSE_TAIL
 
 set -e
 
-# Pull images:
-docker pull ${SERVICE_DOCKER_IMAGE}
-docker pull ${PIPELINES_DOCKER_IMAGE}
-docker pull ${DB_DOCKER_IMAGE}
-docker pull ${WEB_DOCKER_IMAGE}
-docker pull ${STXN_KICKOFF_DOCKER_IMAGE}
-docker pull ${CLEANAPP_IO_FRONTEND_DOCKER_IMAGE}
-docker pull ${CLEANAPP_IO_FRONTEND_EMBEDDED_DOCKER_IMAGE}
-docker pull ${CLEANAPP_IO_BACKEND_DOCKER_IMAGE}
-docker pull ${REPORT_LISTENER_DOCKER_IMAGE}
-docker pull ${REPORT_ANALYZE_PIPELINE_DOCKER_IMAGE}
-docker pull ${AREAS_DASHBOARD_DOCKER_IMAGE}
-docker pull ${AUTH_SERVICE_DOCKER_IMAGE}
-docker pull ${BRAND_DASHBOARD_DOCKER_IMAGE}
-docker pull ${AREAS_SERVICE_DOCKER_IMAGE}
-docker pull ${REPORT_PROCESSOR_DOCKER_IMAGE}
-docker pull ${EMAIL_SERVICE_DOCKER_IMAGE}
-docker pull ${REPORT_OWNERSHIP_SERVICE_DOCKER_IMAGE}
-docker pull ${GDPR_PROCESS_SERVICE_DOCKER_IMAGE}
-docker pull ${REPORTS_PUSHER_DOCKER_IMAGE}
-docker pull ${FACE_DETECTOR_DOCKER_IMAGE}
-
-# Start our docker images.
-./up.sh
-
-# Skip scheduling for a local and dev environment.
-if [[ "${OPT}" != "prod" ]]; then
-  exit 0
+# Copy files to target VM.
+if [ -n "${SSH_KEYFILE}" ]; then
+  scp -i ${SSH_KEYFILE} up1.sh down1.sh docker-compose.yml deployer@${CLEANAPP_HOST}:~/
+  rm up1.sh down1.sh docker-compose.yml
+  if [[ "${CLEANAPP_HOST}" != "${FACE_DETECTOR_HOST}" ]]; then
+    scp -i ${SSH_KEYFILE} up2.sh down2.sh docker-compose-face-detector.yml deployer@${FACE_DETECTOR_HOST}:~/
+    rm up2.sh down2.sh docker-compose-face-detector.yml
+  fi
 fi
 
-# Referrals redeem schedule
-REFERRAL_SCHEDULER_NAME="referral-redeem-${OPT}"
-EXISTING_REFERRAL_SCHEDULER=$(gcloud scheduler jobs list --location=us-central1 | grep ${REFERRAL_SCHEDULER_NAME} | awk '{print $1}')
-
-if [[ "${REFERRAL_SCHEDULER_NAME}" == "${EXISTING_REFERRAL_SCHEDULER}" ]]; then
-  gcloud scheduler jobs delete ${REFERRAL_SCHEDULER_NAME} \
-    --location=us-central1 \
-    --quiet
+# Start docker containers.
+ssh -i ${SSH_KEYFILE} deployer@${CLEANAPP_HOST} "./up1.sh"
+if [[ "${CLEANAPP_HOST}" != "${FACE_DETECTOR_HOST}" ]]; then
+  ssh -i ${SSH_KEYFILE} deployer@${FACE_DETECTOR_HOST} "./up2.sh"
 fi
-
-gcloud scheduler jobs create http ${REFERRAL_SCHEDULER_NAME} \
-  --location=us-central1 \
-  --schedule="0 16 * * *" \
-  --uri="http://${SCHEDULER_HOST}:${PIPELINES_MAIN_PORT}/referrals_redeem" \
-  --message-body="{\"version\": \"2.0\"}" \
-  --headers="Content-Type=application/json"
-
-# Tokens disbursement schedule
-DISBURSEMENT_MAIN_SCHEDULER_NAME="tokens-disburse-${OPT}"
-EXISTING_DISBURSEMENT_MAIN_SCHEDULER=$(gcloud scheduler jobs list --location=us-central1 | grep ${DISBURSEMENT_MAIN_SCHEDULER_NAME} | awk '{print $1}')
-
-if [[ "${DISBURSEMENT_MAIN_SCHEDULER_NAME}" == "${EXISTING_DISBURSEMENT_MAIN_SCHEDULER}" ]]; then
-  gcloud scheduler jobs delete ${DISBURSEMENT_MAIN_SCHEDULER_NAME} \
-    --location=us-central1 \
-    --quiet
-fi
-
-gcloud scheduler jobs create http ${DISBURSEMENT_MAIN_SCHEDULER_NAME} \
-  --location=us-central1 \
-  --schedule="${DISBURSEMENT_MAIN_SCHEDULE}" \
-  --uri="http://${SCHEDULER_HOST}:${PIPELINES_MAIN_PORT}/tokens_disburse" \
-  --message-body="{\"version\": \"2.0\"}" \
-  --headers="Content-Type=application/json"

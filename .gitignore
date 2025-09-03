@@ -2,9 +2,9 @@ bin/*
 docker_backend/service
 docker_referrals/referrals
 setup/.env
-setup/up.sh
-setup/down.sh
-setup/docker-compose.yml
+setup/up*.sh
+setup/down*.sh
+setup/docker-compose*.yml
 transactiontest
 **/target
 # IntelliJ IDEA metafiles

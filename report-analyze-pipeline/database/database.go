@@ -259,11 +259,18 @@ func (d *Database) GetUnanalyzedReports(cfg *config.Config, limit int) ([]Report
 	query := `
 	SELECT r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.image, r.action_id, r.description
 	FROM reports r
-	INNER JOIN reports_gdpr rg ON r.seq = rg.seq
 	LEFT JOIN report_analysis ra ON r.seq = ra.seq
 	WHERE ra.seq IS NULL AND r.seq > ?
 	ORDER BY r.seq ASC
 	LIMIT ?`
+	// query := `
+	// SELECT r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.image, r.action_id, r.description
+	// FROM reports r
+	// INNER JOIN reports_gdpr rg ON r.seq = rg.seq
+	// LEFT JOIN report_analysis ra ON r.seq = ra.seq
+	// WHERE ra.seq IS NULL AND r.seq > ?
+	// ORDER BY r.seq ASC
+	// LIMIT ?`
 
 	rows, err := d.db.Query(query, cfg.SeqStartFrom, limit)
 	if err != nil {

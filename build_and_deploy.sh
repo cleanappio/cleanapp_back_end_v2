@@ -27,7 +27,7 @@ if [ -z "${SSH_KEYFILE}" ]; then
   exit 1
 fi
 
-for project_dir in areas-service auth-service brand-dashboard custom-area-dashboard customer-service report-analyze-pipeline report-listener report-processor email-service report-ownership-service gdpr-process-service; do
+for project_dir in areas-service auth-service brand-dashboard custom-area-dashboard customer-service report-analyze-pipeline report-listener report-processor email-service report-ownership-service gdpr-process-service face-detector reports-pusher; do
     pushd $project_dir
     if [ -f "build_image.sh" ]; then
         echo "Building image for ${project_dir}..."

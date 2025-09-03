@@ -35,7 +35,7 @@ func main() {
 	openaiClient := openai.NewClient(cfg.OpenAIAPIKey, cfg.OpenAIModel)
 
 	// Initialize face detector client
-	faceDetectorClient := face_detector.NewClient(cfg.FaceDetectorURL)
+	faceDetectorClient := face_detector.NewClient(cfg.FaceDetectorURL, cfg.FaceDetectorPortStart)
 
 	// Initialize services
 	gdprService := database.NewGdprService(db)
@@ -74,21 +74,15 @@ func processBatch(gdprService *database.GdprService, gdprProcessor *processor.Gd
 		}
 	}
 
-	// Process reports
+	// Process reports in parallel batches
 	reportSeqs, err := gdprService.GetUnprocessedReports()
 	if err != nil {
 		return err
 	}
 
-	for _, seq := range reportSeqs {
-		if err := gdprProcessor.ProcessReport(seq, gdprService.GetReportImage, gdprService.UpdateReportImage, gdprService.GetPlaceholderImage, cfg.ImagePlaceholderPath); err != nil {
-			log.Printf("Failed to process report %d: %v", seq, err)
-			continue
-		}
-
-		if err := gdprService.MarkReportProcessed(seq); err != nil {
-			log.Printf("Failed to mark report %d as processed: %v", seq, err)
-			continue
+	if len(reportSeqs) > 0 {
+		if err := processReportsInParallel(gdprService, gdprProcessor, reportSeqs, cfg.BatchSize, cfg.MaxWorkers, cfg.ImagePlaceholderPath); err != nil {
+			log.Printf("Error processing reports in parallel: %v", err)
 		}
 	}
 
@@ -163,6 +157,66 @@ func processUsersInParallel(gdprService *database.GdprService, gdprProcessor *pr
 	return nil
 }
 
+// processReportsInParallel processes reports in parallel batches
+func processReportsInParallel(gdprService *database.GdprService, gdprProcessor *processor.GdprProcessor, reportSeqs []int, batchSize int, maxWorkers int, imagePlaceholderPath string) error {
+
+	log.Printf("Processing %d reports in parallel batches of %d", len(reportSeqs), batchSize)
+
+	// Create a channel to collect results
+	resultChan := make(chan reportProcessResult, len(reportSeqs))
+
+	// Create a semaphore to limit concurrent workers
+	semaphore := make(chan struct{}, maxWorkers)
+
+	// Process reports in batches
+	for i := 0; i < len(reportSeqs); i += batchSize {
+		end := min(i + batchSize, len(reportSeqs))
+
+		batch := reportSeqs[i:end]
+		log.Printf("Processing batch %d-%d (%d reports)", i+1, end, len(batch))
+
+		// Process batch concurrently
+		var wg sync.WaitGroup
+		for i, seq := range batch {
+			wg.Add(1)
+			go func(reportSeq int, processNumber int) {
+				defer wg.Done()
+
+				// Acquire semaphore
+				semaphore <- struct{}{}
+				defer func() { <-semaphore }()
+
+				// Process report
+				result := processSingleReport(gdprService, gdprProcessor, reportSeq, imagePlaceholderPath, processNumber)
+				resultChan <- result
+			}(seq, i+1)
+		}
+
+		// Wait for current batch to complete
+		wg.Wait()
+	}
+
+	// Close result channel after all goroutines complete
+	close(resultChan)
+
+	// Collect and process results
+	successCount := 0
+	errorCount := 0
+
+	for result := range resultChan {
+		if result.err != nil {
+			errorCount++
+			log.Printf("Failed to process report %d: %v", result.seq, result.err)
+		} else {
+			successCount++
+			log.Printf("Successfully processed report %d", result.seq)
+		}
+	}
+
+	log.Printf("Report batch processing completed: %d successful, %d failed", successCount, errorCount)
+	return nil
+}
+
 // userProcessResult represents the result of processing a single user
 type userProcessResult struct {
 	userID string
@@ -188,4 +242,25 @@ func processSingleUser(gdprService *database.GdprService, gdprProcessor *process
 	}
 
 	return userProcessResult{userID: userID, err: nil}
+}
+
+// reportProcessResult represents the result of processing a single report
+type reportProcessResult struct {
+	seq int
+	err error
+}
+
+// processSingleReport processes a single report and returns the result
+func processSingleReport(gdprService *database.GdprService, gdprProcessor *processor.GdprProcessor, seq int, imagePlaceholderPath string, processNumber int) reportProcessResult {
+	// Process report with GDPR processor
+	if err := gdprProcessor.ProcessReport(seq, gdprService.GetReportImage, gdprService.UpdateReportImage, gdprService.GetPlaceholderImage, imagePlaceholderPath, processNumber); err != nil {
+		return reportProcessResult{seq: seq, err: fmt.Errorf("failed to process report: %w", err)}
+	}
+
+	// Mark report as processed
+	if err := gdprService.MarkReportProcessed(seq); err != nil {
+		return reportProcessResult{seq: seq, err: fmt.Errorf("failed to mark report as processed: %w", err)}
+	}
+
+	return reportProcessResult{seq: seq, err: nil}
 }

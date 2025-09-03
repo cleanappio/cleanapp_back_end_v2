@@ -24,6 +24,8 @@ type Config struct {
 
 	// Face detector service configuration
 	FaceDetectorURL string
+	FaceDetectorPortStart int
+	FaceDetectorCount int
 
 	// Image placeholder configuration
 	ImagePlaceholderPath string
@@ -52,6 +54,8 @@ func Load() *Config {
 
 		// Face detector defaults
 		FaceDetectorURL: getEnv("FACE_DETECTOR_URL", "http://localhost:8000"),
+		FaceDetectorPortStart: getIntEnv("FACE_DETECTOR_PORT_START", 9500),
+		FaceDetectorCount: getIntEnv("FACE_DETECTOR_COUNT", 10),
 
 		// Image placeholder defaults
 		ImagePlaceholderPath: getEnv("IMAGE_PLACEHOLDER_PATH", "./image_placeholder.jpg"),

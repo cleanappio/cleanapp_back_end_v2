@@ -11,7 +11,6 @@ class Config:
     DEBUG = os.getenv('DEBUG', 'false').lower() == 'true'
     PORT = int(os.getenv('PORT', 8080))
     HOST = os.getenv('HOST', '0.0.0.0')
-    WORKERS = int(os.getenv('WORKERS', 1))
     RELOAD = os.getenv('RELOAD', 'false').lower() == 'true'
     ACCESS_LOG = os.getenv('ACCESS_LOG', 'true').lower() == 'true'
     

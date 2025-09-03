@@ -74,8 +74,7 @@ gcloud artifacts docker tags add ${DOCKER_TAG}:${BUILD_VERSION} ${DOCKER_TAG}:${
 rm -f service
 
 if [ -n "${SSH_KEYFILE}" ]; then
-  SETUP_SCRIPT="https://raw.githubusercontent.com/cleanappio/cleanapp_back_end_v2/refs/heads/main/setup/setup.sh"
-  
-  # Copy deployment script on target VM and run it 
-  curl ${SETUP_SCRIPT} | ssh -i ${SSH_KEYFILE} deployer@${TARGET_VM_IP} "cat > deploy.sh && chmod +x deploy.sh && ./deploy.sh -e ${OPT}"
+  pushd ../setup
+  ./setup.sh -e ${OPT} --ssh-keyfile ${SSH_KEYFILE}
+  popd
 fi

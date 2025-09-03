@@ -65,4 +65,3 @@ docker-compose-down:
 # Default values
 HOST ?= 0.0.0.0
 PORT ?= 8080
-WORKERS ?= 4

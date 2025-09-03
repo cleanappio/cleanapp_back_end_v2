@@ -67,7 +67,7 @@ func (p *GdprProcessor) ProcessUser(userID string, avatar string, updateAvatar f
 }
 
 // ProcessReport processes a single report for GDPR compliance
-func (p *GdprProcessor) ProcessReport(seq int, getImage func(int) ([]byte, error), updateImage func(int, []byte) error, getPlaceholder func(string) ([]byte, error), placeholderPath string) error {
+func (p *GdprProcessor) ProcessReport(seq int, getImage func(int) ([]byte, error), updateImage func(int, []byte) error, getPlaceholder func(string) ([]byte, error), placeholderPath string, processNumber int) error {
 	log.Infof("Processing report %d for GDPR compliance", seq)
 
 	// Fetch the report image
@@ -104,7 +104,7 @@ func (p *GdprProcessor) ProcessReport(seq int, getImage func(int) ([]byte, error
 	}
 
 	// Step 2: Send the image to the face detector service for processing (only for non-document images)
-	processedImageData, facesDetected, err := p.faceDetectorClient.ProcessImage(imageData)
+	processedImageData, facesDetected, err := p.faceDetectorClient.ProcessImage(imageData, processNumber)
 	if err != nil {
 		return fmt.Errorf("failed to process image for report %d: %w", seq, err)
 	}
