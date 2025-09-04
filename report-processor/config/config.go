@@ -21,6 +21,13 @@ type Config struct {
 	// Auth service configuration
 	AuthServiceURL string
 
+	// Report matching configuration
+	ReportsRadiusMeters float64
+
+	// OpenAI configuration
+	OpenAIAPIKey string
+	OpenAIModel  string
+
 	// Logging
 	LogLevel string
 }
@@ -40,6 +47,13 @@ func Load() *Config {
 
 		// Auth service defaults
 		AuthServiceURL: getEnv("AUTH_SERVICE_URL", "http://localhost:8080"),
+
+		// Report matching defaults
+		ReportsRadiusMeters: getFloatEnv("REPORTS_RADIUS_METERS", 10.0),
+
+		// OpenAI defaults
+		OpenAIAPIKey: getEnv("OPENAI_API_KEY", ""),
+		OpenAIModel:  getEnv("OPENAI_MODEL", "gpt-4o"),
 
 		// Logging defaults
 		LogLevel: getEnv("LOG_LEVEL", "info"),
@@ -71,6 +85,16 @@ func getIntEnv(key string, defaultValue int) int {
 	if value := os.Getenv(key); value != "" {
 		if intValue, err := strconv.Atoi(value); err == nil {
 			return intValue
+		}
+	}
+	return defaultValue
+}
+
+// getFloatEnv gets a float environment variable or returns a default value
+func getFloatEnv(key string, defaultValue float64) float64 {
+	if value := os.Getenv(key); value != "" {
+		if floatValue, err := strconv.ParseFloat(value, 64); err == nil {
+			return floatValue
 		}
 	}
 	return defaultValue

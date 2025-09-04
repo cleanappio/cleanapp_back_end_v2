@@ -31,3 +31,41 @@ type HealthResponse struct {
 	Service   string `json:"service"`
 	Timestamp string `json:"timestamp"`
 }
+
+// MatchReportRequest represents the request to match a report
+type MatchReportRequest struct {
+	Version   string  `json:"version" binding:"required"`
+	ID        string  `json:"id" binding:"required"`
+	Latitude  float64 `json:"latitude" binding:"required"`
+	Longitude float64 `json:"longitude" binding:"required"`
+	X         float64 `json:"x" binding:"required"`
+	Y         float64 `json:"y" binding:"required"`
+	Image     []byte  `json:"image" binding:"required"`
+}
+
+// Report represents a report from the database
+type Report struct {
+	Seq       int     `json:"seq" db:"seq"`
+	ID        string  `json:"id" db:"id"`
+	Team      int     `json:"team" db:"team"`
+	Latitude  float64 `json:"latitude" db:"latitude"`
+	Longitude float64 `json:"longitude" db:"longitude"`
+	X         float64 `json:"x" db:"x"`
+	Y         float64 `json:"y" db:"y"`
+	Image     []byte  `json:"image" db:"image"`
+	ActionID  *string `json:"action_id" db:"action_id"`
+}
+
+// MatchResult represents the result of comparing two images
+type MatchResult struct {
+	ReportSeq  int     `json:"report_seq"`
+	Similarity float64 `json:"similarity"`
+	Resolved   bool    `json:"resolved"`
+}
+
+// MatchReportResponse represents the response for matching a report
+type MatchReportResponse struct {
+	Success bool          `json:"success"`
+	Message string        `json:"message"`
+	Results []MatchResult `json:"results"`
+}

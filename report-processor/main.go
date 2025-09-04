@@ -37,7 +37,7 @@ func main() {
 	}
 
 	// Create handlers
-	h := handlers.NewHandlers(db)
+	h := handlers.NewHandlers(db, cfg)
 
 	// Setup HTTP server
 	router := setupRouter(cfg, h, authClient)
@@ -102,6 +102,9 @@ func setupRouter(cfg *config.Config, h *handlers.Handlers, authClient *database.
 
 			// Get report status count endpoint
 			api.GET("/reports/status/count", h.GetReportStatusCount)
+
+			// Match report endpoint
+			api.POST("/match_report", h.MatchReport)
 		}
 	}
 

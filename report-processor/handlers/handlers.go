@@ -1,24 +1,38 @@
 package handlers
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
 
+	"report_processor/config"
 	"report_processor/database"
 	"report_processor/models"
+	"report_processor/openai"
 
 	"github.com/gin-gonic/gin"
 )
 
 // Handlers holds all HTTP handlers
 type Handlers struct {
-	db *database.Database
+	db           *database.Database
+	config       *config.Config
+	openaiClient *openai.Client
 }
 
 // NewHandlers creates a new handlers instance
-func NewHandlers(db *database.Database) *Handlers {
-	return &Handlers{db: db}
+func NewHandlers(db *database.Database, cfg *config.Config) *Handlers {
+	var openaiClient *openai.Client
+	if cfg.OpenAIAPIKey != "" {
+		openaiClient = openai.NewClient(cfg.OpenAIAPIKey, cfg.OpenAIModel)
+	}
+
+	return &Handlers{
+		db:           db,
+		config:       cfg,
+		openaiClient: openaiClient,
+	}
 }
 
 // MarkResolved marks a report as resolved
@@ -128,4 +142,124 @@ func (h *Handlers) GetReportStatusCount(c *gin.Context) {
 		"success": true,
 		"data":    counts,
 	})
+}
+
+// MatchReport matches a report against reports in the database within a 10m radius
+func (h *Handlers) MatchReport(c *gin.Context) {
+	var req models.MatchReportRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Printf("Invalid request body: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "Invalid request body",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// Validate version
+	if req.Version != "2.0" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "Unsupported version. Expected '2.0'",
+		})
+		return
+	}
+
+	// Validate coordinates
+	if req.Latitude < -90 || req.Latitude > 90 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "Invalid latitude. Must be between -90 and 90",
+		})
+		return
+	}
+	if req.Longitude < -180 || req.Longitude > 180 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "Invalid longitude. Must be between -180 and 180",
+		})
+		return
+	}
+
+	// Validate x, y coordinates
+	if req.X < 0 || req.X > 1 || req.Y < 0 || req.Y > 1 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "Invalid x,y coordinates. Must be between 0 and 1",
+		})
+		return
+	}
+
+	// Get reports within configured radius
+	reports, err := h.db.GetReportsInRadius(c.Request.Context(), req.Latitude, req.Longitude, h.config.ReportsRadiusMeters)
+	if err != nil {
+		log.Printf("Failed to get reports in radius: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "Failed to get reports in radius",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// Compare the provided image with each report image
+	var results []models.MatchResult
+	for _, report := range reports {
+		similarity, resolved := h.compareImages(req.Image, report.Image, req.Latitude, req.Longitude, report.Latitude, report.Longitude)
+
+		// If the report is resolved, update the report_status table
+		if resolved {
+			err := h.db.MarkReportResolved(c.Request.Context(), report.Seq)
+			if err != nil {
+				log.Printf("Failed to mark report %d as resolved: %v", report.Seq, err)
+				// Continue processing other reports even if one fails
+			} else {
+				log.Printf("Successfully marked report %d as resolved", report.Seq)
+			}
+		}
+
+		results = append(results, models.MatchResult{
+			ReportSeq:  report.Seq,
+			Similarity: similarity,
+			Resolved:   resolved,
+		})
+	}
+
+	// Count resolved reports for logging
+	resolvedCount := 0
+	for _, result := range results {
+		if result.Resolved {
+			resolvedCount++
+		}
+	}
+
+	response := models.MatchReportResponse{
+		Success: true,
+		Message: fmt.Sprintf("Report matching completed. %d reports resolved out of %d compared.", resolvedCount, len(results)),
+		Results: results,
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// compareImages compares two images and returns similarity score and resolved status
+func (h *Handlers) compareImages(image1, image2 []byte, firstImageLocationLat, firstImageLocationLng, secondImageLocationLat, secondImageLocationLng float64) (float64, bool) {
+	// If OpenAI client is not available, return default values
+	if h.openaiClient == nil {
+		log.Printf("OpenAI client not available, returning default comparison values")
+		return 0.0, false
+	}
+
+	// Use OpenAI API to compare images
+	similarity, litterRemoved, err := h.openaiClient.CompareImages(image1, image2, firstImageLocationLat, firstImageLocationLng, secondImageLocationLat, secondImageLocationLng)
+	if err != nil {
+		log.Printf("Failed to compare images with OpenAI: %v", err)
+		return 0.0, false
+	}
+
+	// Consider it a match if similarity is above 0.7 and litter was removed
+	resolved := similarity >= 0.7 && litterRemoved
+
+	return similarity, resolved
 }

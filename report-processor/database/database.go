@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"math"
 	"time"
 
 	"report_processor/config"
@@ -155,4 +156,60 @@ func (d *Database) GetReportStatusCount(ctx context.Context) (map[string]int, er
 	}
 
 	return counts, nil
+}
+
+// GetReportsInRadius gets reports within a specified radius (in meters) of a given point
+func (d *Database) GetReportsInRadius(ctx context.Context, latitude, longitude float64, radiusMeters float64) ([]models.Report, error) {
+	// Calculate bounding box coordinates
+	// Convert radius from meters to degrees
+	// 1 degree latitude ≈ 111,320 meters
+	// 1 degree longitude ≈ 111,320 * cos(latitude) meters
+	latRadiusDegrees := radiusMeters / 111320.0
+	lonRadiusDegrees := radiusMeters / (111320.0 * math.Cos(latitude*math.Pi/180.0))
+
+	minLat := latitude - latRadiusDegrees
+	maxLat := latitude + latRadiusDegrees
+	minLng := longitude - lonRadiusDegrees
+	maxLng := longitude + lonRadiusDegrees
+
+	query := `
+		SELECT r.seq, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.image, r.action_id
+		FROM reports r
+		LEFT JOIN report_status rs ON r.seq = rs.seq
+		WHERE r.latitude BETWEEN ? AND ?
+		AND r.longitude BETWEEN ? AND ?
+		AND (rs.status IS NULL OR rs.status = 'active')
+	`
+
+	rows, err := d.db.QueryContext(ctx, query, minLat, maxLat, minLng, maxLng)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get reports in radius: %w", err)
+	}
+	defer rows.Close()
+
+	var reports []models.Report
+	for rows.Next() {
+		var report models.Report
+		err := rows.Scan(
+			&report.Seq,
+			&report.ID,
+			&report.Team,
+			&report.Latitude,
+			&report.Longitude,
+			&report.X,
+			&report.Y,
+			&report.Image,
+			&report.ActionID,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan report: %w", err)
+		}
+		reports = append(reports, report)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating reports: %w", err)
+	}
+
+	return reports, nil
 }
