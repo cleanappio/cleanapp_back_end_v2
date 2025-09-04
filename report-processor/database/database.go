@@ -167,10 +167,14 @@ func (d *Database) GetReportsInRadius(ctx context.Context, latitude, longitude f
 	latRadiusDegrees := radiusMeters / 111320.0
 	lonRadiusDegrees := radiusMeters / (111320.0 * math.Cos(latitude*math.Pi/180.0))
 
+	log.Printf("latRadiusDegrees: %f, lonRadiusDegrees: %f", latRadiusDegrees, lonRadiusDegrees)
+
 	minLat := latitude - latRadiusDegrees
 	maxLat := latitude + latRadiusDegrees
 	minLng := longitude - lonRadiusDegrees
 	maxLng := longitude + lonRadiusDegrees
+
+	log.Printf("minLat: %f, maxLat: %f, minLng: %f, maxLng: %f", minLat, maxLat, minLng, maxLng)
 
 	query := `
 		SELECT r.seq, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.image, r.action_id

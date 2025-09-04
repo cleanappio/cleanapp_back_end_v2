@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"sync"
 
 	"report_processor/config"
 	"report_processor/database"
@@ -203,27 +204,66 @@ func (h *Handlers) MatchReport(c *gin.Context) {
 		return
 	}
 
-	// Compare the provided image with each report image
+	// Compare the provided image with each report image in parallel chunks
+	const chunkSize = 10
 	var results []models.MatchResult
-	for _, report := range reports {
-		similarity, resolved := h.compareImages(req.Image, report.Image, req.Latitude, req.Longitude, report.Latitude, report.Longitude)
 
-		// If the report is resolved, update the report_status table
-		if resolved {
-			err := h.db.MarkReportResolved(c.Request.Context(), report.Seq)
-			if err != nil {
-				log.Printf("Failed to mark report %d as resolved: %v", report.Seq, err)
-				// Continue processing other reports even if one fails
-			} else {
-				log.Printf("Successfully marked report %d as resolved", report.Seq)
-			}
+	log.Printf("Processing %d reports in chunks of %d", len(reports), chunkSize)
+
+	// Process reports in chunks
+	for i := 0; i < len(reports); i += chunkSize {
+		end := i + chunkSize
+		if end > len(reports) {
+			end = len(reports)
 		}
 
-		results = append(results, models.MatchResult{
-			ReportSeq:  report.Seq,
-			Similarity: similarity,
-			Resolved:   resolved,
-		})
+		chunk := reports[i:end]
+		log.Printf("Processing chunk %d-%d (%d reports)", i+1, end, len(chunk))
+
+		// Process current chunk in parallel
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+		var chunkResults []models.MatchResult
+
+		for _, report := range chunk {
+			wg.Add(1)
+			go func(r models.Report) {
+				defer wg.Done()
+
+				log.Printf("Comparing report %d (%f, %f)", r.Seq, r.Latitude, r.Longitude)
+
+				// Compare images
+				similarity, resolved := h.compareImages(req.Image, r.Image, req.Latitude, req.Longitude, r.Latitude, r.Longitude)
+
+				// If the report is resolved, update the report_status table
+				if resolved {
+					err := h.db.MarkReportResolved(c.Request.Context(), r.Seq)
+					if err != nil {
+						log.Printf("Failed to mark report %d as resolved: %v", r.Seq, err)
+						// Continue processing other reports even if one fails
+					} else {
+						log.Printf("Successfully marked report %d as resolved", r.Seq)
+					}
+				}
+
+				// Thread-safe append to chunk results
+				mu.Lock()
+				chunkResults = append(chunkResults, models.MatchResult{
+					ReportSeq:  r.Seq,
+					Similarity: similarity,
+					Resolved:   resolved,
+				})
+				mu.Unlock()
+			}(report)
+		}
+
+		// Wait for current chunk to complete
+		wg.Wait()
+
+		// Add chunk results to overall results
+		results = append(results, chunkResults...)
+
+		log.Printf("Completed chunk %d-%d", i+1, end)
 	}
 
 	// Count resolved reports for logging

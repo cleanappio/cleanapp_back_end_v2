@@ -535,6 +535,8 @@ services:
       - DB_NAME=cleanapp
       - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
       - REPORT_AUTH_SERVICE_URL=http://cleanapp_report_auth_service:8080
+      - OPENAI_API_KEY=\${OPENAI_API_KEY}
+      - REPORTS_RADIUS_METERS=20.0
       - GIN_MODE=${GIN_MODE}
     ports:
       - 9087:8080

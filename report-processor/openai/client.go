@@ -8,6 +8,8 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"regexp"
+	"strings"
 )
 
 const openAIEndpoint = "https://api.openai.com/v1/chat/completions"
@@ -59,6 +61,32 @@ func NewClient(apiKey, model string) *Client {
 		model:  model,
 		client: &http.Client{},
 	}
+}
+
+// extractJSONFromMarkdown extracts JSON from markdown code blocks
+func extractJSONFromMarkdown(content string) (string, error) {
+	// Try to find JSON in ```json or ```JSON code blocks
+	jsonRegex := regexp.MustCompile("```(?:json|JSON)?\\s*\\n?([\\s\\S]*?)\\n?```")
+	matches := jsonRegex.FindStringSubmatch(content)
+
+	if len(matches) > 1 {
+		// Found JSON in code block, clean it up
+		jsonStr := strings.TrimSpace(matches[1])
+		return jsonStr, nil
+	}
+
+	// If no code block found, try to find JSON-like content
+	// Look for content that starts with { and ends with }
+	start := strings.Index(content, "{")
+	end := strings.LastIndex(content, "}")
+
+	if start != -1 && end != -1 && end > start {
+		jsonStr := content[start : end+1]
+		return jsonStr, nil
+	}
+
+	// If no JSON found, return the original content
+	return content, nil
 }
 
 // CompareImages compares two images using OpenAI's vision API
@@ -151,10 +179,19 @@ Please output the answer as JSON:
 	// Parse the JSON response to extract comparison results
 	content := chatResp.Choices[0].Message.Content
 
+	// Extract JSON from markdown code blocks if present
+	jsonContent, err := extractJSONFromMarkdown(content)
+	if err != nil {
+		log.Printf("WARNING: Failed to extract JSON from markdown: %v", err)
+		jsonContent = content // Fall back to original content
+	}
+
 	var result ImageComparisonResult
-	if err := json.Unmarshal([]byte(content), &result); err != nil {
+	if err := json.Unmarshal([]byte(jsonContent), &result); err != nil {
 		// If JSON parsing fails, log the error and return default values
-		log.Printf("ERROR: Failed to parse image comparison response %s: %v", content, err)
+		log.Printf("ERROR: Failed to parse image comparison response. Original content: %s", content)
+		log.Printf("ERROR: Extracted JSON content: %s", jsonContent)
+		log.Printf("ERROR: JSON parsing error: %v", err)
 		return 0.0, false, fmt.Errorf("failed to parse comparison response: %w", err)
 	}
 
