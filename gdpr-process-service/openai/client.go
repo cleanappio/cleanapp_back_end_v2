@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"strings"
 )
 
 const openAIEndpoint = "https://api.openai.com/v1/chat/completions"
@@ -140,10 +142,17 @@ If no PII detected, put an original value into "obfuscated".`, text)
 	var result ObfuscationResult
 	if err := json.Unmarshal([]byte(content), &result); err != nil {
 		// If JSON parsing fails, return the raw content
-		return content, nil
+		log.Printf("ERROR: Failed to parse obfuscation response %s: %v", content, err)
+		return text, nil
 	}
 
-	return result.Obfuscated, nil
+	// Check if result.Obfuscated contains '\n' and truncate at first newline
+	obfuscated := result.Obfuscated
+	if newlineIndex := strings.Index(obfuscated, "\n"); newlineIndex != -1 {
+		obfuscated = obfuscated[:newlineIndex]
+	}
+
+	return obfuscated, nil
 }
 
 // DetectDocument analyzes an image to determine if it contains a document with potential PII
