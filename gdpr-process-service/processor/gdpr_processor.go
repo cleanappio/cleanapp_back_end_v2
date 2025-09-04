@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"gdpr-process-service/face_detector"
 	"gdpr-process-service/openai"
+	"gdpr-process-service/image"
 
 	"github.com/apex/log"
 )
@@ -77,6 +78,14 @@ func (p *GdprProcessor) ProcessReport(seq int, getImage func(int) ([]byte, error
 	}
 
 	log.Infof("Retrieved image for report %d, size: %d bytes", seq, len(imageData))
+
+	if len(imageData) > 500000 {
+		imageData, err = image.CompressImage(imageData)
+		if err != nil {
+			return fmt.Errorf("failed to compress image for report %d: %w", seq, err)
+		}
+		log.Infof("Compressed image for report %d, size: %d bytes", seq, len(imageData))
+	}
 
 	// Step 1: Detect if the image contains a document with potential PII
 	isDocument, err := p.openaiClient.DetectDocument(imageData)
