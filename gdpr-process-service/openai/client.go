@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"regexp"
 	"strings"
 )
 
@@ -137,7 +138,10 @@ If no PII detected, put an original value into "obfuscated".`, text)
 	}
 
 	// Parse the JSON response to extract obfuscated value
-	content := chatResp.Choices[0].Message.Content
+	content, err := extractJSONFromMarkdown(chatResp.Choices[0].Message.Content)
+	if err != nil {
+		return "", fmt.Errorf("failed to extract JSON from markdown: %w", err)
+	}
 
 	var result ObfuscationResult
 	if err := json.Unmarshal([]byte(content), &result); err != nil {
@@ -229,7 +233,10 @@ Output the answer as JSON:
 	}
 
 	// Parse the JSON response to extract is_document value
-	content := chatResp.Choices[0].Message.Content
+	content, err := extractJSONFromMarkdown(chatResp.Choices[0].Message.Content)
+	if err != nil {
+		return false, fmt.Errorf("failed to extract JSON from markdown: %w", err)
+	}
 
 	var result DocumentDetectionResult
 	if err := json.Unmarshal([]byte(content), &result); err != nil {
@@ -238,4 +245,30 @@ Output the answer as JSON:
 	}
 
 	return result.IsDocument, nil
+}
+
+// extractJSONFromMarkdown extracts JSON from markdown code blocks
+func extractJSONFromMarkdown(content string) (string, error) {
+	// Try to find JSON in ```json or ```JSON code blocks
+	jsonRegex := regexp.MustCompile("```(?:json|JSON)?\\s*\\n?([\\s\\S]*?)\\n?```")
+	matches := jsonRegex.FindStringSubmatch(content)
+
+	if len(matches) > 1 {
+		// Found JSON in code block, clean it up
+		jsonStr := strings.TrimSpace(matches[1])
+		return jsonStr, nil
+	}
+
+	// If no code block found, try to find JSON-like content
+	// Look for content that starts with { and ends with }
+	start := strings.Index(content, "{")
+	end := strings.LastIndex(content, "}")
+
+	if start != -1 && end != -1 && end > start {
+		jsonStr := content[start : end+1]
+		return jsonStr, nil
+	}
+
+	// If no JSON found, return the original content
+	return content, nil
 }
