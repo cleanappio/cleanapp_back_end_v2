@@ -31,7 +31,7 @@ python test_match_report_api.py test.jpg 37.7749 -122.4194 https://api.example.c
 
 - ✅ Validates image file existence and format
 - ✅ Validates coordinate ranges (latitude: -90 to 90, longitude: -180 to 180)
-- ✅ Encodes images to base64 automatically
+- ✅ Converts images to byte arrays automatically
 - ✅ Displays detailed results including similarity scores and resolution status
 - ✅ Highlights automatically resolved reports
 - ✅ Comprehensive error handling and user feedback
@@ -46,7 +46,7 @@ python test_match_report_api.py test.jpg 37.7749 -122.4194 https://api.example.c
 Reading image from: test_image.jpg
 Sending request to: http://localhost:8080/api/v3/match_report
 Location: 40.7128, -74.0060
-Image size: 245760 characters (base64)
+Image size: 245760 bytes
 
 Response Status: 200
 ✅ Request successful!
@@ -118,9 +118,11 @@ high_sim = matcher.get_high_similarity_reports(result, threshold=0.7)
   "longitude": -74.0060,
   "x": 0.5,
   "y": 0.5,
-  "image": "base64_encoded_image_data"
+  "image": [byte_array]
 }
 ```
+
+**Note**: The `image` field contains the raw image bytes as an array of integers (0-255), not a base64 encoded string. For example, a small image might be represented as `[255, 216, 255, 224, 0, 16, 74, 70, 73, 70, ...]` where each number represents one byte of the image file.
 
 ### Response Format
 
@@ -217,5 +219,5 @@ Expected response:
 
 - Image comparison uses OpenAI's vision API, which may take 5-15 seconds per comparison
 - The service processes reports in sequence, so response time scales with the number of nearby reports
-- Large images are automatically base64 encoded, which increases payload size
+- Large images are sent as byte arrays, which increases payload size
 - Consider image compression for better performance with large files
