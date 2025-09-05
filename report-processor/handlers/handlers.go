@@ -1,11 +1,15 @@
 package handlers
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"strconv"
 	"sync"
+	"time"
 
 	"report_processor/config"
 	"report_processor/database"
@@ -268,9 +272,25 @@ func (h *Handlers) MatchReport(c *gin.Context) {
 
 	// Count resolved reports for logging
 	resolvedCount := 0
+	highSimilarityCount := 0
 	for _, result := range results {
 		if result.Resolved {
 			resolvedCount++
+		}
+		if result.Similarity > 0.7 {
+			highSimilarityCount++
+		}
+	}
+
+	// Check if we have high similarity reports but no resolved ones
+	if highSimilarityCount > 0 && resolvedCount == 0 {
+		log.Printf("Found %d high similarity reports (>0.7) but none resolved. Submitting as new report.", highSimilarityCount)
+
+		// Submit the original request as a new report
+		err := h.submitReport(c.Request.Context(), req)
+		if err != nil {
+			log.Printf("Failed to submit report: %v", err)
+			// Continue with response even if submission fails
 		}
 	}
 
@@ -302,4 +322,51 @@ func (h *Handlers) compareImages(image1, image2 []byte, firstImageLocationLat, f
 	resolved := similarity >= 0.7 && litterRemoved
 
 	return similarity, resolved
+}
+
+// submitReport submits a report to the reports submission service
+func (h *Handlers) submitReport(ctx context.Context, req models.MatchReportRequest) error {
+	if h.config.ReportsSubmissionURL == "" {
+		log.Printf("Reports submission URL not configured, skipping submission")
+		return nil
+	}
+
+	// Prepare the report submission payload
+	reportPayload := map[string]interface{}{
+		"version":    req.Version,
+		"id":         req.ID,
+		"latitude":   req.Latitude,
+		"longitude":  req.Longitude,
+		"x":          req.X,
+		"y":          req.Y,
+		"image":      req.Image,
+		"action_id":  "",
+		"annotation": "",
+	}
+
+	// Marshal to JSON
+	jsonData, err := json.Marshal(reportPayload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal report payload: %w", err)
+	}
+
+	// Create HTTP client with timeout
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	// Submit the report
+	url := h.config.ReportsSubmissionURL + "/report"
+	resp, err := client.Post(url, "application/json", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("failed to submit report: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("report submission failed with status %d", resp.StatusCode)
+	}
+
+	log.Printf("Successfully submitted report %s to %s", req.ID, url)
+	return nil
 }

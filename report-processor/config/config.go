@@ -28,6 +28,9 @@ type Config struct {
 	OpenAIAPIKey string
 	OpenAIModel  string
 
+	// Reports submission configuration
+	ReportsSubmissionURL string
+
 	// Logging
 	LogLevel string
 }
@@ -54,6 +57,9 @@ func Load() *Config {
 		// OpenAI defaults
 		OpenAIAPIKey: getEnv("OPENAI_API_KEY", ""),
 		OpenAIModel:  getEnv("OPENAI_MODEL", "gpt-4o"),
+
+		// Reports submission defaults
+		ReportsSubmissionURL: getEnv("REPORTS_SUBMISSION_URL", ""),
 
 		// Logging defaults
 		LogLevel: getEnv("LOG_LEVEL", "info"),

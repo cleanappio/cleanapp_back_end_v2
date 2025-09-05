@@ -422,7 +422,7 @@ services:
       - DB_NAME=cleanapp
       - OPENAI_API_KEY=\${OPENAI_API_KEY}
       - OPENAI_ASSISTANT_ID=${OPENAI_ASSISTANT_ID}
-      - OPENAI_MODEL=gpt-5
+      - OPENAI_MODEL=gpt-4o
       - ANALYSIS_INTERVAL=500ms
       - MAX_RETRIES=3
       - ANALYSIS_PROMPT=${ANALYSIS_PROMPT}
@@ -535,6 +535,7 @@ services:
       - DB_NAME=cleanapp
       - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
       - REPORT_AUTH_SERVICE_URL=http://cleanapp_report_auth_service:8080
+      - REPORTS_SUBMISSION_URL=http://cleanapp_service:8080
       - OPENAI_API_KEY=\${OPENAI_API_KEY}
       - REPORTS_RADIUS_METERS=20.0
       - GIN_MODE=${GIN_MODE}
@@ -599,7 +600,7 @@ services:
       - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
       - DB_NAME=cleanapp
       - OPENAI_API_KEY=\${OPENAI_API_KEY}
-      - OPENAI_MODEL=gpt-5
+      - OPENAI_MODEL=gpt-4o
       - FACE_DETECTOR_COUNT=${FACE_DETECTOR_COUNT}
       - FACE_DETECTOR_URL=http://${FACE_DETECTOR_INTERNAL_HOST}
       - FACE_DETECTOR_PORT_START=${FACE_DETECTOR_PORT_START}
