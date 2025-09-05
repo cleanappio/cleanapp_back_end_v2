@@ -239,7 +239,7 @@ func (h *Handlers) MatchReport(c *gin.Context) {
 				// Compare images
 				similarity, resolved := h.compareImages(req.Image, r.Image, req.Latitude, req.Longitude, r.Latitude, r.Longitude)
 
-				// If the report is resolved, update the report_status table
+				// If the report is resolved, update the report_status table and create response
 				if resolved {
 					err := h.db.MarkReportResolved(c.Request.Context(), r.Seq)
 					if err != nil {
@@ -247,6 +247,15 @@ func (h *Handlers) MatchReport(c *gin.Context) {
 						// Continue processing other reports even if one fails
 					} else {
 						log.Printf("Successfully marked report %d as resolved", r.Seq)
+
+						// Create a verified response from the match request data
+						_, err := h.db.CreateResponseFromMatchRequest(c.Request.Context(), req, r.Seq, "verified")
+						if err != nil {
+							log.Printf("Warning: failed to create verified response from match request: %v", err)
+							// Continue processing other reports even if response creation fails
+						} else {
+							log.Printf("Successfully created verified response from match request")
+						}
 					}
 				}
 
@@ -369,4 +378,87 @@ func (h *Handlers) submitReport(ctx context.Context, req models.MatchReportReque
 
 	log.Printf("Successfully submitted report %s to %s", req.ID, url)
 	return nil
+}
+
+// GetResponse gets a specific response by seq
+func (h *Handlers) GetResponse(c *gin.Context) {
+	seqStr := c.Query("seq")
+	if seqStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "Response sequence is required",
+		})
+		return
+	}
+
+	seq, err := strconv.Atoi(seqStr)
+	if err != nil || seq <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "Invalid response sequence",
+		})
+		return
+	}
+
+	response, err := h.db.GetResponse(c.Request.Context(), seq)
+	if err != nil {
+		log.Printf("Failed to get response for seq %d: %v", seq, err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "Failed to get response",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	if response == nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"message": "Response not found",
+			"seq":     seq,
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    response,
+	})
+}
+
+// GetResponsesByStatus gets responses by status
+func (h *Handlers) GetResponsesByStatus(c *gin.Context) {
+	status := c.Query("status")
+	if status == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "Status parameter is required",
+		})
+		return
+	}
+
+	if status != "resolved" && status != "verified" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "Status must be either 'resolved' or 'verified'",
+		})
+		return
+	}
+
+	responses, err := h.db.GetResponsesByStatus(c.Request.Context(), status)
+	if err != nil {
+		log.Printf("Failed to get responses by status %s: %v", status, err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "Failed to get responses by status",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    responses,
+		"count":   len(responses),
+	})
 }

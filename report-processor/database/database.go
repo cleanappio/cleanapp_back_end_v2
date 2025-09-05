@@ -71,6 +71,43 @@ func (d *Database) EnsureReportStatusTable(ctx context.Context) error {
 	return nil
 }
 
+// EnsureResponsesTable creates the responses table if it doesn't exist
+func (d *Database) EnsureResponsesTable(ctx context.Context) error {
+	query := `
+		CREATE TABLE IF NOT EXISTS responses (
+			seq INT NOT NULL AUTO_INCREMENT,
+			ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			id VARCHAR(255) NOT NULL,
+			team INT NOT NULL,
+			latitude FLOAT NOT NULL,
+			longitude FLOAT NOT NULL,
+			x FLOAT,
+			y FLOAT,
+			image LONGBLOB NOT NULL,
+			action_id VARCHAR(32),
+			description VARCHAR(255),
+			status ENUM('resolved', 'verified') NOT NULL DEFAULT 'resolved',
+			report_seq INT NOT NULL,
+			PRIMARY KEY (seq),
+			INDEX id_index (id),
+			INDEX action_idx (action_id),
+			INDEX latitude_index (latitude),
+			INDEX longitude_index (longitude),
+			INDEX status_index (status),
+			INDEX report_seq_index (report_seq),
+			FOREIGN KEY (report_seq) REFERENCES reports(seq) ON DELETE CASCADE
+		)
+	`
+
+	_, err := d.db.ExecContext(ctx, query)
+	if err != nil {
+		return fmt.Errorf("failed to create responses table: %w", err)
+	}
+
+	log.Println("Responses table ensured")
+	return nil
+}
+
 // MarkReportResolved marks a report as resolved
 func (d *Database) MarkReportResolved(ctx context.Context, seq int) error {
 	// First check if the report exists in the reports table
@@ -216,4 +253,152 @@ func (d *Database) GetReportsInRadius(ctx context.Context, latitude, longitude f
 	}
 
 	return reports, nil
+}
+
+// GetResponse gets a response by seq
+func (d *Database) GetResponse(ctx context.Context, seq int) (*models.Response, error) {
+	query := `
+		SELECT seq, id, team, latitude, longitude, x, y, image, action_id, status, report_seq
+		FROM responses
+		WHERE seq = ?
+	`
+
+	var response models.Response
+	err := d.db.QueryRowContext(ctx, query, seq).Scan(
+		&response.Seq,
+		&response.ID,
+		&response.Team,
+		&response.Latitude,
+		&response.Longitude,
+		&response.X,
+		&response.Y,
+		&response.Image,
+		&response.ActionID,
+		&response.Status,
+		&response.ReportSeq,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil // Response doesn't exist
+		}
+		return nil, fmt.Errorf("failed to get response: %w", err)
+	}
+
+	return &response, nil
+}
+
+// GetResponsesByStatus gets responses by status
+func (d *Database) GetResponsesByStatus(ctx context.Context, status string) ([]models.Response, error) {
+	query := `
+		SELECT seq, id, team, latitude, longitude, x, y, image, action_id, status, report_seq
+		FROM responses
+		WHERE status = ?
+		ORDER BY ts DESC
+	`
+
+	rows, err := d.db.QueryContext(ctx, query, status)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get responses by status: %w", err)
+	}
+	defer rows.Close()
+
+	var responses []models.Response
+	for rows.Next() {
+		var response models.Response
+		err := rows.Scan(
+			&response.Seq,
+			&response.ID,
+			&response.Team,
+			&response.Latitude,
+			&response.Longitude,
+			&response.X,
+			&response.Y,
+			&response.Image,
+			&response.ActionID,
+			&response.Status,
+			&response.ReportSeq,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan response: %w", err)
+		}
+		responses = append(responses, response)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating responses: %w", err)
+	}
+
+	return responses, nil
+}
+
+// CreateResponseFromMatchRequest creates a response entry from match request data and increments user's kitn_daily
+func (d *Database) CreateResponseFromMatchRequest(ctx context.Context, req models.MatchReportRequest, reportSeq int, status string) (*models.Response, error) {
+	// Start a transaction to ensure both operations succeed or fail together
+	tx, err := d.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback() // Rollback will be ignored if tx.Commit() is called
+
+	// Create response entry directly from match request data
+	insertQuery := `
+		INSERT INTO responses (id, team, latitude, longitude, x, y, image, action_id, status, report_seq)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`
+
+	result, err := tx.ExecContext(ctx, insertQuery,
+		req.ID,
+		0, // team - not available in match request, default to 0 (UNKNOWN)
+		req.Latitude,
+		req.Longitude,
+		req.X,
+		req.Y,
+		req.Image,
+		nil, // action_id - not available in match request
+		status,
+		reportSeq, // Reference to the resolved report
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create response from match request: %w", err)
+	}
+
+	responseSeq, err := result.LastInsertId()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get response seq: %w", err)
+	}
+
+	// Update user's kitn_daily field by incrementing it by 1
+	updateQuery := `
+		UPDATE users 
+		SET kitns_daily = kitns_daily + 1 
+		WHERE id = ?
+	`
+
+	_, err = tx.ExecContext(ctx, updateQuery, req.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to increment user kitn_daily: %w", err)
+	}
+
+	// Commit the transaction
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	// Return the created response
+	response := &models.Response{
+		Seq:       int(responseSeq),
+		ID:        req.ID,
+		Team:      0, // UNKNOWN team
+		Latitude:  req.Latitude,
+		Longitude: req.Longitude,
+		X:         req.X,
+		Y:         req.Y,
+		Image:     req.Image,
+		ActionID:  nil, // Not available in match request
+		Status:    status,
+		ReportSeq: reportSeq, // Reference to the resolved report
+	}
+
+	log.Printf("Response created with seq %d from match request for report %d with status %s, user %s kitn_daily incremented", responseSeq, reportSeq, status, req.ID)
+	return response, nil
 }

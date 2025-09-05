@@ -165,6 +165,34 @@ CREATE TABLE IF NOT EXISTS reports_gdpr(
   UNIQUE INDEX seq_unique (seq)
 );
 
+-- Create the responses table with identical structure to reports plus status enum
+CREATE TABLE IF NOT EXISTS responses(
+  seq INT NOT NULL AUTO_INCREMENT,
+  ts TIMESTAMP default current_timestamp,
+  id VARCHAR(255) NOT NULL,
+  team INT NOT NULL, -- 0 UNKNOWN, 1 BLUE, 2 GREEN, see map.go
+  latitude FLOAT NOT NULL,
+  longitude FLOAT NOT NULL,
+  x FLOAT, # 0.0..1.0
+  y FLOAT, # 0.0..1.0
+  image LONGBLOB NOT NULL,
+  action_id VARCHAR(32),
+  description VARCHAR(255),
+  status ENUM('resolved', 'verified') NOT NULL DEFAULT 'resolved',
+  report_seq INT NOT NULL, -- Reference to the resolved report
+  PRIMARY KEY (seq),
+  INDEX id_index (id),
+  INDEX action_idx (action_id),
+  INDEX latitude_index (latitude),
+  INDEX longitude_index (longitude),
+  INDEX status_index (status),
+  INDEX report_seq_index (report_seq),
+  FOREIGN KEY (report_seq) REFERENCES reports(seq) ON DELETE CASCADE
+);
+SHOW TABLES;
+DESCRIBE TABLE responses;
+SHOW COLUMNS FROM responses;
+
 -- Migration Statement:
 -- SELECT CONCAT('INSERT INTO area_index (area_id, geom) VALUES(', area_id, ',', ST_AsText(geom), ');') AS insert_statement FROM area_index;
 

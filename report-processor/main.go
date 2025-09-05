@@ -36,6 +36,11 @@ func main() {
 		log.Fatal("Failed to ensure report_status table:", err)
 	}
 
+	// Ensure responses table exists
+	if err := db.EnsureResponsesTable(context.Background()); err != nil {
+		log.Fatal("Failed to ensure responses table:", err)
+	}
+
 	// Create handlers
 	h := handlers.NewHandlers(db, cfg)
 
@@ -105,6 +110,12 @@ func setupRouter(cfg *config.Config, h *handlers.Handlers, authClient *database.
 
 			// Match report endpoint
 			api.POST("/match_report", h.MatchReport)
+
+			// Get response endpoint
+			api.GET("/responses/get", h.GetResponse)
+
+			// Get responses by status endpoint
+			api.GET("/responses/by_status", h.GetResponsesByStatus)
 		}
 	}
 
