@@ -93,6 +93,7 @@ case ${OPT} in
       FACE_DETECTOR_PORT_START=9500
       FACE_DETECTOR_INTERNAL_HOST=10.128.0.11
       FACE_DETECTOR_DEBUG=true
+      REQUEST_REGISTRATOR_URL=https://stxn-cleanapp-dev.stxn.io:443
       ;;
   "prod")
       echo "Using prod environment"
@@ -131,6 +132,7 @@ case ${OPT} in
       FACE_DETECTOR_PORT_START=9500
       FACE_DETECTOR_INTERNAL_HOST=10.128.0.11
       FACE_DETECTOR_DEBUG=false
+      REQUEST_REGISTRATOR_URL=https://stxn-cleanapp-prod.stxn.io:443
       ;;
   "quit")
       exit
@@ -583,7 +585,7 @@ services:
     image: ${REPORTS_PUSHER_DOCKER_IMAGE}
     environment:
       - MYSQL_URL=mysql://server:\${MYSQL_APP_PASSWORD}@cleanapp_db:3306/cleanapp
-      - REQUEST_REGISTRATOR_URL=http://127.0.0.1:50051
+      - REQUEST_REGISTRATOR_URL=${REQUEST_REGISTRATOR_URL}
       - APP_ID_HEX=0000000000000000000000000000000000000000000000000000000000000000
       - CHAIN_ID=${CHAIN_ID}
       - POLL_SECS=5
