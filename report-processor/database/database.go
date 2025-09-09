@@ -216,13 +216,19 @@ func (d *Database) GetReportsInRadius(ctx context.Context, latitude, longitude f
 	query := `
 		SELECT r.seq, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.image, r.action_id
 		FROM reports r
+		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		LEFT JOIN report_status rs ON r.seq = rs.seq
 		WHERE r.latitude BETWEEN ? AND ?
 		AND r.longitude BETWEEN ? AND ?
 		AND (rs.status IS NULL OR rs.status = 'active')
+		AND (ra.hazard_probability >= 0.5 OR ra.litter_probability >= 0.5 OR ra.classification = 'digital')
+		AND ra.is_valid = TRUE
+		AND ra.language = 'en'
+		ORDER BY r.seq DESC
+		LIMIT ?
 	`
 
-	rows, err := d.db.QueryContext(ctx, query, minLat, maxLat, minLng, maxLng)
+	rows, err := d.db.QueryContext(ctx, query, minLat, maxLat, minLng, maxLng, 10)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get reports in radius: %w", err)
 	}
