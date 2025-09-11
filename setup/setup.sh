@@ -539,7 +539,7 @@ services:
       - REPORT_AUTH_SERVICE_URL=http://cleanapp_report_auth_service:8080
       - REPORTS_SUBMISSION_URL=http://cleanapp_service:8080
       - OPENAI_API_KEY=\${OPENAI_API_KEY}
-      - REPORTS_RADIUS_METERS=20.0
+      - REPORTS_RADIUS_METERS=35.0
       - GIN_MODE=${GIN_MODE}
     ports:
       - 9087:8080
