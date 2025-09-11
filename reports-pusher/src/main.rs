@@ -1,10 +1,11 @@
 use clap::Parser;
 use anyhow::Result;
 use tokio::time::{sleep, Duration};
-use tonic::transport::Channel;
+use tonic::transport::{Channel, Endpoint, ClientTlsConfig};
 use tonic::Request;
 use hex::FromHex;
 use sha3::{Digest, Keccak256};
+use url::Url;
 use mysql_async::prelude::Queryable;
 
 pub mod proto { tonic::include_proto!("stxn.io"); }
@@ -18,7 +19,7 @@ struct Args {
     #[arg(long)]
     mysql_url: String,
 
-    /// Request registrator gRPC endpoint, e.g. http://127.0.0.1:50051
+    /// Request registrator gRPC endpoint, e.g. https://stxn-cleanapp-dev.stxn.io:443
     #[arg(long)]
     request_registrator_url: String,
 
@@ -44,9 +45,27 @@ fn keccak256(data: &[u8]) -> [u8; 32] {
     arr
 }
 
-async fn connect_rr(url: String) -> Result<RequestRegistratorServiceClient<Channel>> {
-    let client = RequestRegistratorServiceClient::connect(url).await?;
-    Ok(client)
+async fn connect_rr(url: &str) -> Result<RequestRegistratorServiceClient<Channel>> {
+    let parsed = Url::parse(url)?;
+    let scheme = parsed.scheme();
+    let mut endpoint = Endpoint::from_shared(url.to_string())?
+        .http2_keep_alive_interval(Duration::from_secs(30))
+        .keep_alive_timeout(Duration::from_secs(10))
+        .keep_alive_while_idle(true);
+    // Explicit TLS config with SNI/ALPN if https
+    if scheme == "https" {
+        if let Some(host) = parsed.host_str() {
+            let tls = ClientTlsConfig::new()
+                .domain_name(host.to_string())
+                .with_enabled_roots();
+            endpoint = endpoint.tls_config(tls)?;
+        }
+    }
+    let channel = endpoint.connect().await?;
+    if scheme == "https" {
+        log::info!("using TLS to connect to {}", parsed.host_str().unwrap_or(""));
+    }
+    Ok(RequestRegistratorServiceClient::new(channel))
 }
 
 #[tokio::main]
@@ -58,7 +77,10 @@ async fn main() -> Result<()> {
         .init()
         .unwrap();
 
-    let mut rr = connect_rr(args.request_registrator_url.clone()).await?;
+    log::info!("reports-pusher starting: RR={}, chain_id={}, poll={}s", args
+        .request_registrator_url, args.chain_id, args.poll_secs);
+
+    let mut rr = connect_rr(&args.request_registrator_url).await?;
 
     // Parse app id
     let app_id = <[u8; 32]>::from_hex(args.app_id_hex.trim_start_matches("0x")).expect("APP_ID_HEX must be 32-byte hex");
@@ -78,16 +100,12 @@ async fn main() -> Result<()> {
 async fn run_once(rr: &mut RequestRegistratorServiceClient<Channel>, pool: &mysql_async::Pool, app_id: &[u8; 32], chain_id: u64) -> Result<()> {
     let mut conn = pool.get_conn().await?;
 
-    // For Phase I, push new reports since last seq stored locally.
-    // A simple approach: fetch reports from the last minute or a watermark table.
-    // Here we fetch a small batch of the most recent reports that haven't been pushed.
     conn.query_drop(r#"
         CREATE TABLE IF NOT EXISTS reports_pushed (
             report_seq BIGINT PRIMARY KEY
         )
     "#).await?;
 
-    // Fetch up to 50 unpushed reports with minimal data
     let rows: Vec<(i64, String, f64, f64)> = conn.exec_map(
         r#"
         SELECT r.seq, r.id, r.latitude, r.longitude
@@ -104,7 +122,6 @@ async fn run_once(rr: &mut RequestRegistratorServiceClient<Channel>, pool: &mysq
     if rows.is_empty() { return Ok(()); }
 
     for (seq, user_id, lat, lon) in rows {
-        // Construct a minimal objective for reward distribution.
         let user_objective = UserObjectiveProto {
             app_id: app_id.to_vec(),
             nonse: seq as u64,
@@ -123,7 +140,6 @@ async fn run_once(rr: &mut RequestRegistratorServiceClient<Channel>, pool: &mysq
             }],
         };
 
-        // Additional data can carry context like user and coordinates. Avoid PII/sensitive data.
         let additional_data = vec![
             AdditionalDataProto { key: keccak256(b"user_id").to_vec(), value: user_id.as_bytes().to_vec() },
             AdditionalDataProto { key: keccak256(b"latitude").to_vec(), value: lat.to_le_bytes().to_vec() },
@@ -131,11 +147,12 @@ async fn run_once(rr: &mut RequestRegistratorServiceClient<Channel>, pool: &mysq
             AdditionalDataProto { key: keccak256(b"report_seq").to_vec(), value: seq.to_le_bytes().to_vec() },
         ];
 
-        // Derive an intent_id as keccak(app_id || seq_be)
-        let mut buf = Vec::with_capacity(32 + 8);
-        buf.extend_from_slice(app_id);
-        buf.extend_from_slice(&(seq as u64).to_be_bytes());
-        let intent_id = keccak256(&buf).to_vec();
+        let intent_id = {
+            let mut buf = Vec::with_capacity(32 + 8);
+            buf.extend_from_slice(app_id);
+            buf.extend_from_slice(&(seq as u64).to_be_bytes());
+            keccak256(&buf).to_vec()
+        };
 
         let event = UserEventProto {
             intent_id,
@@ -155,7 +172,6 @@ async fn run_once(rr: &mut RequestRegistratorServiceClient<Channel>, pool: &mysq
                 continue; 
             }
         }
-        // Mark as pushed
         conn.exec_drop("INSERT INTO reports_pushed (report_seq) VALUES (?)", (seq,)).await?;
         log::info!("Pushed report seq={} as sequence_id={}", seq, resp.sequence_id);
     }

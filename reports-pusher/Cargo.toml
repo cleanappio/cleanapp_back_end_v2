@@ -7,7 +7,7 @@ edition = "2021"
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "fs"] }
-tonic = { version = "0.13" }
+tonic = { version = "0.13", features = ["transport", "tls-webpki-roots", "tls-ring"] }
 prost = "0.13"
 sha3 = "0.10"
 hex = "0.4"
@@ -15,6 +15,7 @@ log = "0.4"
 stderrlog = "0.5"
 mysql_async = { version = "0.34" }
 bytes = "1"
+url = "2"
 
 [build-dependencies]
 tonic-build = "=0.13.0"
