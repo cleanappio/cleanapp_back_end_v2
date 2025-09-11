@@ -52,7 +52,7 @@ func Load() *Config {
 		AuthServiceURL: getEnv("AUTH_SERVICE_URL", "http://localhost:8080"),
 
 		// Report matching defaults
-		ReportsRadiusMeters: getFloatEnv("REPORTS_RADIUS_METERS", 10.0),
+		ReportsRadiusMeters: getFloatEnv("REPORTS_RADIUS_METERS", 100.0),
 
 		// OpenAI defaults
 		OpenAIAPIKey: getEnv("OPENAI_API_KEY", ""),
