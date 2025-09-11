@@ -145,7 +145,7 @@ func (s *EmailService) processReport(ctx context.Context, report models.Report) 
 	}
 
 	// Check if we have inferred contact emails
-	if analysis.InferredContactEmails != "" {
+	if analysis.Classification == "digital" && analysis.InferredContactEmails != "" {
 		// Split the comma-separated emails and send to each
 		emails := strings.Split(strings.TrimSpace(analysis.InferredContactEmails), ",")
 		var cleanEmails []string
