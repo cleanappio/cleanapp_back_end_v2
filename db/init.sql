@@ -196,6 +196,20 @@ SHOW COLUMNS FROM responses;
 -- Migration Statement:
 -- SELECT CONCAT('INSERT INTO area_index (area_id, geom) VALUES(', area_id, ',', ST_AsText(geom), ');') AS insert_statement FROM area_index;
 
+-- Create the report_clusters table
+CREATE TABLE IF NOT EXISTS report_clusters(
+  primary_seq INT NOT NULL,
+  related_seq INT NOT NULL,
+  PRIMARY KEY (primary_seq, related_seq),
+  INDEX primary_seq_index (primary_seq),
+  UNIQUE INDEX related_seq_unique (related_seq),
+  FOREIGN KEY (primary_seq) REFERENCES reports(seq) ON DELETE CASCADE,
+  FOREIGN KEY (related_seq) REFERENCES reports(seq) ON DELETE CASCADE
+);
+SHOW TABLES;
+DESCRIBE TABLE report_clusters;
+SHOW COLUMNS FROM report_clusters;
+
 -- Create the user.
 -- 1. Remove '%' user
 --    if the server and mysql run on the same instance.

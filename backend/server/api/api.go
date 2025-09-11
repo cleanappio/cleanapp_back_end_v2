@@ -124,6 +124,10 @@ type ReportArgs struct {
 	Annotation string  `json:"annotation"`
 }
 
+type ReportResponse struct {
+	Seq int `json:"seq"`
+}
+
 type StatsArgs struct {
 	Version string `json:"version"` // Must be "2.0"
 	Id      string `json:"id"`      // public key.

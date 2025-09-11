@@ -354,7 +354,7 @@ func TestSaveReport(t *testing.T) {
 				mock.ExpectCommit()
 			}
 
-			err := SaveReport(db, testCase.r)
+			_, err := SaveReport(db, testCase.r)
 
 			// Due to the bug in the actual code (geometry query on committed transaction),
 			// all successful cases will actually return an error

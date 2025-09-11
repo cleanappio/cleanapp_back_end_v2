@@ -63,7 +63,7 @@ func (h *Handlers) MarkResolved(c *gin.Context) {
 	}
 
 	// Mark the report as resolved
-	err := h.db.MarkReportResolved(c.Request.Context(), req.Seq)
+	err := h.db.MarkReportResolved(context.Background(), req.Seq)
 	if err != nil {
 		log.Printf("Failed to mark report %d as resolved: %v", req.Seq, err)
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -104,7 +104,7 @@ func (h *Handlers) GetReportStatus(c *gin.Context) {
 		return
 	}
 
-	status, err := h.db.GetReportStatus(c.Request.Context(), seq)
+	status, err := h.db.GetReportStatus(context.Background(), seq)
 	if err != nil {
 		log.Printf("Failed to get report status for seq %d: %v", seq, err)
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -132,7 +132,7 @@ func (h *Handlers) GetReportStatus(c *gin.Context) {
 
 // GetReportStatusCount gets the count of reports by status
 func (h *Handlers) GetReportStatusCount(c *gin.Context) {
-	counts, err := h.db.GetReportStatusCount(c.Request.Context())
+	counts, err := h.db.GetReportStatusCount(context.Background())
 	if err != nil {
 		log.Printf("Failed to get report status count: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -197,7 +197,7 @@ func (h *Handlers) MatchReport(c *gin.Context) {
 	}
 
 	// Get reports within configured radius
-	reports, err := h.db.GetReportsInRadius(c.Request.Context(), req.Latitude, req.Longitude, h.config.ReportsRadiusMeters)
+	reports, err := h.db.GetReportsInRadius(context.Background(), req.Latitude, req.Longitude, h.config.ReportsRadiusMeters)
 	if err != nil {
 		log.Printf("Failed to get reports in radius: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -241,7 +241,7 @@ func (h *Handlers) MatchReport(c *gin.Context) {
 
 				// If the report is resolved, update the report_status table and create response
 				if resolved {
-					err := h.db.MarkReportResolved(c.Request.Context(), r.Seq)
+					err := h.db.MarkReportResolved(context.Background(), r.Seq)
 					if err != nil {
 						log.Printf("Failed to mark report %d as resolved: %v", r.Seq, err)
 						// Continue processing other reports even if one fails
@@ -249,7 +249,7 @@ func (h *Handlers) MatchReport(c *gin.Context) {
 						log.Printf("Successfully marked report %d as resolved", r.Seq)
 
 						// Create a verified response from the match request data
-						_, err := h.db.CreateResponseFromMatchRequest(c.Request.Context(), req, r.Seq, "verified")
+						_, err := h.db.CreateResponseFromMatchRequest(context.Background(), req, r.Seq, "verified")
 						if err != nil {
 							log.Printf("Warning: failed to create verified response from match request: %v", err)
 							// Continue processing other reports even if response creation fails
@@ -295,11 +295,29 @@ func (h *Handlers) MatchReport(c *gin.Context) {
 	if highSimilarityCount > 0 && resolvedCount == 0 {
 		log.Printf("Found %d high similarity reports (>0.7) but none resolved. Submitting as new report.", highSimilarityCount)
 
+		// Find the highest similarity report that's not resolved (this will be our primary_seq)
+		var primarySeq int
+		var maxSimilarity float64
+		for _, result := range results {
+			if !result.Resolved && result.Similarity > maxSimilarity {
+				maxSimilarity = result.Similarity
+				primarySeq = result.ReportSeq
+			}
+		}
+
 		// Submit the original request as a new report
-		err := h.submitReport(c.Request.Context(), req)
+		newReportSeq, err := h.submitReport(context.Background(), req)
 		if err != nil {
 			log.Printf("Failed to submit report: %v", err)
 			// Continue with response even if submission fails
+		} else if newReportSeq > 0 && primarySeq > 0 {
+			// Create the cluster relationship with the returned sequence number
+			err = h.db.InsertReportCluster(context.Background(), primarySeq, newReportSeq)
+			if err != nil {
+				log.Printf("Failed to create report cluster: %v", err)
+			} else {
+				log.Printf("Created report cluster: primary_seq=%d, related_seq=%d", primarySeq, newReportSeq)
+			}
 		}
 	}
 
@@ -333,11 +351,11 @@ func (h *Handlers) compareImages(image1, image2 []byte, firstImageLocationLat, f
 	return similarity, resolved
 }
 
-// submitReport submits a report to the reports submission service
-func (h *Handlers) submitReport(ctx context.Context, req models.MatchReportRequest) error {
+// submitReport submits a report to the reports submission service and returns the new report's sequence number
+func (h *Handlers) submitReport(ctx context.Context, req models.MatchReportRequest) (int, error) {
 	if h.config.ReportsSubmissionURL == "" {
 		log.Printf("Reports submission URL not configured, skipping submission")
-		return nil
+		return 0, nil
 	}
 
 	// Prepare the report submission payload
@@ -356,7 +374,7 @@ func (h *Handlers) submitReport(ctx context.Context, req models.MatchReportReque
 	// Marshal to JSON
 	jsonData, err := json.Marshal(reportPayload)
 	if err != nil {
-		return fmt.Errorf("failed to marshal report payload: %w", err)
+		return 0, fmt.Errorf("failed to marshal report payload: %w", err)
 	}
 
 	// Create HTTP client with timeout
@@ -368,16 +386,32 @@ func (h *Handlers) submitReport(ctx context.Context, req models.MatchReportReque
 	url := h.config.ReportsSubmissionURL + "/report"
 	resp, err := client.Post(url, "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
-		return fmt.Errorf("failed to submit report: %w", err)
+		return 0, fmt.Errorf("failed to submit report: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("report submission failed with status %d", resp.StatusCode)
+		return 0, fmt.Errorf("report submission failed with status %d", resp.StatusCode)
 	}
 
-	log.Printf("Successfully submitted report %s to %s", req.ID, url)
-	return nil
+	// Parse response to get the sequence number
+	var response struct {
+		Seq int `json:"seq"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		log.Printf("Failed to parse response body, but report was submitted successfully: %v", err)
+		// Fallback: get the latest sequence number from the database
+		latestSeq, dbErr := h.db.GetLatestReportSeq(ctx)
+		if dbErr != nil {
+			log.Printf("Failed to get latest report seq from database: %v", dbErr)
+			return 0, nil // Report was submitted but we couldn't get the seq
+		}
+		log.Printf("Successfully submitted report %s to %s, using latest seq %d from database", req.ID, url, latestSeq)
+		return latestSeq, nil
+	}
+
+	log.Printf("Successfully submitted report %s to %s with seq %d", req.ID, url, response.Seq)
+	return response.Seq, nil
 }
 
 // GetResponse gets a specific response by seq
@@ -400,7 +434,7 @@ func (h *Handlers) GetResponse(c *gin.Context) {
 		return
 	}
 
-	response, err := h.db.GetResponse(c.Request.Context(), seq)
+	response, err := h.db.GetResponse(context.Background(), seq)
 	if err != nil {
 		log.Printf("Failed to get response for seq %d: %v", seq, err)
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -445,7 +479,7 @@ func (h *Handlers) GetResponsesByStatus(c *gin.Context) {
 		return
 	}
 
-	responses, err := h.db.GetResponsesByStatus(c.Request.Context(), status)
+	responses, err := h.db.GetResponsesByStatus(context.Background(), status)
 	if err != nil {
 		log.Printf("Failed to get responses by status %s: %v", status, err)
 		c.JSON(http.StatusInternalServerError, gin.H{

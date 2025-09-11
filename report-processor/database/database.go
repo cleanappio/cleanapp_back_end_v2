@@ -108,6 +108,29 @@ func (d *Database) EnsureResponsesTable(ctx context.Context) error {
 	return nil
 }
 
+// EnsureReportClustersTable creates the report_clusters table if it doesn't exist
+func (d *Database) EnsureReportClustersTable(ctx context.Context) error {
+	query := `
+		CREATE TABLE IF NOT EXISTS report_clusters(
+			primary_seq INT NOT NULL,
+			related_seq INT NOT NULL,
+			PRIMARY KEY (primary_seq, related_seq),
+			INDEX primary_seq_index (primary_seq),
+			UNIQUE INDEX related_seq_unique (related_seq),
+			FOREIGN KEY (primary_seq) REFERENCES reports(seq) ON DELETE CASCADE,
+			FOREIGN KEY (related_seq) REFERENCES reports(seq) ON DELETE CASCADE
+		)
+	`
+
+	_, err := d.db.ExecContext(ctx, query)
+	if err != nil {
+		return fmt.Errorf("failed to create report_clusters table: %w", err)
+	}
+
+	log.Println("Report clusters table ensured")
+	return nil
+}
+
 // MarkReportResolved marks a report as resolved
 func (d *Database) MarkReportResolved(ctx context.Context, seq int) error {
 	// First check if the report exists in the reports table
@@ -218,12 +241,14 @@ func (d *Database) GetReportsInRadius(ctx context.Context, latitude, longitude f
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		LEFT JOIN report_status rs ON r.seq = rs.seq
+		LEFT JOIN report_clusters rc ON r.seq = rc.related_seq
 		WHERE r.latitude BETWEEN ? AND ?
 		AND r.longitude BETWEEN ? AND ?
 		AND (rs.status IS NULL OR rs.status = 'active')
 		AND (ra.hazard_probability >= 0.5 OR ra.litter_probability >= 0.5 OR ra.classification = 'digital')
 		AND ra.is_valid = TRUE
 		AND ra.language = 'en'
+		AND rc.primary_seq IS NULL
 		ORDER BY r.seq DESC
 		LIMIT ?
 	`
@@ -407,4 +432,36 @@ func (d *Database) CreateResponseFromMatchRequest(ctx context.Context, req model
 
 	log.Printf("Response created with seq %d from match request for report %d with status %s, user %s kitn_daily incremented", responseSeq, reportSeq, status, req.ID)
 	return response, nil
+}
+
+// InsertReportCluster inserts a new report cluster relationship
+func (d *Database) InsertReportCluster(ctx context.Context, primarySeq, relatedSeq int) error {
+	query := `
+		INSERT INTO report_clusters (primary_seq, related_seq)
+		VALUES (?, ?)
+	`
+
+	_, err := d.db.ExecContext(ctx, query, primarySeq, relatedSeq)
+	if err != nil {
+		return fmt.Errorf("failed to insert report cluster: %w", err)
+	}
+
+	log.Printf("Report cluster created: primary_seq=%d, related_seq=%d", primarySeq, relatedSeq)
+	return nil
+}
+
+// GetLatestReportSeq gets the latest auto-incremented sequence number from the reports table
+func (d *Database) GetLatestReportSeq(ctx context.Context) (int, error) {
+	query := `SELECT seq FROM reports ORDER BY seq DESC LIMIT 1`
+
+	var seq int
+	err := d.db.QueryRowContext(ctx, query).Scan(&seq)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return 0, nil // No reports exist yet
+		}
+		return 0, fmt.Errorf("failed to get latest report seq: %w", err)
+	}
+
+	return seq, nil
 }

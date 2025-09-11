@@ -37,12 +37,14 @@ func Report(c *gin.Context) {
 	defer dbc.Close()
 
 	// Add report to the database.
-	err = db.SaveReport(dbc, report)
+	seq, err := db.SaveReport(dbc, report)
 	if err != nil {
 		log.Errorf("Failed to write report with %w", err)
 		c.String(http.StatusInternalServerError, "Failed to save the report.") // 500
 		return
 	}
+
+	c.JSON(http.StatusOK, api.ReportResponse{Seq: seq})
 
 	go stxn.SendReport(ethcommon.HexToAddress(report.Id), disburse.ToWei(1.0))
 

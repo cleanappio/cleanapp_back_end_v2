@@ -41,6 +41,11 @@ func main() {
 		log.Fatal("Failed to ensure responses table:", err)
 	}
 
+	// Ensure report_clusters table exists
+	if err := db.EnsureReportClustersTable(context.Background()); err != nil {
+		log.Fatal("Failed to ensure report_clusters table:", err)
+	}
+
 	// Create handlers
 	h := handlers.NewHandlers(db, cfg)
 
