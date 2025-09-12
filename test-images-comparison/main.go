@@ -24,8 +24,8 @@ func main() {
 	image2Path := os.Args[2]
 
 	// Default coordinates (can be overridden by command line args)
-	lat1, lng1 := 22.769041, 75.8349
-	lat2, lng2 := 22.769283, 75.834946
+	lat1, lng1 := 47.3205, 8.52144
+	lat2, lng2 := 47.3203, 8.5214
 
 	radiusMeters := 20.0
 

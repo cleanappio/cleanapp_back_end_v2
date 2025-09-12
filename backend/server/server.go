@@ -3,6 +3,8 @@ package server
 import (
 	"flag"
 	"fmt"
+	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/apex/log"
@@ -30,6 +32,7 @@ const (
 	EndPointUpdateAction      = "/update_action"
 	EndPointDeleteAction      = "/delete_action"
 	EndPointUpdateUserAction  = "/update_user_action"
+	EndPointGetAreas          = "/get_areas"
 )
 
 var (
@@ -48,6 +51,7 @@ func StartService() {
 	}))
 
 	router.GET(EndPointHelp, Help)
+	router.GET(EndPointGetAreas, GetAreas)                    // +
 	router.POST(EndPointUser, CreateOrUpdateUser)             // +
 	router.POST(EndPointPrivacyAndTOC, UpdatePrivacyAndTOC)   // +
 	router.POST(EndPointReport, Report)                       // +
@@ -69,4 +73,23 @@ func StartService() {
 
 	router.Run(fmt.Sprintf(":%d", *serverPort))
 	log.Info("Finished the service. Should not ever being seen.")
+}
+
+func GetAreas(c *gin.Context) {
+	// Build the target URL with the same query string
+	targetURL := "https://areas.cleanapp.io/api/v3/get_areas"
+	if c.Request.URL.RawQuery != "" {
+		targetURL += "?" + c.Request.URL.RawQuery
+	}
+
+	// Parse the target URL to ensure it's valid
+	parsedURL, err := url.Parse(targetURL)
+	if err != nil {
+		log.Errorf("Failed to parse target URL: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid target URL"})
+		return
+	}
+
+	// Redirect to the areas service
+	c.Redirect(http.StatusTemporaryRedirect, parsedURL.String())
 }
