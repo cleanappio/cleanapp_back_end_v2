@@ -1,0 +1,15 @@
+[general]
+dry_run = true
+prompt = "digital bug OR malfunction OR software issue -is:retweet"
+timeframe_days = 7
+poll_secs = 3600
+min_score = 20
+db_url = "mysql://server:secret_app@localhost:3306/cleanapp"
+cleanapp_api_url = "http://localhost:8080/report"
+bot_user_id = "0x0000000000000000000000000000000000000000"
+default_lat = 0.0
+default_lon = 0.0
+
+[twitter]
+bearer_token = "placeholder_bearer_token"
+max_results = 100
