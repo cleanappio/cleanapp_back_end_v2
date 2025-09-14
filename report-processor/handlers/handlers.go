@@ -368,7 +368,7 @@ func (h *Handlers) submitReport(ctx context.Context, req models.MatchReportReque
 		"y":          req.Y,
 		"image":      req.Image,
 		"action_id":  "",
-		"annotation": "",
+		"annotation": req.Annotation,
 	}
 
 	// Marshal to JSON

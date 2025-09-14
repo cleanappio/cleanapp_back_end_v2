@@ -34,13 +34,14 @@ type HealthResponse struct {
 
 // MatchReportRequest represents the request to match a report
 type MatchReportRequest struct {
-	Version   string  `json:"version" binding:"required"`
-	ID        string  `json:"id" binding:"required"`
-	Latitude  float64 `json:"latitude" binding:"required"`
-	Longitude float64 `json:"longitude" binding:"required"`
-	X         float64 `json:"x" binding:"required"`
-	Y         float64 `json:"y" binding:"required"`
-	Image     []byte  `json:"image" binding:"required"`
+	Version    string  `json:"version" binding:"required"`
+	ID         string  `json:"id" binding:"required"`
+	Latitude   float64 `json:"latitude" binding:"required"`
+	Longitude  float64 `json:"longitude" binding:"required"`
+	X          float64 `json:"x" binding:"required"`
+	Y          float64 `json:"y" binding:"required"`
+	Image      []byte  `json:"image" binding:"required"`
+	Annotation string  `json:"annotation"`
 }
 
 // Report represents a report from the database
