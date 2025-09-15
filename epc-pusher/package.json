@@ -1,0 +1,16 @@
+{
+  "name": "cleanapp_epc_backend",
+  "version": "1.0.0",
+  "main": "index.js",
+  "author": "ssadler <github@mashi.org>",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "typescript": "^5.9.2"
+  },
+  "dependencies": {
+    "ethers": "^6.15.0",
+    "mysql2": "^3.14.3",
+    "tsx": "^4.20.5"
+  }
+}
