@@ -281,22 +281,18 @@ func (h *Handlers) MatchReport(c *gin.Context) {
 
 	// Count resolved reports for logging
 	resolvedCount := 0
-	highSimilarityCount := 0
 	for _, result := range results {
 		if result.Resolved {
 			resolvedCount++
 		}
-		if result.Similarity > 0.7 {
-			highSimilarityCount++
-		}
 	}
 
 	// Check if we have high similarity reports but no resolved ones
-	if highSimilarityCount > 0 && resolvedCount == 0 {
-		log.Printf("Found %d high similarity reports (>0.7) but none resolved. Submitting as new report.", highSimilarityCount)
+	if resolvedCount == 0 {
+		log.Println("None of existing reports resolved. Submitting as new report.")
 
 		// Find the highest similarity report that's not resolved (this will be our primary_seq)
-		var primarySeq int
+		primarySeq := -1
 		var maxSimilarity float64
 		for _, result := range results {
 			if !result.Resolved && result.Similarity > maxSimilarity {
@@ -310,7 +306,7 @@ func (h *Handlers) MatchReport(c *gin.Context) {
 		if err != nil {
 			log.Printf("Failed to submit report: %v", err)
 			// Continue with response even if submission fails
-		} else if newReportSeq > 0 && primarySeq > 0 {
+		} else if newReportSeq > 0 && primarySeq > 0 && maxSimilarity >= 0.7 {
 			// Create the cluster relationship with the returned sequence number
 			err = h.db.InsertReportCluster(context.Background(), primarySeq, newReportSeq)
 			if err != nil {
@@ -318,6 +314,8 @@ func (h *Handlers) MatchReport(c *gin.Context) {
 			} else {
 				log.Printf("Created report cluster: primary_seq=%d, related_seq=%d", primarySeq, newReportSeq)
 			}
+		} else {
+			log.Println("No report cluster created. Submitting as new report.")
 		}
 	}
 
