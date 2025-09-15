@@ -17,3 +17,4 @@ CREATE TABLE IF NOT EXISTS indexing_state (
   platform VARCHAR(50) PRIMARY KEY,
   last_indexed_time TIMESTAMP
 );
+

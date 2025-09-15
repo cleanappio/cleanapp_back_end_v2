@@ -13,3 +13,4 @@ default_lon = 0.0
 [twitter]
 bearer_token = "placeholder_bearer_token"
 max_results = 100
+
