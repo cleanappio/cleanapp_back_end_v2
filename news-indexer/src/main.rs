@@ -200,3 +200,4 @@ async fn search_twitter(config: &TwitterConfig, query: &str, from: chrono::DateT
     }
     Ok(posts)
 }
+
