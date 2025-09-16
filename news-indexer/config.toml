@@ -1,16 +1,29 @@
 [general]
-dry_run = true
-prompt = "digital bug OR malfunction OR software issue -is:retweet"
+dry_run = false
+keywords = [
+  "app", "interface", "ui", "design", "layout", "screen",
+  "button", "menu", "navigation", "scroll", "swipe", "tap",
+  "confusing", "difficult", "hard to use", "can't find",
+  "frustrating", "annoying", "broken", "doesn't work",
+  "slow", "crashes", "freezes", "loading",
+  "touch", "gesture", "responsive", "mobile", "phone",
+  "small text", "hard to read", "can't see",
+  "login", "sign up", "checkout", "payment", "search",
+  "update", "download", "install", "settings"
+]
+max_rating = 3
+min_length = 15
 timeframe_days = 7
 poll_secs = 3600
-min_score = 20
 db_url = "mysql://server:secret_app@localhost:3306/cleanapp"
 cleanapp_api_url = "http://localhost:8080/report"
 bot_user_id = "0x0000000000000000000000000000000000000000"
 default_lat = 0.0
 default_lon = 0.0
+max_submissions_per_run = 10000
 
-[twitter]
-bearer_token = "placeholder_bearer_token"
-max_results = 100
+[appstore]
+country = "us"
+top_apps_limit = 200
+reviews_per_app = 50
 

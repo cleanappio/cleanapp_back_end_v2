@@ -10,3 +10,4 @@ transactiontest
 # IntelliJ IDEA metafiles
 /cleanapp_back_end_v2.iml
 /.idea/
+/news-indexer/config-local.toml
