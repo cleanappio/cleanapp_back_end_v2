@@ -2,102 +2,163 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/google/generative-ai-go/genai"
-	"google.golang.org/api/option"
 )
-
-/*
-This program demonstrates image analysis using both OpenAI GPT-4 Vision API and Google Gemini API.
-
-Features:
-- Image analysis with OpenAI GPT-4 Vision API
-- Image analysis with Google Gemini API
-- Text translation with both APIs
-- Automatic URL detection to choose appropriate analysis prompts
-- Support for multiple image formats (JPEG, PNG, GIF, WebP)
-
-Environment Variables:
-- OPENAI_API_KEY: Required for OpenAI API calls
-- GEMINI_API_KEY: Optional for Gemini API calls
-
-Usage:
-	go run main.go <image_path>
-	Example: go run main.go ./image.jpg
-
-The program will:
-1. Classify the image to determine if it contains a website/URL
-2. Analyze the image with appropriate prompt based on classification
-3. Translate the analysis to Montenegrin
-4. If GEMINI_API_KEY is set, also demonstrate Gemini API usage
-*/
 
 const openAIEndpoint = "https://api.openai.com/v1/chat/completions"
 
-const litterHazardPrompt = `
-	What kind of litter or hazard can you see on this image?
-				
-	Please describe the litter or hazard in detail.
-	Also, give a probability that there is a litter or hazard on a photo in units from 0.0 to 1.0 and
-	a severity level from 0.0 to 1.0.
-	Also, please extract any brand name from the image, if present. Extract only a brand name without any context info. If there are multiple brands, extract the one with the highest probability of being present.
+const systemPrompt = `
+You are **CleanApp Analyzer**, a vision-enabled expert that converts screenshots or photos of broken physical or digital systems into a high-value metadata report.
 
-	Please format the output as a json with following fields:
-	- title: an issue title, one sentence;
-	- description: a description, one paragraph;
-	- brand_name: optional, a brand name, if present;
-	- litter_probability: a probability, a number from 0.0 to 1.0;
-	- hazard_probability: a severity, a number from 0.0 to 1.0;
-	- severity_level: a severity level, a number from 0.0 to 1.0;
+########################################
+# 1. MISSION
+########################################
+For every input (images ± text) you MUST:
+
+Step 1: ========: Detect the input type. If the imabe contains a photo or a screenshot of the computer monitor or a mobile phone then consider it a digital input. If the image contains any physical object then consider it a physical input.
+Step 2: ========: If the input is digital, then you need to detect the following information:
+- The platform/vendor;
+- The defect, check if the image contains any annotation or text that indicates a defect;
+- the platform / vendor contact emails, infer it from the platform/vendor;
+Step 3: ========: If the input is physical, then you need to detect the following information:
+- The litter, defect or any kind of hazard contained on the image;
+Step 4: ========: Fill every field in the JSON schema (see § 3) using direct evidence or the inference heuristics (see § 4).
+Step 5: ========: Output a **single, valid JSON object** and nothing else.
+
+########################################
+# 2. OUTPUT RULES
+########################################
+* JSON only — no wrapping markdown.  
+* All string values must be **informative**; never output the literal word "null" unless every inference avenue fails.
+* The summary must quote **critical numeric facts** (e.g. "0% men, 101.6% women").  
+* The responsible_party must include the vendor/brand name.  
+* The inferred_contact_emails must use that vendor's domain; generate 1-3 plausible addresses.  
+* The suggested_remediation must **≥4 items**, including:  
+  - at least one concrete QA or unit-test step  
+  - at least one data-correction or back-fill step  
+  - if user-facing, a customer-communication step
+* Filter out an explicit content e.g. porn. Set the is_valid JSON field to false if you detect such content on the image.
+
+########################################
+# 3. OUTPUT SCHEMA
+{
+  "issue_title":            "<headline>",
+  "description":                "<1-2 sentences quoting key numbers or strings>",
+  "classification":         "<physical | digital>",
+  "user_info": {
+      "name":         "<or null>",
+      "email":        "<or null>",
+      "company":      "<or null>",
+      "role":         "<or null>",
+      "company_size": "<or null>"
+  },
+  "location":               "<url, address, lat/lng or null>",
+  "brand_name": "<A brand name, if present, otherwise null>",
+  "litter_probability": <0.0-1.0>,
+  "hazard_probability": <0.0-1.0>,
+  "digital_bug_probabilty": <0.0-1.0>,
+  "severity_level": <0.0-1.0>,
+  "is_valid": <true | false>
+  "responsible_party":      "<vendor/brand + specific team>",
+  "inferred_contact_emails":["<vendor-domain email 1>", "<email 2>", "<email 3>"],
+  "suggested_remediation":  ["<step 1>", "<step 2>", "<step 3>", "<step 4>"]
+}
+########################################
+
+4. INFERENCE HEURISTICS
+########################################
+
+Brand / platform detection — Use any of:
+
+Logo shapes / colours (e.g. Meta blue, Instagram purple gradient).
+
+Phrases like “Who saw your ad”, “Ads Manager”, “Campaign — …”.
+
+Product names (“Grok”, “Reels”, “Sponsored”).
+
+Contact e-mails — If brand domain is meta.com, generate variants such as support@meta.com, ads-support@meta.com, analytics-qa@meta.com.
+
+Responsible party mapping —
+
+Data-visualisation bug → “<Brand> Ads Insights Engineering & Data QA Team”
+
+Form submit error → “<Brand> Web Growth Engineering”
+
+Physical litter → “<Municipality> Public Works”
+
+Percentage or sum anomalies — Always state the exact numbers in the summary.
+
+########################################
+
+5. EXEMPLARS (now two examples)
+########################################
+
+Example A - Grok early-access form
+INPUT: screenshot showing an early-access form for "Grok for Business" returning "Error submitting form".
+TARGET_OUTPUT:
+
+json
+Copy
+{
+  "issue_title": "Broken Form Submission on Grok for Business",
+  "summary": "The early-access request form returns a generic submission error after 3 mandatory fields are completed, blocking lead capture.",
+  "classification": "Digital Waste",
+  "user_info": {
+      "name": "Boris Mamlyuk",
+      "email": "b@stxn.io",
+      "company": "Smart Transactions Corp.",
+      "role": "CEO",
+      "company_size": "11-50"
+  },
+  "location": "x.ai/grok",
+  "responsible_party": "x.ai Web Growth Engineering",
+  "inferred_contact_emails": ["support@x.ai", "web@x.ai", "info@x.ai"],
+  "suggested_remediation": [
+      "Reproduce the POST in dev tools and capture server response.",
+      "Examine backend logs for 4xx/5xx anomalies linked to the endpoint.",
+      "Add field-level validation to replace the generic banner.",
+      "Notify sign-ups once fixed and consider an alternate email form."
+  ]
+}
+Example B - Gender breakdown > 100%
+INPUT: screenshot reading "Who saw your ad - Gender - 0% Men • 101.6% Women" with an Instagram-purple doughnut chart.
+TARGET_OUTPUT:
+
+json
+Copy
+{
+  "issue_title": "Ad Analytics Gender Breakdown Exceeds 100 %",
+  "summary": "The insights widget displays 0% men and 101.6% women, so demographics total 101.6%. This indicates a percentage-calculation defect in the Meta Ads analytics pipeline.",
+  "classification": "Digital Waste",
+  "user_info": {
+      "name": null,
+      "email": null,
+      "company": null,
+      "role": null,
+      "company_size": null
+  },
+  "location": "Meta / Instagram Ads Insights UI",
+  "responsible_party": "Meta Ads Insights Engineering & Data QA Team",
+  "inferred_contact_emails": [
+      "ads-support@meta.com",
+      "analytics-qa@meta.com",
+      "support@fb.com"
+  ],
+  "suggested_remediation": [
+      "Audit the aggregation query to ensure gender percentages are normalised to 100%.",
+      "Verify rounding rules and apply compensating adjustments before display.",
+      "Ship a unit test that fails if demographic sums deviate from 100 ± 0.1 %.",
+      "Back-fill historical insight records and email affected advertisers once corrected."
+  ]
+}
 `
-
-const digitalErrorPrompt = `
-	Do you see a bug on the web page on the image?
-	Please provide a bug, please output its description if you recognize it.
-	
-	Please format the output as:
-	- a bug title, one sentence;
-	- a bug description, one paragraph;
-	- a brand name, optional, if present;
-	- a probability, a number from 0.0 to 1.0;
-	- a severity, a number from 0.0 to 1.0;
-`
-
-const classificationPrompt = `
-	What is the probability that the image contain any of the following content:
-	- a photo of a screen with a website on it;
-	- a mobile site or application screenshot;
-	- a screen of a web or mobile application;
-	- a digital bug or error;
-
-	Please format the output as JSON with following fields:
-	- digital_probability: a probability, a number from 0.0 to 1.0;
-	- site_url: a site URL, if you recognize it;
-`
-
-// const litterHazardPromptForGemini = `
-// What kind of litter or hazard can you see on this image? Please describe the litter or hazard in detail. Also, please extract any brand name from the image, if present. Also, give a probability that there is a litter or hazard on a photo in units from 0.0 to 1.0 and a severity level from 0.0 to 1.0. The severity means a degree of how dangerous for life the object on the image is.
-// If there is no visible litter or hazard on the image, please specifify that explicitly.
-// Analyze this image and provide a JSON response with the following structure:
-// {
-// "title": "A descriptive title for the issue",
-// "description": "A detailed description of what you see in the image",
-// "brand_name": "A brand name, if present, otherwise null",
-// "litter_probability": 0.0-1.0,
-// "hazard_probability": 0.0-1.0,
-// "severity_level": 0.0-1.0
-// }
-// `
 
 type Message struct {
 	Role    string `json:"role"`
@@ -137,68 +198,6 @@ type ClassificationResult struct {
 	SiteURL            string  `json:"site_url"`
 }
 
-// extractJSONFromMarkdown extracts JSON from markdown code blocks
-func extractJSONFromMarkdown(response string) string {
-	// Look for JSON code blocks with ``` markers
-	startMarker := "```"
-	endMarker := "```"
-
-	startIdx := strings.Index(response, startMarker)
-	if startIdx == -1 {
-		// No code block found, try to find JSON object directly
-		startIdx = strings.Index(response, "{")
-		if startIdx == -1 {
-			return response
-		}
-		endIdx := strings.LastIndex(response, "}")
-		if endIdx == -1 {
-			return response
-		}
-		return strings.TrimSpace(response[startIdx : endIdx+1])
-	}
-
-	// Find the end of the first code block
-	endIdx := strings.Index(response[startIdx+len(startMarker):], endMarker)
-	if endIdx == -1 {
-		return response
-	}
-	endIdx += startIdx + len(startMarker)
-
-	// Extract content between the markers
-	content := response[startIdx+len(startMarker) : endIdx]
-
-	// Remove the language identifier if present (e.g., "json")
-	lines := strings.Split(strings.TrimSpace(content), "\n")
-	if len(lines) > 0 && (strings.TrimSpace(lines[0]) == "json" || strings.TrimSpace(lines[0]) == "") {
-		content = strings.Join(lines[1:], "\n")
-	}
-
-	return strings.TrimSpace(content)
-}
-
-// parseClassification parses the OpenAI response and extracts analysis fields
-func parseClassification(response string) (*ClassificationResult, error) {
-	// Clean the response
-	cleaned := strings.TrimSpace(response)
-
-	// Extract JSON from markdown if present
-	jsonContent := extractJSONFromMarkdown(cleaned)
-
-	// Try to parse as JSON
-	var result ClassificationResult
-	err := json.Unmarshal([]byte(jsonContent), &result)
-	if err == nil {
-		// Validate the parsed result
-		if result.DigitalProbability < 0 || result.DigitalProbability > 1 {
-			return nil, errors.New("digital_probability must be between 0 and 1")
-		}
-		return &result, nil
-	}
-
-	// If JSON parsing fails, return error
-	return nil, errors.New("failed to parse JSON response: " + err.Error())
-}
-
 // getMimeType returns the MIME type based on file extension
 func getMimeType(filename string) string {
 	ext := strings.ToLower(filepath.Ext(filename))
@@ -235,31 +234,15 @@ func encodeImageToBase64(imagePath string) (string, error) {
 	return fmt.Sprintf("data:%s;base64,%s", mimeType, base64Data), nil
 }
 
-// extractBase64FromDataURL extracts the base64 data from a data URL
-func extractBase64FromDataURL(dataURL string) (string, error) {
-	// Check if it's a data URL
-	if !strings.HasPrefix(dataURL, "data:") {
-		return dataURL, nil // Already just base64 data
-	}
-
-	// Find the comma that separates the header from the data
-	commaIndex := strings.Index(dataURL, ",")
-	if commaIndex == -1 {
-		return "", fmt.Errorf("invalid data URL format")
-	}
-
-	// Extract the base64 data part
-	return dataURL[commaIndex+1:], nil
-}
-
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("Usage: go run main.go <image_path>")
-		fmt.Println("Example: go run main.go ./image.jpg")
+		fmt.Println("Usage: go run main.go <image_path> <description>")
+		fmt.Println("Example: go run main.go ./image.jpg \"description phrase\"")
 		return
 	}
 
 	imagePath := os.Args[1]
+	description := os.Args[2]
 
 	// Encode the image to base64
 	base64Image, err := encodeImageToBase64(imagePath)
@@ -274,94 +257,19 @@ func main() {
 		return
 	}
 
-	// Check for Gemini API key
-	geminiKey := os.Getenv("GEMINI_API_KEY")
-	if geminiKey == "" {
-		fmt.Println("GEMINI_API_KEY is not set (optional)")
-	}
-
-	// Step 1: Call API with classificationPrompt
-	fmt.Println("Step 1: Classifying image...")
-	classificationResponse, err := callOpenAI(openAIKey, base64Image, classificationPrompt)
-	if err != nil {
-		fmt.Printf("Error in classification call: %v\n", err)
-		return
-	}
-
-	fmt.Printf("Classification response: %s\n\n", classificationResponse)
-
-	res, err := parseClassification(classificationResponse)
-	if err != nil {
-		fmt.Printf("Error unmarshalling classification response: %v\n", err)
-		return
-	}
-
-	var secondPrompt string
-	if res.DigitalProbability >= 0.2 {
-		fmt.Println("URL detected. Using digital error prompt...")
-		secondPrompt = digitalErrorPrompt
-	} else {
-		fmt.Println("No URL detected. Using litter/hazard prompt...")
-		secondPrompt = litterHazardPrompt
-	}
-
-	// Step 2: Call API with the appropriate prompt
-	fmt.Println("Step 2: Analyzing with appropriate prompt...")
-	analysisResponse, err := callOpenAI(openAIKey, base64Image, secondPrompt)
+	// Call API with the prompt
+	fmt.Println("Analyzing with the provided prompt...")
+	analysisResponse, err := callOpenAI(openAIKey, base64Image, systemPrompt, description)
 	if err != nil {
 		fmt.Printf("Error in analysis call: %v\n", err)
 		return
 	}
 
 	fmt.Printf("Analysis response: %s\n", analysisResponse)
-
-	// // Step 4: Translate the response to Montenegro language
-	// fmt.Println("Step 4: Translating to Montenegro language...")
-	// translationResponse, err := callOpenAITranslation(openAIKey, analysisResponse, "Montenegrin")
-	// if err != nil {
-	// 	fmt.Printf("Error in translation call: %v\n", err)
-	// 	return
-	// }
-
-	// fmt.Printf("Translation response: %s\n", translationResponse)
-
-	// // Example of using the translation function for other languages
-	// fmt.Println("\nExample: Translating to Spanish...")
-	// spanishTranslation, err := callOpenAITranslation(openAIKey, "Hello, how are you?", "Spanish")
-	// if err != nil {
-	// 	fmt.Printf("Error in Spanish translation: %v\n", err)
-	// } else {
-	// 	fmt.Printf("Spanish translation: %s\n", spanishTranslation)
-	// }
-
-	// // Step 5: Example of using Gemini API (if API key is available)
-	// if geminiKey != "" {
-	// 	fmt.Println("\n=== Gemini API Example ===")
-
-	// 	// Use Gemini for image analysis
-	// 	fmt.Println("Step 5: Analyzing with Gemini...")
-	// 	geminiResponse, err := CallGemini(geminiKey, base64Image, litterHazardPromptForGemini)
-	// 	if err != nil {
-	// 		fmt.Printf("Error in Gemini analysis call: %v\n", err)
-	// 	} else {
-	// 		fmt.Printf("Gemini analysis response: %s\n", geminiResponse)
-	// 	}
-
-	// 	// Use Gemini for translation
-	// 	fmt.Println("Step 6: Translating with Gemini...")
-	// 	geminiTranslation, err := CallGeminiTranslation(geminiKey, analysisResponse, "Montenegrin")
-	// 	if err != nil {
-	// 		fmt.Printf("Error in Gemini translation call: %v\n", err)
-	// 	} else {
-	// 		fmt.Printf("Gemini translation response: %s\n", geminiTranslation)
-	// 	}
-	// } else {
-	// 	fmt.Println("\nSkipping Gemini API example (GEMINI_API_KEY not set)")
-	// }
 }
 
 // callOpenAI makes a call to OpenAI API with the given prompt and image
-func callOpenAI(apiKey, base64Image, prompt string) (string, error) {
+func callOpenAI(apiKey, base64Image, prompt, description string) (string, error) {
 	textPrompt := TextContent{
 		Type: "text",
 		Text: prompt,
@@ -374,14 +282,25 @@ func callOpenAI(apiKey, base64Image, prompt string) (string, error) {
 		},
 	}
 
+	descriptionPrompt := TextContent{
+		Type: "text",
+		Text: description,
+	}
+
 	reqBody := ChatRequest{
 		Model: "gpt-4o",
 		Messages: []Message{
 			{
-				Role: "user",
+				Role: "system",
 				Content: []any{
 					textPrompt,
+				},
+			},
+			{
+				Role: "user",
+				Content: []any{
 					imagePrompt,
+					descriptionPrompt,
 				},
 			},
 		},
@@ -437,261 +356,4 @@ func callOpenAI(apiKey, base64Image, prompt string) (string, error) {
 	}
 
 	return string(contentJSON), nil
-}
-
-// CallGemini makes a call to Gemini API with the given prompt and image
-// Parameters:
-//   - apiKey: Google AI API key for authentication
-//   - base64Image: Base64 encoded image data URL
-//   - prompt: The text prompt to send with the image
-//
-// Returns:
-//   - The response text as a string
-//   - An error if the API call fails
-//
-// Example usage:
-//
-//	response, err := CallGemini(apiKey, base64Image, "Analyze this image")
-//	if err != nil {
-//	    log.Printf("Gemini API error: %v", err)
-//	} else {
-//	    fmt.Printf("Response: %s", response)
-//	}
-func CallGemini(apiKey, base64Image, prompt string) (string, error) {
-	// Extract base64 data from data URL if needed
-	imageData, err := extractBase64FromDataURL(base64Image)
-	if err != nil {
-		return "", fmt.Errorf("error extracting base64 data: %w", err)
-	}
-
-	// Create context
-	ctx := context.Background()
-
-	// Create client with API key
-	client, err := genai.NewClient(ctx, option.WithAPIKey(apiKey))
-	if err != nil {
-		return "", fmt.Errorf("error creating Gemini client: %w", err)
-	}
-	defer client.Close()
-
-	// Get the model
-	model := client.GenerativeModel("gemini-1.5-flash")
-
-	// Decode base64 image data
-	imageBytes, err := base64.StdEncoding.DecodeString(imageData)
-	if err != nil {
-		return "", fmt.Errorf("error decoding base64 image: %w", err)
-	}
-
-	// Create image part
-	imagePart := genai.ImageData("image/jpeg", imageBytes)
-
-	// Create content with text and image
-	content := []genai.Part{
-		genai.Text(prompt),
-		imagePart,
-	}
-
-	// Generate content
-	resp, err := model.GenerateContent(ctx, content...)
-	if err != nil {
-		return "", fmt.Errorf("error generating content: %w", err)
-	}
-
-	// Check if we have candidates
-	if len(resp.Candidates) == 0 {
-		return "", fmt.Errorf("no candidates in response")
-	}
-
-	// Extract text from the first candidate
-	candidate := resp.Candidates[0]
-	if len(candidate.Content.Parts) == 0 {
-		return "", fmt.Errorf("no parts in candidate content")
-	}
-
-	// Return the text from the first part
-	part := candidate.Content.Parts[0]
-	if textPart, ok := part.(genai.Text); ok {
-		return string(textPart), nil
-	}
-
-	return "", fmt.Errorf("unexpected response format")
-}
-
-// CallGeminiTranslation makes a call to Gemini API for text translation
-// Parameters:
-//   - apiKey: Google AI API key for authentication
-//   - text: The text to be translated
-//   - targetLanguage: The target language to translate into (e.g., "Spanish", "French", "Montenegrin")
-//
-// Returns:
-//   - The translated text as a string
-//   - An error if the translation fails
-//
-// Example usage:
-//
-//	translatedText, err := CallGeminiTranslation(apiKey, "Hello world", "Spanish")
-//	if err != nil {
-//	    log.Printf("Translation error: %v", err)
-//	} else {
-//	    fmt.Printf("Translated: %s", translatedText)
-//	}
-func CallGeminiTranslation(apiKey, text, targetLanguage string) (string, error) {
-	translationPrompt := fmt.Sprintf("Please translate the following text to %s:\n\n%s", targetLanguage, text)
-
-	// Create context
-	ctx := context.Background()
-
-	// Create client with API key
-	client, err := genai.NewClient(ctx, option.WithAPIKey(apiKey))
-	if err != nil {
-		return "", fmt.Errorf("error creating Gemini client: %w", err)
-	}
-	defer client.Close()
-
-	// Get the model
-	model := client.GenerativeModel("gemini-1.5-flash")
-
-	// Create content with text only
-	content := []genai.Part{
-		genai.Text(translationPrompt),
-	}
-
-	// Generate content
-	resp, err := model.GenerateContent(ctx, content...)
-	if err != nil {
-		return "", fmt.Errorf("error generating content: %w", err)
-	}
-
-	// Check if we have candidates
-	if len(resp.Candidates) == 0 {
-		return "", fmt.Errorf("no candidates in response")
-	}
-
-	// Extract text from the first candidate
-	candidate := resp.Candidates[0]
-	if len(candidate.Content.Parts) == 0 {
-		return "", fmt.Errorf("no parts in candidate content")
-	}
-
-	// Return the text from the first part
-	part := candidate.Content.Parts[0]
-	if textPart, ok := part.(genai.Text); ok {
-		return string(textPart), nil
-	}
-
-	return "", fmt.Errorf("unexpected response format")
-}
-
-// callOpenAITranslation makes a call to OpenAI API for text translation
-// Parameters:
-//   - apiKey: OpenAI API key for authentication
-//   - text: The text to be translated
-//   - targetLanguage: The target language to translate into (e.g., "Spanish", "French", "Montenegrin")
-//
-// Returns:
-//   - The translated text as a string
-//   - An error if the translation fails
-//
-// Example usage:
-//
-//	translatedText, err := callOpenAITranslation(apiKey, "Hello world", "Spanish")
-//	if err != nil {
-//	    log.Printf("Translation error: %v", err)
-//	} else {
-//	    fmt.Printf("Translated: %s", translatedText)
-//	}
-func callOpenAITranslation(apiKey, text, targetLanguage string) (string, error) {
-	translationPrompt := fmt.Sprintf("Please translate the following text to %s:\n\n%s", targetLanguage, text)
-
-	reqBody := ChatRequest{
-		Model: "gpt-4o",
-		Messages: []Message{
-			{
-				Role:    "user",
-				Content: translationPrompt,
-			},
-		},
-	}
-
-	jsonData, err := json.Marshal(reqBody)
-	if err != nil {
-		return "", fmt.Errorf("error marshaling JSON: %w", err)
-	}
-
-	req, err := http.NewRequest("POST", openAIEndpoint, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return "", fmt.Errorf("error creating request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("error sending request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("error reading response body: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
-	}
-
-	var chatResp ChatResponse
-	if err := json.Unmarshal(body, &chatResp); err != nil {
-		return "", fmt.Errorf("error parsing response: %w", err)
-	}
-
-	if len(chatResp.Choices) == 0 {
-		return "", fmt.Errorf("no choices in response")
-	}
-
-	// Extract the text content from the response
-	content := chatResp.Choices[0].Message.Content
-	if contentStr, ok := content.(string); ok {
-		return contentStr, nil
-	}
-
-	// If content is not a string, try to marshal it back to JSON
-	contentJSON, err := json.Marshal(content)
-	if err != nil {
-		return "", fmt.Errorf("error marshaling content: %w", err)
-	}
-
-	return string(contentJSON), nil
-}
-
-// containsURL checks if the response contains a URL
-func containsURL(response string) bool {
-	// Simple URL detection - look for common URL patterns
-	urlPatterns := []string{
-		"http://",
-		"https://",
-		"www.",
-		".com",
-		".org",
-		".net",
-		".edu",
-		".gov",
-		".io",
-		".co",
-		".uk",
-		".de",
-		".fr",
-		".jp",
-		".cn",
-	}
-
-	responseLower := strings.ToLower(response)
-	for _, pattern := range urlPatterns {
-		if strings.Contains(responseLower, pattern) {
-			return true
-		}
-	}
-
-	return false
 }
