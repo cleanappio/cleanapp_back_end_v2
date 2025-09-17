@@ -10,6 +10,10 @@ use serde_json::json;
 use tokio::time::sleep;
 use std::time::Duration as StdDuration;
 use reqwest::header;
+use tokio::sync::watch;
+
+#[cfg(unix)]
+use tokio::signal::unix::{signal, SignalKind};
 
 #[derive(Deserialize)]
 struct Config {
@@ -77,7 +81,7 @@ fn truncate_utf8_by_bytes(input: &str, max_bytes: usize) -> String {
 
 async fn submit_with_retries(client: &reqwest::Client, url: &str, host_header: Option<&String>, payload: serde_json::Value) -> Result<Option<i64>> {
     let mut attempt: u32 = 0;
-    let max_attempts: u32 = 6; // ~1+2+4+8+16+32s backoff worst-case
+    let max_attempts: u32 = 6;
     loop {
         let mut req = client.post(url).json(&payload);
         if let Some(host) = host_header { req = req.header(header::HOST, host); }
@@ -88,7 +92,6 @@ async fn submit_with_retries(client: &reqwest::Client, url: &str, host_header: O
                     return Ok(res["seq"].as_i64());
                 }
                 let status = resp.status();
-                // Retry on 5xx
                 if status.is_server_error() && attempt + 1 < max_attempts {
                     attempt += 1;
                     let delay = StdDuration::from_secs(1u64 << (attempt - 1).min(5));
@@ -101,7 +104,6 @@ async fn submit_with_retries(client: &reqwest::Client, url: &str, host_header: O
                 }
             }
             Err(e) => {
-                // Retry on connect/dns/timeout
                 let retryable = e.is_connect() || e.is_timeout() || e.is_request();
                 if retryable && attempt + 1 < max_attempts {
                     attempt += 1;
@@ -126,28 +128,83 @@ async fn main() -> Result<()> {
     let config: Config = toml::from_str(&config_str).context("Failed to parse config")?;
     let opts = mysql_async::Opts::from_url(&config.general.db_url)?;
     let pool = mysql_async::Pool::new(opts);
+
+    let (shutdown_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
+
+    // Spawn shutdown listener
+    tokio::spawn(async move {
+        #[cfg(unix)]
+        {
+            let mut sigterm = signal(SignalKind::terminate()).expect("failed to bind SIGTERM");
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {},
+                _ = sigterm.recv() => {},
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = tokio::signal::ctrl_c().await;
+        }
+        let _ = shutdown_tx.send(true);
+    });
+
+    info!("news-indexer started");
     loop {
+        if *shutdown_rx.borrow() { break; }
+        info!("run cycle started");
         if let Err(e) = run_once(&pool, &config).await {
             error!("Error in run_once: {:?}", e);
         }
-        sleep(StdDuration::from_secs(config.general.poll_secs)).await;
+        info!("run cycle completed");
+        if *shutdown_rx.borrow() { break; }
+        tokio::select! {
+            _ = sleep(StdDuration::from_secs(config.general.poll_secs)) => {},
+            _ = shutdown_rx.changed() => {},
+        }
     }
+    info!("shutdown signal received, exiting gracefully");
+    Ok(())
 }
 
 async fn run_once(pool: &mysql_async::Pool, config: &Config) -> Result<()> {
     let mut conn = pool.get_conn().await?;
     conn.query_drop(include_str!("../../db/patches/20250914_news_indexer.sql")).await?;
 
-    // Compute timeframe window start; ignore last_indexed_time for filtering to allow backfills
+    // Timeframe window start for filtering
     let window_start = Utc::now() - Duration::days(config.general.timeframe_days);
 
-    info!("Fetching top {} apps for {}", config.appstore.top_apps_limit, config.appstore.country);
-    let app_ids = fetch_top_apps(&config.appstore).await?;
+    // Load app ids from DB instead of live feed
+    let total_apps: u64 = conn.exec_first("SELECT COUNT(*) FROM indexer_appstore_apps", ()).await?.unwrap_or(0u64);
+    let limit = config.appstore.top_apps_limit;
+    let app_ids: Vec<(String, String)> = if limit == 0 {
+        info!("Loading all {} apps from indexer_appstore_apps", total_apps);
+        conn
+            .exec_map(
+                "SELECT app_id, name FROM indexer_appstore_apps ORDER BY updated_at DESC",
+                (),
+                |(id, name)| (id, name),
+            )
+            .await?
+    } else {
+        let selected = std::cmp::min(limit as u64, total_apps);
+        info!("Loading {} of {} apps from indexer_appstore_apps", selected, total_apps);
+        conn
+            .exec_map(
+                "SELECT app_id, name FROM indexer_appstore_apps ORDER BY updated_at DESC LIMIT ?",
+                (limit,),
+                |(id, name)| (id, name),
+            )
+            .await?
+    };
 
     let mut all_reviews = vec![];
-    for (app_id, app_name) in app_ids {
+    let mut processed_apps: u64 = 0;
+    let mut matched_apps: u64 = 0;
+    let mut matched_total: u64 = 0;
+
+    for (app_id, app_name) in &app_ids {
         info!("Fetching reviews for app {} ({})", app_id, app_name);
-        let reviews = fetch_app_reviews(&config.appstore, &app_id, config.appstore.reviews_per_app).await?;
+        let reviews = fetch_app_reviews_paged(&config.appstore, app_id, config.appstore.reviews_per_app).await?;
         let before = reviews.len();
         let filtered: Vec<Review> = reviews.into_iter().filter(|r| {
             let text = format!("{} {}", r.title, r.content).to_lowercase();
@@ -157,9 +214,16 @@ async fn run_once(pool: &mysql_async::Pool, config: &Config) -> Result<()> {
             has_keyword && is_low_rating && is_substantial && r.updated >= window_start
         }).collect();
         if !filtered.is_empty() {
+            matched_apps += 1;
+            matched_total += filtered.len() as u64;
             info!("App {}: {} -> {} matched", app_id, before, filtered.len());
         }
         all_reviews.extend(filtered.into_iter().map(|mut r| { r.app_id = app_id.clone(); r.app_name = app_name.clone(); r }));
+        processed_apps += 1;
+        if processed_apps % 20 == 0 || processed_apps == app_ids.len() as u64 {
+            let remaining = (app_ids.len() as u64).saturating_sub(processed_apps);
+            info!("progress(fetch): processed={}/{} remaining={} matched_apps={} matched_total={}", processed_apps, app_ids.len(), remaining, matched_apps, matched_total);
+        }
     }
 
     // Sort by recency
@@ -173,6 +237,9 @@ async fn run_once(pool: &mysql_async::Pool, config: &Config) -> Result<()> {
         .timeout(StdDuration::from_secs(30))
         .build()?;
 
+    let total_to_submit = all_reviews.len() as u64;
+    let mut submitted_count: u64 = 0;
+
     for review in all_reviews {
         let exists: Option<u64> = conn.exec_first(
             "SELECT COUNT(*) FROM social_posts WHERE post_id = :id AND platform = 'appstore'",
@@ -181,8 +248,6 @@ async fn run_once(pool: &mysql_async::Pool, config: &Config) -> Result<()> {
         if exists.unwrap_or(0) > 0 {
             continue;
         }
-
-        info!("Processing review {} for app {}: rating={}, title='{}'", review.id, review.app_name, review.rating, review.title);
 
         let annotation_full = format!(
             "Digital UX complaint from App Store - {} (rating {}): {}\n{}",
@@ -208,7 +273,7 @@ async fn run_once(pool: &mysql_async::Pool, config: &Config) -> Result<()> {
             match submit_with_retries(&http_client, &config.general.cleanapp_api_url, config.general.host_header.as_ref(), payload).await {
                 Ok(maybe_seq) => {
                     seq = maybe_seq;
-                    submitted = seq.is_some() || true; // consider submitted even if seq missing
+                    submitted = seq.is_some() || true;
                     submissions_done += 1;
                 }
                 Err(e) => {
@@ -217,8 +282,6 @@ async fn run_once(pool: &mysql_async::Pool, config: &Config) -> Result<()> {
             }
         } else if !config.general.dry_run {
             info!("Submission cap reached ({}), skipping submission for {}", config.general.max_submissions_per_run, review.id);
-        } else {
-            info!("Dry run: Would submit - {}", annotation);
         }
 
         let ts_str = review.updated.format("%Y-%m-%d %H:%M:%S").to_string();
@@ -236,6 +299,12 @@ async fn run_once(pool: &mysql_async::Pool, config: &Config) -> Result<()> {
             },
         ).await?;
 
+        submitted_count += 1;
+        if submitted_count % 20 == 0 || submitted_count == total_to_submit {
+            let remaining = total_to_submit.saturating_sub(submitted_count);
+            info!("progress(submit): submitted={}/{} remaining={}", submitted_count, total_to_submit, remaining);
+        }
+
         if submissions_done >= config.general.max_submissions_per_run {
             info!("Reached submission cap for this run: {}", submissions_done);
         }
@@ -248,85 +317,53 @@ async fn run_once(pool: &mysql_async::Pool, config: &Config) -> Result<()> {
     Ok(())
 }
 
-async fn fetch_top_apps(config: &AppStoreConfig) -> Result<Vec<(String, String)>> {
+async fn fetch_app_reviews_paged(config: &AppStoreConfig, app_id: &str, limit: u32) -> Result<Vec<Review>> {
     let client = reqwest::Client::builder()
         .user_agent("news-indexer/0.1 (+https://cleanapp.io)")
         .timeout(StdDuration::from_secs(20))
         .build()?;
-    let limit = std::cmp::min(config.top_apps_limit, 200);
-    let url = format!(
-        "https://itunes.apple.com/{}/rss/topfreeapplications/limit={}/json",
-        config.country, limit
-    );
-    let resp = client.get(&url).send().await?;
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        error!("top apps fetch failed: {} body_head={}", status, &body.chars().take(200).collect::<String>());
-        return Ok(vec![]);
-    }
-    let body = resp.text().await.unwrap_or_default();
-    let parsed: serde_json::Value = match serde_json::from_str(&body) {
-        Ok(v) => v,
-        Err(e) => {
-            error!("failed to parse top apps JSON: {} body_head={}", e, &body.chars().take(200).collect::<String>());
-            return Ok(vec![]);
-        }
-    };
-    let entries_vec = parsed["feed"]["entry"].as_array().cloned().unwrap_or_default();
-    let mut apps = vec![];
-    for entry in entries_vec {
-        let id = entry["id"]["attributes"]["im:id"].as_str().unwrap_or("").to_string();
-        let name = entry["im:name"]["label"].as_str().unwrap_or("").to_string();
-        if !id.is_empty() {
-            apps.push((id, name));
-        }
-    }
-    Ok(apps)
-}
 
-async fn fetch_app_reviews(config: &AppStoreConfig, app_id: &str, limit: u32) -> Result<Vec<Review>> {
-    let client = reqwest::Client::builder()
-        .user_agent("news-indexer/0.1 (+https://cleanapp.io)")
-        .timeout(StdDuration::from_secs(20))
-        .build()?;
-    // small pause to be polite and reduce rate limiting
-    sleep(StdDuration::from_millis(200)).await;
-    let url = format!(
-        "https://itunes.apple.com/{}/rss/customerreviews/page=1/id={}/sortBy=mostRecent/json",
-        config.country, app_id
-    );
-    let resp = client.get(&url).send().await?;
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        error!("reviews fetch failed for app {}: {} body_head={}", app_id, status, &body.chars().take(200).collect::<String>());
-        return Ok(vec![]);
-    }
-    let body = resp.text().await.unwrap_or_default();
-    let parsed: serde_json::Value = match serde_json::from_str(&body) {
-        Ok(v) => v,
-        Err(e) => {
-            error!("failed to parse reviews JSON for app {}: {} body_head={}", app_id, e, &body.chars().take(200).collect::<String>());
-            return Ok(vec![]);
+    let mut reviews: Vec<Review> = Vec::new();
+    let mut page: u32 = 1;
+    let max_pages: u32 = 10; // safety cap
+    while (reviews.len() as u32) < limit && page <= max_pages {
+        sleep(StdDuration::from_millis(150)).await; // be polite
+        let url = format!(
+            "https://itunes.apple.com/{}/rss/customerreviews/page={}/id={}/sortBy=mostRecent/json",
+            config.country, page, app_id
+        );
+        let resp = client.get(&url).send().await?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            error!("reviews fetch failed for app {} page {}: {} body_head={}", app_id, page, status, &body.chars().take(200).collect::<String>());
+            break;
         }
-    };
-    let entries_vec = parsed["feed"]["entry"].as_array().cloned().unwrap_or_default();
-    let mut reviews = vec![];
-    for entry in entries_vec {
-        if entry.get("im:rating").is_none() { continue; }
-        let id = entry["id"]["label"].as_str().unwrap_or("").to_string();
-        let title = entry["title"]["label"].as_str().unwrap_or("").to_string();
-        let content = entry["content"]["label"].as_str().unwrap_or("").to_string();
-        let rating_str = entry["im:rating"]["label"].as_str().unwrap_or("0");
-        let rating = rating_str.parse::<u32>().unwrap_or(0);
-        let updated_str = entry["updated"]["label"].as_str().unwrap_or("");
-        let updated = chrono::DateTime::parse_from_rfc3339(updated_str)
-            .map(|dt| dt.with_timezone(&Utc))
-            .unwrap_or_else(|_| Utc::now());
-        reviews.push(Review { id, title, content, rating, updated, app_id: app_id.to_string(), app_name: String::new() });
+        let body = resp.text().await.unwrap_or_default();
+        let parsed: serde_json::Value = match serde_json::from_str(&body) {
+            Ok(v) => v,
+            Err(e) => { error!("failed to parse reviews JSON for app {} page {}: {} body_head={}", app_id, page, e, &body.chars().take(200).collect::<String>()); break; }
+        };
+        let entries_vec = parsed["feed"]["entry"].as_array().cloned().unwrap_or_default();
+        let mut new_count = 0usize;
+        for entry in entries_vec {
+            if entry.get("im:rating").is_none() { continue; }
+            let id = entry["id"]["label"].as_str().unwrap_or("").to_string();
+            let title = entry["title"]["label"].as_str().unwrap_or("").to_string();
+            let content = entry["content"]["label"].as_str().unwrap_or("").to_string();
+            let rating_str = entry["im:rating"]["label"].as_str().unwrap_or("0");
+            let rating = rating_str.parse::<u32>().unwrap_or(0);
+            let updated_str = entry["updated"]["label"].as_str().unwrap_or("");
+            let updated = chrono::DateTime::parse_from_rfc3339(updated_str)
+                .map(|dt| dt.with_timezone(&Utc))
+                .unwrap_or_else(|_| Utc::now());
+            reviews.push(Review { id, title, content, rating, updated, app_id: app_id.to_string(), app_name: String::new() });
+            new_count += 1;
+            if (reviews.len() as u32) >= limit { break; }
+        }
+        if new_count == 0 { break; }
+        page += 1;
     }
-    reviews.truncate(limit as usize);
     Ok(reviews)
 }
 

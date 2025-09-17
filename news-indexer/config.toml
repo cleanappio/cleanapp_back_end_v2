@@ -20,10 +20,10 @@ cleanapp_api_url = "http://localhost:8080/report"
 bot_user_id = "0x0000000000000000000000000000000000000000"
 default_lat = 0.0
 default_lon = 0.0
-max_submissions_per_run = 10000
+max_submissions_per_run = 1000000
 
 [appstore]
 country = "us"
-top_apps_limit = 200
-reviews_per_app = 50
+top_apps_limit = 0
+reviews_per_app = 100
 
