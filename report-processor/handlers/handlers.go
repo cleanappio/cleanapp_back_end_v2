@@ -237,7 +237,7 @@ func (h *Handlers) MatchReport(c *gin.Context) {
 				log.Printf("Comparing report %d (%f, %f)", r.Seq, r.Latitude, r.Longitude)
 
 				// Compare images
-				similarity, resolved := h.compareImages(req.Image, r.Image, req.Latitude, req.Longitude, r.Latitude, r.Longitude)
+				similarity, resolved := h.compareImages(req.Image, r.Image, r.AnalysisText, req.Latitude, req.Longitude, r.Latitude, r.Longitude)
 
 				// If the report is resolved, update the report_status table and create response
 				if resolved {
@@ -329,7 +329,7 @@ func (h *Handlers) MatchReport(c *gin.Context) {
 }
 
 // compareImages compares two images and returns similarity score and resolved status
-func (h *Handlers) compareImages(image1, image2 []byte, firstImageLocationLat, firstImageLocationLng, secondImageLocationLat, secondImageLocationLng float64) (float64, bool) {
+func (h *Handlers) compareImages(image1, image2 []byte, originalDescription string, firstImageLocationLat, firstImageLocationLng, secondImageLocationLat, secondImageLocationLng float64) (float64, bool) {
 	// If OpenAI client is not available, return default values
 	if h.openaiClient == nil {
 		log.Printf("OpenAI client not available, returning default comparison values")
@@ -337,7 +337,7 @@ func (h *Handlers) compareImages(image1, image2 []byte, firstImageLocationLat, f
 	}
 
 	// Use OpenAI API to compare images
-	similarity, litterRemoved, err := h.openaiClient.CompareImages(image1, image2, firstImageLocationLat, firstImageLocationLng, secondImageLocationLat, secondImageLocationLng)
+	similarity, litterRemoved, err := h.openaiClient.CompareImages(image1, image2, originalDescription, firstImageLocationLat, firstImageLocationLng, secondImageLocationLat, secondImageLocationLng)
 	if err != nil {
 		log.Printf("Failed to compare images with OpenAI: %v", err)
 		return 0.0, false

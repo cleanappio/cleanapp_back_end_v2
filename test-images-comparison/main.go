@@ -17,12 +17,12 @@ func main() {
 
 	// Check command line arguments
 	if len(os.Args) < 3 {
-		log.Fatal("Usage: go run main.go <image1_path> <image2_path> [lat1] [lng1] [lat2] [lng2]")
+		log.Fatal("Usage: go run main.go <image1_path> <image2_path> [original_description] [lat1] [lng1] [lat2] [lng2]")
 	}
 
 	image1Path := os.Args[1]
 	image2Path := os.Args[2]
-
+	originalDescription := os.Args[3]
 	// Default coordinates (can be overridden by command line args)
 	lat1, lng1 := 47.3205, 8.52144
 	lat2, lng2 := 47.3203, 8.5214
@@ -43,17 +43,17 @@ func main() {
 
 
 	// Parse coordinates if provided
-	if len(os.Args) >= 7 {
-		if _, err := fmt.Sscanf(os.Args[3], "%f", &lat1); err != nil {
+	if len(os.Args) >= 8 {
+		if _, err := fmt.Sscanf(os.Args[4], "%f", &lat1); err != nil {
 			log.Printf("Warning: Invalid lat1, using default: %v", err)
 		}
-		if _, err := fmt.Sscanf(os.Args[4], "%f", &lng1); err != nil {
+		if _, err := fmt.Sscanf(os.Args[5], "%f", &lng1); err != nil {
 			log.Printf("Warning: Invalid lng1, using default: %v", err)
 		}
-		if _, err := fmt.Sscanf(os.Args[5], "%f", &lat2); err != nil {
+		if _, err := fmt.Sscanf(os.Args[6], "%f", &lat2); err != nil {
 			log.Printf("Warning: Invalid lat2, using default: %v", err)
 		}
-		if _, err := fmt.Sscanf(os.Args[6], "%f", &lng2); err != nil {
+		if _, err := fmt.Sscanf(os.Args[7], "%f", &lng2); err != nil {
 			log.Printf("Warning: Invalid lng2, using default: %v", err)
 		}
 	}
@@ -79,7 +79,7 @@ func main() {
 	fmt.Printf("  Image 2: %s (lat: %f, lng: %f)\n", image2Path, lat2, lng2)
 	fmt.Printf("\nCalling OpenAI API...\n")
 
-	samePlaceProbability, litterOrHazardRemoved, err := c.CompareImages(image1, image2, lat1, lng1, lat2, lng2)
+	samePlaceProbability, litterOrHazardRemoved, err := c.CompareImages(image1, image2, lat1, lng1, lat2, lng2, originalDescription)
 	if err != nil {
 		log.Fatalf("Failed to compare images: %v", err)
 	}
