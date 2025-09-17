@@ -259,8 +259,7 @@ func (d *Database) GetUnanalyzedReports(cfg *config.Config, limit int) ([]Report
 	query := `
 	SELECT r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.image, r.action_id, r.description
 	FROM reports r
-	LEFT JOIN report_analysis ra ON r.seq = ra.seq
-	WHERE ra.seq IS NULL AND r.seq > ?
+	WHERE r.seq NOT IN(SELECT seq FROM report_analysis) AND r.seq > ?
 	ORDER BY r.seq ASC
 	LIMIT ?`
 	// query := `

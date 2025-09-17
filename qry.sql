@@ -1,0 +1,1 @@
+SELECT r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.image, r.action_id, r.description FROM reports r	LEFT JOIN report_analysis ra ON r.seq = ra.seq WHERE ra.seq IS NULL AND r.seq > 0 ORDER BY r.seq ASC LIMIT 100;
