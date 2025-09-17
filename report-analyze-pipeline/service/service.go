@@ -18,7 +18,6 @@ type Service struct {
 	config          *config.Config
 	db              *database.Database
 	openai          *openai.Client
-	openaiAssistant *openai.AssistantClient
 	brandService    *services.BrandService
 	stopChan        chan bool
 }
@@ -26,14 +25,12 @@ type Service struct {
 // NewService creates a new report analysis service
 func NewService(cfg *config.Config, db *database.Database) *Service {
 	client := openai.NewClient(cfg.OpenAIAPIKey, cfg.OpenAIModel)
-	openaiAssistant := openai.NewAssistantClient(cfg.OpenAIAPIKey, cfg.OpenAIAssistantID)
 	brandService := services.NewBrandService()
 
 	return &Service{
 		config:          cfg,
 		db:              db,
 		openai:          client,
-		openaiAssistant: openaiAssistant,
 		brandService:    brandService,
 		stopChan:        make(chan bool),
 	}
@@ -108,7 +105,7 @@ func (s *Service) analyzeReport(report *database.Report, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	// Call OpenAI API with assistant for initial analysis in English
-	response, err := s.openaiAssistant.AnalyseImageWithAssistant(report.Image, report.Description)
+	response, err := s.openai.AnalyzeImage(report.Image, report.Description)
 	if err != nil {
 		log.Printf("Failed to analyze report %d: %v", report.Seq, err)
 		// Save error report
