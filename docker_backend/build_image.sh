@@ -40,6 +40,16 @@ case ${OPT} in
 esac
 
 . .version
+
+# Increment version build number
+if [ "${OPT}" == "dev" ]; then
+  BUILD=$(echo ${BUILD_VERSION} | cut -f 3 -d ".")
+  VER=$(echo ${BUILD_VERSION} | cut -f 1,2 -d ".")
+  BUILD=$((${BUILD} + 1))
+  BUILD_VERSION="${VER}.${BUILD}"
+  echo "BUILD_VERSION=${BUILD_VERSION}" > .version
+fi
+
 echo "Running docker build for version ${BUILD_VERSION}"
 
 set -e
@@ -63,10 +73,12 @@ if [ "${PROJECT_NAME}" != "${CURRENT_PROJECT}" ]; then
   gcloud config set project ${PROJECT_NAME}
 fi
 
-echo "Building and pushing docker image..."
-gcloud builds submit \
-  --region=${CLOUD_REGION} \
-  --tag ${DOCKER_TAG}:${BUILD_VERSION}
+if [ "${OPT}" == "dev" ]; then
+  echo "Building and pushing docker image..."
+  gcloud builds submit \
+    --region=${CLOUD_REGION} \
+    --tag ${DOCKER_TAG}:${BUILD_VERSION}
+fi
 
 echo "Tagging Docker image as current ${OPT}..."
 gcloud artifacts docker tags add ${DOCKER_TAG}:${BUILD_VERSION} ${DOCKER_TAG}:${OPT}
