@@ -18,17 +18,17 @@ type Database struct {
 
 // Report represents a report from the reports table
 type Report struct {
-	Seq         int
-	Timestamp   time.Time
-	ID          string
-	Team        int
-	Latitude    float64
-	Longitude   float64
-	X           float64
-	Y           float64
-	Image       []byte
-	ActionID    string
-	Description string
+	Seq         int       `json:"seq"`
+	Timestamp   time.Time `json:"timestamp"`
+	ID          string    `json:"id"`
+	Team        int       `json:"team"`
+	Latitude    float64   `json:"latitude"`
+	Longitude   float64   `json:"longitude"`
+	X           float64   `json:"x"`
+	Y           float64   `json:"y"`
+	Image       []byte    `json:"image"`
+	ActionID    string    `json:"action_id"`
+	Description string    `json:"description"`
 }
 
 // ReportAnalysis represents an analysis result

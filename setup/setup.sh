@@ -306,6 +306,7 @@ services:
       - CLEANAPP_MAP_URL=${CLEANAPP_MAP_URL}
       - CLEANAPP_ANDROID_URL=${REACT_APP_PLAYSTORE_URL}
       - CLEANAPP_IOS_URL=${REACT_APP_APPSTORE_URL}
+      - REPORT_ANALYSIS_URL=http://cleanapp_report_analyze_pipeline:8080
       - GIN_MODE=${GIN_MODE}
     ports:
       - 8080:8080

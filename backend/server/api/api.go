@@ -124,6 +124,21 @@ type ReportArgs struct {
 	Annotation string  `json:"annotation"`
 }
 
+// Report represents a complete report with all database fields
+type Report struct {
+	Seq         int     `json:"seq"`
+	Timestamp   string  `json:"timestamp"`
+	ID          string  `json:"id"`
+	Team        int     `json:"team"`
+	Latitude    float64 `json:"latitude"`
+	Longitude   float64 `json:"longitude"`
+	X           float64 `json:"x"`
+	Y           float64 `json:"y"`
+	Image       []byte  `json:"image"`
+	ActionID    string  `json:"action_id"`
+	Description string  `json:"description"`
+}
+
 type ReportResponse struct {
 	Seq int `json:"seq"`
 }

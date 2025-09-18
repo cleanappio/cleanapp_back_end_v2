@@ -3,10 +3,8 @@ package db
 import (
 	"context"
 	"database/sql"
-	// "encoding/json"
 	"fmt"
 	"math/big"
-	// "strings"
 	"time"
 
 	// "cleanapp/backend/area_index"
@@ -122,12 +120,12 @@ func UpdateUserAction(db *sql.DB, args *api.UserActionArgs) error {
 	return err
 }
 
-func SaveReport(db *sql.DB, r *api.ReportArgs) (int, error) {
+func SaveReport(db *sql.DB, r *api.ReportArgs) (*api.Report, error) {
 	ctx := context.Background()
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
 		log.Errorf("Error creating transaction: %w", err)
-		return 0, err
+		return nil, err
 	}
 	defer tx.Rollback()
 
@@ -146,13 +144,13 @@ func SaveReport(db *sql.DB, r *api.ReportArgs) (int, error) {
 	common.LogResult("saveReport", result, err, true)
 	if err != nil {
 		log.Errorf("Error inserting report: %w", err)
-		return 0, err
+		return nil, err
 	}
 
 	var seq int
 	if err := tx.QueryRowContext(ctx, `SELECT MAX(seq) FROM reports`).Scan(&seq); err != nil {
 		log.Errorf("Error getting last insert id: %w", err)
-		return 0, err
+		return nil, err
 	}
 	r.Image = compressedImage
 
@@ -160,7 +158,7 @@ func SaveReport(db *sql.DB, r *api.ReportArgs) (int, error) {
 	common.LogResult("saveReport", result, err, true)
 	if err != nil {
 		log.Errorf("Error update kitns: %w\n", err)
-		return 0, err
+		return nil, err
 	}
 	// Save a copy of counters in a shadow table.
 	tx.ExecContext(ctx, `UPDATE users_shadow SET kitns_daily = kitns_daily + 1 WHERE id = ?`, r.Id)
@@ -173,18 +171,33 @@ func SaveReport(db *sql.DB, r *api.ReportArgs) (int, error) {
 	common.LogResult("saveReportGeometry", result, err, true)
 	if err != nil {
 		log.Errorf("Error inserting report geometry: %w", err)
-		return 0, err
+		return nil, err
 	}
 
 	err = tx.Commit()
 	if err != nil {
 		log.Errorf("Error committing the transaction: %w", err)
-		return 0, err
+		return nil, err
+	}
+
+	// Create and return the full report structure
+	report := &api.Report{
+		Seq:         seq,
+		Timestamp:   time.Now().Format(time.RFC3339),
+		ID:          r.Id,
+		Team:        int(util.UserIdToTeam(r.Id)),
+		Latitude:    r.Latitude,
+		Longitude:   r.Longitude,
+		X:           r.X,
+		Y:           r.Y,
+		Image:       compressedImage,
+		ActionID:    r.ActionId,
+		Description: r.Annotation,
 	}
 
 	// Send emails
 	// go sendAffectedPolygonsEmails(r)
-	return int(seq), nil
+	return report, nil
 }
 
 func GetMap(userId string, m api.ViewPort, retention time.Duration) ([]api.MapResult, error) {

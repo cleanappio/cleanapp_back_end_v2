@@ -4,7 +4,6 @@ import (
 	"log"
 	"strings"
 	"sync"
-	"time"
 
 	"report-analyze-pipeline/config"
 	"report-analyze-pipeline/database"
@@ -51,9 +50,6 @@ func (s *Service) Start() {
 		log.Printf("Failed to migrate report_analysis table: %v", err)
 		return
 	}
-
-	// Start the analysis loop
-	go s.analysisLoop()
 }
 
 // Stop stops the analysis service
@@ -62,48 +58,8 @@ func (s *Service) Stop() {
 	close(s.stopChan)
 }
 
-// analysisLoop continuously processes unanalyzed reports
-func (s *Service) analysisLoop() {
-	ticker := time.NewTicker(s.config.AnalysisInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-s.stopChan:
-			log.Println("Analysis loop stopped")
-			return
-		case <-ticker.C:
-			s.processUnanalyzedReports()
-		}
-	}
-}
-
-// processUnanalyzedReports processes reports that haven't been analyzed yet
-func (s *Service) processUnanalyzedReports() {
-	reports, err := s.db.GetUnanalyzedReports(s.config, 10) // Process up to 10 reports at a time
-	if err != nil {
-		log.Printf("Failed to get unanalyzed reports: %v", err)
-		return
-	}
-
-	if len(reports) == 0 {
-		return
-	}
-
-	log.Printf("Processing %d unanalyzed reports", len(reports))
-
-	wg := sync.WaitGroup{}
-	wg.Add(len(reports))
-	for _, report := range reports {
-		go s.analyzeReport(&report, &wg)
-	}
-	wg.Wait()
-}
-
 // analyzeReport analyzes a single report
-func (s *Service) analyzeReport(report *database.Report, wg *sync.WaitGroup) {
-	defer wg.Done()
-
+func (s *Service) AnalyzeReport(report *database.Report) {
 	// Call OpenAI API with assistant for initial analysis in English
 	response, err := s.openai.AnalyzeImage(report.Image, report.Description)
 	if err != nil {
