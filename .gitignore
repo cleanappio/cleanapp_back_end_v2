@@ -11,3 +11,4 @@ transactiontest
 /cleanapp_back_end_v2.iml
 /.idea/
 /news-indexer/config-local.toml
+/news-indexer/data/*
