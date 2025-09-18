@@ -61,12 +61,13 @@ fn mask_token(tok: &str) -> String {
     format!("{}...{}", &tok[..4], &tok[tok.len()-4..])
 }
 
-fn fmt_dt(s: &str) -> String {
-    // Expect RFC3339 like 2014-12-24T17:49:19Z -> "YYYY-MM-DD HH:MM:SS"
-    match chrono::DateTime::parse_from_rfc3339(s) {
-        Ok(dt) => dt.format("%Y-%m-%d %H:%M:%S").to_string(),
-        Err(_) => String::new(),
-    }
+fn fmt_dt(s: &str) -> String { chrono::DateTime::parse_from_rfc3339(s).map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string()).unwrap_or_default() }
+
+fn truncate_utf8_boundary(s: &mut String, max_bytes: usize) {
+    if s.len() <= max_bytes { return; }
+    let mut idx = max_bytes;
+    while idx > 0 && !s.is_char_boundary(idx) { idx -= 1; }
+    s.truncate(idx);
 }
 
 #[tokio::main]
@@ -193,7 +194,7 @@ async fn main() -> Result<()> {
                 let full_name = repo["full_name"].as_str().unwrap_or("").to_string();
                 let html_url = repo["html_url"].as_str().unwrap_or("").to_string();
                 let mut description = repo["description"].as_str().unwrap_or("").to_string();
-                if description.len() > 4096 { description.truncate(4096); }
+                if description.len() > 4096 { truncate_utf8_boundary(&mut description, 4096); }
                 let stargazers = repo["stargazers_count"].as_i64().unwrap_or(0) as i32;
                 let forks = repo["forks_count"].as_i64().unwrap_or(0) as i32;
                 let open_issues = repo["open_issues_count"].as_i64().unwrap_or(0) as i32;
