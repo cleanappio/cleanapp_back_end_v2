@@ -656,6 +656,24 @@ func DeleteAction(db *sql.DB, req *api.ActionModifyArgs) error {
 	return nil
 }
 
+// GetValidReportsCount returns the number of reports that have a corresponding
+// row in report_analysis with the given classification and is_valid = TRUE.
+func GetValidReportsCount(db *sql.DB, classification string) (int, error) {
+    var count int
+    row := db.QueryRow(`
+        SELECT COUNT(*)
+        FROM reports r
+        WHERE EXISTS (
+            SELECT 1 FROM report_analysis a
+            WHERE a.seq = r.seq AND a.classification = ? AND a.is_valid = TRUE
+        )
+    `, classification)
+    if err := row.Scan(&count); err != nil {
+        return 0, err
+    }
+    return count, nil
+}
+
 // TODO: Remove after the email sender microservice is launched
 // func sendAffectedPolygonsEmails(report *api.ReportArgs) {
 // 	dbc, err := common.DBConnect()
