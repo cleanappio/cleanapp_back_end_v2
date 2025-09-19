@@ -241,14 +241,11 @@ func (d *Database) GetReportsInRadius(ctx context.Context, latitude, longitude f
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		LEFT JOIN report_status rs ON r.seq = rs.seq
-		LEFT JOIN report_clusters rc ON r.seq = rc.related_seq
 		WHERE r.latitude BETWEEN ? AND ?
 		AND r.longitude BETWEEN ? AND ?
 		AND (rs.status IS NULL OR rs.status = 'active')
-		AND (ra.hazard_probability >= 0.5 OR ra.litter_probability >= 0.5 OR ra.classification = 'digital')
 		AND ra.is_valid = TRUE
 		AND ra.language = 'en'
-		AND rc.primary_seq IS NULL
 		ORDER BY r.seq DESC
 		LIMIT ?
 	`
