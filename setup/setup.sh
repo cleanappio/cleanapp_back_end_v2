@@ -165,6 +165,7 @@ REPORT_OWNERSHIP_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-ownershi
 GDPR_PROCESS_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-gdpr-process-service-image:${OPT}"
 REPORTS_PUSHER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-reports-pusher-image:${OPT}"
 FACE_DETECTOR_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-face-detector-image:${OPT}"
+REPORT_ANALYSIS_BACKFILL_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-analysis-backfill-image:${OPT}"
 
 OPENAI_ASSISTANT_ID="asst_kBtuzDRWNorZgw9o2OJTGOn0"
 
@@ -199,6 +200,7 @@ docker pull ${EMAIL_SERVICE_DOCKER_IMAGE}
 docker pull ${REPORT_OWNERSHIP_SERVICE_DOCKER_IMAGE}
 docker pull ${GDPR_PROCESS_SERVICE_DOCKER_IMAGE}
 docker pull ${REPORTS_PUSHER_DOCKER_IMAGE}
+docker pull ${REPORT_ANALYSIS_BACKFILL_DOCKER_IMAGE}
 
 # Secrets
 cat >.env << ENV
@@ -612,6 +614,20 @@ services:
       - 9091:8080
     depends_on:
       - cleanapp_db
+  
+  cleanapp_report_analysis_backfill:
+    container_name: cleanapp_report_analysis_backfill
+    image: ${REPORT_ANALYSIS_BACKFILL_DOCKER_IMAGE}
+    environment:
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+      - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
+      - DB_NAME=cleanapp
+      - REPORT_ANALYSIS_URL=http://cleanapp_report_analyze_pipeline:8080
+      - POLL_INTERVAL=1m
+      - BATCH_SIZE=30
+      - SEQ_END_TO=30000
 
 COMPOSE
 
