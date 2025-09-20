@@ -22,7 +22,7 @@ func NewBackfillService(cfg *config.Config, db *database.Database) *BackfillServ
 	return &BackfillService{
 		config:         cfg,
 		db:             db,
-		analysisClient: NewAnalysisClient(cfg),
+		analysisClient: NewAnalysisClient(cfg, db),
 		running:        false,
 		stopChan:       make(chan struct{}),
 	}
@@ -114,6 +114,6 @@ func (s *BackfillService) GetStats() map[string]interface{} {
 		"poll_interval":      s.config.PollInterval.String(),
 		"batch_size":         s.config.BatchSize,
 		"last_processed_seq": lastSeq,
-		"end_to_seq":     s.config.SeqEndTo,
+		"end_to_seq":         s.config.SeqEndTo,
 	}
 }

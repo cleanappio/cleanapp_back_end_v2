@@ -295,6 +295,23 @@ cat >docker-compose.yml << COMPOSE
 version: '3'
 
 services:
+  cleanapp_rabbitmq:
+    image: rabbitmq:latest
+    container_name: cleanapp_rabbitmq
+    restart: always
+    ports:
+      - 5672:5672
+      - 15672:15672
+    environment:
+      RABBITMQ_DEFAULT_USER: cleanapp
+      RABBITMQ_DEFAULT_PASS: cleanapp
+    configs:
+      - source: rabbitmq-plugins
+        target: /etc/rabbitmq/enabled_plugins
+    volumes:
+      - rabbitmq-lib:/var/lib/rabbitmq/
+      - rabbitmq-log:/var/log/rabbitmq
+
   cleanapp_service:
     container_name: cleanapp_service
     image: ${SERVICE_DOCKER_IMAGE}
@@ -662,10 +679,22 @@ done
 
 cat >>docker-compose.yml << COMPOSE_TAIL
 
+configs:
+  rabbitmq-plugins:
+    content: "[rabbitmq_management]."  
+
 volumes:
   mysql:
     name: eko_mysql
     external: true
+
+  rabbitmq-lib:
+    name: rabbitmq-lib
+    driver: local
+
+  rabbitmq-log:
+    name: rabbitmq-log
+    driver: local
 
 COMPOSE_TAIL
 

@@ -19,8 +19,8 @@ services:
       - POLL_INTERVAL=${POLL_INTERVAL:-1m}
       - BATCH_SIZE=${BATCH_SIZE:-20}
       
-      # Start point
-      - SEQ_START_FROM=${SEQ_START_FROM:-0}
+      # End point
+      - SEQ_END_TO=${SEQ_END_TO:-0}
       
       # Logging
       - LOG_LEVEL=${LOG_LEVEL:-info}

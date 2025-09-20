@@ -5,6 +5,7 @@ This microservice continuously polls the database for unanalyzed reports and sen
 ## Features
 
 - Fetches unanalyzed reports from the `reports` table
+- **Image compression**: Automatically compresses JPEG images to max height of 1000px before sending
 - Sends reports to the analysis API at configurable intervals
 - Rate limiting: processes 20 reports per minute by default
 - Configurable polling interval and batch size
@@ -81,10 +82,31 @@ go run main.go
 ## How It Works
 
 1. The service starts and connects to the database
-2. Every `POLL_INTERVAL` (default: 1 minute), it queries for unanalyzed reports
+2. Every `POLL_INTERVAL` (default: 1 minute), it queries for unanalyzed reports **without images**
 3. It fetches up to `BATCH_SIZE` reports (default: 20) that haven't been analyzed
-4. Each report is sent to the analysis API at `REPORT_ANALYSIS_URL/api/v3/analysis`
-5. The process repeats until the service is stopped
+4. For each report, the service:
+   - Fetches the image separately by sequence number
+   - **Compresses the image** to max height of 1000px while preserving aspect ratio
+   - Sends the complete report (with compressed image) to the analysis API
+5. Each report is sent to the analysis API at `REPORT_ANALYSIS_URL/api/v3/analysis`
+6. The process repeats until the service is stopped
+
+## Architecture Benefits
+
+- **Efficient memory usage**: Images are only loaded when needed for sending
+- **Faster report fetching**: Initial query excludes large image data
+- **On-demand image processing**: Images are fetched and compressed just before sending
+- **Better error handling**: If image fetch fails, the report is still sent without image
+
+## Image Compression
+
+The service automatically compresses JPEG images before sending them to the analysis API:
+
+- **Max height**: 1000 pixels (aspect ratio preserved)
+- **Quality**: 85% JPEG quality
+- **EXIF handling**: Corrects image orientation based on EXIF data
+- **Fallback**: If compression fails, the original image is sent
+- **Logging**: Compression details are logged for monitoring
 
 ## Database Schema
 

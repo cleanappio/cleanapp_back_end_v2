@@ -45,10 +45,10 @@ func (d *Database) Close() error {
 	return d.db.Close()
 }
 
-// GetUnanalyzedReports gets reports that haven't been analyzed yet
+// GetUnanalyzedReports gets reports that haven't been analyzed yet (without images)
 func (d *Database) GetUnanalyzedReports(cfg *config.Config, limit int) ([]models.Report, error) {
 	query := `
-	SELECT r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.image, r.action_id, r.description
+	SELECT r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.action_id, r.description
 	FROM reports r
 	WHERE r.seq NOT IN(SELECT seq FROM report_analysis) AND r.seq < ?
 	ORDER BY r.seq ASC
@@ -75,7 +75,6 @@ func (d *Database) GetUnanalyzedReports(cfg *config.Config, limit int) ([]models
 			&report.Longitude,
 			&report.X,
 			&report.Y,
-			&report.Image,
 			&actionID,
 			&description,
 		)
@@ -84,6 +83,7 @@ func (d *Database) GetUnanalyzedReports(cfg *config.Config, limit int) ([]models
 		}
 		report.Description = description.String
 		report.ActionID = actionID.String
+		// Image will be fetched separately when needed
 		reports = append(reports, report)
 	}
 
@@ -93,6 +93,22 @@ func (d *Database) GetUnanalyzedReports(cfg *config.Config, limit int) ([]models
 
 	log.Printf("Found %d unanalyzed reports", len(reports))
 	return reports, nil
+}
+
+// GetReportImage gets the image for a specific report by sequence number
+func (d *Database) GetReportImage(seq int) ([]byte, error) {
+	query := `SELECT r.image FROM reports r WHERE r.seq = ?`
+
+	var imageData []byte
+	err := d.db.QueryRow(query, seq).Scan(&imageData)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("report with seq %d not found", seq)
+		}
+		return nil, fmt.Errorf("failed to get image for report seq %d: %w", seq, err)
+	}
+
+	return imageData, nil
 }
 
 // GetLastProcessedSeq gets the last processed sequence number
