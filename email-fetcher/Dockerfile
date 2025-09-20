@@ -12,3 +12,4 @@ COPY --from=builder /app/target/release/email-fettcher /email-fettcher
 ENV RUST_LOG=info
 ENTRYPOINT ["/email-fettcher"]
 
+

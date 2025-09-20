@@ -14,14 +14,16 @@ Environment
 - OPENAI_MODEL (default: gpt-4o)
 - LOOP_DELAY_MS (default: 10000)
 - BATCH_LIMIT (default: 10)
+- SEQ_RANGE (optional: e.g. `29590-29600` to limit affected seq)
 
 Run
 ---
 ```bash
-cargo run -q
+SEQ_RANGE=29590-29600 cargo run -q
 ```
 
 Docker
 ------
 Build an image similar to other services. A minimal Dockerfile will be added later to align with pipeline conventions.
+
 
