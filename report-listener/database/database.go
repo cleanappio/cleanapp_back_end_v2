@@ -267,11 +267,11 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int, class
 		AND ra.classification = ?
 		AND ra.is_valid = TRUE
 		AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE)
+		AND r.seq >= (SELECT MAX(seq) - ? FROM report_analysis WHERE classification = ?)
 		ORDER BY r.seq DESC
-		LIMIT ?
 	`
 
-	reportRows, err := d.db.QueryContext(ctx, reportsQuery, classification, limit)
+	reportRows, err := d.db.QueryContext(ctx, reportsQuery, classification, limit, classification)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query last N analyzed reports: %w", err)
 	}
