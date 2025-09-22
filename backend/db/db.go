@@ -659,8 +659,8 @@ func DeleteAction(db *sql.DB, req *api.ActionModifyArgs) error {
 // GetValidReportsCount returns the number of reports that have a corresponding
 // row in report_analysis with the given classification and is_valid = TRUE.
 func GetValidReportsCount(db *sql.DB, classification string) (int, error) {
-    var count int
-    row := db.QueryRow(`
+	var count int
+	row := db.QueryRow(`
         SELECT COUNT(*)
         FROM reports r
         WHERE EXISTS (
@@ -668,10 +668,56 @@ func GetValidReportsCount(db *sql.DB, classification string) (int, error) {
             WHERE a.seq = r.seq AND a.classification = ? AND a.is_valid = TRUE
         )
     `, classification)
-    if err := row.Scan(&count); err != nil {
-        return 0, err
-    }
-    return count, nil
+	if err := row.Scan(&count); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+// GetValidReportsCounts returns total valid reports and breakdown by classification.
+// The counts are computed per distinct report (using EXISTS semantics), not per
+// number of rows in report_analysis.
+func GetValidReportsCounts(db *sql.DB) (int, int, int, error) {
+	// total valid
+	var total int
+	if err := db.QueryRow(`
+        SELECT COUNT(*)
+        FROM reports r
+        WHERE EXISTS (
+            SELECT 1 FROM report_analysis a
+            WHERE a.seq = r.seq AND a.is_valid = TRUE
+        )
+    `).Scan(&total); err != nil {
+		return 0, 0, 0, err
+	}
+
+	// total physical valid
+	var physical int
+	if err := db.QueryRow(`
+        SELECT COUNT(*)
+        FROM reports r
+        WHERE EXISTS (
+            SELECT 1 FROM report_analysis a
+            WHERE a.seq = r.seq AND a.classification = 'physical' AND a.is_valid = TRUE
+        )
+    `).Scan(&physical); err != nil {
+		return 0, 0, 0, err
+	}
+
+	// total digital valid
+	var digital int
+	if err := db.QueryRow(`
+        SELECT COUNT(*)
+        FROM reports r
+        WHERE EXISTS (
+            SELECT 1 FROM report_analysis a
+            WHERE a.seq = r.seq AND a.classification = 'digital' AND a.is_valid = TRUE
+        )
+    `).Scan(&digital); err != nil {
+		return 0, 0, 0, err
+	}
+
+	return total, physical, digital, nil
 }
 
 // TODO: Remove after the email sender microservice is launched

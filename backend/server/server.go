@@ -33,8 +33,7 @@ const (
 	EndPointDeleteAction      = "/delete_action"
 	EndPointUpdateUserAction  = "/update_user_action"
 	EndPointGetAreas          = "/get_areas"
-    EndPointValidPhysicalReportsCount = "/valid-physical-reports-count"
-    EndPointValidDigitalReportsCount  = "/valid-digital-reports-count"
+	EndPointValidReportsCount = "/valid-reports-count"
 )
 
 var (
@@ -53,9 +52,8 @@ func StartService() {
 	}))
 
 	router.GET(EndPointHelp, Help)
-    router.GET(EndPointGetAreas, GetAreas)                    // +
-    router.GET(EndPointValidPhysicalReportsCount, GetValidPhysicalReportsCount)
-    router.GET(EndPointValidDigitalReportsCount, GetValidDigitalReportsCount)
+	router.GET(EndPointGetAreas, GetAreas) // +
+	router.GET(EndPointValidReportsCount, GetValidReportsCount)
 	router.POST(EndPointUser, CreateOrUpdateUser)             // +
 	router.POST(EndPointPrivacyAndTOC, UpdatePrivacyAndTOC)   // +
 	router.POST(EndPointReport, Report)                       // +
