@@ -1,58 +1,34 @@
 package server
 
 import (
-    "net/http"
+	"net/http"
 
-    "cleanapp/backend/db"
-    "cleanapp/common"
+	"cleanapp/backend/db"
+	"cleanapp/common"
 
-    "github.com/apex/log"
-    "github.com/gin-gonic/gin"
+	"github.com/apex/log"
+	"github.com/gin-gonic/gin"
 )
 
-func GetValidPhysicalReportsCount(c *gin.Context) {
-    dbc, err := common.DBConnect()
-    if err != nil {
-        log.Errorf("Error connecting to DB: %w", err)
-        c.Status(http.StatusInternalServerError)
-        return
-    }
-    defer dbc.Close()
+func GetValidReportsCount(c *gin.Context) {
+	dbc, err := common.DBConnect()
+	if err != nil {
+		log.Errorf("Error connecting to DB: %w", err)
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+	defer dbc.Close()
 
-    count, err := db.GetValidReportsCount(dbc, "physical")
-    if err != nil {
-        log.Errorf("Failed to get valid physical reports count: %w", err)
-        c.Status(http.StatusInternalServerError)
-        return
-    }
+	total, physical, digital, err := db.GetValidReportsCounts(dbc)
+	if err != nil {
+		log.Errorf("Failed to get valid reports counts: %w", err)
+		c.Status(http.StatusInternalServerError)
+		return
+	}
 
-    c.JSON(http.StatusOK, gin.H{
-        "classification": "physical",
-        "count":          count,
-    })
+	c.JSON(http.StatusOK, gin.H{
+		"total_reports":          total,
+		"total_physical_reports": physical,
+		"total_digital_reports":  digital,
+	})
 }
-
-func GetValidDigitalReportsCount(c *gin.Context) {
-    dbc, err := common.DBConnect()
-    if err != nil {
-        log.Errorf("Error connecting to DB: %w", err)
-        c.Status(http.StatusInternalServerError)
-        return
-    }
-    defer dbc.Close()
-
-    count, err := db.GetValidReportsCount(dbc, "digital")
-    if err != nil {
-        log.Errorf("Failed to get valid digital reports count: %w", err)
-        c.Status(http.StatusInternalServerError)
-        return
-    }
-
-    c.JSON(http.StatusOK, gin.H{
-        "classification": "digital",
-        "count":          count,
-    })
-}
-
-
-
