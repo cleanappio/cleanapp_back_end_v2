@@ -87,7 +87,7 @@ func (s *EmailService) Close() error {
 func (s *EmailService) ProcessReports() error {
 	ctx := context.Background()
 
-	// Get reports that haven't been processed for email sending
+	// Get reports that haven't been processed for email sending (without images)
 	reports, err := s.getUnprocessedReports(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get unprocessed reports: %w", err)
@@ -95,7 +95,18 @@ func (s *EmailService) ProcessReports() error {
 
 	log.Infof("Found %d unprocessed reports", len(reports))
 
+	// Process each report individually
 	for _, report := range reports {
+		// Fetch the image for this specific report
+		imageData, err := s.getReportImage(ctx, report.Seq)
+		if err != nil {
+			log.Warnf("Report %d: Failed to get image: %v, processing without image", report.Seq, err)
+			report.Image = nil
+		} else {
+			report.Image = imageData
+		}
+
+		// Process the report with its image
 		if err := s.processReport(ctx, report); err != nil {
 			log.Errorf("Failed to process report %d: %v", report.Seq, err)
 			continue
@@ -105,10 +116,10 @@ func (s *EmailService) ProcessReports() error {
 	return nil
 }
 
-// getUnprocessedReports gets reports that have been analyzed but haven't been sent emails for
+// getUnprocessedReports gets reports that have been analyzed but haven't been sent emails for (without images)
 func (s *EmailService) getUnprocessedReports(ctx context.Context) ([]models.Report, error) {
 	query := `
-		SELECT r.seq, r.id, r.latitude, r.longitude, r.image, r.ts
+		SELECT r.seq, r.id, r.latitude, r.longitude, r.ts
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		LEFT JOIN sent_reports_emails sre ON r.seq = sre.seq
@@ -127,13 +138,30 @@ func (s *EmailService) getUnprocessedReports(ctx context.Context) ([]models.Repo
 	var reports []models.Report
 	for rows.Next() {
 		var report models.Report
-		if err := rows.Scan(&report.Seq, &report.ID, &report.Latitude, &report.Longitude, &report.Image, &report.Timestamp); err != nil {
+		if err := rows.Scan(&report.Seq, &report.ID, &report.Latitude, &report.Longitude, &report.Timestamp); err != nil {
 			return nil, err
 		}
+		// Image will be fetched separately when needed
 		reports = append(reports, report)
 	}
 
 	return reports, nil
+}
+
+// getReportImage fetches a single image by sequence number
+func (s *EmailService) getReportImage(ctx context.Context, seq int64) ([]byte, error) {
+	query := `SELECT r.image FROM reports r WHERE r.seq = ?`
+
+	var image []byte
+	err := s.db.QueryRowContext(ctx, query, seq).Scan(&image)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("report with seq %d not found", seq)
+		}
+		return nil, fmt.Errorf("failed to get image for report seq %d: %w", seq, err)
+	}
+
+	return image, nil
 }
 
 // processReport processes a single report and sends emails if needed
