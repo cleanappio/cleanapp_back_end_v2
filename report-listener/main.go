@@ -12,6 +12,7 @@ import (
 	"report-listener/config"
 	"report-listener/service"
 
+	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
 )
 
@@ -80,6 +81,24 @@ func main() {
 
 func setupRouter(svc *service.Service) *gin.Engine {
 	router := gin.Default()
+
+	// Add gzip compression middleware
+	router.Use(gzip.Gzip(gzip.DefaultCompression))
+
+	// Add logging middleware to show compression usage
+	router.Use(func(c *gin.Context) {
+		// Log the request
+		log.Printf("Request: %s %s", c.Request.Method, c.Request.URL.Path)
+
+		// Process the request
+		c.Next()
+
+		// Log response details
+		contentLength := c.Writer.Header().Get("Content-Length")
+		contentEncoding := c.Writer.Header().Get("Content-Encoding")
+		log.Printf("Response: %d, Content-Length: %s, Content-Encoding: %s",
+			c.Writer.Status(), contentLength, contentEncoding)
+	})
 
 	// Add CORS middleware
 	router.Use(func(c *gin.Context) {
