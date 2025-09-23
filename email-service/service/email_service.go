@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"email-service/config"
 	"email-service/email"
@@ -86,6 +87,8 @@ func (s *EmailService) Close() error {
 // ProcessReports polls for new reports and sends emails
 func (s *EmailService) ProcessReports() error {
 	ctx := context.Background()
+	start := time.Now()
+	log.Info("Polling cycle started: fetching unprocessed reports")
 
 	// Get reports that haven't been processed for email sending
 	reports, err := s.getUnprocessedReports(ctx)
@@ -93,20 +96,22 @@ func (s *EmailService) ProcessReports() error {
 		return fmt.Errorf("failed to get unprocessed reports: %w", err)
 	}
 
-	log.Infof("Found %d unprocessed reports", len(reports))
+	log.Infof("Found %d unprocessed reports (in %s)", len(reports), time.Since(start))
 
+	reportsStart := time.Now()
 	for _, report := range reports {
 		if err := s.processReport(ctx, report); err != nil {
 			log.Errorf("Failed to process report %d: %v", report.Seq, err)
 			continue
 		}
 	}
-
+	log.Infof("Finished processing %d reports (took %s)", len(reports), time.Since(reportsStart))
 	return nil
 }
 
 // getUnprocessedReports gets reports that have been analyzed but haven't been sent emails for
 func (s *EmailService) getUnprocessedReports(ctx context.Context) ([]models.Report, error) {
+	qStart := time.Now()
 	query := `
 		SELECT r.seq, r.id, r.latitude, r.longitude, r.image, r.ts
 		FROM reports r
@@ -120,6 +125,7 @@ func (s *EmailService) getUnprocessedReports(ctx context.Context) ([]models.Repo
 
 	rows, err := s.db.QueryContext(ctx, query)
 	if err != nil {
+		log.Errorf("getUnprocessedReports query error (in %s): %v", time.Since(qStart), err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -133,6 +139,7 @@ func (s *EmailService) getUnprocessedReports(ctx context.Context) ([]models.Repo
 		reports = append(reports, report)
 	}
 
+	log.Infof("getUnprocessedReports returned %d rows (in %s)", len(reports), time.Since(qStart))
 	return reports, nil
 }
 
@@ -214,10 +221,12 @@ func (s *EmailService) findAreasForReport(ctx context.Context, report models.Rep
 	ptWKT := fmt.Sprintf("POINT(%g %g)", report.Latitude, report.Longitude)
 
 	// Find areas that contain this point
+	qStart := time.Now()
 	rows, err := s.db.QueryContext(ctx,
 		"SELECT area_id FROM area_index WHERE MBRWithin(ST_GeomFromText(?, 4326), geom)",
 		ptWKT)
 	if err != nil {
+		log.Errorf("area_index query error for report %d (in %s): %v", report.Seq, time.Since(qStart), err)
 		return nil, nil, err
 	}
 	defer rows.Close()
@@ -231,6 +240,7 @@ func (s *EmailService) findAreasForReport(ctx context.Context, report models.Rep
 		areaMap[areaID] = true
 	}
 
+	log.Infof("Report %d: area_index returned %d area ids (in %s)", report.Seq, len(areaMap), time.Since(qStart))
 	if len(areaMap) == 0 {
 		log.Infof("Report %d: No areas found, marking as processed", report.Seq)
 		return nil, nil, nil
@@ -268,8 +278,10 @@ func (s *EmailService) getAreaFeatures(ctx context.Context, areaMap map[uint64]b
 	placeholders = placeholders[:len(placeholders)-1] // Remove trailing comma
 
 	query := fmt.Sprintf("SELECT id, area_json FROM areas WHERE id IN (%s)", placeholders)
+	qStart := time.Now()
 	rows, err := s.db.QueryContext(ctx, query, areaIDs...)
 	if err != nil {
+		log.Errorf("getAreaFeatures query error (in %s): %v", time.Since(qStart), err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -289,6 +301,7 @@ func (s *EmailService) getAreaFeatures(ctx context.Context, areaMap map[uint64]b
 		features[areaID] = feature
 	}
 
+	log.Infof("getAreaFeatures fetched %d features (in %s)", len(features), time.Since(qStart))
 	return features, nil
 }
 
@@ -307,8 +320,10 @@ func (s *EmailService) getAreaEmails(ctx context.Context, areaMap map[uint64]boo
 	placeholders = placeholders[:len(placeholders)-1] // Remove trailing comma
 
 	query := fmt.Sprintf("SELECT area_id, email FROM contact_emails WHERE area_id IN (%s) AND consent_report = true", placeholders)
+	qStart := time.Now()
 	rows, err := s.db.QueryContext(ctx, query, areaIDs...)
 	if err != nil {
+		log.Errorf("getAreaEmails query error (in %s): %v", time.Since(qStart), err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -327,6 +342,7 @@ func (s *EmailService) getAreaEmails(ctx context.Context, areaMap map[uint64]boo
 		areaEmails[areaID] = append(areaEmails[areaID], email)
 	}
 
+	log.Infof("getAreaEmails fetched %d area->emails rows (in %s)", len(areaEmails), time.Since(qStart))
 	return areaEmails, nil
 }
 
@@ -413,6 +429,7 @@ func (s *EmailService) sendEmailsForArea(ctx context.Context, report models.Repo
 
 // getReportAnalysis gets the analysis data for a specific report
 func (s *EmailService) getReportAnalysis(ctx context.Context, seq int64) (*models.ReportAnalysis, error) {
+	qStart := time.Now()
 	query := `
 		SELECT seq, source, title, description, litter_probability, hazard_probability,
 		severity_level, inferred_contact_emails, classification
@@ -435,18 +452,26 @@ func (s *EmailService) getReportAnalysis(ctx context.Context, seq int64) (*model
 		&analysis.Classification,
 	)
 	if err != nil {
+		log.Errorf("getReportAnalysis error for seq %d (in %s): %v", seq, time.Since(qStart), err)
 		return nil, fmt.Errorf("failed to get analysis for seq %d: %w", seq, err)
 	}
 
 	analysis.InferredContactEmails = contact_emails.String
 
+	log.Infof("getReportAnalysis loaded seq %d (in %s)", seq, time.Since(qStart))
 	return &analysis, nil
 }
 
 // markReportAsProcessed marks a report as processed for email sending
 func (s *EmailService) markReportAsProcessed(ctx context.Context, seq int64) error {
+	start := time.Now()
 	_, err := s.db.ExecContext(ctx, "INSERT INTO sent_reports_emails (seq) VALUES (?)", seq)
-	return err
+	if err != nil {
+		log.Errorf("markReportAsProcessed error for seq %d (in %s): %v", seq, time.Since(start), err)
+		return err
+	}
+	log.Infof("Report %d marked as processed (in %s)", seq, time.Since(start))
+	return nil
 }
 
 // verifyAndCreateTables ensures all required tables exist with proper structure

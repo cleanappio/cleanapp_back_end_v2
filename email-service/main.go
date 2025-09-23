@@ -67,9 +67,12 @@ func main() {
 		pollInterval := cfg.GetPollInterval()
 		log.Printf("Email service started. Polling every %v", pollInterval)
 		for {
+			iterStart := time.Now()
+			log.Printf("Polling tick started at %s", iterStart.Format(time.RFC3339))
 			if err := emailService.ProcessReports(); err != nil {
 				log.Printf("Error processing reports: %v", err)
 			}
+			log.Printf("Polling tick finished in %s; sleeping %v", time.Since(iterStart), pollInterval)
 			time.Sleep(pollInterval)
 		}
 	}()
