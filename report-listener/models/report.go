@@ -31,6 +31,7 @@ type ReportAnalysis struct {
 	Summary           string    `json:"summary" db:"summary"`
 	Language          string    `json:"language" db:"language"`
 	Classification    string    `json:"classification" db:"classification"`
+	IsValid           bool      `json:"is_valid" db:"is_valid"`
 	CreatedAt         time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at" db:"updated_at"`
 }
