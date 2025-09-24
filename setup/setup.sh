@@ -165,6 +165,7 @@ REPORT_OWNERSHIP_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-ownershi
 GDPR_PROCESS_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-gdpr-process-service-image:${OPT}"
 REPORTS_PUSHER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-reports-pusher-image:${OPT}"
 FACE_DETECTOR_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-face-detector-image:${OPT}"
+VOICE_ASSISTANT_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-voice-assistant-service-image:${OPT}"
 REPORT_ANALYSIS_BACKFILL_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-analysis-backfill-image:${OPT}"
 
 OPENAI_ASSISTANT_ID="asst_kBtuzDRWNorZgw9o2OJTGOn0"
@@ -200,6 +201,7 @@ docker pull ${EMAIL_SERVICE_DOCKER_IMAGE}
 docker pull ${REPORT_OWNERSHIP_SERVICE_DOCKER_IMAGE}
 docker pull ${GDPR_PROCESS_SERVICE_DOCKER_IMAGE}
 docker pull ${REPORTS_PUSHER_DOCKER_IMAGE}
+docker pull ${VOICE_ASSISTANT_SERVICE_DOCKER_IMAGE}
 docker pull ${REPORT_ANALYSIS_BACKFILL_DOCKER_IMAGE}
 
 # Secrets
@@ -645,6 +647,16 @@ services:
       - POLL_INTERVAL=1m
       - BATCH_SIZE=30
       - SEQ_END_TO=30000
+
+  cleanapp_voice_assistant_service:
+    container_name: cleanapp_voice_assistant_service
+    image: ${VOICE_ASSISTANT_SERVICE_DOCKER_IMAGE}
+    environment:
+      - PORT=8080
+      - OPENAI_API_KEY=\${OPENAI_API_KEY}
+      - OPENAI_MODEL=gpt-4o
+    ports:
+      - 9092:8080
 
 COMPOSE
 
