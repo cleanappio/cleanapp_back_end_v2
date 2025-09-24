@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/base64"
 	"fmt"
 	"log"
 	"net/http"
@@ -156,8 +157,8 @@ func (h *Handlers) GetLastNAnalyzedReports(c *gin.Context) {
 		// Create a custom response structure for minimal analysis to maintain consistency
 		// but with the minimal data structure
 		response := gin.H{
-			"reports": reportsWithMinimalAnalysis,
-			"count":   len(reportsWithMinimalAnalysis),
+			"reports":  reportsWithMinimalAnalysis,
+			"count":    len(reportsWithMinimalAnalysis),
 			"from_seq": 0,
 			"to_seq":   0,
 		}
@@ -211,25 +212,8 @@ func (h *Handlers) GetLastNReportsByID(c *gin.Context) {
 		return
 	}
 
-	// Get the N parameter from query string, default to 10 if not provided
-	nStr := c.DefaultQuery("N", "10")
-	classification := c.DefaultQuery("classification", "physical")
-
-	n := 10 // default value
-	if parsedN, err := strconv.Atoi(nStr); err == nil && parsedN > 0 {
-		n = parsedN
-	} else {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'N' parameter. Must be a positive integer."})
-		return
-	}
-
-	// Limit the maximum number of reports to prevent abuse
-	if n > MaxReportsLimit {
-		n = MaxReportsLimit
-	}
-
 	// Get the reports from the database
-	reports, err := h.db.GetLastNReportsByID(c.Request.Context(), reportID, classification, n)
+	reports, err := h.db.GetLastNReportsByID(c.Request.Context(), reportID)
 	if err != nil {
 		log.Printf("Failed to get last N reports by ID %s: %v", reportID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve reports"})
@@ -383,4 +367,40 @@ func (h *Handlers) GetReportsByBrand(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, response)
+}
+
+// GetImageBySeq returns a base64 encoded image for a specific report by sequence number
+func (h *Handlers) GetImageBySeq(c *gin.Context) {
+	// Get the seq parameter from query string
+	seqStr := c.Query("seq")
+	if seqStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing seq parameter"})
+		return
+	}
+
+	seq, err := strconv.Atoi(seqStr)
+	if err != nil || seq <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid seq parameter. Must be a positive integer."})
+		return
+	}
+
+	// Get the image from the database
+	imageData, err := h.db.GetImageBySeq(c.Request.Context(), seq)
+	if err != nil {
+		log.Printf("Failed to get image for report seq %d: %v", seq, err)
+		if err.Error() == fmt.Sprintf("report with seq %d not found", seq) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Report not found"})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve image"})
+		}
+		return
+	}
+
+	// Encode image as base64
+	base64Image := base64.StdEncoding.EncodeToString(imageData)
+
+	// Return the base64 encoded image
+	c.JSON(http.StatusOK, gin.H{
+		"image": base64Image,
+	})
 }

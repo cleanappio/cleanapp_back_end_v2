@@ -190,6 +190,34 @@ curl -H "Accept-Encoding: gzip" http://localhost:8080/api/v3/reports/last?n=100
 curl -H "Accept-Encoding: gzip" -w "Size: %{size_download} bytes\n" http://localhost:8080/api/v3/reports/last?n=50
 ```
 
+### Get Image by Sequence Number Endpoint
+```
+GET /api/v3/reports/image?seq=123
+```
+Returns a base64 encoded image for a specific report by sequence number.
+
+**Query Parameters:**
+- `seq` (required): Sequence number of the report
+
+**Response:**
+```json
+{
+  "image": "iVBORw0KGgoAAAANSUhEUgAA..."
+}
+```
+
+**Examples:**
+```bash
+# Get image for report with seq=123
+curl http://localhost:8080/api/v3/reports/image?seq=123
+
+# Test with invalid seq (should return 400 error)
+curl http://localhost:8080/api/v3/reports/image?seq=invalid
+
+# Test with non-existent seq (should return 404 error)
+curl http://localhost:8080/api/v3/reports/image?seq=999999
+```
+
 ### Root Health Check
 ```
 GET /health

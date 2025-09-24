@@ -529,25 +529,17 @@ func (d *Database) GetReportBySeq(ctx context.Context, seq int) (*models.ReportW
 }
 
 // GetLastNReportsByID retrieves the last N reports with analysis for a given report ID
-// Only returns reports that are not resolved (either no status or status = 'active')
-// and are not privately owned (either no owner or is_public = true)
-func (d *Database) GetLastNReportsByID(ctx context.Context, reportID string, classification string, limit int) ([]models.ReportWithAnalysis, error) {
-	// First, get the last N reports for the given ID that are not resolved
-	// and are not privately owned
+// Returns all reports for the given ID without filtering.
+func (d *Database) GetLastNReportsByID(ctx context.Context, reportID string) ([]models.ReportWithAnalysis, error) {
 	reportsQuery := `
-		SELECT DISTINCT r.seq, r.ts, r.id, r.latitude, r.longitude, r.image
+		SELECT DISTINCT r.seq, r.ts, r.id, r.latitude, r.longitude
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
-		LEFT JOIN report_status rs ON r.seq = rs.seq
-		LEFT JOIN reports_owners ro ON r.seq = ro.seq
-		WHERE r.id = ? AND (rs.status IS NULL OR rs.status = 'active') AND ra.is_valid = TRUE
-		AND ra.classification = ?
-		AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE)
+		WHERE r.id = ?
 		ORDER BY r.seq DESC
-		LIMIT ?
 	`
 
-	reportRows, err := d.db.QueryContext(ctx, reportsQuery, reportID, classification, limit)
+	reportRows, err := d.db.QueryContext(ctx, reportsQuery, reportID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query reports by ID: %w", err)
 	}
@@ -564,7 +556,6 @@ func (d *Database) GetLastNReportsByID(ctx context.Context, reportID string, cla
 			&report.ID,
 			&report.Latitude,
 			&report.Longitude,
-			&report.Image,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan report: %w", err)
@@ -926,4 +917,20 @@ func (d *Database) GetReportsByBrandName(ctx context.Context, brandName string, 
 	}
 
 	return result, nil
+}
+
+// GetImageBySeq gets the image for a specific report by sequence number
+func (d *Database) GetImageBySeq(ctx context.Context, seq int) ([]byte, error) {
+	query := `SELECT r.image FROM reports r WHERE r.seq = ?`
+
+	var image []byte
+	err := d.db.QueryRowContext(ctx, query, seq).Scan(&image)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("report with seq %d not found", seq)
+		}
+		return nil, fmt.Errorf("failed to get image for report seq %d: %w", seq, err)
+	}
+
+	return image, nil
 }
