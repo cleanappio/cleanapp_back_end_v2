@@ -165,6 +165,7 @@ REPORT_OWNERSHIP_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-ownershi
 GDPR_PROCESS_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-gdpr-process-service-image:${OPT}"
 REPORTS_PUSHER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-reports-pusher-image:${OPT}"
 FACE_DETECTOR_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-face-detector-image:${OPT}"
+VOICE_ASSISTANT_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-voice-assistant-service-image:${OPT}"
 
 ANALYSIS_PROMPT="What kind of litter or hazard can you see on this image? Please describe the litter or hazard in detail. Also, please extract any brand name from the image, if present. Extract only a brand name without any context info. If there are multiple brands, extract the one with the highest probability of being present."
 OPENAI_ASSISTANT_ID="asst_kBtuzDRWNorZgw9o2OJTGOn0"
@@ -200,6 +201,7 @@ docker pull ${EMAIL_SERVICE_DOCKER_IMAGE}
 docker pull ${REPORT_OWNERSHIP_SERVICE_DOCKER_IMAGE}
 docker pull ${GDPR_PROCESS_SERVICE_DOCKER_IMAGE}
 docker pull ${REPORTS_PUSHER_DOCKER_IMAGE}
+docker pull ${VOICE_ASSISTANT_SERVICE_DOCKER_IMAGE}
 
 # Secrets
 cat >.env << ENV
@@ -612,6 +614,16 @@ services:
       - 9091:8080
     depends_on:
       - cleanapp_db
+
+  cleanapp_voice_assistant_service:
+    container_name: cleanapp_voice_assistant_service
+    image: ${VOICE_ASSISTANT_SERVICE_DOCKER_IMAGE}
+    environment:
+      - PORT=8080
+      - OPENAI_API_KEY=\${OPENAI_API_KEY}
+      - OPENAI_MODEL=gpt-4o
+    ports:
+      - 9092:8080
 
 COMPOSE
 
