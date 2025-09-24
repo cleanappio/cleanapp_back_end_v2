@@ -1,4 +1,4 @@
-email-fettcher
+email-fetcher
 ===============
 
 Small Rust daemon that fills in report_analysis.inferred_contact_emails for valid digital reports by asking OpenAI for plausible vendor support emails based on brand_display_name.

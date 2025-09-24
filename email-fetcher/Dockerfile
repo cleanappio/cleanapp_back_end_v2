@@ -8,8 +8,8 @@ RUN cargo build --release
 
 FROM gcr.io/distroless/cc
 WORKDIR /
-COPY --from=builder /app/target/release/email-fettcher /email-fettcher
+COPY --from=builder /app/target/release/email-fetcher /email-fetcher
 ENV RUST_LOG=info
-ENTRYPOINT ["/email-fettcher"]
+ENTRYPOINT ["/email-fetcher"]
 
 
