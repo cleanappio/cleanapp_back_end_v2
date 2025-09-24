@@ -12,8 +12,12 @@ func WriteStreamChunk(w http.ResponseWriter, chunk models.StreamChunk) error {
         return err
     }
     
-    w.Write(data)
-    w.Write([]byte("\n"))
+    if _, err := w.Write(data); err != nil {
+        return err
+    }
+    if _, err := w.Write([]byte("\n")); err != nil {
+        return err
+    }
     
     if flusher, ok := w.(http.Flusher); ok {
         flusher.Flush()
