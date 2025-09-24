@@ -55,4 +55,4 @@ echo "Running main.go with image: $1"
 echo "----------------------------------------"
 
 # Run the Go program
-go run main.go "$1"
+go run main.go "$1" "$2"

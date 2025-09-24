@@ -63,7 +63,6 @@ func (d *Database) GetReportsSince(ctx context.Context, sinceSeq int) ([]models.
 		LEFT JOIN reports_owners ro ON r.seq = ro.seq
 		WHERE r.seq > ? 
 		AND (rs.status IS NULL OR rs.status = 'active')
-		AND (ra.hazard_probability >= 0.5 OR ra.litter_probability >= 0.5 OR ra.classification = 'digital')
 		AND ra.is_valid = TRUE
 		AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE)
 		ORDER BY r.seq ASC
@@ -265,14 +264,14 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int, class
 		LEFT JOIN report_status rs ON r.seq = rs.seq
 		LEFT JOIN reports_owners ro ON r.seq = ro.seq
 		WHERE (rs.status IS NULL OR rs.status = 'active')
-		AND (ra.hazard_probability >= 0.5 OR ra.litter_probability >= 0.5 OR ra.classification = 'digital') AND ra.classification = ?
+		AND ra.classification = ?
 		AND ra.is_valid = TRUE
 		AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE)
+		AND r.seq >= (SELECT MAX(seq) - ? FROM report_analysis WHERE classification = ?)
 		ORDER BY r.seq DESC
-		LIMIT ?
 	`
 
-	reportRows, err := d.db.QueryContext(ctx, reportsQuery, classification, limit)
+	reportRows, err := d.db.QueryContext(ctx, reportsQuery, classification, limit, classification)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query last N analyzed reports: %w", err)
 	}
@@ -542,7 +541,7 @@ func (d *Database) GetLastNReportsByID(ctx context.Context, reportID string, cla
 		LEFT JOIN report_status rs ON r.seq = rs.seq
 		LEFT JOIN reports_owners ro ON r.seq = ro.seq
 		WHERE r.id = ? AND (rs.status IS NULL OR rs.status = 'active') AND ra.is_valid = TRUE
-		AND (ra.hazard_probability >= 0.5 OR ra.litter_probability >= 0.5 OR ra.classification = 'digital') AND ra.classification = ?
+		AND ra.classification = ?
 		AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE)
 		ORDER BY r.seq DESC
 		LIMIT ?
@@ -682,7 +681,6 @@ func (d *Database) GetReportsByLatLng(ctx context.Context, latitude, longitude f
 		WHERE r.latitude BETWEEN ? AND ?
 		AND r.longitude BETWEEN ? AND ?
 		AND (rs.status IS NULL OR rs.status = 'active')
-		AND (ra.hazard_probability >= 0.5 OR ra.litter_probability >= 0.5 OR ra.classification = 'digital')
 		AND ra.is_valid = TRUE
 		AND ra.classification = 'physical'
 		AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE)
@@ -814,7 +812,6 @@ func (d *Database) GetReportsByBrandName(ctx context.Context, brandName string, 
 		LEFT JOIN reports_owners ro ON r.seq = ro.seq
 		WHERE ra.brand_name = ? 
 		AND (rs.status IS NULL OR rs.status = 'active')
-		AND (ra.hazard_probability >= 0.5 OR ra.litter_probability >= 0.5 OR ra.classification = 'digital')
 		AND ra.is_valid = TRUE
 		AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE)
 		ORDER BY r.ts DESC

@@ -10,6 +10,7 @@ A Go microservice that listens to the `reports` and `report_analysis` tables in 
 - **Service Recovery**: Tracks the last processed report sequence and resumes from where it left off after service interruption
 - **Configurable Broadcast Frequency**: Adjustable broadcast interval (default: 1 second)
 - **Health Monitoring**: Provides health check endpoints with service statistics
+- **Response Compression**: Automatic gzip compression for HTTP responses to reduce bandwidth usage
 - **Graceful Shutdown**: Handles shutdown signals and closes connections properly
 
 ## Architecture
@@ -110,8 +111,14 @@ GET /api/v3/reports/last?n=10
 ```
 Returns the last N analyzed reports. The `n` parameter specifies how many reports to return (default: 10, max: 100).
 
+**Features:**
+- **Gzip Compression**: Responses are automatically compressed using gzip when the client supports it
+- **Efficient Data Transfer**: Significantly reduces bandwidth usage for large responses
+
 **Query Parameters:**
 - `n` (optional): Number of reports to return (1-100, default: 10)
+- `classification` (optional): Filter by classification ("physical" or "digital", default: "physical")
+- `full_data` (optional): Include full analysis data ("true" or "false", default: "true")
 
 **Response:**
 ```json
@@ -175,6 +182,12 @@ curl http://localhost:8080/api/v3/reports/last?n=5
 
 # Get last 50 reports
 curl http://localhost:8080/api/v3/reports/last?n=50
+
+# Get reports with gzip compression (recommended for large responses)
+curl -H "Accept-Encoding: gzip" http://localhost:8080/api/v3/reports/last?n=100
+
+# Test compression effectiveness
+curl -H "Accept-Encoding: gzip" -w "Size: %{size_download} bytes\n" http://localhost:8080/api/v3/reports/last?n=50
 ```
 
 ### Root Health Check

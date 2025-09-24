@@ -237,18 +237,15 @@ func (d *Database) GetReportsInRadius(ctx context.Context, latitude, longitude f
 	log.Printf("minLat: %f, maxLat: %f, minLng: %f, maxLng: %f", minLat, maxLat, minLng, maxLng)
 
 	query := `
-		SELECT r.seq, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.image, r.action_id
+		SELECT r.seq, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.image, r.action_id, ra.description
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		LEFT JOIN report_status rs ON r.seq = rs.seq
-		LEFT JOIN report_clusters rc ON r.seq = rc.related_seq
 		WHERE r.latitude BETWEEN ? AND ?
 		AND r.longitude BETWEEN ? AND ?
 		AND (rs.status IS NULL OR rs.status = 'active')
-		AND (ra.hazard_probability >= 0.5 OR ra.litter_probability >= 0.5 OR ra.classification = 'digital')
 		AND ra.is_valid = TRUE
 		AND ra.language = 'en'
-		AND rc.primary_seq IS NULL
 		ORDER BY r.seq DESC
 		LIMIT ?
 	`
@@ -272,6 +269,7 @@ func (d *Database) GetReportsInRadius(ctx context.Context, latitude, longitude f
 			&report.Y,
 			&report.Image,
 			&report.ActionID,
+			&report.AnalysisText,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan report: %w", err)

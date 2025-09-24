@@ -166,8 +166,8 @@ GDPR_PROCESS_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-gdpr-process-servic
 REPORTS_PUSHER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-reports-pusher-image:${OPT}"
 FACE_DETECTOR_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-face-detector-image:${OPT}"
 VOICE_ASSISTANT_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-voice-assistant-service-image:${OPT}"
+REPORT_ANALYSIS_BACKFILL_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-analysis-backfill-image:${OPT}"
 
-ANALYSIS_PROMPT="What kind of litter or hazard can you see on this image? Please describe the litter or hazard in detail. Also, please extract any brand name from the image, if present. Extract only a brand name without any context info. If there are multiple brands, extract the one with the highest probability of being present."
 OPENAI_ASSISTANT_ID="asst_kBtuzDRWNorZgw9o2OJTGOn0"
 
 RED_BULL_BRAND_NAMES="Red Bull"
@@ -202,6 +202,7 @@ docker pull ${REPORT_OWNERSHIP_SERVICE_DOCKER_IMAGE}
 docker pull ${GDPR_PROCESS_SERVICE_DOCKER_IMAGE}
 docker pull ${REPORTS_PUSHER_DOCKER_IMAGE}
 docker pull ${VOICE_ASSISTANT_SERVICE_DOCKER_IMAGE}
+docker pull ${REPORT_ANALYSIS_BACKFILL_DOCKER_IMAGE}
 
 # Secrets
 cat >.env << ENV
@@ -296,6 +297,23 @@ cat >docker-compose.yml << COMPOSE
 version: '3'
 
 services:
+  cleanapp_rabbitmq:
+    image: rabbitmq:latest
+    container_name: cleanapp_rabbitmq
+    restart: always
+    ports:
+      - 5672:5672
+      - 15672:15672
+    environment:
+      RABBITMQ_DEFAULT_USER: cleanapp
+      RABBITMQ_DEFAULT_PASS: cleanapp
+    configs:
+      - source: rabbitmq-plugins
+        target: /etc/rabbitmq/enabled_plugins
+    volumes:
+      - rabbitmq-lib:/var/lib/rabbitmq/
+      - rabbitmq-log:/var/log/rabbitmq
+
   cleanapp_service:
     container_name: cleanapp_service
     image: ${SERVICE_DOCKER_IMAGE}
@@ -309,6 +327,7 @@ services:
       - CLEANAPP_MAP_URL=${CLEANAPP_MAP_URL}
       - CLEANAPP_ANDROID_URL=${REACT_APP_PLAYSTORE_URL}
       - CLEANAPP_IOS_URL=${REACT_APP_APPSTORE_URL}
+      - REPORT_ANALYSIS_URL=http://cleanapp_report_analyze_pipeline:8080
       - GIN_MODE=${GIN_MODE}
     ports:
       - 8080:8080
@@ -614,6 +633,20 @@ services:
       - 9091:8080
     depends_on:
       - cleanapp_db
+  
+  cleanapp_report_analysis_backfill:
+    container_name: cleanapp_report_analysis_backfill
+    image: ${REPORT_ANALYSIS_BACKFILL_DOCKER_IMAGE}
+    environment:
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+      - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
+      - DB_NAME=cleanapp
+      - REPORT_ANALYSIS_URL=http://cleanapp_report_analyze_pipeline:8080
+      - POLL_INTERVAL=1m
+      - BATCH_SIZE=30
+      - SEQ_END_TO=30000
 
   cleanapp_voice_assistant_service:
     container_name: cleanapp_voice_assistant_service
@@ -658,10 +691,22 @@ done
 
 cat >>docker-compose.yml << COMPOSE_TAIL
 
+configs:
+  rabbitmq-plugins:
+    content: "[rabbitmq_management]."  
+
 volumes:
   mysql:
     name: eko_mysql
     external: true
+
+  rabbitmq-lib:
+    name: rabbitmq-lib
+    driver: local
+
+  rabbitmq-log:
+    name: rabbitmq-log
+    driver: local
 
 COMPOSE_TAIL
 

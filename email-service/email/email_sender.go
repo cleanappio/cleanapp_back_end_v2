@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"image"
+	"time"
 
 	"email-service/config"
 	"email-service/models"
@@ -40,13 +41,22 @@ func NewEmailSender(cfg *config.Config) *EmailSender {
 func (e *EmailSender) SendEmails(recipients []string, reportImage, mapImage []byte) error {
 	log.Infof("Sending email to %d recipients", len(recipients))
 
+	var firstErr error
+	failed := 0
 	for _, recipient := range recipients {
 		if err := e.sendOneEmail(recipient, reportImage, mapImage); err != nil {
+			failed++
+			if firstErr == nil {
+				firstErr = err
+			}
 			log.Warnf("Error sending email to %s: %v", recipient, err)
 			// Continue with other recipients
 		}
 	}
 
+	if failed > 0 {
+		return fmt.Errorf("%d/%d emails failed: %v", failed, len(recipients), firstErr)
+	}
 	return nil
 }
 
@@ -54,13 +64,22 @@ func (e *EmailSender) SendEmails(recipients []string, reportImage, mapImage []by
 func (e *EmailSender) SendEmailsWithAnalysis(recipients []string, reportImage, mapImage []byte, analysis *models.ReportAnalysis) error {
 	log.Infof("Sending email with analysis to %d recipients", len(recipients))
 
+	var firstErr error
+	failed := 0
 	for _, recipient := range recipients {
 		if err := e.sendOneEmailWithAnalysis(recipient, reportImage, mapImage, analysis); err != nil {
+			failed++
+			if firstErr == nil {
+				firstErr = err
+			}
 			log.Warnf("Error sending email to %s: %v", recipient, err)
 			// Continue with other recipients
 		}
 	}
 
+	if failed > 0 {
+		return fmt.Errorf("%d/%d emails with analysis failed: %v", failed, len(recipients), firstErr)
+	}
 	return nil
 }
 
@@ -70,16 +89,8 @@ func (e *EmailSender) sendOneEmail(recipient string, reportImage, mapImage []byt
 	subject := "You got a CleanApp report"
 	to := mail.NewEmail(recipient, recipient)
 
-	// Encode report image
-	encodedReportImage := base64.StdEncoding.EncodeToString(reportImage)
-
-	// Create report attachment
-	reportAttachment := mail.NewAttachment()
-	reportAttachment.SetContent(encodedReportImage)
-	reportAttachment.SetType("image/jpg")
-	reportAttachment.SetFilename("report.jpg")
-	reportAttachment.SetDisposition("inline")
-	reportAttachment.SetContentID(reportImgCid)
+	hasReport := len(reportImage) > 0
+	hasMap := len(mapImage) > 0
 
 	// Create message
 	message := mail.NewV3Mail()
@@ -90,12 +101,22 @@ func (e *EmailSender) sendOneEmail(recipient string, reportImage, mapImage []byt
 	p.AddTos(to)
 	message.AddPersonalizations(p)
 
-	message.AddContent(mail.NewContent("text/plain", e.getEmailText(recipient)))
-	message.AddContent(mail.NewContent("text/html", e.getEmailHtml(recipient)))
-	message.AddAttachment(reportAttachment)
+	message.AddContent(mail.NewContent("text/plain", e.getEmailText(recipient, hasReport, hasMap)))
+	message.AddContent(mail.NewContent("text/html", e.getEmailHtml(recipient, hasReport, hasMap)))
+
+	if hasReport {
+		encodedReportImage := base64.StdEncoding.EncodeToString(reportImage)
+		reportAttachment := mail.NewAttachment()
+		reportAttachment.SetContent(encodedReportImage)
+		reportAttachment.SetType("image/jpeg")
+		reportAttachment.SetFilename("report.jpg")
+		reportAttachment.SetDisposition("inline")
+		reportAttachment.SetContentID(reportImgCid)
+		message.AddAttachment(reportAttachment)
+	}
 
 	// Add map attachment only if mapImage is provided
-	if len(mapImage) > 0 {
+	if hasMap {
 		encodedMapImage := base64.StdEncoding.EncodeToString(mapImage)
 		mapAttachment := mail.NewAttachment()
 		mapAttachment.SetContent(encodedMapImage)
@@ -107,13 +128,24 @@ func (e *EmailSender) sendOneEmail(recipient string, reportImage, mapImage []byt
 	}
 
 	// Send email
+	start := time.Now()
 	response, err := e.client.Send(message)
 	if err != nil {
 		return err
 	}
 
-	log.Infof("Email sent to %s! Status: %d", recipient, response.StatusCode)
-	return nil
+	duration := time.Since(start)
+	if response.StatusCode >= 200 && response.StatusCode < 300 {
+		msgID := response.Headers["X-Message-Id"]
+		log.Infof("Email accepted by SendGrid for %s (status=%d, id=%s, in %s)", recipient, response.StatusCode, msgID, duration)
+		return nil
+	}
+
+	body := response.Body
+	if len(body) > 512 {
+		body = body[:512] + "..."
+	}
+	return fmt.Errorf("sendgrid returned status %d for %s (in %s): %s", response.StatusCode, recipient, duration, body)
 }
 
 // sendOneEmailWithAnalysis sends an email to a single recipient with analysis data
@@ -128,16 +160,8 @@ func (e *EmailSender) sendOneEmailWithAnalysis(recipient string, reportImage, ma
 
 	to := mail.NewEmail(recipient, recipient)
 
-	// Encode report image
-	encodedReportImage := base64.StdEncoding.EncodeToString(reportImage)
-
-	// Create report attachment
-	reportAttachment := mail.NewAttachment()
-	reportAttachment.SetContent(encodedReportImage)
-	reportAttachment.SetType("image/jpg")
-	reportAttachment.SetFilename("report.jpg")
-	reportAttachment.SetDisposition("inline")
-	reportAttachment.SetContentID(reportImgCid)
+	hasReport := len(reportImage) > 0
+	hasMap := len(mapImage) > 0
 
 	// Create message
 	message := mail.NewV3Mail()
@@ -148,12 +172,22 @@ func (e *EmailSender) sendOneEmailWithAnalysis(recipient string, reportImage, ma
 	p.AddTos(to)
 	message.AddPersonalizations(p)
 
-	message.AddContent(mail.NewContent("text/plain", e.getEmailTextWithAnalysis(recipient, analysis)))
-	message.AddContent(mail.NewContent("text/html", e.getEmailHtmlWithAnalysis(recipient, analysis)))
-	message.AddAttachment(reportAttachment)
+	message.AddContent(mail.NewContent("text/plain", e.getEmailTextWithAnalysis(recipient, analysis, hasReport, hasMap)))
+	message.AddContent(mail.NewContent("text/html", e.getEmailHtmlWithAnalysis(recipient, analysis, hasReport, hasMap)))
+
+	if hasReport {
+		encodedReportImage := base64.StdEncoding.EncodeToString(reportImage)
+		reportAttachment := mail.NewAttachment()
+		reportAttachment.SetContent(encodedReportImage)
+		reportAttachment.SetType("image/jpeg")
+		reportAttachment.SetFilename("report.jpg")
+		reportAttachment.SetDisposition("inline")
+		reportAttachment.SetContentID(reportImgCid)
+		message.AddAttachment(reportAttachment)
+	}
 
 	// Add map attachment only if mapImage is provided
-	if len(mapImage) > 0 {
+	if hasMap {
 		encodedMapImage := base64.StdEncoding.EncodeToString(mapImage)
 		mapAttachment := mail.NewAttachment()
 		mapAttachment.SetContent(encodedMapImage)
@@ -165,13 +199,23 @@ func (e *EmailSender) sendOneEmailWithAnalysis(recipient string, reportImage, ma
 	}
 
 	// Send email
+	start := time.Now()
 	response, err := e.client.Send(message)
 	if err != nil {
 		return err
 	}
 
-	log.Infof("Email with analysis sent to %s! Status: %d", recipient, response.StatusCode)
-	return nil
+	duration := time.Since(start)
+	if response.StatusCode >= 200 && response.StatusCode < 300 {
+		msgID := response.Headers["X-Message-Id"]
+		log.Infof("Email with analysis accepted by SendGrid for %s (status=%d, id=%s, in %s)", recipient, response.StatusCode, msgID, duration)
+		return nil
+	}
+	body := response.Body
+	if len(body) > 512 {
+		body = body[:512] + "..."
+	}
+	return fmt.Errorf("sendgrid returned status %d for %s (in %s): %s", response.StatusCode, recipient, duration, body)
 }
 
 // addLabel adds text to an image
@@ -188,21 +232,37 @@ func (e *EmailSender) addLabel(img *image.RGBA, text string, x, y int) {
 }
 
 // getEmailText returns the plain text content for emails
-func (e *EmailSender) getEmailText(recipient string) string {
-	return `Hello,
+func (e *EmailSender) getEmailText(recipient string, hasReport, hasMap bool) string {
+	sections := ""
+	if hasReport || hasMap {
+		sections = "\nThis email contains:\n"
+		if hasReport {
+			sections += "- The report image\n"
+		}
+		if hasMap {
+			sections += "- A map showing the location\n"
+		}
+	}
+	return fmt.Sprintf(`Hello,
 
-You have received a new CleanApp report.
-
-This email contains:
-- The report image
-- A map showing the location
-
+You have received a new CleanApp report.%s
 Best regards,
-The CleanApp Team`
+The CleanApp Team`, sections)
 }
 
 // getEmailHtml returns the HTML content for emails
-func (e *EmailSender) getEmailHtml(recipient string) string {
+func (e *EmailSender) getEmailHtml(recipient string, hasReport, hasMap bool) string {
+	imagesSection := ""
+	if hasReport {
+		imagesSection += fmt.Sprintf(`
+    <h3>Report Image:</h3>
+    <img src="cid:%s" alt="Report Image" style="max-width: 100%%; height: auto;">`, reportImgCid)
+	}
+	if hasMap {
+		imagesSection += fmt.Sprintf(`
+    <h3>Location Map:</h3>
+    <img src="cid:%s" alt="Map" style="max-width: 100%%; height: auto;">`, mapImgCid)
+	}
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html>
 <head>
@@ -211,23 +271,27 @@ func (e *EmailSender) getEmailHtml(recipient string) string {
 </head>
 <body>
     <h2>Hello,</h2>
-    <p>You have received a new CleanApp report.</p>
-    
-    <h3>Report Image:</h3>
-    <img src="cid:%s" alt="Report Image" style="max-width: 100%%; height: auto;">
-    
-    <h3>Location Map:</h3>
-    <img src="cid:%s" alt="Map" style="max-width: 100%%; height: auto;">
-    
+    <p>You have received a new CleanApp report.</p>%s
     <p>Best regards,<br>The CleanApp Team</p>
 </body>
-</html>`, reportImgCid, mapImgCid)
+</html>`, imagesSection)
 }
 
 // getEmailTextWithAnalysis returns the plain text content for emails with analysis data
-func (e *EmailSender) getEmailTextWithAnalysis(recipient string, analysis *models.ReportAnalysis) string {
+func (e *EmailSender) getEmailTextWithAnalysis(recipient string, analysis *models.ReportAnalysis, hasReport, hasMap bool) string {
 	var content string
 
+	attachments := ""
+	if hasReport || hasMap {
+		attachments = "\nThis email contains:\n"
+		if hasReport {
+			attachments += "- The report image\n"
+		}
+		if hasMap {
+			attachments += "- A map showing the location\n"
+		}
+		attachments += "- AI analysis results\n"
+	}
 	if analysis.Classification == "digital" {
 		content = fmt.Sprintf(`Hello,
 
@@ -237,12 +301,7 @@ REPORT ANALYSIS:
 Title: %s
 Description: %s
 Type: Digital Issue
-
-This email contains:
-- The report image
-- A map showing the location
-- AI analysis results
-
+%s
 Note: This is a digital issue report. Physical metrics (litter/hazard probability) are not applicable.
 
 To unsubscribe from these emails, please visit: %s?email=%s
@@ -252,6 +311,7 @@ Best regards,
 The CleanApp Team`,
 			analysis.Title,
 			analysis.Description,
+			attachments,
 			e.config.OptOutURL,
 			recipient)
 	} else {
@@ -268,12 +328,7 @@ PROBABILITY SCORES:
 - Litter Probability: %.1f%%
 - Hazard Probability: %.1f%%
 - Severity Level: %.1f
-
-This email contains:
-- The report image
-- A map showing the location
-- AI analysis results
-
+%s
 To unsubscribe from these emails, please visit: %s?email=%s
 You can also reply to this email with "UNSUBSCRIBE" in the subject line.
 
@@ -284,6 +339,7 @@ The CleanApp Team`,
 			analysis.LitterProbability*100,
 			analysis.HazardProbability*100,
 			analysis.SeverityLevel,
+			attachments,
 			e.config.OptOutURL,
 			recipient)
 	}
@@ -292,7 +348,7 @@ The CleanApp Team`,
 }
 
 // getEmailHtmlWithAnalysis returns the HTML content for emails with analysis data
-func (e *EmailSender) getEmailHtmlWithAnalysis(recipient string, analysis *models.ReportAnalysis) string {
+func (e *EmailSender) getEmailHtmlWithAnalysis(recipient string, analysis *models.ReportAnalysis, hasReport, hasMap bool) string {
 	// Calculate gauge colors based on values
 	litterColor := e.getGaugeColor(analysis.LitterProbability)
 	hazardColor := e.getGaugeColor(analysis.HazardProbability)
@@ -300,6 +356,22 @@ func (e *EmailSender) getEmailHtmlWithAnalysis(recipient string, analysis *model
 
 	// Determine if this is a digital report
 	isDigital := analysis.Classification == "digital"
+
+	imagesSection := ""
+	if hasReport {
+		imagesSection += fmt.Sprintf(`
+        <div class="image-container">
+            <h3>Report Image:</h3>
+            <img src="cid:%s" alt="Report Image" style="max-width: 100%%; height: auto; border-radius: 5px;">
+        </div>`, reportImgCid)
+	}
+	if hasMap {
+		imagesSection += fmt.Sprintf(`
+        <div class="image-container">
+            <h3>Location Map:</h3>
+            <img src="cid:%s" alt="Map" style="max-width: 100%%; height: auto; border-radius: 5px;">
+        </div>`, mapImgCid)
+	}
 
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html>
@@ -341,16 +413,7 @@ func (e *EmailSender) getEmailHtmlWithAnalysis(recipient string, analysis *model
     
     %s
     
-    <div class="images">
-        <div class="image-container">
-            <h3>Report Image:</h3>
-            <img src="cid:%s" alt="Report Image" style="max-width: 100%%; height: auto; border-radius: 5px;">
-        </div>
-        
-        <div class="image-container">
-            <h3>Location Map:</h3>
-            <img src="cid:%s" alt="Map" style="max-width: 100%%; height: auto; border-radius: 5px;">
-        </div>
+    <div class="images">%s
     </div>
     
     <p><em>Best regards,<br>The CleanApp Team</em></p>
@@ -365,8 +428,7 @@ func (e *EmailSender) getEmailHtmlWithAnalysis(recipient string, analysis *model
 		analysis.Description,
 		analysis.Classification,
 		e.getMetricsSection(analysis, isDigital, litterColor, hazardColor, severityColor),
-		reportImgCid,
-		mapImgCid,
+		imagesSection,
 		e.config.OptOutURL,
 		recipient)
 }

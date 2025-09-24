@@ -79,6 +79,11 @@ func (p *GdprProcessor) ProcessReport(seq int, getImage func(int) ([]byte, error
 
 	log.Infof("Retrieved image for report %d, size: %d bytes", seq, len(imageData))
 
+	if len(imageData) == 0 {
+		log.Infof("No image data found for report %d, skipping", seq)
+		return nil
+	}
+
 	if len(imageData) > 500000 {
 		imageData, err = image.CompressImage(imageData)
 		if err != nil {

@@ -90,7 +90,7 @@ func extractJSONFromMarkdown(content string) (string, error) {
 }
 
 // CompareImages compares two images using OpenAI's vision API
-func (c *Client) CompareImages(image1, image2 []byte, firstImageLocationLat, firstImageLocationLng, secondImageLocationLat, secondImageLocationLng float64) (float64, bool, error) {
+func (c *Client) CompareImages(image1, image2 []byte, originalDescription string, firstImageLocationLat, firstImageLocationLng, secondImageLocationLat, secondImageLocationLng float64) (float64, bool, error) {
 	// Encode images to base64
 	base64Image1 := base64.StdEncoding.EncodeToString(image1)
 	base64Image2 := base64.StdEncoding.EncodeToString(image2)
@@ -99,28 +99,46 @@ func (c *Client) CompareImages(image1, image2 []byte, firstImageLocationLat, fir
 	dataURL1 := fmt.Sprintf("data:image/jpeg;base64,%s", base64Image1)
 	dataURL2 := fmt.Sprintf("data:image/jpeg;base64,%s", base64Image2)
 
-	prompt := fmt.Sprintf(`Please analyze these two images and tell me if this is the same place where the photo was taken.
+	systemPromptStr := `
+########################################
+# 1. MISSION
+########################################
+Please analyze these two images and tell me if this is the same place where the photo was taken.
 Also, please analyze if a litter or hazard object on the image 1 was removed on the image 2.
-Consider locations of each photo.
-First image location lat/lng: %f,%f
-Second image location lat/lng: %f,%f
-
-
-Please output the answer as JSON:
+Consider locations of each photo and the original issue description provided by the user.
+########################################
+# 2. OUTPUT RULES
+########################################
+The result should be outputted using the following JSON schema:
 {
   "same_place_probability": [0.0-1.0],
   "litter_or_hazard_removed": true|false
-}`, firstImageLocationLat, firstImageLocationLng, secondImageLocationLat, secondImageLocationLng)
+}`
+
+	userPromptStr := fmt.Sprintf(`
+First image location lat/lng: %f,%f
+Second image location lat/lng: %f,%f
+
+Original description: %s`, firstImageLocationLat, firstImageLocationLng, secondImageLocationLat, secondImageLocationLng, originalDescription)
 
 	reqBody := ChatRequest{
 		Model: c.model,
 		Messages: []Message{
 			{
+				Role: "system",
+				Content: []ContentItem{
+					{
+						Type: "text",
+						Text: systemPromptStr,
+					},
+				},
+			},
+			{
 				Role: "user",
 				Content: []ContentItem{
 					{
 						Type: "text",
-						Text: prompt,
+						Text: userPromptStr,
 					},
 					{
 						Type: "image_url",

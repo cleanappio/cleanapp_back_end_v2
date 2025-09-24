@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "target": "es2020",
+    "module": "es2020",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "checkJs": false,
+    "skipLibCheck": true,
+    "strict": false,
+    "noUncheckedIndexedAccess": true,
+    "forceConsistentCasingInFileNames": true,
+    "esModuleInterop": true,
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "noImplicitAny": false,
+    "incremental": true,
+    "baseUrl": ".",
+    "allowSyntheticDefaultImports": true,
+    "types": ["node", "vitest/importMeta"],
+    "allowImportingTsExtensions": false,
+    "outDir": "dist",
+    "noEmit": true,
+    "composite": true,
+    "disableSourceOfProjectReferenceRedirect": true
+  },
+  "ts-node": {
+    "swc": true,
+    "transpileOnly": true
+  }
+}
+

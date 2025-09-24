@@ -18,17 +18,17 @@ type Database struct {
 
 // Report represents a report from the reports table
 type Report struct {
-	Seq         int
-	Timestamp   time.Time
-	ID          string
-	Team        int
-	Latitude    float64
-	Longitude   float64
-	X           float64
-	Y           float64
-	Image       []byte
-	ActionID    string
-	Description string
+	Seq         int       `json:"seq"`
+	Timestamp   time.Time `json:"timestamp"`
+	ID          string    `json:"id"`
+	Team        int       `json:"team"`
+	Latitude    float64   `json:"latitude"`
+	Longitude   float64   `json:"longitude"`
+	X           float64   `json:"x"`
+	Y           float64   `json:"y"`
+	Image       []byte    `json:"image"`
+	ActionID    string    `json:"action_id"`
+	Description string    `json:"description"`
 }
 
 // ReportAnalysis represents an analysis result
@@ -259,8 +259,7 @@ func (d *Database) GetUnanalyzedReports(cfg *config.Config, limit int) ([]Report
 	query := `
 	SELECT r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.image, r.action_id, r.description
 	FROM reports r
-	LEFT JOIN report_analysis ra ON r.seq = ra.seq
-	WHERE ra.seq IS NULL AND r.seq > ?
+	WHERE r.seq NOT IN(SELECT seq FROM report_analysis) AND r.seq > ?
 	ORDER BY r.seq ASC
 	LIMIT ?`
 	// query := `

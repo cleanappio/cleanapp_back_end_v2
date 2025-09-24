@@ -1,22 +1,24 @@
 package handlers
 
 import (
+	"log"
 	"net/http"
 	"strconv"
 
 	"report-analyze-pipeline/database"
-
+	"report-analyze-pipeline/service"
 	"github.com/gin-gonic/gin"
 )
 
 // Handlers represents the HTTP handlers
 type Handlers struct {
 	db *database.Database
+	analysisService *service.Service
 }
 
 // NewHandlers creates new HTTP handlers
-func NewHandlers(db *database.Database) *Handlers {
-	return &Handlers{db: db}
+func NewHandlers(db *database.Database, analysisService *service.Service) *Handlers {
+	return &Handlers{db: db, analysisService: analysisService}
 }
 
 // HealthCheck handles health check requests
@@ -172,5 +174,28 @@ func (h *Handlers) GetAnalysisStats(c *gin.Context) {
 		"total_analyzed":     totalAnalyzed,
 		"pending_analysis":   totalReports - totalAnalyzed,
 		"analysis_by_source": sourceStats,
+	})
+}
+
+// DoAnalysis handles POST requests to perform analysis on a report
+func (h *Handlers) DoAnalysis(c *gin.Context) {
+	var report database.Report
+
+	if err := c.ShouldBindJSON(&report); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Invalid JSON format",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	log.Println("Received report for analysis:", report.Seq)
+
+	// Analyze the report
+	go h.analysisService.AnalyzeReport(&report)
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Analysis request received successfully",
+		"report":  report,
 	})
 }

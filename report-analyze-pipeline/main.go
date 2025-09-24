@@ -42,7 +42,7 @@ func main() {
 	analysisService := service.NewService(cfg, db)
 
 	// Initialize handlers
-	handlers := handlers.NewHandlers(db)
+	handlers := handlers.NewHandlers(db, analysisService)
 
 	// Setup HTTP server
 	router := gin.Default()
@@ -54,6 +54,7 @@ func main() {
 		api.GET("/status", handlers.GetAnalysisStatus)
 		api.GET("/analysis/:seq", handlers.GetAnalysisBySeq)
 		api.GET("/stats", handlers.GetAnalysisStats)
+		api.POST("/analysis", handlers.DoAnalysis)
 	}
 
 	// Create HTTP server

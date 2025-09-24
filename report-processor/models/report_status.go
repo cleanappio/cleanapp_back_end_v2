@@ -55,6 +55,7 @@ type Report struct {
 	Y         float64 `json:"y" db:"y"`
 	Image     []byte  `json:"image" db:"image"`
 	ActionID  *string `json:"action_id" db:"action_id"`
+	AnalysisText string  `json:"analysis_text" db:"analysis_text"`
 }
 
 // MatchResult represents the result of comparing two images

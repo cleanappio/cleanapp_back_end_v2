@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  report-analysis-backfill:
+    build: .
+    container_name: report-analysis-backfill
+    environment:
+      # Database configuration
+      - DB_HOST=${DB_HOST:-localhost}
+      - DB_PORT=${DB_PORT:-3306}
+      - DB_USER=${DB_USER:-server}
+      - DB_PASSWORD=${DB_PASSWORD:-secret_app}
+      - DB_NAME=${DB_NAME:-cleanapp}
+      
+      # Analysis API configuration
+      - REPORT_ANALYSIS_URL=${REPORT_ANALYSIS_URL:-http://localhost:8080}
+      
+      # Polling configuration
+      - POLL_INTERVAL=${POLL_INTERVAL:-1m}
+      - BATCH_SIZE=${BATCH_SIZE:-20}
+      
+      # End point
+      - SEQ_END_TO=${SEQ_END_TO:-0}
+      
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    
+    ports:
+      - "8081:8080"
+    
+    restart: unless-stopped
+    
+    depends_on:
+      - db
+    
+    networks:
+      - cleanapp-network
+
+  db:
+    image: mysql:8.0
+    container_name: report-analysis-backfill-db
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-rootpassword}
+      - MYSQL_DATABASE=${DB_NAME:-cleanapp}
+      - MYSQL_USER=${DB_USER:-server}
+      - MYSQL_PASSWORD=${DB_PASSWORD:-secret_app}
+    
+    ports:
+      - "3307:3306"
+    
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    
+    restart: unless-stopped
+    
+    networks:
+      - cleanapp-network
+
+volumes:
+  mysql_data:
+
+networks:
+  cleanapp-network:
+    external: true

@@ -17,7 +17,7 @@ import (
 
 const (
 	// MaxReportsLimit is the maximum number of reports that can be requested in a single query
-	MaxReportsLimit = 50000
+	MaxReportsLimit = 100000
 )
 
 // Handlers contains all HTTP handlers
