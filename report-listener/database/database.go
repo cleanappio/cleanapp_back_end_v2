@@ -534,7 +534,6 @@ func (d *Database) GetLastNReportsByID(ctx context.Context, reportID string) ([]
 	reportsQuery := `
 		SELECT DISTINCT r.seq, r.ts, r.id, r.latitude, r.longitude
 		FROM reports r
-		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		WHERE r.id = ?
 		ORDER BY r.seq DESC
 	`
@@ -635,7 +634,25 @@ func (d *Database) GetLastNReportsByID(ctx context.Context, reportID string) ([]
 	for _, report := range reports {
 		analyses := analysesBySeq[report.Seq]
 		if len(analyses) == 0 {
-			// Skip reports without analyses
+			// Add a placeholder analysis
+			analyses = append(analyses, models.ReportAnalysis{
+				Seq: report.Seq,
+				Source: "placeholder",
+				Title: "Analysis in progress",
+				Description: "This report analysis is in progress and will appear soon.",
+				BrandName: "",
+				BrandDisplayName: "",
+				LitterProbability: 0.0,
+				HazardProbability: 0.0,
+				DigitalBugProbability: 0.0,
+				SeverityLevel: 0.0,
+				Summary: "Analysis in progress",
+				Language: "en",
+				Classification: "physical",
+				IsValid: true,
+				CreatedAt: time.Now(),
+				UpdatedAt: time.Now(),
+			})
 			continue
 		}
 
