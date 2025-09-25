@@ -653,7 +653,6 @@ func (d *Database) GetLastNReportsByID(ctx context.Context, reportID string) ([]
 				CreatedAt: time.Now(),
 				UpdatedAt: time.Now(),
 			})
-			continue
 		}
 
 		result = append(result, models.ReportWithAnalysis{
