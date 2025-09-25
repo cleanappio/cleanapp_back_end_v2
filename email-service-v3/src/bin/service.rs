@@ -65,6 +65,11 @@ async fn run_once(pool: &my::Pool, cfg: &Config) -> Result<()> {
             "A new {} report has been analyzed and requires your attention.\nSee: {}",
             brand_display_name, url
         );
+        let unsub_link = format!("{}?email={}", cfg.opt_out_url, email);
+        let plain = format!(
+            "{}\n\nIf you received this in error, please unsubscribe here: {}",
+            plain, unsub_link
+        );
         match send_sendgrid_email(
             &cfg.sendgrid_api_key,
             &cfg.sendgrid_from_name,
@@ -72,10 +77,11 @@ async fn run_once(pool: &my::Pool, cfg: &Config) -> Result<()> {
             &email,
             subject,
             &format!(
-                "A new {} report has been analyzed and requires your attention.{}{}",
+                "<p>A new {} report has been analyzed and requires your attention.</p><p><a href=\"{}\">Open live dashboard</a></p>{}<div style=\"margin-top:24px;font-size:12px;color:#666\">If you received this in error, please <a href=\"{}\">unsubscribe here</a>.</div>",
                 brand_display_name,
-                "\n\n",
-                html
+                url,
+                html,
+                unsub_link
             ),
             &plain,
         ).await {
