@@ -94,6 +94,7 @@ case ${OPT} in
       FACE_DETECTOR_INTERNAL_HOST=10.128.0.11
       FACE_DETECTOR_DEBUG=true
       REQUEST_REGISTRATOR_URL=https://stxn-cleanapp-dev.stxn.io:443
+      DIGITAL_BASE_URL="https://dev.cleanapp.io/api/email"
       ;;
   "prod")
       echo "Using prod environment"
@@ -133,6 +134,7 @@ case ${OPT} in
       FACE_DETECTOR_INTERNAL_HOST=10.128.0.11
       FACE_DETECTOR_DEBUG=false
       REQUEST_REGISTRATOR_URL=https://stxn-cleanapp-prod.stxn.io:443
+      DIGITAL_BASE_URL="https://cleanapp.io/api/email"
       ;;
   "quit")
       exit
@@ -161,6 +163,7 @@ BRAND_DASHBOARD_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-brand-dashboard-image:${
 AREAS_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-areas-service-image:${OPT}"
 REPORT_PROCESSOR_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-processor-image:${OPT}"
 EMAIL_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-email-service-image:${OPT}"
+EMAIL_SERVICE_V3_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-email-service-v3-image:${OPT}"
 REPORT_OWNERSHIP_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-ownership-service-image:${OPT}"
 GDPR_PROCESS_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-gdpr-process-service-image:${OPT}"
 REPORTS_PUSHER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-reports-pusher-image:${OPT}"
@@ -181,6 +184,10 @@ DOWN_FACE_DETECTOR="down2.sh"
 cat >up1.sh << UP
 # Turn up CleanApp service.
 # Assumes dependencies are in place (docker)
+
+# Login to Artifact Registry (token embedded at generation time)
+ACCESS_TOKEN=\$(gcloud auth print-access-token)
+echo "\${ACCESS_TOKEN}" | docker login -u oauth2accesstoken --password-stdin https://${DOCKER_LOCATION}
 
 docker pull ${SERVICE_DOCKER_IMAGE}
 docker pull ${PIPELINES_DOCKER_IMAGE}
@@ -203,6 +210,7 @@ docker pull ${GDPR_PROCESS_SERVICE_DOCKER_IMAGE}
 docker pull ${REPORTS_PUSHER_DOCKER_IMAGE}
 docker pull ${VOICE_ASSISTANT_SERVICE_DOCKER_IMAGE}
 docker pull ${REPORT_ANALYSIS_BACKFILL_DOCKER_IMAGE}
+docker pull ${EMAIL_SERVICE_V3_DOCKER_IMAGE}
 
 # Secrets
 cat >.env << ENV
@@ -586,6 +594,27 @@ services:
     depends_on:
       - cleanapp_db
 
+  cleanapp_email_service_v3:
+    container_name: cleanapp_email_service_v3
+    image: ${EMAIL_SERVICE_V3_DOCKER_IMAGE}
+    environment:
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+      - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
+      - DB_NAME=cleanapp
+      - SENDGRID_API_KEY=\${SENDGRID_API_KEY}
+      - SENDGRID_FROM_NAME=${SENDGRID_FROM_NAME}
+      - SENDGRID_FROM_EMAIL=${SENDGRID_FROM_EMAIL}
+      - HTTP_PORT=8080
+      - POLL_INTERVAL=10s
+      - OPT_OUT_URL=${OPT_OUT_URL}
+      - NOTIFICATION_PERIOD=90d
+      - DIGITAL_BASE_URL=${DIGITAL_BASE_URL}
+      - BCC_EMAIL_ADDRESS=cleanapp@stxn.io
+    depends_on:
+      - cleanapp_db
+
   cleanapp_report_ownership_service:
     container_name: cleanapp_report_ownership_service
     image: ${REPORT_OWNERSHIP_SERVICE_DOCKER_IMAGE}
@@ -715,15 +744,30 @@ set -e
 # Copy files to target VM.
 if [ -n "${SSH_KEYFILE}" ]; then
   scp -i ${SSH_KEYFILE} up1.sh down1.sh docker-compose.yml deployer@${CLEANAPP_HOST}:~/
-  rm up1.sh down1.sh docker-compose.yml
-  if [[ "${CLEANAPP_HOST}" != "${FACE_DETECTOR_HOST}" ]]; then
+else
+  scp up1.sh down1.sh docker-compose.yml deployer@${CLEANAPP_HOST}:~/
+fi
+rm up1.sh down1.sh docker-compose.yml
+
+if [[ "${CLEANAPP_HOST}" != "${FACE_DETECTOR_HOST}" ]]; then
+  if [ -n "${SSH_KEYFILE}" ]; then
     scp -i ${SSH_KEYFILE} up2.sh down2.sh docker-compose-face-detector.yml deployer@${FACE_DETECTOR_HOST}:~/
-    rm up2.sh down2.sh docker-compose-face-detector.yml
+  else
+    scp up2.sh down2.sh docker-compose-face-detector.yml deployer@${FACE_DETECTOR_HOST}:~/
   fi
+  rm up2.sh down2.sh docker-compose-face-detector.yml
 fi
 
 # Start docker containers.
-ssh -i ${SSH_KEYFILE} deployer@${CLEANAPP_HOST} "./up1.sh"
+if [ -n "${SSH_KEYFILE}" ]; then
+  ssh -i ${SSH_KEYFILE} deployer@${CLEANAPP_HOST} "./up1.sh"
+else
+  ssh deployer@${CLEANAPP_HOST} "./up1.sh"
+fi
 if [[ "${CLEANAPP_HOST}" != "${FACE_DETECTOR_HOST}" ]]; then
-  ssh -i ${SSH_KEYFILE} deployer@${FACE_DETECTOR_HOST} "./up2.sh"
+  if [ -n "${SSH_KEYFILE}" ]; then
+    ssh -i ${SSH_KEYFILE} deployer@${FACE_DETECTOR_HOST} "./up2.sh"
+  else
+    ssh deployer@${FACE_DETECTOR_HOST} "./up2.sh"
+  fi
 fi
