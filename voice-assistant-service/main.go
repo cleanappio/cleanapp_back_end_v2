@@ -65,7 +65,7 @@ func main() {
 	{
 		// Session management
 		rateLimited.POST(EndPointSession, sessionHandler.CreateEphemeralSession)
-		rateLimited.GET(EndPointPrewarm, sessionHandler.PrewarmSession)
+		rateLimited.POST(EndPointPrewarm, sessionHandler.PrewarmSession)
 		
 		// WebRTC proxy (optional)
 		rateLimited.POST(EndPointProxyOffer, webrtcHandler.ProxyOffer)
