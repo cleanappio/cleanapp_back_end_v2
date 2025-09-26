@@ -225,6 +225,8 @@ CLEANAPP_IO_JWT_SECRET=\$(gcloud secrets versions access 1 --secret="CLEANAPP_IO
 STRIPE_SECRET_KEY=\$(gcloud secrets versions access 1 --secret="STRIPE_SECRET_KEY_${SECRET_SUFFIX}")
 STRIPE_WEBHOOK_SECRET=\$(gcloud secrets versions access 1 --secret="STRIPE_WEBHOOK_SECRET_${SECRET_SUFFIX}")
 OPENAI_API_KEY=\$(gcloud secrets versions access 1 --secret="CLEANAPP_CHATGPT_API_KEY")
+RATE_LIMIT_PER_MINUTE=\$(gcloud secrets versions access 1 --secret="RATE_LIMIT_PER_MINUTE_${SECRET_SUFFIX}")
+TURN_SERVERS_JSON=\$(gcloud secrets versions access 1 --secret="TURN_SERVERS_JSON_${SECRET_SUFFIX}")
 
 ENV
 
@@ -683,7 +685,9 @@ services:
     environment:
       - PORT=8080
       - OPENAI_API_KEY=\${OPENAI_API_KEY}
-      - OPENAI_MODEL=gpt-4o
+      - OPENAI_MODEL=gpt-4o-realtime-preview
+      - RATE_LIMIT_PER_MINUTE=\${RATE_LIMIT_PER_MINUTE}
+      - TURN_SERVERS_JSON=\${TURN_SERVERS_JSON}
     ports:
       - 9092:8080
 
