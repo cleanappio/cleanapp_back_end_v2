@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"time"
@@ -39,7 +40,7 @@ type CreateSessionResponse struct {
 type OpenAISessionResponse struct {
 	ID           string                 `json:"id"`
 	ClientSecret map[string]interface{} `json:"client_secret"`
-	ExpiresAt    string                 `json:"expires_at,omitempty"`
+	ExpiresAt    int64                  `json:"expires_at,omitempty"`
 	IceServers   []map[string]interface{} `json:"ice_servers,omitempty"`
 }
 
@@ -146,6 +147,7 @@ func (h *SessionHandler) CreateEphemeralSession(c *gin.Context) {
 	var openaiResp OpenAISessionResponse
 	if err := json.Unmarshal(respBytes, &openaiResp); err != nil {
 		log.Errorf("Failed to parse OpenAI response: %v", err)
+		log.Errorf("OpenAI response body: %s", string(respBytes))
 		c.JSON(http.StatusBadGateway, gin.H{"error": "Invalid response from OpenAI"})
 		return
 	}
@@ -154,7 +156,7 @@ func (h *SessionHandler) CreateEphemeralSession(c *gin.Context) {
 	response := CreateSessionResponse{
 		SessionID:    openaiResp.ID,
 		ClientSecret: openaiResp.ClientSecret,
-		ExpiresAt:    openaiResp.ExpiresAt,
+		ExpiresAt:    fmt.Sprintf("%d", openaiResp.ExpiresAt),
 		IceServers:   openaiResp.IceServers,
 	}
 

@@ -686,8 +686,8 @@ services:
       - PORT=8080
       - OPENAI_API_KEY=\${OPENAI_API_KEY}
       - OPENAI_MODEL=gpt-4o-realtime-preview
-      - RATE_LIMIT_PER_MINUTE=\${RATE_LIMIT_PER_MINUTE}
-      - TURN_SERVERS_JSON=\${TURN_SERVERS_JSON}
+      - RATE_LIMIT_PER_MINUTE=10
+      - ALLOWED_ORIGINS=*
     ports:
       - 9092:8080
 
