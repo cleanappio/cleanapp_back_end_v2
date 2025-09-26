@@ -320,6 +320,90 @@ func (h *Handlers) GetReportsByLatLng(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
+
+// GetReportsByLatLng returns reports within a specified radius around given coordinates
+func (h *Handlers) GetReportsByLatLngLite(c *gin.Context) {
+	// Get the latitude parameter from query string
+	latStr := c.Query("latitude")
+	if latStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing 'latitude' parameter"})
+		return
+	}
+
+	// Get the longitude parameter from query string
+	lngStr := c.Query("longitude")
+	if lngStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing 'longitude' parameter"})
+		return
+	}
+
+	// Get the radius_km parameter from query string, default to 10 if not provided
+	radiusKmStr := c.DefaultQuery("radius_km", "1.0")
+
+	// Get the n parameter from query string, default to 10 if not provided
+	nStr := c.DefaultQuery("n", "10")
+
+	n := 10 // default value
+	if parsedN, err := strconv.Atoi(nStr); err == nil && parsedN > 0 {
+		n = parsedN
+	} else {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'n' parameter. Must be a positive integer."})
+		return
+	}
+
+	// Parse latitude
+	latitude, err := strconv.ParseFloat(latStr, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'latitude' parameter. Must be a valid number."})
+		return
+	}
+
+	// Parse longitude
+	longitude, err := strconv.ParseFloat(lngStr, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'longitude' parameter. Must be a valid number."})
+		return
+	}
+
+	// Parse radius_km
+	radiusKm := 1.0 // default value
+	if parsedRadius, err := strconv.ParseFloat(radiusKmStr, 32); err == nil && parsedRadius > 0 {
+		radiusKm = parsedRadius
+	} else {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'radius_km' parameter. Must be a positive integer."})
+		return
+	}
+
+	// Limit the maximum radius to prevent abuse (e.g., 100 km)
+	if radiusKm > 100 {
+		radiusKm = 100
+	}
+
+	// Get the reports from the database
+	reports, err := h.db.GetReportsByLatLngLite(c.Request.Context(), latitude, longitude, radiusKm, n)
+	if err != nil {
+		log.Printf("Failed to get reports by lat/lng (%.6f, %.6f, radius: %fkm): %v", latitude, longitude, radiusKm, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve reports"})
+		return
+	}
+
+	// Create the response in the same format as other endpoints
+	response := models.ReportBatch{
+		Reports: reports,
+		Count:   len(reports),
+		FromSeq: 0,
+		ToSeq:   0,
+	}
+
+	// Set FromSeq and ToSeq if there are reports
+	if len(reports) > 0 {
+		response.FromSeq = reports[0].Report.Seq
+		response.ToSeq = reports[len(reports)-1].Report.Seq
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
 func (h *Handlers) GetReportsByBrand(c *gin.Context) {
 	// Get the brand name parameter from query string
 	brandName := c.Query("brand_name")

@@ -138,6 +138,9 @@ func setupRouter(svc *service.Service) *gin.Engine {
 		// Get reports by latitude/longitude within radius endpoint
 		api.GET("/reports/by-latlng", h.GetReportsByLatLng)
 
+		// Get reports by latitude/longitude within radius endpoint
+		api.GET("/reports/by-latlng-lite", h.GetReportsByLatLngLite)
+
 		// Get reports by brand name endpoint
 		api.GET("/reports/by-brand", h.GetReportsByBrand)
 
