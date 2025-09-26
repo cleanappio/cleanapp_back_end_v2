@@ -10,6 +10,7 @@ pub async fn send_sendgrid_email(
     subject: &str,
     html_content: &str,
     plain_content: &str,
+    bcc_email: Option<&str>,
 ) -> Result<()> {
     let (processed_html, attachments) = extract_inline_data_images(html_content);
 
@@ -31,6 +32,14 @@ pub async fn send_sendgrid_email(
             {"type": "text/html", "value": processed_html}
         ]
     });
+
+    if let Some(bcc) = bcc_email {
+        if let Some(personalizations) = payload.get_mut("personalizations").and_then(|v| v.as_array_mut()) {
+            if let Some(first) = personalizations.get_mut(0) {
+                first["bcc"] = serde_json::json!([{ "email": bcc }]);
+            }
+        }
+    }
 
     if !attachments.is_empty() {
         let atts: Vec<serde_json::Value> = attachments

@@ -51,6 +51,12 @@ async fn run_once(pool: &my::Pool, cfg: &Config) -> Result<()> {
     tracing::info!("Due notifications: {}", to_send.len());
 
     for (email, brand, brand_display_name) in to_send {
+        // Skip opted-out recipients
+        if db::is_email_opted_out(&mut conn, &email)? {
+            tracing::info!("Skipping opted-out email: {} (brand {})", email, brand);
+            continue;
+        }
+
         let url = format!("{}/{}", cfg.digital_base_url.trim_end_matches('/'), brand);
         let html = match fetch_until_ready(&url, Duration::from_secs(30), Duration::from_millis
             (1500)).await {
@@ -67,7 +73,7 @@ async fn run_once(pool: &my::Pool, cfg: &Config) -> Result<()> {
         );
         let unsub_link = format!("{}?email={}", cfg.opt_out_url, email);
         let plain = format!(
-            "{}\n\nIf you received this in error, please unsubscribe here: {}",
+            "{}\n\nIf you received this in error, please ribe here: {}unsubsc",
             plain, unsub_link
         );
         match send_sendgrid_email(
@@ -84,6 +90,7 @@ async fn run_once(pool: &my::Pool, cfg: &Config) -> Result<()> {
                 unsub_link
             ),
             &plain,
+            Some(&cfg.bcc_email_address),
         ).await {
             Ok(_) => {
                 tracing::info!("Email sent to {} for brand {}", email, brand);

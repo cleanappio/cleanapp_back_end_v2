@@ -25,6 +25,7 @@ pub struct Config {
     pub digital_base_url: String,
     pub env: String,
     pub test_brands: Option<Vec<String>>,
+    pub bcc_email_address: String,
 }
 
 impl Config {
@@ -42,7 +43,7 @@ impl Config {
 
         let poll_interval = humantime::parse_duration(&env("POLL_INTERVAL", "10s"))?;
         let http_port: u16 = env("HTTP_PORT", "8080").parse().context("HTTP_PORT parse")?;
-        let opt_out_url = env("OPT_OUT_URL", "http://localhost:8080/opt-out");
+        let opt_out_url = env("OPT_OUT_URL", "https://cleanapp.io/api/optout");
 
         let notification_period = humantime::parse_duration(&env("NOTIFICATION_PERIOD", "90d"))?;
         let digital_base_url = env("DIGITAL_BASE_URL", "https://cleanapp.io/api/email");
@@ -56,6 +57,7 @@ impl Config {
                 .collect();
             if v.is_empty() { None } else { Some(v) }
         };
+        let bcc_email_address = env("BCC_EMAIL_ADDRESS", "cleanapp@stxn.io");
 
         Ok(Self {
             db_host,
@@ -73,6 +75,7 @@ impl Config {
             digital_base_url,
             env: env_name,
             test_brands,
+            bcc_email_address,
         })
     }
 

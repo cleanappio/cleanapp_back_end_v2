@@ -141,3 +141,11 @@ pub fn record_notification(conn: &mut my::PooledConn, email: &str, brand: &str) 
     Ok(())
 }
 
+pub fn is_email_opted_out(conn: &mut my::PooledConn, email: &str) -> Result<bool> {
+    let count: Option<u64> = conn.exec_first(
+        r#"SELECT COUNT(*) FROM opted_out_emails WHERE email = ?"#,
+        (email,),
+    )?;
+    Ok(count.unwrap_or(0) > 0)
+}
+
