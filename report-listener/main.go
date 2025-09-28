@@ -146,6 +146,9 @@ func setupRouter(svc *service.Service) *gin.Engine {
 
 		// Get image by sequence number endpoint
 		api.GET("/reports/image", h.GetImageBySeq)
+
+		// Get raw image by sequence number endpoint
+		api.GET("/reports/rawimage", h.GetRawImageBySeq)
 	}
 
 	// Root health check

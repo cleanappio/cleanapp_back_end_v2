@@ -320,7 +320,6 @@ func (h *Handlers) GetReportsByLatLng(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-
 // GetReportsByLatLng returns reports within a specified radius around given coordinates
 func (h *Handlers) GetReportsByLatLngLite(c *gin.Context) {
 	// Get the latitude parameter from query string
@@ -487,4 +486,54 @@ func (h *Handlers) GetImageBySeq(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"image": base64Image,
 	})
+}
+
+// GetRawImageBySeq returns the raw image data for a specific report by sequence number
+func (h *Handlers) GetRawImageBySeq(c *gin.Context) {
+	// Get the seq parameter from query string
+	seqStr := c.Query("seq")
+	if seqStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing seq parameter"})
+		return
+	}
+
+	seq, err := strconv.Atoi(seqStr)
+	if err != nil || seq <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid seq parameter. Must be a positive integer."})
+		return
+	}
+
+	// Get the image from the database
+	imageData, err := h.db.GetImageBySeq(c.Request.Context(), seq)
+	if err != nil {
+		log.Printf("Failed to get image for report seq %d: %v", seq, err)
+		if err.Error() == fmt.Sprintf("report with seq %d not found", seq) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Report not found"})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve image"})
+		}
+		return
+	}
+
+	// Detect image type from the data
+	contentType := "image/jpeg" // default
+	if len(imageData) > 4 {
+		// Check for common image format signatures
+		if imageData[0] == 0x89 && imageData[1] == 0x50 && imageData[2] == 0x4E && imageData[3] == 0x47 {
+			contentType = "image/png"
+		} else if imageData[0] == 0x47 && imageData[1] == 0x49 && imageData[2] == 0x46 {
+			contentType = "image/gif"
+		} else if imageData[0] == 0x42 && imageData[1] == 0x4D {
+			contentType = "image/bmp"
+		} else if imageData[0] == 0xFF && imageData[1] == 0xD8 {
+			contentType = "image/jpeg"
+		}
+	}
+
+	// Set the appropriate Content-Type header for the image
+	c.Header("Content-Type", contentType)
+	c.Header("Content-Length", strconv.Itoa(len(imageData)))
+
+	// Return the raw image data
+	c.Data(http.StatusOK, contentType, imageData)
 }
