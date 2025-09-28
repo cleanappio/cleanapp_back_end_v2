@@ -125,11 +125,11 @@ func (s *GdprService) GenerateUniqueAvatar(obfuscatedAvatar string) (string, err
 // GetUnprocessedReports returns reports that haven't been processed for GDPR
 func (s *GdprService) GetUnprocessedReports() ([]int, error) {
 	query := `
-		SELECT r.seq 
-		FROM reports r 
-		LEFT JOIN reports_gdpr rg ON r.seq = rg.seq 
+		SELECT DISTINCT r.seq
+		FROM reports r
+		INNER JOIN report_analysis ra ON r.seq = ra.seq
+		LEFT JOIN reports_gdpr rg ON r.seq = rg.seq
 		WHERE rg.seq IS NULL
-		ORDER BY r.ts ASC
 		LIMIT 100`
 
 	rows, err := s.db.Query(query)
