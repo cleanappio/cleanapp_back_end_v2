@@ -40,7 +40,7 @@ type CreateSessionResponse struct {
 type OpenAISessionResponse struct {
 	ID           string                 `json:"id"`
 	ClientSecret map[string]interface{} `json:"client_secret"`
-	ExpiresAt    int64                  `json:"expires_at,omitempty"`
+	ExpiresAt    interface{}            `json:"expires_at,omitempty"`
 	IceServers   []map[string]interface{} `json:"ice_servers,omitempty"`
 }
 
@@ -143,6 +143,9 @@ func (h *SessionHandler) CreateEphemeralSession(c *gin.Context) {
 		}
 	}
 
+	// Log the raw OpenAI response for debugging
+	log.Infof("Raw OpenAI response: %s", string(respBytes))
+
 	// Parse OpenAI response
 	var openaiResp OpenAISessionResponse
 	if err := json.Unmarshal(respBytes, &openaiResp); err != nil {
@@ -152,11 +155,55 @@ func (h *SessionHandler) CreateEphemeralSession(c *gin.Context) {
 		return
 	}
 
+	// Log the parsed response for debugging
+	log.Infof("Parsed OpenAI response: %+v", openaiResp)
+
 	// Build response
+	var expiresAtStr string
+	
+	// Try to get expires_at from client_secret first (this is where it actually is)
+	if openaiResp.ClientSecret != nil {
+		if clientSecretExpiresAt, ok := openaiResp.ClientSecret["expires_at"]; ok {
+			switch v := clientSecretExpiresAt.(type) {
+			case float64:
+				expiresAtStr = fmt.Sprintf("%.0f", v)
+			case int64:
+				expiresAtStr = fmt.Sprintf("%d", v)
+			case int:
+				expiresAtStr = fmt.Sprintf("%d", v)
+			case string:
+				expiresAtStr = v
+			default:
+				expiresAtStr = fmt.Sprintf("%v", v)
+			}
+		}
+	}
+	
+	// If not found in client_secret, try the top-level field
+	if expiresAtStr == "" && openaiResp.ExpiresAt != nil {
+		switch v := openaiResp.ExpiresAt.(type) {
+		case float64:
+			expiresAtStr = fmt.Sprintf("%.0f", v)
+		case int64:
+			expiresAtStr = fmt.Sprintf("%d", v)
+		case int:
+			expiresAtStr = fmt.Sprintf("%d", v)
+		case string:
+			expiresAtStr = v
+		default:
+			expiresAtStr = fmt.Sprintf("%v", v)
+		}
+	}
+	
+	// If still empty, set to "0" as fallback
+	if expiresAtStr == "" {
+		expiresAtStr = "0"
+	}
+
 	response := CreateSessionResponse{
 		SessionID:    openaiResp.ID,
 		ClientSecret: openaiResp.ClientSecret,
-		ExpiresAt:    fmt.Sprintf("%d", openaiResp.ExpiresAt),
+		ExpiresAt:    expiresAtStr,
 		IceServers:   openaiResp.IceServers,
 	}
 
@@ -177,7 +224,7 @@ func (h *SessionHandler) CreateEphemeralSession(c *gin.Context) {
 	log.WithFields(log.Fields{
 		"user_id":    userID,
 		"session_id": openaiResp.ID,
-		"expires_at": openaiResp.ExpiresAt,
+		"expires_at": expiresAtStr,
 	}).Info("session.create.success")
 
 	c.JSON(http.StatusOK, response)
