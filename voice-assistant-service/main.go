@@ -23,7 +23,7 @@ func main() {
 	cfg := config.Load()
 	
 	if cfg.OpenAIAPIKey == "" {
-		log.Fatal("OPENAI_API_KEY environment variable is required")
+		log.Fatal("TRASHFORMER_OPENAI_API_KEY environment variable is required")
 	}
 	
 	log.Info("Starting the voice assistant service...")

@@ -33,7 +33,7 @@ type TurnServer struct {
 func Load() *Config {
     return &Config{
         Port:              getEnv("PORT", "8080"),
-        OpenAIAPIKey:      getEnv("OPENAI_API_KEY", ""),
+        OpenAIAPIKey:      getEnv("TRASHFORMER_OPENAI_API_KEY", ""),
         OpenAIModel:       getEnv("OPENAI_MODEL", "gpt-4o-realtime-preview"),
         AllowedOrigins:    getEnv("ALLOWED_ORIGINS", "*"),
         RateLimitPerMinute: getIntEnv("RATE_LIMIT_PER_MINUTE", 10),

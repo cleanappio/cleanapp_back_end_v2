@@ -227,6 +227,7 @@ STRIPE_WEBHOOK_SECRET=\$(gcloud secrets versions access 1 --secret="STRIPE_WEBHO
 OPENAI_API_KEY=\$(gcloud secrets versions access 1 --secret="CLEANAPP_CHATGPT_API_KEY")
 RATE_LIMIT_PER_MINUTE=\$(gcloud secrets versions access 1 --secret="RATE_LIMIT_PER_MINUTE_${SECRET_SUFFIX}")
 TURN_SERVERS_JSON=\$(gcloud secrets versions access 1 --secret="TURN_SERVERS_JSON_${SECRET_SUFFIX}")
+TRASHFORMER_OPENAI_API_KEY=\$(gcloud secrets versions access 1 --secret="CLEANAPP_TRASHFORMER_OPENAI_API_KEY")
 
 ENV
 
@@ -684,7 +685,7 @@ services:
     image: ${VOICE_ASSISTANT_SERVICE_DOCKER_IMAGE}
     environment:
       - PORT=8080
-      - OPENAI_API_KEY=\${OPENAI_API_KEY}
+      - TRASHFORMER_OPENAI_API_KEY=\${TRASHFORMER_OPENAI_API_KEY}
       - OPENAI_MODEL=gpt-4o-realtime-preview
       - RATE_LIMIT_PER_MINUTE=10
       - ALLOWED_ORIGINS=*
