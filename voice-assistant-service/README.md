@@ -95,7 +95,7 @@ o=- 9876543210 9876543210 IN IP4 127.0.0.1
 ## Environment Variables
 
 - `PORT` - Server port (default: 8080)
-- `OPENAI_API_KEY` - OpenAI API key (required)
+- `TRASHFORMER_OPENAI_API_KEY` - OpenAI API key (required)
 - `OPENAI_MODEL` - OpenAI model to use (default: gpt-4o-realtime-preview)
 - `ALLOWED_ORIGINS` - CORS allowed origins (default: \*)
 - `RATE_LIMIT_PER_MINUTE` - Rate limit per user (default: 10)
@@ -107,7 +107,7 @@ o=- 9876543210 9876543210 IN IP4 127.0.0.1
 
 ```bash
 # Set environment variables
-export OPENAI_API_KEY="your-api-key"
+export TRASHFORMER_OPENAI_API_KEY="your-api-key"
 export RATE_LIMIT_PER_MINUTE=10
 
 # Run the service

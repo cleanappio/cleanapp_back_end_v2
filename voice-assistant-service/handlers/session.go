@@ -54,7 +54,7 @@ func (h *SessionHandler) CreateEphemeralSession(c *gin.Context) {
 
 	apiKey := h.config.OpenAIAPIKey
 	if apiKey == "" {
-		log.Error("OPENAI_API_KEY not configured")
+		log.Error("TRASHFORMER_OPENAI_API_KEY not configured")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Server misconfigured"})
 		return
 	}
