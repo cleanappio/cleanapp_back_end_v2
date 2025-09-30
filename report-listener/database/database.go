@@ -49,6 +49,87 @@ func (d *Database) Close() error {
 	return d.db.Close()
 }
 
+// DB returns the underlying *sql.DB
+func (d *Database) DB() *sql.DB {
+	return d.db
+}
+
+// EnsureFetcherTables creates tables needed for fetcher auth and idempotency
+func (d *Database) EnsureFetcherTables(ctx context.Context) error {
+	stmts := []string{
+		`CREATE TABLE IF NOT EXISTS fetchers (
+            id INT UNSIGNED AUTO_INCREMENT,
+            fetcher_id VARCHAR(64) NOT NULL UNIQUE,
+            name VARCHAR(255) NOT NULL,
+            token_hash VARBINARY(64) NOT NULL,
+            scopes JSON NULL,
+            active BOOL NOT NULL DEFAULT TRUE,
+            last_used_at TIMESTAMP NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            INDEX idx_active (active)
+        )`,
+		`CREATE TABLE IF NOT EXISTS external_ingest_index (
+            source VARCHAR(64) NOT NULL,
+            external_id VARCHAR(255) NOT NULL,
+            seq INT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (source, external_id),
+            INDEX idx_seq (seq)
+        )`,
+	}
+	for _, stmt := range stmts {
+		if _, err := d.db.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("failed to ensure table: %w", err)
+		}
+	}
+	return nil
+}
+
+// ValidateFetcherToken returns fetcher_id if the token hash exists and is active
+func (d *Database) ValidateFetcherToken(ctx context.Context, tokenHash []byte) (string, error) {
+	var fetcherID string
+	err := d.db.QueryRowContext(ctx,
+		`SELECT fetcher_id FROM fetchers WHERE token_hash = ? AND active = TRUE`, tokenHash,
+	).Scan(&fetcherID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", fmt.Errorf("not found")
+		}
+		return "", fmt.Errorf("db error: %w", err)
+	}
+	// best-effort: update last_used_at
+	d.db.ExecContext(ctx, `UPDATE fetchers SET last_used_at = NOW() WHERE fetcher_id = ?`, fetcherID)
+	return fetcherID, nil
+}
+
+// UpsertExternalIngestIndex inserts or updates idempotency mapping
+func (d *Database) UpsertExternalIngestIndex(ctx context.Context, source, externalID string, seq int) error {
+	_, err := d.db.ExecContext(ctx,
+		`INSERT INTO external_ingest_index (source, external_id, seq) VALUES (?, ?, ?)
+         ON DUPLICATE KEY UPDATE seq = VALUES(seq), updated_at = NOW()`,
+		source, externalID, seq,
+	)
+	return err
+}
+
+// GetSeqByExternal returns seq for an existing mapping
+func (d *Database) GetSeqByExternal(ctx context.Context, source, externalID string) (int, bool, error) {
+	var seq int
+	err := d.db.QueryRowContext(ctx,
+		`SELECT seq FROM external_ingest_index WHERE source = ? AND external_id = ?`, source, externalID,
+	).Scan(&seq)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return 0, false, nil
+		}
+		return 0, false, err
+	}
+	return seq, true, nil
+}
+
 // GetReportsSince retrieves reports with analysis since a given sequence number
 // Only returns reports that are not resolved (either no status or status = 'active')
 // and are not privately owned (either no owner or is_public = true)
@@ -636,22 +717,22 @@ func (d *Database) GetLastNReportsByID(ctx context.Context, reportID string) ([]
 		if len(analyses) == 0 {
 			// Add a placeholder analysis
 			analyses = append(analyses, models.ReportAnalysis{
-				Seq: report.Seq,
-				Source: "placeholder",
-				Title: "Analysis in progress",
-				Description: "This report analysis is in progress and will appear soon.",
-				BrandName: "",
-				BrandDisplayName: "",
-				LitterProbability: 0.0,
-				HazardProbability: 0.0,
+				Seq:                   report.Seq,
+				Source:                "placeholder",
+				Title:                 "Analysis in progress",
+				Description:           "This report analysis is in progress and will appear soon.",
+				BrandName:             "",
+				BrandDisplayName:      "",
+				LitterProbability:     0.0,
+				HazardProbability:     0.0,
 				DigitalBugProbability: 0.0,
-				SeverityLevel: 0.0,
-				Summary: "Analysis in progress",
-				Language: "en",
-				Classification: "physical",
-				IsValid: true,
-				CreatedAt: time.Now(),
-				UpdatedAt: time.Now(),
+				SeverityLevel:         0.0,
+				Summary:               "Analysis in progress",
+				Language:              "en",
+				Classification:        "physical",
+				IsValid:               true,
+				CreatedAt:             time.Now(),
+				UpdatedAt:             time.Now(),
 			})
 		}
 

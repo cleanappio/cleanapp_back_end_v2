@@ -58,6 +58,11 @@ func NewService(cfg *config.Config) (*Service, error) {
 func (s *Service) Start() error {
 	log.Printf("Starting report listener service...")
 
+	// Ensure tables for bulk ingest
+	if err := s.db.EnsureFetcherTables(context.Background()); err != nil {
+		return err
+	}
+
 	// Start the WebSocket hub
 	go s.hub.Run()
 

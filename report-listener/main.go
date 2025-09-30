@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"report-listener/config"
+	"report-listener/middleware"
 	"report-listener/service"
 
 	"github.com/gin-contrib/gzip"
@@ -149,6 +150,13 @@ func setupRouter(svc *service.Service) *gin.Engine {
 
 		// Get raw image by sequence number endpoint
 		api.GET("/reports/rawimage", h.GetRawImageBySeq)
+
+		// Protected bulk ingest endpoint
+		protected := api.Group("/reports")
+		protected.Use(middleware.FetcherAuthMiddleware(svc.GetHandlers().Db()))
+		{
+			protected.POST("/bulk_ingest", h.BulkIngest)
+		}
 	}
 
 	// Root health check

@@ -10,6 +10,7 @@ import (
 
 	"report-listener/database"
 	"report-listener/models"
+	brandutil "report-listener/utils"
 	ws "report-listener/websocket"
 
 	"github.com/gin-gonic/gin"
@@ -33,6 +34,189 @@ func NewHandlers(hub *ws.Hub, db *database.Database) *Handlers {
 		hub: hub,
 		db:  db,
 	}
+}
+
+// DB exposes the underlying database handle for wiring
+func (h *Handlers) Db() *database.Database {
+	return h.db
+}
+
+// BulkIngestRequest is the payload schema for bulk ingest
+type BulkIngestRequest struct {
+	Source string `json:"source"`
+	Items  []struct {
+		ExternalID string                 `json:"external_id"`
+		Title      string                 `json:"title"`
+		Content    string                 `json:"content"`
+		URL        string                 `json:"url"`
+		CreatedAt  string                 `json:"created_at"`
+		UpdatedAt  string                 `json:"updated_at"`
+		Score      float64                `json:"score"`
+		Metadata   map[string]interface{} `json:"metadata"`
+		SkipAI     *bool                  `json:"skip_ai"`
+	} `json:"items"`
+}
+
+// BulkIngestResponse contains per-batch stats
+type BulkIngestResponse struct {
+	Inserted int         `json:"inserted"`
+	Updated  int         `json:"updated"`
+	Skipped  int         `json:"skipped"`
+	Errors   []BulkError `json:"errors"`
+}
+
+type BulkError struct {
+	Index  int    `json:"i"`
+	Reason string `json:"reason"`
+}
+
+// BulkIngest handles POST /api/v3/reports/bulk_ingest
+func (h *Handlers) BulkIngest(c *gin.Context) {
+	var req BulkIngestRequest
+	if err := c.BindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})
+		return
+	}
+	if req.Source == "" || len(req.Items) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "source and items required"})
+		return
+	}
+
+	fetcherID := c.GetString("fetcher_id")
+	if fetcherID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	// Simple limits
+	if len(req.Items) > 1000 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "items limit 1000"})
+		return
+	}
+
+	resp := BulkIngestResponse{}
+
+	for i, it := range req.Items {
+		if it.ExternalID == "" {
+			resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: "missing external_id"})
+			resp.Skipped++
+			continue
+		}
+
+		// Idempotency: check mapping
+		seq, exists, err := h.db.GetSeqByExternal(c.Request.Context(), req.Source, it.ExternalID)
+		if err != nil {
+			resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: "db error"})
+			continue
+		}
+
+		if !exists {
+			// Insert into reports with minimal required fields
+			// Using backend SaveReport would require image; we insert directly here with empty image
+			insertReport := `INSERT INTO reports (id, team, action_id, latitude, longitude, x, y, image, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+			reporterID := "fetcher:" + fetcherID
+			// Digital placeholder
+			_, err := h.db.DB().ExecContext(c.Request.Context(), insertReport,
+				reporterID, 0, "", 0.0, 0.0, 0.0, 0.0, []byte{}, truncate(it.Title, 255),
+			)
+			if err != nil {
+				resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: "insert report failed"})
+				continue
+			}
+			// Get seq
+			if err := h.db.DB().QueryRowContext(c.Request.Context(), `SELECT MAX(seq) FROM reports`).Scan(&seq); err != nil {
+				resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: "get seq failed"})
+				continue
+			}
+
+			// Prepare analysis fields per spec
+			title := truncate(it.Title, 500)
+			description := truncate(it.Content, 65535)
+			brandDisplay := extractBrandDisplay(it.Title, it.Metadata)
+			brandName := brandutil.NormalizeBrandName(brandDisplay)
+			severity := clampSeverity(it.Score)
+
+			// analysis_text empty, image null, litter=0, hazard=0, digital_bug_probability=1
+			_, err = h.db.DB().ExecContext(c.Request.Context(), `
+                INSERT INTO report_analysis (
+                    seq, source, analysis_text, analysis_image, title, description,
+                    brand_name, brand_display_name, litter_probability, hazard_probability,
+                    digital_bug_probability, severity_level, summary, language, is_valid, classification
+                ) VALUES (?, ?, '', NULL, ?, ?, ?, ?, 0.0, 0.0, 1.0, ?, ?, 'en', TRUE, 'digital')
+            `, seq, req.Source, title, description, brandName, brandDisplay, severity, truncate(summary(title, description), 65535))
+			if err != nil {
+				resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: "insert analysis failed"})
+				continue
+			}
+
+			if err := h.db.UpsertExternalIngestIndex(c.Request.Context(), req.Source, it.ExternalID, seq); err != nil {
+				resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: "upsert mapping failed"})
+				continue
+			}
+			resp.Inserted++
+		} else {
+			// Optional update of analysis if changed
+			title := truncate(it.Title, 500)
+			description := truncate(it.Content, 65535)
+			brandDisplay := extractBrandDisplay(it.Title, it.Metadata)
+			brandName := brandutil.NormalizeBrandName(brandDisplay)
+			severity := clampSeverity(it.Score)
+
+			_, err = h.db.DB().ExecContext(c.Request.Context(), `
+                UPDATE report_analysis SET title = ?, description = ?, brand_name = ?, brand_display_name = ?,
+                    severity_level = ?, summary = ?, updated_at = NOW()
+                WHERE seq = ?
+            `, title, description, brandName, brandDisplay, severity, truncate(summary(title, description), 65535), seq)
+			if err != nil {
+				resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: "update analysis failed"})
+				continue
+			}
+			resp.Updated++
+		}
+	}
+
+	c.JSON(http.StatusOK, resp)
+}
+
+func truncate(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	// naive byte trim; DB columns are VARCHAR/TEXT; keep simple here
+	return s[:max]
+}
+
+func summary(title, desc string) string {
+	if title == "" {
+		return truncate(desc, 256)
+	}
+	if desc == "" {
+		return title
+	}
+	return title + ": " + truncate(desc, 256)
+}
+
+func extractBrandDisplay(title string, metadata map[string]interface{}) string {
+	if metadata != nil {
+		if v, ok := metadata["app_name"].(string); ok && v != "" {
+			return v
+		}
+		if v, ok := metadata["repo_full_name"].(string); ok && v != "" {
+			return v
+		}
+	}
+	return title
+}
+
+func clampSeverity(score float64) float64 {
+	// Accept pre-normalized [0.0..1.0], clamp to [0.7..1.0]
+	if score < 0.7 {
+		return 0.7
+	}
+	if score > 1.0 {
+		return 1.0
+	}
+	return score
 }
 
 // WebSocket upgrader
