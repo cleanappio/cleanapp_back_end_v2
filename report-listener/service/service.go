@@ -63,6 +63,11 @@ func (s *Service) Start() error {
 		return err
 	}
 
+	// Ensure utf8mb4 for Unicode content
+	if err := s.db.EnsureUTF8MB4(context.Background()); err != nil {
+		log.Printf("Warning: UTF8MB4 ensure failed: %v", err)
+	}
+
 	// Start the WebSocket hub
 	go s.hub.Run()
 

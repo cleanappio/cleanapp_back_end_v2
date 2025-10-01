@@ -21,7 +21,7 @@ type Database struct {
 
 // NewDatabase creates a new database connection
 func NewDatabase(cfg *config.Config) (*Database, error) {
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&multiStatements=true",
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&multiStatements=true&charset=utf8mb4&collation=utf8mb4_unicode_ci",
 		cfg.DBUser, cfg.DBPassword, cfg.DBHost, cfg.DBPort, cfg.DBName)
 
 	db, err := sql.Open("mysql", dsn)
@@ -34,6 +34,11 @@ func NewDatabase(cfg *config.Config) (*Database, error) {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
+	// Ensure UTF8MB4 for the session
+	if _, err := db.Exec("SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci"); err != nil {
+		log.Printf("warning: failed to set session charset to utf8mb4: %v", err)
+	}
+
 	// Set connection pool settings
 	db.SetMaxOpenConns(25)
 	db.SetMaxIdleConns(5)
@@ -42,6 +47,21 @@ func NewDatabase(cfg *config.Config) (*Database, error) {
 	log.Printf("Database connected successfully to %s:%s/%s", cfg.DBHost, cfg.DBPort, cfg.DBName)
 
 	return &Database{db: db}, nil
+}
+
+// EnsureUTF8MB4 converts critical tables to utf8mb4 to support Unicode content
+func (d *Database) EnsureUTF8MB4(ctx context.Context) error {
+	stmts := []string{
+		// Convert report_analysis text/varchar columns
+		`ALTER TABLE report_analysis CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
+	}
+	for _, q := range stmts {
+		if _, err := d.db.ExecContext(ctx, q); err != nil {
+			// Log and continue to avoid breaking startup in case of permissions or already converted
+			log.Printf("warn: utf8mb4 convert skipped: %v", err)
+		}
+	}
+	return nil
 }
 
 // Close closes the database connection

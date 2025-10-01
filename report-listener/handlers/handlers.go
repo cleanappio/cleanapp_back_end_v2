@@ -1,11 +1,13 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/base64"
 	"fmt"
 	"log"
 	"net/http"
 	"strconv"
+	"strin
 	"time"
 
 	"report-listener/database"
@@ -111,64 +113,84 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 		}
 
 		if !exists {
-			// Insert into reports with minimal required fields
-			// Using backend SaveReport would require image; we insert directly here with empty image
-			insertReport := `INSERT INTO reports (id, team, action_id, latitude, longitude, x, y, image, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+			// Insert report + analysis + mapping in one transaction to avoid orphan rows
+			tx, err := h.db.DB().BeginTx(c.Request.Context(), &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+			if err != nil {
+				resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: "begin tx failed"})
+				continue
+			}
 			reporterID := "fetcher:" + fetcherID
-			// Digital placeholder
-			_, err := h.db.DB().ExecContext(c.Request.Context(), insertReport,
-				reporterID, 0, "", 0.0, 0.0, 0.0, 0.0, []byte{}, truncate(it.Title, 255),
+			// Insert report
+			res, err := tx.ExecContext(c.Request.Context(),
+				`INSERT INTO reports (id, team, action_id, latitude, longitude, x, y, image, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				reporterID, 0, "", 0.0, 0.0, 0.0, 0.0, []byte{}, truncateRunes(stripNonBMP(it.Title), 255),
 			)
 			if err != nil {
-				resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: "insert report failed"})
+				tx.Rollback()
+				resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: truncate(fmt.Sprintf("insert report failed: %v", err), 256)})
 				continue
 			}
-			// Get seq
-			if err := h.db.DB().QueryRowContext(c.Request.Context(), `SELECT MAX(seq) FROM reports`).Scan(&seq); err != nil {
-				resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: "get seq failed"})
+			lastID, err := res.LastInsertId()
+			if err != nil {
+				tx.Rollback()
+				resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: truncate(fmt.Sprintf("get last insert id failed: %v", err), 256)})
 				continue
 			}
+			seq = int(lastID)
 
 			// Prepare analysis fields per spec
-			title := truncate(it.Title, 500)
-			description := truncate(it.Content, 65535)
+			title := truncateRunes(stripNonBMP(it.Title), 500)
+			description := truncateRunes(stripNonBMP(it.Content), 16000)
 			brandDisplay := extractBrandDisplay(it.Title, it.Metadata)
 			brandName := brandutil.NormalizeBrandName(brandDisplay)
 			severity := clampSeverity(it.Score)
-
-			// analysis_text empty, image null, litter=0, hazard=0, digital_bug_probability=1
-			_, err = h.db.DB().ExecContext(c.Request.Context(), `
+			sumSafe := truncateRunes(stripNonBMP(summary(title, description)), 1000)
+			// Insert analysis (truncate to avoid oversized multi-byte issues)
+			_, err = tx.ExecContext(c.Request.Context(), `
                 INSERT INTO report_analysis (
                     seq, source, analysis_text, analysis_image, title, description,
                     brand_name, brand_display_name, litter_probability, hazard_probability,
                     digital_bug_probability, severity_level, summary, language, is_valid, classification
                 ) VALUES (?, ?, '', NULL, ?, ?, ?, ?, 0.0, 0.0, 1.0, ?, ?, 'en', TRUE, 'digital')
-            `, seq, req.Source, title, description, brandName, brandDisplay, severity, truncate(summary(title, description), 65535))
+            `, seq, req.Source, title, description, brandName, brandDisplay, severity, sumSafe)
 			if err != nil {
-				resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: "insert analysis failed"})
+				tx.Rollback()
+				resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: truncate(fmt.Sprintf("insert analysis failed: %v", err), 256)})
 				continue
 			}
 
-			if err := h.db.UpsertExternalIngestIndex(c.Request.Context(), req.Source, it.ExternalID, seq); err != nil {
-				resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: "upsert mapping failed"})
+			// Insert mapping
+			_, err = tx.ExecContext(c.Request.Context(), `
+                INSERT INTO external_ingest_index (source, external_id, seq) VALUES (?, ?, ?)
+                ON DUPLICATE KEY UPDATE seq = VALUES(seq), updated_at = NOW()`,
+				req.Source, it.ExternalID, seq,
+			)
+			if err != nil {
+				tx.Rollback()
+				resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: truncate(fmt.Sprintf("upsert mapping failed: %v", err), 256)})
+				continue
+			}
+			if err := tx.Commit(); err != nil {
+				resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: truncate(fmt.Sprintf("commit failed: %v", err), 256)})
 				continue
 			}
 			resp.Inserted++
 		} else {
 			// Optional update of analysis if changed
-			title := truncate(it.Title, 500)
-			description := truncate(it.Content, 65535)
+			title := truncateRunes(stripNonBMP(it.Title), 500)
+			description := truncateRunes(stripNonBMP(it.Content), 16000)
 			brandDisplay := extractBrandDisplay(it.Title, it.Metadata)
 			brandName := brandutil.NormalizeBrandName(brandDisplay)
 			severity := clampSeverity(it.Score)
+			sumSafe := truncateRunes(stripNonBMP(summary(title, description)), 1000)
 
 			_, err = h.db.DB().ExecContext(c.Request.Context(), `
                 UPDATE report_analysis SET title = ?, description = ?, brand_name = ?, brand_display_name = ?,
                     severity_level = ?, summary = ?, updated_at = NOW()
                 WHERE seq = ?
-            `, title, description, brandName, brandDisplay, severity, truncate(summary(title, description), 65535), seq)
+            `, title, description, brandName, brandDisplay, severity, sumSafe, seq)
 			if err != nil {
-				resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: "update analysis failed"})
+				resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: truncate(fmt.Sprintf("update analysis failed: %v", err), 256)})
 				continue
 			}
 			resp.Updated++
@@ -184,6 +206,34 @@ func truncate(s string, max int) string {
 	}
 	// naive byte trim; DB columns are VARCHAR/TEXT; keep simple here
 	return s[:max]
+}
+
+// truncateRunes returns a string limited by rune count, preventing mid-rune cuts
+func truncateRunes(s string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	count := 0
+	for i := range s {
+		if count == max {
+			return s[:i]
+		}
+		count++
+	}
+	return s
+}
+
+// stripNonBMP removes characters outside the Basic Multilingual Plane (e.g., 4-byte emojis)
+// to avoid issues on misconfigured MySQL setups even after utf8mb4 attempts.
+func stripNonBMP(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if r <= 0xFFFF { // keep BMP only
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 func summary(title, desc string) string {
