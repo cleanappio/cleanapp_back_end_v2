@@ -19,9 +19,9 @@ docker pull mysql
 * Run the below to setup yarn, install project packages and run the 
 
 ```bash
-npm install -g yarn    # Install yarn globally
-yarn                   # Install packages
-./manage.sh dev_index     # Run main EPC pusher process
+npm install -g yarn                 # Install yarn globally
+yarn                                # Install packages
+./manage.sh dev_run_notify_reports  # Run main EPC pusher process
 ```
 
 ### Inspect the DB:
@@ -30,3 +30,13 @@ yarn                   # Install packages
 ./manage.sh dbshell cleanapp_dev
 ```
 
+
+## Prod workflow
+
+1. Complete the config in .env.production.local
+1. Build with: `docker build -t epc` or similar
+1. Run with `docker run epc` (this runs prod.sh, which exports commands, but you can also run shell commands).
+
+If it complains about a missing environment variable, you can pass it using `docker run -e VAR=val ...`.
+
+You can also pass additional variables using an env file using: `docker run --env-file /some/file ...`. You can also pass .env.production.local this way if you update it.

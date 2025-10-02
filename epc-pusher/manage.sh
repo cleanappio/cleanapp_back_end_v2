@@ -13,7 +13,7 @@ function dev_deploy () {
   docker kill $DB_CONTAINER || true && docker rm $DB_CONTAINER || true
   docker run --name $DB_CONTAINER -p3406:3306 -e MYSQL_ROOT_PASSWORD="$DB_PASSWORD" -d mysql
 
-  sleep 10 # sometimes get a weird mysql transport error, this seems to help (pita tbh)
+  sleep 15 # db startup takes a long time because im too lazy to make volume persistent
 
   echo "Creating database..."
   echo "create database $DB_NAME" | dbshell
@@ -40,12 +40,12 @@ function dbshell () {
   MYSQL_PWD="$DB_PASSWORD" mysql -h 127.0.0.1 -P 3406 -u root $@
 }
 
-function dev_index () {
-  npx tsx src/index.ts
+function dev_run_notify_reports () {
+  npx tsx src/notifyReports.ts
 }
 
 function import_contracts () {
-  dir="${1:-../epc-contracts/out}"
+  dir="${1:-../../epc-contracts/out}"
   rm -rf lib/abi
   mkdir -p lib/abi
 
@@ -57,7 +57,6 @@ function import_contracts () {
 
   f "$dir/Pure.sol/EPCPure.json"
 }
-
 
 
 

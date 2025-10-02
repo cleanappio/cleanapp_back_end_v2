@@ -10,7 +10,9 @@
   },
   "dependencies": {
     "ethers": "^6.15.0",
+    "handlebars": "^4.7.8",
     "mysql2": "^3.14.3",
-    "tsx": "^4.20.5"
+    "tsx": "^4.20.5",
+    "webevm": "https://github.com/beastieboard/webevm#sync"
   }
 }

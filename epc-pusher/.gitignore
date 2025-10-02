@@ -1,2 +1,3 @@
 dev_dump*.sql
 node_modules
+.env.development.local
