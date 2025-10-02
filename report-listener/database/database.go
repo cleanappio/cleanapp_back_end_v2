@@ -108,6 +108,27 @@ func (d *Database) EnsureFetcherTables(ctx context.Context) error {
 	return nil
 }
 
+// EnsureReportDetailsTable creates the report_details table to store structured metadata
+func (d *Database) EnsureReportDetailsTable(ctx context.Context) error {
+	stmt := `
+        CREATE TABLE IF NOT EXISTS report_details (
+            seq INT NOT NULL,
+            company_name VARCHAR(255),
+            product_name VARCHAR(255),
+            url VARCHAR(512),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (seq),
+            CONSTRAINT fk_report_details_seq FOREIGN KEY (seq) REFERENCES reports(seq) ON DELETE CASCADE,
+            INDEX idx_company (company_name),
+            INDEX idx_product (product_name)
+        )`
+	if _, err := d.db.ExecContext(ctx, stmt); err != nil {
+		return fmt.Errorf("failed to ensure report_details table: %w", err)
+	}
+	return nil
+}
+
 // ValidateFetcherToken returns fetcher_id if the token hash exists and is active
 func (d *Database) ValidateFetcherToken(ctx context.Context, tokenHash []byte) (string, error) {
 	var fetcherID string

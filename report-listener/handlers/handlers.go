@@ -5,9 +5,10 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log"
+	"math/rand"
 	"net/http"
 	"strconv"
-	"strin
+	"strings"
 	"time"
 
 	"report-listener/database"
@@ -121,9 +122,11 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 			}
 			reporterID := "fetcher:" + fetcherID
 			// Insert report
+			// randomize team between 1 and 2
+			team := 1 + rand.Intn(2)
 			res, err := tx.ExecContext(c.Request.Context(),
 				`INSERT INTO reports (id, team, action_id, latitude, longitude, x, y, image, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-				reporterID, 0, "", 0.0, 0.0, 0.0, 0.0, []byte{}, truncateRunes(stripNonBMP(it.Title), 255),
+				reporterID, team, "", 0.0, 0.0, 0.0, 0.0, []byte{}, truncateRunes(stripNonBMP(it.Title), 255),
 			)
 			if err != nil {
 				tx.Rollback()
@@ -142,20 +145,39 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 			title := truncateRunes(stripNonBMP(it.Title), 500)
 			description := truncateRunes(stripNonBMP(it.Content), 16000)
 			brandDisplay := extractBrandDisplay(it.Title, it.Metadata)
-			brandName := brandutil.NormalizeBrandName(brandDisplay)
+			var brandName string
+			if strings.EqualFold(req.Source, "github_issue") {
+				brandName = normalizeGithubBrandName(brandDisplay)
+			} else {
+				brandName = brandutil.NormalizeBrandName(brandDisplay)
+			}
 			severity := clampSeverity(it.Score)
-			sumSafe := truncateRunes(stripNonBMP(summary(title, description)), 1000)
+			// summary composed below; no standalone sumSafe needed
+			// Compose trimmed description for summary
+			trimmedDesc := trimmedDescriptionForSummary(description)
 			// Insert analysis (truncate to avoid oversized multi-byte issues)
 			_, err = tx.ExecContext(c.Request.Context(), `
                 INSERT INTO report_analysis (
                     seq, source, analysis_text, analysis_image, title, description,
                     brand_name, brand_display_name, litter_probability, hazard_probability,
                     digital_bug_probability, severity_level, summary, language, is_valid, classification
-                ) VALUES (?, ?, '', NULL, ?, ?, ?, ?, 0.0, 0.0, 1.0, ?, ?, 'en', TRUE, 'digital')
-            `, seq, req.Source, title, description, brandName, brandDisplay, severity, sumSafe)
+                ) VALUES (?, ?, '', NULL, ?, ?, ?, ?, 0.0, 0.0, 1.0, ?, CONCAT(?, ' : ', ?, ' : ', ?), 'en', TRUE, 'digital')
+            `, seq, req.Source, title, description, brandName, brandDisplay, severity, title, trimmedDesc, safeURL(it.URL))
 			if err != nil {
 				tx.Rollback()
 				resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: truncate(fmt.Sprintf("insert analysis failed: %v", err), 256)})
+				continue
+			}
+
+			// Insert report_details (company_name, product_name, url)
+			company, product := splitOwnerRepo(brandDisplay)
+			_, err = tx.ExecContext(c.Request.Context(), `
+                INSERT INTO report_details (seq, company_name, product_name, url) VALUES (?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE company_name=VALUES(company_name), product_name=VALUES(product_name), url=VALUES(url)
+            `, seq, nullable(company), nullable(product), truncateRunes(stripNonBMP(it.URL), 500))
+			if err != nil {
+				tx.Rollback()
+				resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: truncate(fmt.Sprintf("insert details failed: %v", err), 256)})
 				continue
 			}
 
@@ -180,17 +202,35 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 			title := truncateRunes(stripNonBMP(it.Title), 500)
 			description := truncateRunes(stripNonBMP(it.Content), 16000)
 			brandDisplay := extractBrandDisplay(it.Title, it.Metadata)
-			brandName := brandutil.NormalizeBrandName(brandDisplay)
+			var brandName string
+			if strings.EqualFold(req.Source, "github_issue") {
+				brandName = normalizeGithubBrandName(brandDisplay)
+			} else {
+				brandName = brandutil.NormalizeBrandName(brandDisplay)
+			}
 			severity := clampSeverity(it.Score)
-			sumSafe := truncateRunes(stripNonBMP(summary(title, description)), 1000)
+			// summary composed below; no standalone sumSafe needed
 
+			// Compose trimmed description for summary
+			trimmedDesc := trimmedDescriptionForSummary(description)
 			_, err = h.db.DB().ExecContext(c.Request.Context(), `
                 UPDATE report_analysis SET title = ?, description = ?, brand_name = ?, brand_display_name = ?,
-                    severity_level = ?, summary = ?, updated_at = NOW()
+                    severity_level = ?, summary = CONCAT(?, ' : ', ?, ' : ', ?), updated_at = NOW()
                 WHERE seq = ?
-            `, title, description, brandName, brandDisplay, severity, sumSafe, seq)
+            `, title, description, brandName, brandDisplay, severity, title, trimmedDesc, safeURL(it.URL), seq)
 			if err != nil {
 				resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: truncate(fmt.Sprintf("update analysis failed: %v", err), 256)})
+				continue
+			}
+
+			// Upsert report_details as well on update path
+			company, product := splitOwnerRepo(brandDisplay)
+			_, err = h.db.DB().ExecContext(c.Request.Context(), `
+                INSERT INTO report_details (seq, company_name, product_name, url) VALUES (?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE company_name=VALUES(company_name), product_name=VALUES(product_name), url=VALUES(url)
+            `, seq, nullable(company), nullable(product), truncateRunes(stripNonBMP(it.URL), 500))
+			if err != nil {
+				resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: truncate(fmt.Sprintf("update details failed: %v", err), 256)})
 				continue
 			}
 			resp.Updated++
@@ -258,6 +298,22 @@ func extractBrandDisplay(title string, metadata map[string]interface{}) string {
 	return title
 }
 
+// normalizeGithubBrandName replaces owner/repo slash with hyphen and normalizes
+func normalizeGithubBrandName(display string) string {
+	// Preserve a single hyphen between owner and repo by normalizing parts separately
+	parts := strings.Split(display, "/")
+	if len(parts) >= 2 {
+		owner := brandutil.NormalizeBrandName(parts[0])
+		repo := brandutil.NormalizeBrandName(parts[1])
+		if owner != "" && repo != "" {
+			return owner + "-" + repo
+		}
+	}
+	// Fallback: replace slash with hyphen, then normalize; hyphen may be removed by normalizer
+	safe := strings.ReplaceAll(display, "/", "-")
+	return brandutil.NormalizeBrandName(safe)
+}
+
 func clampSeverity(score float64) float64 {
 	// Accept pre-normalized [0.0..1.0], clamp to [0.7..1.0]
 	if score < 0.7 {
@@ -267,6 +323,52 @@ func clampSeverity(score float64) float64 {
 		return 1.0
 	}
 	return score
+}
+
+// splitOwnerRepo extracts owner and repo from a display like "owner/repo"
+func splitOwnerRepo(display string) (string, string) {
+	if strings.Contains(display, "/") {
+		parts := strings.SplitN(display, "/", 2)
+		owner := parts[0]
+		repo := parts[1]
+		return owner, repo
+	}
+	return "", display
+}
+
+// safeURL normalizes and truncates URL for summary/details
+func safeURL(u string) string {
+	u = strings.TrimSpace(u)
+	if len(u) > 500 {
+		u = u[:500]
+	}
+	return u
+}
+
+// nullable returns nil for empty strings to allow DB NULL
+func nullable(s string) interface{} {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	return s
+}
+
+// trimmedDescriptionForSummary: 1) take first 256 runes; 2) remove newlines; 3) append "..."
+func trimmedDescriptionForSummary(desc string) string {
+	// limit to 256 runes
+	short := truncateRunes(desc, 256)
+	// remove CR/LF
+	single := strings.ReplaceAll(strings.ReplaceAll(short, "\r", " "), "\n", " ")
+	// collapse multiple spaces
+	single = strings.Join(strings.Fields(single), " ")
+	// add ellipsis
+	if single == "" {
+		return "..."
+	}
+	if len(single) > 3 && strings.HasSuffix(single, "...") {
+		return single
+	}
+	return single + "..."
 }
 
 // WebSocket upgrader
