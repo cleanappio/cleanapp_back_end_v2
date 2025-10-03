@@ -28,6 +28,9 @@
   "ts-node": {
     "swc": true,
     "transpileOnly": true
-  }
+  },
+  "include": [
+    "lib/abi/*.json"
+  ]
 }
 
