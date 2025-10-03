@@ -10,15 +10,14 @@ import {isTruthyEnv} from './utils'
 
 
 const CAMPAIGN_SLUG = "reports"
-const CAMPAIGN_PREFIX = "cleanapp"
 
 
 async function initReportsEPC(db: mysql.Pool) {
 
   await db.query(
-    `insert into epc_campaigns (slug, key_prefix, description) values (?, ?, ?)
+    `insert into epc_campaigns (slug, description) values (?, ?)
     on duplicate key update slug=slug`,
-    [CAMPAIGN_SLUG, CAMPAIGN_PREFIX, "automatic notification of new reports from report_analysis table"]
+    [CAMPAIGN_SLUG, "automatic notification of new reports from report_analysis table"]
   )
 }
 
@@ -60,6 +59,8 @@ async function runSendReports(pool: mysql.Pool) {
   }
 }
 
+
+
 async function processReport(db: mysql.Connection, report: any) {
 
   // get the campaign
@@ -69,15 +70,13 @@ async function processReport(db: mysql.Connection, report: any) {
   /*
    * create the contract address and key
    */
-  let key: string = report.brand_name.trim()
 
-  if (!key) {
+  let brand: string = report.brand_name.trim()
+  if (!brand) {
     console.warn(`Report seq ${report.seq} has no brand name, skipping`)
     return
   }
-
-  key = `${campaign.key_prefix}/${key}`
-
+  let key = `cleanapp/brand/${brand}`
   let address = getEpcAddress(key)
 
   /*
@@ -189,7 +188,7 @@ async function getStartReportsSeq(db: Queryable) {
 
 
 const reportNotifyTemplate = readFileSync("./lib/templates/report_notification.tpl", { encoding: 'utf8' })
-const _callReportNotifyTemplate = Handlebars.compile(reportNotifyTemplate)
+const _callReportNotifyTemplate = Handlebars.compile(reportNotifyTemplate, { noEscape: true })
 
 function renderReportNotification(report: object) {
   return _callReportNotifyTemplate({ report })

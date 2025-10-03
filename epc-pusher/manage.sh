@@ -67,6 +67,8 @@ if [ -z "$1" ]; then
   echo
 else
 
+  . lib/common.sh
+
   export NODE_ENV="development"
   touch .env.development.local
 

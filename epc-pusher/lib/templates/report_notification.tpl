@@ -1,11 +1,1 @@
-There is a new Cleanapp report for {{ report.brand_display_name }}: "{{ report.title }}"
-
-Description: {{ report.description }}
-
-A remediation has been suggested: {{ report.suggested_remediation }}
-
-Report URI: https://cleanapp.io/reports/{{ report.seq }}
-
-Subscribe to your reports at: https://cleanapp.io/brands/{{ report.brand_name }}
-
-https://cleanapp.io
+You have a new CleanApp Report. Please see https://cleanapp.io/digital/{{ report.brand_name }}. This is your new Ethereum Plus Code. Please check in periodically for updates and future CleanApp reports.

@@ -19,9 +19,9 @@ else
   export NODE_ENV="production"
 
   set -a # auto export variables
-  load_env_noclobber .env
-  load_env_noclobber .env.production
-  load_env_noclobber .env.production.local
+  . .env
+  . .env.production
+  . .env.production.local
   set +a # end auto export
 
 

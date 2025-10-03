@@ -31,12 +31,12 @@ yarn                                # Install packages
 ```
 
 
-## Prod workflow
+## Prod / staging workflow
 
-1. Complete the config in .env.production.local
+On first run, load the schema in `lib/sql/epc_schema.sql` into the database.
+
+1. Complete the config in .env.production.local (also uncomment vars as appropriate)
 1. Build with: `docker build -t epc` or similar
 1. Run with `docker run epc` (this runs prod.sh, which exports commands, but you can also run shell commands).
 
 If it complains about a missing environment variable, you can pass it using `docker run -e VAR=val ...`.
-
-You can also pass additional variables using an env file using: `docker run --env-file /some/file ...`. You can also pass .env.production.local this way if you update it.
