@@ -24,21 +24,29 @@ func NewOwnershipService(db *sql.DB) *OwnershipService {
 
 // GetUnprocessedReports retrieves reports with their analysis that haven't been processed for ownership
 func (s *OwnershipService) GetUnprocessedReports(ctx context.Context, batchSize int) ([]models.ReportWithAnalysis, error) {
+	// Use a derived list of recent seqs first to avoid scanning from the oldest
+	// and to let MySQL use the PRIMARY index on reports(seq) efficiently.
 	query := `
-		SELECT DISTINCT 
-			r.seq, r.ts, r.id, r.latitude, r.longitude,
-			COALESCE(ra.brand_name, '') as brand_name,
-			COALESCE(ra.brand_display_name, '') as brand_display_name
-		FROM reports r
-		LEFT JOIN reports_owners ro ON r.seq = ro.seq
-		JOIN report_analysis ra ON r.seq = ra.seq
-		WHERE ro.seq IS NULL
-		AND ra.language = 'en'
-		ORDER BY r.seq ASC
-		LIMIT ?
-	`
+        SELECT 
+            r.seq, r.ts, r.id, r.latitude, r.longitude,
+            COALESCE(ra.brand_name, '') as brand_name,
+            COALESCE(ra.brand_display_name, '') as brand_display_name
+        FROM (
+            SELECT seq
+            FROM reports
+            ORDER BY seq DESC
+            LIMIT ?
+        ) AS recent
+        JOIN reports r ON r.seq = recent.seq
+        LEFT JOIN reports_owners ro ON r.seq = ro.seq
+        JOIN report_analysis ra ON r.seq = ra.seq
+        WHERE ro.seq IS NULL
+        AND ra.language = 'en'
+        ORDER BY r.seq DESC
+        LIMIT ?
+    `
 
-	rows, err := s.db.QueryContext(ctx, query, batchSize)
+	rows, err := s.db.QueryContext(ctx, query, batchSize*10, batchSize)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query unprocessed reports: %w", err)
 	}

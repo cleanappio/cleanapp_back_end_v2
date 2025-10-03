@@ -113,15 +113,21 @@ func (s *EmailService) ProcessReports() error {
 func (s *EmailService) getUnprocessedReports(ctx context.Context) ([]models.Report, error) {
 	qStart := time.Now()
 	query := `
-		SELECT r.seq, r.id, r.latitude, r.longitude, r.image, r.ts
-		FROM reports r
-		INNER JOIN report_analysis ra ON r.seq = ra.seq
-		LEFT JOIN sent_reports_emails sre ON r.seq = sre.seq
-		WHERE sre.seq IS NULL
-		AND ra.language = 'en'
-		ORDER BY r.ts ASC
-		LIMIT 100
-	`
+        SELECT r.seq, r.id, r.latitude, r.longitude, r.image, r.ts
+        FROM (
+            SELECT seq
+            FROM reports
+            ORDER BY seq DESC
+            LIMIT 1000
+        ) AS recent
+        JOIN reports r ON r.seq = recent.seq
+        INNER JOIN report_analysis ra ON r.seq = ra.seq
+        LEFT JOIN sent_reports_emails sre ON r.seq = sre.seq
+        WHERE sre.seq IS NULL
+        AND ra.language = 'en'
+        ORDER BY r.seq DESC
+        LIMIT 100
+    `
 
 	rows, err := s.db.QueryContext(ctx, query)
 	if err != nil {

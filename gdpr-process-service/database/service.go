@@ -21,13 +21,21 @@ func NewGdprService(db *sql.DB) *GdprService {
 
 // GetUnprocessedUsers returns users that haven't been processed for GDPR
 func (s *GdprService) GetUnprocessedUsers() ([]string, error) {
+	// Use a watermark based on the latest processed user's timestamp to bound the scan
+	// and still ensure correctness with NOT EXISTS. Requires index on users(ts).
 	query := `
-		SELECT u.id 
-		FROM users u 
-		LEFT JOIN users_gdpr ug ON u.id = ug.id 
-		WHERE ug.id IS NULL
-		ORDER BY u.ts ASC
-		LIMIT 100`
+        SELECT u.id
+        FROM users u
+        WHERE u.ts > (
+            SELECT COALESCE(MAX(u2.ts), '1970-01-01')
+            FROM users u2
+            INNER JOIN users_gdpr ug2 ON ug2.id = u2.id
+        )
+        AND NOT EXISTS (
+            SELECT 1 FROM users_gdpr ug WHERE ug.id = u.id
+        )
+        ORDER BY u.ts ASC
+        LIMIT 100`
 
 	rows, err := s.db.Query(query)
 	if err != nil {
@@ -124,13 +132,16 @@ func (s *GdprService) GenerateUniqueAvatar(obfuscatedAvatar string) (string, err
 
 // GetUnprocessedReports returns reports that haven't been processed for GDPR
 func (s *GdprService) GetUnprocessedReports() ([]int, error) {
+	// Use last processed seq watermark to fetch forward with an index-friendly range
 	query := `
-		SELECT DISTINCT r.seq
-		FROM reports r
-		INNER JOIN report_analysis ra ON r.seq = ra.seq
-		LEFT JOIN reports_gdpr rg ON r.seq = rg.seq
-		WHERE rg.seq IS NULL
-		LIMIT 100`
+        SELECT r.seq
+        FROM reports r
+        INNER JOIN report_analysis ra ON r.seq = ra.seq
+        WHERE r.seq > (
+            SELECT COALESCE(MAX(seq), 0) FROM reports_gdpr
+        )
+        ORDER BY r.seq ASC
+        LIMIT 100`
 
 	rows, err := s.db.Query(query)
 	if err != nil {

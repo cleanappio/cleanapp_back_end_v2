@@ -73,6 +73,20 @@ func (s *Service) Start() error {
 		log.Printf("Warning: UTF8MB4 ensure failed: %v", err)
 	}
 
+	// Best-effort: ensure helpful indexes exist on report_analysis for query performance
+	// We don't fail startup if this cannot run (e.g., insufficient privileges)
+	func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_, err := s.db.DB().ExecContext(ctx, `
+			ALTER TABLE report_analysis 
+			ADD INDEX IF NOT EXISTS idx_report_analysis_class_valid_seq (classification, is_valid, seq);
+		`)
+		if err != nil {
+			log.Printf("warn: unable to ensure idx_report_analysis_class_valid_seq: %v", err)
+		}
+	}()
+
 	// Start the WebSocket hub
 	go s.hub.Run()
 

@@ -448,6 +448,11 @@ func (h *Handlers) GetLastNAnalyzedReports(c *gin.Context) {
 		return
 	}
 
+	// Apply a stricter cap when full_data is requested to protect DB and payload size
+	if fullData && limit > 50000 {
+		limit = 50000
+	}
+
 	// Get the reports from the database
 	reportsInterface, err := h.db.GetLastNAnalyzedReports(c.Request.Context(), limit, classification, fullData)
 	if err != nil {

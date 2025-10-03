@@ -661,12 +661,9 @@ func DeleteAction(db *sql.DB, req *api.ActionModifyArgs) error {
 func GetValidReportsCount(db *sql.DB, classification string) (int, error) {
 	var count int
 	row := db.QueryRow(`
-        SELECT COUNT(*)
-        FROM reports r
-        WHERE EXISTS (
-            SELECT 1 FROM report_analysis a
-            WHERE a.seq = r.seq AND a.classification = ? AND a.is_valid = TRUE
-        )
+        SELECT COUNT(DISTINCT ra.seq)
+        FROM report_analysis ra
+        WHERE ra.classification = ? AND ra.is_valid = TRUE
     `, classification)
 	if err := row.Scan(&count); err != nil {
 		return 0, err
@@ -681,12 +678,9 @@ func GetValidReportsCounts(db *sql.DB) (int, int, int, error) {
 	// total valid
 	var total int
 	if err := db.QueryRow(`
-        SELECT COUNT(*)
-        FROM reports r
-        WHERE EXISTS (
-            SELECT 1 FROM report_analysis a
-            WHERE a.seq = r.seq AND a.is_valid = TRUE
-        )
+        SELECT COUNT(DISTINCT ra.seq)
+        FROM report_analysis ra
+        WHERE ra.is_valid = TRUE
     `).Scan(&total); err != nil {
 		return 0, 0, 0, err
 	}
@@ -694,12 +688,9 @@ func GetValidReportsCounts(db *sql.DB) (int, int, int, error) {
 	// total physical valid
 	var physical int
 	if err := db.QueryRow(`
-        SELECT COUNT(*)
-        FROM reports r
-        WHERE EXISTS (
-            SELECT 1 FROM report_analysis a
-            WHERE a.seq = r.seq AND a.classification = 'physical' AND a.is_valid = TRUE
-        )
+        SELECT COUNT(DISTINCT ra.seq)
+        FROM report_analysis ra
+        WHERE ra.classification = 'physical' AND ra.is_valid = TRUE
     `).Scan(&physical); err != nil {
 		return 0, 0, 0, err
 	}
@@ -707,12 +698,9 @@ func GetValidReportsCounts(db *sql.DB) (int, int, int, error) {
 	// total digital valid
 	var digital int
 	if err := db.QueryRow(`
-        SELECT COUNT(*)
-        FROM reports r
-        WHERE EXISTS (
-            SELECT 1 FROM report_analysis a
-            WHERE a.seq = r.seq AND a.classification = 'digital' AND a.is_valid = TRUE
-        )
+        SELECT COUNT(DISTINCT ra.seq)
+        FROM report_analysis ra
+        WHERE ra.classification = 'digital' AND ra.is_valid = TRUE
     `).Scan(&digital); err != nil {
 		return 0, 0, 0, err
 	}

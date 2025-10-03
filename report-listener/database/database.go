@@ -234,7 +234,7 @@ func (d *Database) GetReportsSince(ctx context.Context, sinceSeq int) ([]models.
 	// Then, get all analyses for these reports
 	analysesQuery := fmt.Sprintf(`
 		SELECT 
-			ra.seq, ra.source, ra.analysis_text, ra.analysis_image,
+			ra.seq, ra.source, ra.analysis_text,
 			ra.title, ra.description, ra.brand_name, ra.brand_display_name,
 			ra.litter_probability, ra.hazard_probability, ra.digital_bug_probability,
 			ra.severity_level, ra.summary, ra.language, ra.classification, ra.created_at
@@ -257,7 +257,6 @@ func (d *Database) GetReportsSince(ctx context.Context, sinceSeq int) ([]models.
 			&analysis.Seq,
 			&analysis.Source,
 			&analysis.AnalysisText,
-			&analysis.AnalysisImage,
 			&analysis.Title,
 			&analysis.Description,
 			&analysis.BrandName,
@@ -389,11 +388,11 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int, class
 		AND ra.classification = ?
 		AND ra.is_valid = TRUE
 		AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE)
-		AND r.seq >= (SELECT MAX(seq) - ? FROM report_analysis WHERE classification = ?)
 		ORDER BY r.seq DESC
+		LIMIT ?
 	`
 
-	reportRows, err := d.db.QueryContext(ctx, reportsQuery, classification, limit, classification)
+	reportRows, err := d.db.QueryContext(ctx, reportsQuery, classification, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query last N analyzed reports: %w", err)
 	}
@@ -495,7 +494,7 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int, class
 	// Then, get all analyses for these reports
 	analysesQuery := fmt.Sprintf(`
 		SELECT 
-			ra.seq, ra.source, ra.analysis_text, ra.analysis_image,
+			ra.seq, ra.source, ra.analysis_text,
 			ra.title, ra.description, ra.brand_name, ra.brand_display_name,
 			ra.litter_probability, ra.hazard_probability, ra.digital_bug_probability,
 			ra.severity_level, ra.summary, ra.language, ra.classification, ra.created_at
@@ -518,7 +517,6 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int, class
 			&analysis.Seq,
 			&analysis.Source,
 			&analysis.AnalysisText,
-			&analysis.AnalysisImage,
 			&analysis.Title,
 			&analysis.Description,
 			&analysis.BrandName,
@@ -802,7 +800,7 @@ func (d *Database) GetReportsByLatLng(ctx context.Context, latitude, longitude f
 	// First, get all reports within the bounding box that are not resolved
 	// and are not privately owned
 	reportsQuery := `
-		SELECT DISTINCT r.seq, r.ts, r.id, r.latitude, r.longitude, r.image
+		SELECT DISTINCT r.seq, r.ts, r.id, r.latitude, r.longitude
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		LEFT JOIN report_status rs ON r.seq = rs.seq
@@ -834,7 +832,6 @@ func (d *Database) GetReportsByLatLng(ctx context.Context, latitude, longitude f
 			&report.ID,
 			&report.Latitude,
 			&report.Longitude,
-			&report.Image,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan report: %w", err)
@@ -862,7 +859,7 @@ func (d *Database) GetReportsByLatLng(ctx context.Context, latitude, longitude f
 	// Then, get all analyses for these reports
 	analysesQuery := fmt.Sprintf(`
 		SELECT 
-			ra.seq, ra.source, ra.analysis_text, ra.analysis_image,
+			ra.seq, ra.source, ra.analysis_text,
 			ra.title, ra.description, ra.brand_name, ra.brand_display_name,
 			ra.litter_probability, ra.hazard_probability, ra.digital_bug_probability,
 			ra.severity_level, ra.summary, ra.language, ra.classification, ra.created_at
@@ -885,7 +882,6 @@ func (d *Database) GetReportsByLatLng(ctx context.Context, latitude, longitude f
 			&analysis.Seq,
 			&analysis.Source,
 			&analysis.AnalysisText,
-			&analysis.AnalysisImage,
 			&analysis.Title,
 			&analysis.Description,
 			&analysis.BrandName,
@@ -1003,7 +999,7 @@ func (d *Database) GetReportsByLatLngLite(ctx context.Context, latitude, longitu
 	// Then, get all analyses for these reports
 	analysesQuery := fmt.Sprintf(`
 		SELECT 
-			ra.seq, ra.source, ra.analysis_text, ra.analysis_image,
+			ra.seq, ra.source, ra.analysis_text,
 			ra.title, ra.description, ra.brand_name, ra.brand_display_name,
 			ra.litter_probability, ra.hazard_probability, ra.digital_bug_probability,
 			ra.severity_level, ra.summary, ra.language, ra.classification, ra.created_at
@@ -1026,7 +1022,6 @@ func (d *Database) GetReportsByLatLngLite(ctx context.Context, latitude, longitu
 			&analysis.Seq,
 			&analysis.Source,
 			&analysis.AnalysisText,
-			&analysis.AnalysisImage,
 			&analysis.Title,
 			&analysis.Description,
 			&analysis.BrandName,
