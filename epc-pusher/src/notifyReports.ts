@@ -63,10 +63,6 @@ async function runSendReports(pool: mysql.Pool) {
 
 async function processReport(db: mysql.Connection, report: any) {
 
-  // get the campaign
-  let [r1] = await db.query('select * from epc_campaigns where slug = ?', [CAMPAIGN_SLUG])
-  let campaign = r1[0]
-
   /*
    * create the contract address and key
    */
@@ -140,7 +136,7 @@ async function processReport(db: mysql.Connection, report: any) {
   await db.query(
     `insert into epc_outbox (campaign, contract_id, metadata, status, sent_message_template_id)
     values (?, ?, ?, ?, ?)`,
-    [campaign.slug, contract_id, JSON.stringify(metadata), status, template_id]
+    [CAMPAIGN_SLUG, contract_id, JSON.stringify(metadata), status, template_id]
   )
 }
 
