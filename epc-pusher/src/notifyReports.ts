@@ -143,14 +143,38 @@ async function processReport(db: mysql.Connection, report: any) {
 
 async function getNextReportToProcess(db: Queryable, startReportSeq: number) {
 
-  let sql = `
-  select * from report_analysis
-  where seq >= ? and is_valid and language = "en" and source = "ChatGPT"
-  order by seq asc limit 1
+  const filters = buildFilters()
+  const where = ['seq >= ?']
+  const params: any[] = [startReportSeq]
+
+  if (filters.onlyValid) {
+    where.push('is_valid')
+  }
+  if (filters.language) {
+    where.push('language = ?')
+    params.push(filters.language)
+  }
+  if (filters.source) {
+    where.push('source = ?')
+    params.push(filters.source)
+  }
+
+  const sql = `
+    select * from report_analysis
+    where ${where.join(' and ')}
+    order by seq asc limit 1
   `
 
-  let [r] = await db.query(sql, [startReportSeq])
-  return r[0]
+  let [r] = await db.query(sql, params)
+  return (r as any[])[0]
+}
+
+function buildFilters() {
+  const onlyValidEnv = process.env.EPC_ONLY_VALID
+  const onlyValid = typeof onlyValidEnv === 'undefined' ? true : isTruthyEnv('EPC_ONLY_VALID')
+  const language = (process.env.EPC_FILTER_LANGUAGE || '').trim()
+  const source = (process.env.EPC_FILTER_SOURCE || '').trim()
+  return { onlyValid, language: language || undefined, source: source || undefined }
 }
 
 
@@ -196,14 +220,32 @@ function renderReportNotification(report: object) {
 
 async function main() {
 
+  const dbHost = process.env.DB_HOST || 'cleanapp_db'
+  const dbPort = Number(process.env.DB_PORT || 3306)
+  const dbUser = process.env.DB_USER || 'server'
+  const dbName = process.env.DB_NAME || 'cleanapp'
+  const dbPassword = process.env.DB_PASSWORD || process.env.MYSQL_APP_PASSWORD || ''
+  const hasPassword = Boolean(dbPassword.trim())
+
+  // Log masked Blockscan API key preview for debugging (first/last 4 chars)
+  const blockscanKey = (process.env.BLOCKSCAN_CHAT_API_KEY || '').trim()
+  const blockscanPreview = blockscanKey
+    ? `${blockscanKey.slice(0, 4)}...${blockscanKey.slice(-4)} len=${blockscanKey.length}`
+    : '(empty)'
+  console.log(`EPC pusher Blockscan key=${blockscanPreview}`)
+
+  console.log(`EPC pusher connecting to DB host=${dbHost} port=${dbPort} user=${dbUser} db=${dbName} pw_set=${hasPassword}`)
+
   var db  = mysql.createPool({
     connectionLimit : 10,
-    host            : process.env.DB_HOST,
-    port            : Number(process.env.DB_PORT || 3306),
-    user            : process.env.DB_USER,
-    password        : process.env.DB_PASSWORD,
-    database        : process.env.DB_NAME
+    host            : dbHost,
+    port            : dbPort,
+    user            : dbUser,
+    password        : dbPassword,
+    database        : dbName
   });
+
+  await waitForDb(db)
 
   await runSendReports(db)
   await db.end()
@@ -211,3 +253,18 @@ async function main() {
 
 
 main()
+
+async function waitForDb(pool: mysql.Pool) {
+  const maxAttempts = 60
+  const delayMs = 2000
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await pool.query('select 1')
+      return
+    } catch (e) {
+      console.warn(`DB not ready (attempt ${attempt}/${maxAttempts}). Retrying in ${delayMs}ms...`)
+      await new Promise((r) => setTimeout(r, delayMs))
+    }
+  }
+  throw new Error('Database not reachable after multiple attempts')
+}

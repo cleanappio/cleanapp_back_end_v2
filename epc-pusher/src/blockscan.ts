@@ -4,10 +4,17 @@ const API_URL = 'https://chatapi.blockscan.com/v1/api'
 
 
 export async function sendChat(address: string, msg: string) {
+  const apikey = (process.env.BLOCKSCAN_CHAT_API_KEY || '').trim()
+  if (!apikey) {
+    console.warn('Blockscan API key missing at send time')
+    throw 'blockscan apikey missing'
+  }
+  const apikeyPreview = `${apikey.slice(0, 4)}...${apikey.slice(-4)}`
+  console.log(`Blockscan send: key_len=${apikey.length} key_preview=${apikeyPreview} to=${address}`)
 
   let params = {
     method: "sendchat",
-    apikey: process.env.BLOCKSCAN_CHAT_API_KEY,
+    apikey,
     to: address,
     msg,
     replytoid: "0"

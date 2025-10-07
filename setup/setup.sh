@@ -95,6 +95,10 @@ case ${OPT} in
       FACE_DETECTOR_DEBUG=true
       REQUEST_REGISTRATOR_URL=https://stxn-cleanapp-dev.stxn.io:443
       DIGITAL_BASE_URL="https://dev.cleanapp.io/api/email"
+      # EPC pusher defaults (disabled by default)
+      ENABLE_EPC_PUSHER="true"
+      EPC_DISPATCH="true"
+      EPC_REPORTS_START_SEQ="29604"
       ;;
   "prod")
       echo "Using prod environment"
@@ -135,6 +139,10 @@ case ${OPT} in
       FACE_DETECTOR_DEBUG=false
       REQUEST_REGISTRATOR_URL=https://stxn-cleanapp-prod.stxn.io:443
       DIGITAL_BASE_URL="https://cleanapp.io/api/email"
+      # EPC pusher defaults (disabled by default)
+      ENABLE_EPC_PUSHER=""
+      EPC_DISPATCH="false"
+      EPC_REPORTS_START_SEQ=""
       ;;
   "quit")
       exit
@@ -170,6 +178,7 @@ REPORTS_PUSHER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-reports-pusher-image:${OP
 FACE_DETECTOR_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-face-detector-image:${OPT}"
 VOICE_ASSISTANT_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-voice-assistant-service-image:${OPT}"
 REPORT_ANALYSIS_BACKFILL_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-analysis-backfill-image:${OPT}"
+EPC_PUSHER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-epc-pusher-image:${OPT}"
 
 OPENAI_ASSISTANT_ID="asst_kBtuzDRWNorZgw9o2OJTGOn0"
 
@@ -211,6 +220,7 @@ docker pull ${REPORTS_PUSHER_DOCKER_IMAGE}
 docker pull ${VOICE_ASSISTANT_SERVICE_DOCKER_IMAGE}
 docker pull ${REPORT_ANALYSIS_BACKFILL_DOCKER_IMAGE}
 docker pull ${EMAIL_SERVICE_V3_DOCKER_IMAGE}
+docker pull ${EPC_PUSHER_DOCKER_IMAGE}
 
 # Secrets
 cat >.env << ENV
@@ -228,12 +238,11 @@ OPENAI_API_KEY=\$(gcloud secrets versions access 1 --secret="CLEANAPP_CHATGPT_AP
 RATE_LIMIT_PER_MINUTE=\$(gcloud secrets versions access 1 --secret="RATE_LIMIT_PER_MINUTE_${SECRET_SUFFIX}")
 TURN_SERVERS_JSON=\$(gcloud secrets versions access 1 --secret="TURN_SERVERS_JSON_${SECRET_SUFFIX}")
 TRASHFORMER_OPENAI_API_KEY=\$(gcloud secrets versions access 1 --secret="CLEANAPP_TRASHFORMER_OPENAI_API_KEY")
+BLOCKSCAN_CHAT_API_KEY=\$(gcloud secrets versions access latest --secret="BLOCKSCAN_CHAT_API_KEY_${SECRET_SUFFIX}" --project cleanup-mysql-v2 | tr -d '\r' | sed -e 's/^"//' -e 's/"$//')
 
 ENV
 
-sudo docker compose up -d --remove-orphans
-
-rm -f .env
+sudo docker compose --env-file .env up -d --remove-orphans
 
 UP
 
@@ -679,6 +688,32 @@ services:
       - POLL_INTERVAL=1m
       - BATCH_SIZE=30
       - SEQ_END_TO=30000
+
+  # Optional EPC pusher
+  ${ENABLE_EPC_PUSHER:+cleanapp_epc_pusher:}
+  ${ENABLE_EPC_PUSHER:+  container_name: cleanapp_epc_pusher}
+  ${ENABLE_EPC_PUSHER:+  image: ${EPC_PUSHER_DOCKER_IMAGE}}
+  ${ENABLE_EPC_PUSHER:+  restart: unless-stopped}
+  ${ENABLE_EPC_PUSHER:+  environment:}
+  ${ENABLE_EPC_PUSHER:+    - DB_HOST=cleanapp_db}
+  ${ENABLE_EPC_PUSHER:+    - DB_PORT=3306}
+  ${ENABLE_EPC_PUSHER:+    - DB_USER=server}
+  ${ENABLE_EPC_PUSHER:+    - DB_PASSWORD=\${MYSQL_APP_PASSWORD}}
+  ${ENABLE_EPC_PUSHER:+    - MYSQL_APP_PASSWORD=\${MYSQL_APP_PASSWORD}}
+  ${ENABLE_EPC_PUSHER:+    - DB_NAME=cleanapp}
+  ${ENABLE_EPC_PUSHER:+    - BLOCKSCAN_CHAT_API_KEY=\${BLOCKSCAN_CHAT_API_KEY}}
+  ${ENABLE_EPC_PUSHER:+    - EPC_CONTRACT_ADDRESS=${CONTRACT_ADDRESS_MAIN}}
+  ${ENABLE_EPC_PUSHER:+    - EPC_DISPATCH=${EPC_DISPATCH}}
+  ${ENABLE_EPC_PUSHER:+    - EPC_REPORTS_START_SEQ=${EPC_REPORTS_START_SEQ}}
+  ${ENABLE_EPC_PUSHER:+    - EPC_ONLY_VALID=${EPC_ONLY_VALID}}
+  ${ENABLE_EPC_PUSHER:+    - EPC_FILTER_LANGUAGE=${EPC_FILTER_LANGUAGE}}
+  ${ENABLE_EPC_PUSHER:+    - EPC_FILTER_SOURCE=${EPC_FILTER_SOURCE}}
+  ${ENABLE_EPC_PUSHER:+  env_file:}
+  ${ENABLE_EPC_PUSHER:+    - .env}
+  ${ENABLE_EPC_PUSHER:+  depends_on:}
+  ${ENABLE_EPC_PUSHER:+    - cleanapp_db}
+  ${ENABLE_EPC_PUSHER:+  links:}
+  ${ENABLE_EPC_PUSHER:+    - cleanapp_db}
 
   cleanapp_voice_assistant_service:
     container_name: cleanapp_voice_assistant_service

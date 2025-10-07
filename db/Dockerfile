@@ -9,6 +9,7 @@ USER root
 COPY ./setup.sql /docker-entrypoint-initdb.d/setup.sql
 COPY ./init.sql .
 COPY ./set_passwords.sh .
+COPY ./patches /docker-entrypoint-initdb.d/patches
 
 # RUN useradd -ms /bin/bash cleanapper
 # USER cleanapper

@@ -18,11 +18,7 @@ else
 
   export NODE_ENV="production"
 
-  set -a # auto export variables
-  . .env
-  . .env.production
-  . .env.production.local
-  set +a # end auto export
+  # In containers, rely solely on injected environment (do not override from .env files)
 
 
   cmd=$1           # Get the function name from argv
