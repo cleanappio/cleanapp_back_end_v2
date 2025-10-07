@@ -5,21 +5,17 @@
 
 
 -- Campaign refers to the process / batch / marketing campaign.
--- Multiple campaigns can have the same prefix.
 create table if not exists epc_campaigns (
   slug varchar(16) not null,
-  key_prefix varchar(255) not null,
   description varchar(255),
   created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
   PRIMARY KEY (slug)
 );
 
--- Contract refers to an EPC; it has an address derived from a key
+-- Contract refers to an EPC; it has an address derived from the key
 create table if not exists epc_contracts (
   id int unsigned AUTO_INCREMENT,
-
-  -- key is: `${epc_campaigns.key_prefix}/${target string}`
   `key` varchar(255) not null unique,
   address varchar(42) not null unique,
   created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

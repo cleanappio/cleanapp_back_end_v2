@@ -1,0 +1,1 @@
+You have a new CleanApp Report. Please see https://cleanapp.io/digital/{{ report.brand_name }}. This is your new Ethereum Plus Code. Please check in periodically for updates and future CleanApp reports.
