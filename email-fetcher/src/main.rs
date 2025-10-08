@@ -257,6 +257,13 @@ async fn main() -> Result<()> {
         .compact()
         .init();
 
+    // Feature toggle: allow deploys to ship disabled and exit gracefully
+    let enabled = std::env::var("ENABLE_EMAIL_FETCHER").unwrap_or_else(|_| "false".to_string());
+    if !matches!(enabled.to_lowercase().as_str(), "1" | "true" | "yes" | "on") {
+        warn!("ENABLE_EMAIL_FETCHER is disabled; exiting without starting");
+        return Ok(());
+    }
+
     let cfg = Config::from_env();
 
     let masked_url = cfg.mysql_masked_url();
