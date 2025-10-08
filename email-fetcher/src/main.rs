@@ -4,6 +4,7 @@ use mysql_async::params;
 use mysql_async::prelude::Queryable;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
+use std::io::{self, Write};
 use tokio::{signal, time::sleep};
 use tracing::{error, info, warn};
 
@@ -260,6 +261,9 @@ async fn main() -> Result<()> {
     // Feature toggle: allow deploys to ship disabled and exit gracefully
     let enabled = std::env::var("ENABLE_EMAIL_FETCHER").unwrap_or_else(|_| "false".to_string());
     if !matches!(enabled.to_lowercase().as_str(), "1" | "true" | "yes" | "on") {
+        // Print explicitly to stderr and flush to ensure visibility in fast-exit containers
+        eprintln!("WARN: ENABLE_EMAIL_FETCHER is disabled; exiting without starting");
+        let _ = io::stderr().flush();
         warn!("ENABLE_EMAIL_FETCHER is disabled; exiting without starting");
         return Ok(());
     }

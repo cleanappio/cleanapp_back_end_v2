@@ -95,6 +95,7 @@ case ${OPT} in
       FACE_DETECTOR_DEBUG=true
       REQUEST_REGISTRATOR_URL=https://stxn-cleanapp-dev.stxn.io:443
       DIGITAL_BASE_URL="https://dev.cleanapp.io/api/email"
+      ENABLE_EMAIL_FETCHER="false"
       ENABLE_EMAIL_V3="false"
       # EPC pusher defaults (disabled by default)
       ENABLE_EPC_PUSHER="true"
@@ -140,6 +141,7 @@ case ${OPT} in
       FACE_DETECTOR_DEBUG=false
       REQUEST_REGISTRATOR_URL=https://stxn-cleanapp-prod.stxn.io:443
       DIGITAL_BASE_URL="https://cleanapp.io/api/email"
+      ENABLE_EMAIL_FETCHER="false"
       ENABLE_EMAIL_V3="false"
       # EPC pusher defaults (disabled by default)
       ENABLE_EPC_PUSHER=""
@@ -174,6 +176,7 @@ AREAS_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-areas-service-image:${OPT}
 REPORT_PROCESSOR_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-processor-image:${OPT}"
 EMAIL_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-email-service-image:${OPT}"
 EMAIL_SERVICE_V3_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-email-service-v3-image:${OPT}"
+EMAIL_FETCHER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-email-fetcher-image:${OPT}"
 REPORT_OWNERSHIP_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-ownership-service-image:${OPT}"
 GDPR_PROCESS_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-gdpr-process-service-image:${OPT}"
 REPORTS_PUSHER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-reports-pusher-image:${OPT}"
@@ -223,6 +226,7 @@ docker pull ${VOICE_ASSISTANT_SERVICE_DOCKER_IMAGE}
 docker pull ${REPORT_ANALYSIS_BACKFILL_DOCKER_IMAGE}
 docker pull ${EMAIL_SERVICE_V3_DOCKER_IMAGE}
 docker pull ${EPC_PUSHER_DOCKER_IMAGE}
+docker pull ${EMAIL_FETCHER_DOCKER_IMAGE}
 
 # Secrets
 cat >.env << ENV
@@ -625,6 +629,23 @@ services:
       - DIGITAL_BASE_URL=${DIGITAL_BASE_URL}
       - BCC_EMAIL_ADDRESS=cleanapp@stxn.io
       - ENABLE_EMAIL_V3=${ENABLE_EMAIL_V3}
+    depends_on:
+      - cleanapp_db
+
+  cleanapp_email_fetcher:
+    container_name: cleanapp_email_fetcher
+    image: ${EMAIL_FETCHER_DOCKER_IMAGE}
+    environment:
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+      - DB_PASSWORD=${MYSQL_APP_PASSWORD}
+      - DB_NAME=cleanapp
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=gpt-4o
+      - LOOP_DELAY_MS=10000
+      - BATCH_LIMIT=10
+      - ENABLE_EMAIL_FETCHER=${ENABLE_EMAIL_FETCHER}
     depends_on:
       - cleanapp_db
 
