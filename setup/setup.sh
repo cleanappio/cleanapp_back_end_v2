@@ -230,19 +230,19 @@ docker pull ${EMAIL_FETCHER_DOCKER_IMAGE}
 
 # Secrets
 cat >.env << ENV
-MYSQL_ROOT_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_ROOT_PASSWORD_${SECRET_SUFFIX}")
-MYSQL_APP_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_APP_PASSWORD_${SECRET_SUFFIX}")
-MYSQL_READER_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_READER_PASSWORD_${SECRET_SUFFIX}")
-KITN_PRIVATE_KEY_MAIN=\$(gcloud secrets versions access 1 --secret="KITN_PRIVATE_KEY_${SECRET_SUFFIX}")
-KITN_PRIVATE_KEY_SHADOW=\$(gcloud secrets versions access 1 --secret="KITN_PRIVATE_KEY_${SECRET_SUFFIX}")
-SENDGRID_API_KEY=\$(gcloud secrets versions access 1 --secret="SENDGRID_API_KEY_${SECRET_SUFFIX}")
-CLEANAPP_IO_ENCRYPTION_KEY=\$(gcloud secrets versions access 1 --secret="CLEANAPP_IO_ENCRYPTION_KEY_${SECRET_SUFFIX}")
-CLEANAPP_IO_JWT_SECRET=\$(gcloud secrets versions access 1 --secret="CLEANAPP_IO_JWT_SECRET_${SECRET_SUFFIX}")
-STRIPE_SECRET_KEY=\$(gcloud secrets versions access 1 --secret="STRIPE_SECRET_KEY_${SECRET_SUFFIX}")
-STRIPE_WEBHOOK_SECRET=\$(gcloud secrets versions access 1 --secret="STRIPE_WEBHOOK_SECRET_${SECRET_SUFFIX}")
-OPENAI_API_KEY=\$(gcloud secrets versions access 1 --secret="CLEANAPP_CHATGPT_API_KEY")
-TRASHFORMER_OPENAI_API_KEY=\$(gcloud secrets versions access 1 --secret="CLEANAPP_TRASHFORMER_OPENAI_API_KEY")
-BLOCKSCAN_CHAT_API_KEY=\$(gcloud secrets versions access latest --secret="BLOCKSCAN_CHAT_API_KEY_${SECRET_SUFFIX}" --project cleanup-mysql-v2 | tr -d '\r' | sed -e 's/^"//' -e 's/"$//')
+MYSQL_ROOT_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_ROOT_PASSWORD_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
+MYSQL_APP_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_APP_PASSWORD_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
+MYSQL_READER_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_READER_PASSWORD_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
+KITN_PRIVATE_KEY_MAIN=\$(gcloud secrets versions access 1 --secret="KITN_PRIVATE_KEY_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
+KITN_PRIVATE_KEY_SHADOW=\$(gcloud secrets versions access 1 --secret="KITN_PRIVATE_KEY_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
+SENDGRID_API_KEY=\$(gcloud secrets versions access 1 --secret="SENDGRID_API_KEY_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
+CLEANAPP_IO_ENCRYPTION_KEY=\$(gcloud secrets versions access 1 --secret="CLEANAPP_IO_ENCRYPTION_KEY_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
+CLEANAPP_IO_JWT_SECRET=\$(gcloud secrets versions access 1 --secret="CLEANAPP_IO_JWT_SECRET_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
+STRIPE_SECRET_KEY=\$(gcloud secrets versions access 1 --secret="STRIPE_SECRET_KEY_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
+STRIPE_WEBHOOK_SECRET=\$(gcloud secrets versions access 1 --secret="STRIPE_WEBHOOK_SECRET_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
+OPENAI_API_KEY=\$(gcloud secrets versions access 1 --secret="CLEANAPP_CHATGPT_API_KEY" | tr -d '\r' | sed -e 's/[$]/$$/g')
+TRASHFORMER_OPENAI_API_KEY=\$(gcloud secrets versions access 1 --secret="CLEANAPP_TRASHFORMER_OPENAI_API_KEY" | tr -d '\r' | sed -e 's/[$]/$$/g')
+BLOCKSCAN_CHAT_API_KEY=\$(gcloud secrets versions access latest --secret="BLOCKSCAN_CHAT_API_KEY_${SECRET_SUFFIX}" --project cleanup-mysql-v2 | tr -d '\r' | sed -e 's/^"//' -e 's/"$//' | sed -e 's/[$]/$$/g')
 
 ENV
 
@@ -750,6 +750,10 @@ services:
       - 9092:8080
 
 COMPOSE
+
+# Sanitize docker-compose.yml to avoid YAML parse issues on target
+sed -i 's/\r$//' docker-compose.yml
+sed -i '/^[[:space:]]*[{}][[:space:]]*$/d' docker-compose.yml
 
 FACE_DETECTOR_COUNT=10
 FACE_DETECTOR_FILE="docker-compose.yml"
