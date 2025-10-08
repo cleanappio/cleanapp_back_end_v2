@@ -252,6 +252,13 @@ async fn run_once(pool: &my::Pool, cfg: &Config) -> Result<usize> {
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenvy::dotenv().ok();
+    // Emit early message before logger init so it shows even if we exit immediately
+    let enabled_raw = std::env::var("ENABLE_EMAIL_FETCHER").unwrap_or_else(|_| "".to_string());
+    eprintln!("email-fetcher init | ENABLE_EMAIL_FETCHER='{}'", enabled_raw);
+    let _ = io::stderr().flush();
+    println!("email-fetcher init stdout | ENABLE_EMAIL_FETCHER='{}'", enabled_raw);
+    let _ = io::stdout().flush();
+
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .with_target(false)
@@ -259,16 +266,25 @@ async fn main() -> Result<()> {
         .init();
 
     // Feature toggle: allow deploys to ship disabled and exit gracefully
-    let enabled = std::env::var("ENABLE_EMAIL_FETCHER").unwrap_or_else(|_| "false".to_string());
+    let enabled = if enabled_raw.is_empty() { "false".to_string() } else { enabled_raw };
     if !matches!(enabled.to_lowercase().as_str(), "1" | "true" | "yes" | "on") {
         // Print explicitly to stderr and flush to ensure visibility in fast-exit containers
         eprintln!("WARN: ENABLE_EMAIL_FETCHER is disabled; exiting without starting");
         let _ = io::stderr().flush();
+        println!("WARN: ENABLE_EMAIL_FETCHER is disabled; exiting without starting");
+        let _ = io::stdout().flush();
+        // Give logging collectors a moment to capture lines from a fast-exit container
+        std::thread::sleep(Duration::from_millis(300));
         warn!("ENABLE_EMAIL_FETCHER is disabled; exiting without starting");
         return Ok(());
     }
 
+    println!("email-fetcher: logger initialized and feature enabled");
+    let _ = io::stdout().flush();
+
     let cfg = Config::from_env();
+    println!("email-fetcher: config loaded: db={} openai_model={} delay={}ms limit={}", cfg.mysql_masked_url(), cfg.openai_model, cfg.loop_delay_ms, cfg.batch_limit);
+    let _ = io::stdout().flush();
 
     let masked_url = cfg.mysql_masked_url();
     let openai_key_masked = mask_secret(&cfg.openai_api_key, 4, 4);
@@ -277,6 +293,9 @@ async fn main() -> Result<()> {
 
     let opts = cfg.build_mysql_opts();
     let pool = my::Pool::new(opts);
+
+    println!("email-fetcher: mysql pool created, entering loop with delay={}ms", cfg.loop_delay_ms);
+    let _ = io::stdout().flush();
 
     info!(
         "email-fetcher starting; delay={}ms, limit={}",
@@ -298,6 +317,8 @@ async fn main() -> Result<()> {
         }
     }
 
+    println!("email-fetcher: disconnecting pool");
+    let _ = io::stdout().flush();
     pool.disconnect().await?;
     Ok(())
 }

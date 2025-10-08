@@ -28,17 +28,30 @@ PROJECT_NAME="cleanup-mysql-v2"
 DOCKER_IMAGE="cleanapp-docker-repo/cleanapp-email-fetcher-image"
 DOCKER_TAG="${CLOUD_REGION}-docker.pkg.dev/${PROJECT_NAME}/${DOCKER_IMAGE}"
 
+# Create .version if it doesn't exist and bump in dev to ensure fresh digests
+if [ ! -f .version ]; then
+  echo "BUILD_VERSION=1.0.0" > .version
+fi
+. .version
+if [ "${OPT}" == "dev" ]; then
+  BUILD=$(echo ${BUILD_VERSION} | cut -f 3 -d ".")
+  VER=$(echo ${BUILD_VERSION} | cut -f 1,2 -d ".")
+  BUILD=$((${BUILD} + 1))
+  BUILD_VERSION="${VER}.${BUILD}"
+  echo "BUILD_VERSION=${BUILD_VERSION}" > .version
+fi
+
 CURRENT_PROJECT=$(gcloud config get project)
 if [ "${PROJECT_NAME}" != "${CURRENT_PROJECT}" ]; then
   gcloud auth login
   gcloud config set project ${PROJECT_NAME}
 fi
 
-echo "Submitting Cloud Build..."
-gcloud builds submit --region=${CLOUD_REGION} --tag ${DOCKER_TAG}:${OPT}
+echo "Submitting Cloud Build for ${DOCKER_TAG}:${BUILD_VERSION} ..."
+gcloud builds submit --region=${CLOUD_REGION} --tag ${DOCKER_TAG}:${BUILD_VERSION}
 
-echo "Tagging as latest ${OPT}..."
-gcloud artifacts docker tags add ${DOCKER_TAG}:${OPT} ${DOCKER_TAG}:${OPT}
+echo "Tagging ${DOCKER_TAG}:${BUILD_VERSION} as ${OPT}..."
+gcloud artifacts docker tags add ${DOCKER_TAG}:${BUILD_VERSION} ${DOCKER_TAG}:${OPT}
 
 echo "Done."
 

@@ -141,7 +141,7 @@ case ${OPT} in
       FACE_DETECTOR_DEBUG=false
       REQUEST_REGISTRATOR_URL=https://stxn-cleanapp-prod.stxn.io:443
       DIGITAL_BASE_URL="https://cleanapp.io/api/email"
-      ENABLE_EMAIL_FETCHER="false"
+      ENABLE_EMAIL_FETCHER="true"
       ENABLE_EMAIL_V3="false"
       # EPC pusher defaults (disabled by default)
       ENABLE_EPC_PUSHER=""
@@ -639,12 +639,13 @@ services:
       - DB_HOST=cleanapp_db
       - DB_PORT=3306
       - DB_USER=server
-      - DB_PASSWORD=${MYSQL_APP_PASSWORD}
+      - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
       - DB_NAME=cleanapp
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_API_KEY=\${OPENAI_API_KEY}
       - OPENAI_MODEL=gpt-4o
       - LOOP_DELAY_MS=10000
-      - BATCH_LIMIT=10
+      - SEQ_RANGE=85474-283747
+      - BATCH_LIMIT=100
       - ENABLE_EMAIL_FETCHER=${ENABLE_EMAIL_FETCHER}
     depends_on:
       - cleanapp_db
