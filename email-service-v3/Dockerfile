@@ -21,6 +21,7 @@ COPY --from=builder /app/target/release/email-service-v3 /usr/local/bin/email-se
 COPY --from=builder /app/target/release/email-service-v3-backfill /usr/local/bin/email-service-v3-backfill
 
 ENV RUST_LOG=info
+ENV ENABLE_EMAIL_V3=false
 
 # Default command runs the service; backfill can be invoked by overriding CMD
 CMD ["/usr/local/bin/email-service-v3"]

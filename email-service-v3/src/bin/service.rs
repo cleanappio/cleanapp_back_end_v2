@@ -13,6 +13,10 @@ async fn main() -> Result<()> {
         .init();
 
     let cfg = Config::from_env()?;
+    if !cfg.enable_email_v3 {
+        tracing::warn!("ENABLE_EMAIL_V3 is disabled; service will exit without starting");
+        return Ok(());
+    }
     tracing::info!("email-service-v3 starting; DB={}, poll={:?}, test_brands={:?}", cfg.mysql_masked_url(), cfg.poll_interval, cfg.test_brands);
 
     let pool = db::connect_pool(&cfg)?;

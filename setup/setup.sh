@@ -95,6 +95,7 @@ case ${OPT} in
       FACE_DETECTOR_DEBUG=true
       REQUEST_REGISTRATOR_URL=https://stxn-cleanapp-dev.stxn.io:443
       DIGITAL_BASE_URL="https://dev.cleanapp.io/api/email"
+      ENABLE_EMAIL_V3="false"
       # EPC pusher defaults (disabled by default)
       ENABLE_EPC_PUSHER="true"
       EPC_DISPATCH="true"
@@ -139,6 +140,7 @@ case ${OPT} in
       FACE_DETECTOR_DEBUG=false
       REQUEST_REGISTRATOR_URL=https://stxn-cleanapp-prod.stxn.io:443
       DIGITAL_BASE_URL="https://cleanapp.io/api/email"
+      ENABLE_EMAIL_V3="false"
       # EPC pusher defaults (disabled by default)
       ENABLE_EPC_PUSHER=""
       EPC_DISPATCH="false"
@@ -624,6 +626,7 @@ services:
       - NOTIFICATION_PERIOD=90d
       - DIGITAL_BASE_URL=${DIGITAL_BASE_URL}
       - BCC_EMAIL_ADDRESS=cleanapp@stxn.io
+      - ENABLE_EMAIL_V3=${ENABLE_EMAIL_V3}
     depends_on:
       - cleanapp_db
 

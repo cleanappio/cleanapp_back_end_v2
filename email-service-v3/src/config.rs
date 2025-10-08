@@ -26,6 +26,7 @@ pub struct Config {
     pub env: String,
     pub test_brands: Option<Vec<String>>,
     pub bcc_email_address: String,
+    pub enable_email_v3: bool,
 }
 
 impl Config {
@@ -58,6 +59,7 @@ impl Config {
             if v.is_empty() { None } else { Some(v) }
         };
         let bcc_email_address = env("BCC_EMAIL_ADDRESS", "cleanapp@stxn.io");
+        let enable_email_v3 = matches!(env("ENABLE_EMAIL_V3", "true").to_lowercase().as_str(), "1" | "true" | "yes" | "on");
 
         Ok(Self {
             db_host,
@@ -76,6 +78,7 @@ impl Config {
             env: env_name,
             test_brands,
             bcc_email_address,
+            enable_email_v3,
         })
     }
 

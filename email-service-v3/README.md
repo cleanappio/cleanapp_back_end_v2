@@ -21,6 +21,7 @@ Environment (reused where possible):
 - NOTIFICATION_PERIOD (default: 90d)
 - DIGITAL_BASE_URL (default: https://www.cleanapp.io/digital)
 - ENV (default: prod)
+- ENABLE_EMAIL_V3 (default: true) — when false/0/off, service exits immediately
 
 Backfill:
 
@@ -32,6 +33,12 @@ Service:
 
 ```
 RUST_LOG=info cargo run -p email-service-v3 --bin email-service-v3
+```
+
+To disable the service without changing the binary:
+
+```
+ENABLE_EMAIL_V3=false RUST_LOG=info cargo run -p email-service-v3 --bin email-service-v3
 ```
 
 
