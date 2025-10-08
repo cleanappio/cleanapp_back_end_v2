@@ -3,7 +3,8 @@
 Rust reimplementation of email service with brand-aggregated notifications.
 
 Binaries:
-- email-service-v3-backfill: populate brands and brand_emails from report_analysis.
+- email-service-v3-backfill: populate brands and brand_emails from existing report_analysis.inferred_contact_emails (mostly for one time use to initially 
+  grab emails from dig reports from non-bot origin).
 - email-service-v3: polling service that sends summary emails per brand using SendGrid.
 
 Environment (reused where possible):
