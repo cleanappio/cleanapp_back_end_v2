@@ -49,6 +49,11 @@ func (d *Database) Close() error {
 	return d.db.Close()
 }
 
+// GetDB returns the underlying database connection
+func (d *Database) GetDB() *sql.DB {
+	return d.db
+}
+
 // EnsureReportStatusTable creates the report_status table if it doesn't exist
 func (d *Database) EnsureReportStatusTable(ctx context.Context) error {
 	query := `

@@ -13,6 +13,7 @@ import (
 	"report_processor/database"
 	"report_processor/handlers"
 	"report_processor/middleware"
+	"report_processor/services"
 
 	"github.com/gin-gonic/gin"
 )
@@ -44,6 +45,12 @@ func main() {
 	// Ensure report_clusters table exists
 	if err := db.EnsureReportClustersTable(context.Background()); err != nil {
 		log.Fatal("Failed to ensure report_clusters table:", err)
+	}
+
+	// Ensure tag tables exist
+	tagService := services.NewTagService(db.GetDB())
+	if err := tagService.EnsureTagTables(context.Background()); err != nil {
+		log.Fatal("Failed to ensure tag tables:", err)
 	}
 
 	// Create handlers
@@ -121,6 +128,10 @@ func setupRouter(cfg *config.Config, h *handlers.Handlers, authClient *database.
 
 			// Get responses by status endpoint
 			api.GET("/responses/by_status", h.GetResponsesByStatus)
+
+			// Tag endpoints
+			api.POST("/reports/tags", h.AddTagsToReport)
+			api.GET("/reports/tags", h.GetTagsForReport)
 		}
 	}
 

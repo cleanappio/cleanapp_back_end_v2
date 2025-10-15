@@ -34,14 +34,15 @@ type HealthResponse struct {
 
 // MatchReportRequest represents the request to match a report
 type MatchReportRequest struct {
-	Version    string  `json:"version" binding:"required"`
-	ID         string  `json:"id" binding:"required"`
-	Latitude   float64 `json:"latitude" binding:"required"`
-	Longitude  float64 `json:"longitude" binding:"required"`
-	X          float64 `json:"x" binding:"required"`
-	Y          float64 `json:"y" binding:"required"`
-	Image      []byte  `json:"image" binding:"required"`
-	Annotation string  `json:"annotation"`
+	Version    string   `json:"version" binding:"required"`
+	ID         string   `json:"id" binding:"required"`
+	Latitude   float64  `json:"latitude" binding:"required"`
+	Longitude  float64  `json:"longitude" binding:"required"`
+	X          float64  `json:"x" binding:"required"`
+	Y          float64  `json:"y" binding:"required"`
+	Image      []byte   `json:"image" binding:"required"`
+	Annotation string   `json:"annotation"`
+	Tags       []string `json:"tags,omitempty"`
 }
 
 // Report represents a report from the database
@@ -85,4 +86,18 @@ type Response struct {
 	ActionID  *string `json:"action_id" db:"action_id"`
 	Status    string  `json:"status" db:"status"`
 	ReportSeq int     `json:"report_seq" db:"report_seq"`
+}
+
+// AddTagsRequest represents the request to add tags to a report
+type AddTagsRequest struct {
+	ReportSeq int      `json:"report_seq" binding:"required"`
+	Tags      []string `json:"tags" binding:"required"`
+}
+
+// AddTagsResponse represents the response for adding tags
+type AddTagsResponse struct {
+	Success   bool     `json:"success"`
+	Message   string   `json:"message"`
+	ReportSeq int      `json:"report_seq"`
+	TagsAdded []string `json:"tags_added"`
 }

@@ -15,6 +15,7 @@ import (
 	"report_processor/database"
 	"report_processor/models"
 	"report_processor/openai"
+	"report_processor/services"
 
 	"github.com/gin-gonic/gin"
 )
@@ -24,6 +25,7 @@ type Handlers struct {
 	db           *database.Database
 	config       *config.Config
 	openaiClient *openai.Client
+	tagService   *services.TagService
 }
 
 // NewHandlers creates a new handlers instance
@@ -33,10 +35,13 @@ func NewHandlers(db *database.Database, cfg *config.Config) *Handlers {
 		openaiClient = openai.NewClient(cfg.OpenAIAPIKey, cfg.OpenAIModel)
 	}
 
+	tagService := services.NewTagService(db.GetDB())
+
 	return &Handlers{
 		db:           db,
 		config:       cfg,
 		openaiClient: openaiClient,
+		tagService:   tagService,
 	}
 }
 
@@ -409,6 +414,18 @@ func (h *Handlers) submitReport(ctx context.Context, req models.MatchReportReque
 	}
 
 	log.Printf("Successfully submitted report %s to %s with seq %d", req.ID, url, response.Seq)
+	
+	// Process tags if provided
+	if len(req.Tags) > 0 {
+		addedTags, err := h.tagService.AddTagsToReport(ctx, response.Seq, req.Tags)
+		if err != nil {
+			log.Printf("Failed to add tags to report %d: %v", response.Seq, err)
+			// Don't fail the whole operation for tag processing
+		} else {
+			log.Printf("Successfully added %d tags to report %d: %v", len(addedTags), response.Seq, addedTags)
+		}
+	}
+	
 	return response.Seq, nil
 }
 
@@ -492,5 +509,95 @@ func (h *Handlers) GetResponsesByStatus(c *gin.Context) {
 		"success": true,
 		"data":    responses,
 		"count":   len(responses),
+	})
+}
+
+// AddTagsToReport adds tags to an existing report
+func (h *Handlers) AddTagsToReport(c *gin.Context) {
+	var req models.AddTagsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Printf("Invalid request body: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "Invalid request body",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// Validate report_seq is positive
+	if req.ReportSeq <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "Report sequence must be a positive integer",
+		})
+		return
+	}
+
+	// Validate tags are provided
+	if len(req.Tags) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "At least one tag must be provided",
+		})
+		return
+	}
+
+	// Add tags to the report
+	addedTags, err := h.tagService.AddTagsToReport(context.Background(), req.ReportSeq, req.Tags)
+	if err != nil {
+		log.Printf("Failed to add tags to report %d: %v", req.ReportSeq, err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "Failed to add tags to report",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	response := models.AddTagsResponse{
+		Success:   true,
+		Message:   fmt.Sprintf("Successfully added %d tags to report %d", len(addedTags), req.ReportSeq),
+		ReportSeq: req.ReportSeq,
+		TagsAdded: addedTags,
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// GetTagsForReport gets all tags for a specific report
+func (h *Handlers) GetTagsForReport(c *gin.Context) {
+	seqStr := c.Query("seq")
+	if seqStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "Report sequence is required",
+		})
+		return
+	}
+
+	seq, err := strconv.Atoi(seqStr)
+	if err != nil || seq <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "Invalid report sequence",
+		})
+		return
+	}
+
+	tags, err := h.tagService.GetTagsForReport(context.Background(), seq)
+	if err != nil {
+		log.Printf("Failed to get tags for report %d: %v", seq, err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "Failed to get tags for report",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    tags,
 	})
 }
