@@ -50,6 +50,7 @@ func main() {
 	testDatabaseUpdate()
 
 	// Start the polling loop
+	// TODO: Replace with RabbitMQ event subscription
 	for {
 		if err := processBatch(gdprService, gdprProcessor, cfg); err != nil {
 			log.Printf("Error processing batch: %v", err)

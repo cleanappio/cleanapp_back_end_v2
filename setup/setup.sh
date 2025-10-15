@@ -182,7 +182,6 @@ GDPR_PROCESS_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-gdpr-process-servic
 REPORTS_PUSHER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-reports-pusher-image:${OPT}"
 FACE_DETECTOR_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-face-detector-image:${OPT}"
 VOICE_ASSISTANT_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-voice-assistant-service-image:${OPT}"
-REPORT_ANALYSIS_BACKFILL_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-analysis-backfill-image:${OPT}"
 EPC_PUSHER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-epc-pusher-image:${OPT}"
 
 OPENAI_ASSISTANT_ID="asst_kBtuzDRWNorZgw9o2OJTGOn0"
@@ -223,7 +222,6 @@ docker pull ${REPORT_OWNERSHIP_SERVICE_DOCKER_IMAGE}
 docker pull ${GDPR_PROCESS_SERVICE_DOCKER_IMAGE}
 docker pull ${REPORTS_PUSHER_DOCKER_IMAGE}
 docker pull ${VOICE_ASSISTANT_SERVICE_DOCKER_IMAGE}
-docker pull ${REPORT_ANALYSIS_BACKFILL_DOCKER_IMAGE}
 docker pull ${EMAIL_SERVICE_V3_DOCKER_IMAGE}
 docker pull ${EPC_PUSHER_DOCKER_IMAGE}
 docker pull ${EMAIL_FETCHER_DOCKER_IMAGE}
@@ -697,20 +695,6 @@ services:
       - 9091:8080
     depends_on:
       - cleanapp_db
-  
-  cleanapp_report_analysis_backfill:
-    container_name: cleanapp_report_analysis_backfill
-    image: ${REPORT_ANALYSIS_BACKFILL_DOCKER_IMAGE}
-    environment:
-      - DB_HOST=cleanapp_db
-      - DB_PORT=3306
-      - DB_USER=server
-      - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
-      - DB_NAME=cleanapp
-      - REPORT_ANALYSIS_URL=http://cleanapp_report_analyze_pipeline:8080
-      - POLL_INTERVAL=1m
-      - BATCH_SIZE=30
-      - SEQ_END_TO=30000
 
   # Optional EPC pusher
   ${ENABLE_EPC_PUSHER:+cleanapp_epc_pusher:}
