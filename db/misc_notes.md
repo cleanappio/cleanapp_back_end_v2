@@ -100,7 +100,39 @@ volumes:
       device: '/srv/db-data'  # <<<--- host path
 ``` 
 
+## Replication notes
 
+### To give access to xtrabackup initial snapshot over ssh:
+```
+# From the host with gcloud secrets update permission:
+$ ./setup/xtrabackup_gen_key_and_secret.sh -e dev
+$ ./setup/xtrabackup_gen_key_and_secret.sh -e prod
+# With the pubkey from the outputs on the replication target host:
+deployer@cleanapp-prod2:~/.ssh$ mcedit /home/deployer/.ssh/authorized_keys
+# Add the following lines:
+from="10.128.0.9",command="docker run -i --rm --network host --mount source=eko_mysql_replica_dev,target=/var/lib/mysql -u 0:0 percona/percona-xtrabackup:8.0 sh -lc 'mkdir -p /var/lib/mysql/seed && cd /var/lib/mysql/seed && xbstream -x'",no-pty,no-agent-forwarding,no-port-forwarding,no-X11-forwarding ssh-ed25519 <DEV_PUBKEY> xtrabackup-dev
+from="10.128.0.6",command="docker run -i --rm --network host --mount source=eko_mysql_replica_prod,target=/var/lib/mysql -u 0:0 percona/percona-xtrabackup:8.0 sh -lc 'mkdir -p /var/lib/mysql/seed && cd /var/lib/mysql/seed && xbstream -x'",no-pty,no-agent-forwarding,no-port-forwarding,no-X11-forwarding ssh-ed25519 <PROD_PUBKEY> xtrabackup-prod
+```
+### Replication flow (prod->prod2 in this example).
+1. Wipe destination:
+```
+bash -lc "ssh -o StrictHostKeyChecking=no deployer@35.238.248.151 'docker stop cleanapp_db || true; docker rm -f cleanapp_db || true; docker volume rm -f eko_mysql_replica_prod || true; docker volume create eko_mysql_replica_prod >/dev/null && echo volume_ready'"
+```
+2. Snapshot streaming:
+```
+bash -lc "bash /home/renard/src/github/stxn/cleanapp_back_end_v2/setup/setup-replica.sh -s prod --mode xtrabackup > /home/renard/src/github/stxn/.cursor/.agent-tools/xtrabackup-seed-prod-$(date +%Y%m%d-%H%M%S).log 2>&1 & disown; echo started_clean"
+```
+3. Check replication:
+```
+deployer@cleanapp-prod2:~$ docker exec -i cleanapp_db mysql -uroot -p"$MYSQL_ROOT_PASSWORD_PROD" -e "SHOW REPLICA STATUS\\G" | egrep 'Last_IO_Errno|Last_IO_Error|Source_Host|Running:|Seconds_Behind'
+                  Source_Host: 10.128.0.6
+           Replica_IO_Running: Yes
+          Replica_SQL_Running: Yes
+        Seconds_Behind_Source: 0
+                Last_IO_Errno: 0
+                Last_IO_Error: 
+      Last_IO_Error_Timestamp: 
+```
 
 ## Notable links
 
