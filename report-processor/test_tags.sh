@@ -1,21 +1,31 @@
 #!/bin/bash
 
-# Test script for tag functionality in report-processor
-# Make sure the service is running on localhost:8080
+# Test script for optimized tag functionality
+# Make sure both services are running:
+# - report-processor on localhost:8080
+# - report-tags on localhost:8083
 
-BASE_URL="http://localhost:8080"
+REPORT_PROCESSOR_URL="http://localhost:8080"
+TAG_SERVICE_URL="http://localhost:8083"
 
-echo "Testing Report Processor Tag Functionality"
-echo "=========================================="
-
-# Health check
-echo "1. Health Check"
-curl -s "$BASE_URL/health" | jq .
+echo "Testing Optimized Tag Architecture"
+echo "=================================="
+echo "Report Processor: $REPORT_PROCESSOR_URL"
+echo "Tag Service: $TAG_SERVICE_URL"
 echo ""
 
-# Submit a report with tags
-echo "2. Submit report with tags"
-curl -s -X POST "$BASE_URL/api/v3/match_report" \
+# Health checks
+echo "1. Health Checks"
+echo "Report Processor:"
+curl -s "$REPORT_PROCESSOR_URL/health" | jq .
+echo ""
+echo "Tag Service:"
+curl -s "$TAG_SERVICE_URL/health" | jq .
+echo ""
+
+# Submit a report with tags (calls tag service internally)
+echo "2. Submit report with tags (via report-processor)"
+curl -s -X POST "$REPORT_PROCESSOR_URL/api/v3/match_report" \
   -H "Content-Type: application/json" \
   -d '{
     "version": "2.0",
@@ -30,19 +40,33 @@ curl -s -X POST "$BASE_URL/api/v3/match_report" \
   }' | jq .
 echo ""
 
-# Add tags to an existing report (assuming report_seq 1 exists)
-echo "3. Add tags to existing report"
-curl -s -X POST "$BASE_URL/api/v3/reports/tags" \
+# Test tag service directly
+echo "3. Add tags to existing report (via tag service)"
+curl -s -X POST "$TAG_SERVICE_URL/api/v3/reports/1/tags" \
   -H "Content-Type: application/json" \
   -d '{
-    "report_seq": 1,
     "tags": ["Ocean", "Pollution", "Environmental"]
   }' | jq .
 echo ""
 
 # Get tags for a report
-echo "4. Get tags for report"
-curl -s "$BASE_URL/api/v3/reports/tags?seq=1" | jq .
+echo "4. Get tags for report (via tag service)"
+curl -s "$TAG_SERVICE_URL/api/v3/reports/1/tags" | jq .
 echo ""
 
-echo "Tag functionality tests completed!"
+# Test tag suggestions
+echo "5. Get tag suggestions"
+curl -s "$TAG_SERVICE_URL/api/v3/tags/suggest?q=beac&limit=5" | jq .
+echo ""
+
+# Test trending tags
+echo "6. Get trending tags"
+curl -s "$TAG_SERVICE_URL/api/v3/tags/trending?limit=5" | jq .
+echo ""
+
+echo "Optimized tag architecture tests completed!"
+echo ""
+echo "Architecture Summary:"
+echo "- report-processor: Handles report submission and calls tag service for tags"
+echo "- report-tags: Full-featured tag microservice with all advanced features"
+echo "- No duplicate functionality between services"

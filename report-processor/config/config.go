@@ -31,6 +31,9 @@ type Config struct {
 	// Reports submission configuration
 	ReportsSubmissionURL string
 
+	// Tag service configuration
+	TagServiceURL string
+
 	// Logging
 	LogLevel string
 }
@@ -60,6 +63,9 @@ func Load() *Config {
 
 		// Reports submission defaults
 		ReportsSubmissionURL: getEnv("REPORTS_SUBMISSION_URL", ""),
+
+		// Tag service defaults
+		TagServiceURL: getEnv("TAG_SERVICE_URL", "http://localhost:8083"),
 
 		// Logging defaults
 		LogLevel: getEnv("LOG_LEVEL", "info"),

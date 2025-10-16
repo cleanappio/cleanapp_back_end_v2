@@ -88,16 +88,3 @@ type Response struct {
 	ReportSeq int     `json:"report_seq" db:"report_seq"`
 }
 
-// AddTagsRequest represents the request to add tags to a report
-type AddTagsRequest struct {
-	ReportSeq int      `json:"report_seq" binding:"required"`
-	Tags      []string `json:"tags" binding:"required"`
-}
-
-// AddTagsResponse represents the response for adding tags
-type AddTagsResponse struct {
-	Success   bool     `json:"success"`
-	Message   string   `json:"message"`
-	ReportSeq int      `json:"report_seq"`
-	TagsAdded []string `json:"tags_added"`
-}
