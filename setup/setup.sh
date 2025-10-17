@@ -700,20 +700,6 @@ services:
       - 9091:8080
     depends_on:
       - cleanapp_db
-  
-  cleanapp_report_analysis_backfill:
-    container_name: cleanapp_report_analysis_backfill
-    image: ${REPORT_ANALYSIS_BACKFILL_DOCKER_IMAGE}
-    environment:
-      - DB_HOST=cleanapp_db
-      - DB_PORT=3306
-      - DB_USER=server
-      - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
-      - DB_NAME=cleanapp
-      - REPORT_ANALYSIS_URL=http://cleanapp_report_analyze_pipeline:8080
-      - POLL_INTERVAL=1m
-      - BATCH_SIZE=30
-      - SEQ_END_TO=30000
 
   # Optional EPC pusher
   ${ENABLE_EPC_PUSHER:+cleanapp_epc_pusher:}

@@ -60,59 +60,70 @@ Run the build & deploy script.
 
 1.  Enable OS login on VMs
 
-1.  Configure the deployer user
-    1.  Login to the VM as yourself, either via Cloud SSH or using its external IP address with your key.
-        ```
-        ssh -i .ssh/<you>-cleanapp-io <you>_cleanapp_io@<VM IP address>
-        ```
+   1.  Configure the deployer user
+       1.  Login to the VM as yourself, either via Cloud SSH or using its external IP address with your key.
+           ```
+           ssh -i .ssh/<you>-cleanapp-io <you>_cleanapp_io@<VM IP address>
+           ```
 
-    1.  Create the deployer user.
-        ```
-        sudo adduser deployer
-        ```
-        The command `adduser` will ask for creating a password. You can create any of them, it won't be used.
+       1.  Create the deployer user.
+           ```
+           groupadd deployer -g 1003
+           useradd deployer -u 1003 -g 1003 -m -s /bin/bash
+           ```
+           No need for the password as we will use SSH keys for login.
 
-    1.  Configure passwordless sudo for deployer.
-        *   Run the `sudo visudo`
-        *   Add the following line after the `%sudo   ALL=(ALL:ALL) ALL`
-            ```
-            deployer ALL=(ALL) NOPASSWD:ALL
-            ```
-        *   Save changes
+       1.  Configure passwordless sudo for deployer.
+           *   Run the `sudo visudo`
+           *   Add the following line after the `%sudo   ALL=(ALL:ALL) ALL`
+               ```
+               deployer ALL=(ALL) NOPASSWD:ALL
+               ```
+           *   Save changes
 
-    1.  Enable users for logging in as deployer.
-        *   Add public SSH keys of all users you want to grant permission to into the file `/home/deployer/.ssh/authorized_keys`
-        *   Set proper permissions
-            ```
-            sudo chown -R deployer:deployer /home/deployer/.ssh
-            sudo chmod 700 /home/deployer/.ssh
-            sudo chmod 600 /home/deployer/.ssh/authorized_keys
-            ```
+       1.  Enable users for logging in as deployer.
+           *   Add public SSH keys of all users you want to grant permission to into the file `/home/deployer/.ssh/authorized_keys`
+               ```
+               sudo mkdir /home/deployer/.ssh
+               sudo touch /home/deployer/.ssh/authorized_keys
+               sudo mcedit /home/deployer/.ssh/authorized_keys
+               ``` 
+           *   Set proper permissions
+               ```
+               sudo chown -R deployer:deployer /home/deployer/.ssh
+               sudo chmod 700 /home/deployer/.ssh
+               sudo chmod 600 /home/deployer/.ssh/authorized_keys
+               ```
 
-    1.  Login to the VM as deployer
-        ```
-        ssh -i .ssh/<you>-stxn-cloud deployer@<VM IP address>
-        ```
+       1.  Login to the VM as deployer
+           ```
+           ssh -i .ssh/<you>-stxn-cloud deployer@<VM IP address>
+           ```
 
-    1.  Configure the deployer for docker communications
-        ```
-        gcloud auth configure-docker us-central1-docker.pkg.dev
-        ``` 
-        That will create a configuration file .docker/config.json.
+       1.  Configure the deployer for docker communications
+           ```
+           gcloud auth configure-docker us-central1-docker.pkg.dev
+           ``` 
+           That will create a configuration file .docker/config.json.
 
-    1.  Configure the service account
-        ```
-        gcloud config set account cleanapp@cleanup-mysql-v2.iam.gserviceaccount.com
-        ```
+       1.  Configure the service account
+           ```
+           gcloud config set account cleanapp@cleanup-mysql-v2.iam.gserviceaccount.com
+           ```
 
-    1. Activate the service account
-        *   Generate a new keypair for the account
-        *   Copy the keypair file to the VM
-        *   Activate the account
-            ```
-            gcloud auth activate-service-account cleanapp@cleanup-mysql-v2.iam.gserviceaccount.com --key-file=<keypair file>
-            ```
-        *   Delete the keypair file after activation
+       1. Activate the service account
+           *   Generate a new keypair for the account (from your personal authenticated account with iam permissions)
+               ```
+               $ gcloud iam service-accounts keys create ~/cleanapp-mysql-v2-key.json \
+               --iam-account=cleanapp@cleanup-mysql-v2.iam.gserviceaccount.com
+               $ scp ./cleanapp-mysql-v2-key.json deployer@<host>:/home/deployer/cleanapp-mysql-v2-key.json
+               ```
+           *   Copy the keypair file to the VM
+           *   Activate the account
+               ```
+               gcloud auth activate-service-account cleanapp@cleanup-mysql-v2.iam.gserviceaccount.com --key-file=cleanapp-mysql-v2-key.json
+               ```
+           *   Delete the keypair file after activation
 
 ## Installing Docker
 
