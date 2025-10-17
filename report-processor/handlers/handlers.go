@@ -15,6 +15,7 @@ import (
 	"report_processor/database"
 	"report_processor/models"
 	"report_processor/openai"
+	"report_processor/services"
 
 	"github.com/gin-gonic/gin"
 )
@@ -24,6 +25,7 @@ type Handlers struct {
 	db           *database.Database
 	config       *config.Config
 	openaiClient *openai.Client
+	tagClient    *services.TagClient
 }
 
 // NewHandlers creates a new handlers instance
@@ -33,10 +35,13 @@ func NewHandlers(db *database.Database, cfg *config.Config) *Handlers {
 		openaiClient = openai.NewClient(cfg.OpenAIAPIKey, cfg.OpenAIModel)
 	}
 
+	tagClient := services.NewTagClient(cfg.TagServiceURL)
+
 	return &Handlers{
 		db:           db,
 		config:       cfg,
 		openaiClient: openaiClient,
+		tagClient:    tagClient,
 	}
 }
 
@@ -409,6 +414,18 @@ func (h *Handlers) submitReport(ctx context.Context, req models.MatchReportReque
 	}
 
 	log.Printf("Successfully submitted report %s to %s with seq %d", req.ID, url, response.Seq)
+	
+	// Process tags if provided
+	if len(req.Tags) > 0 {
+		addedTags, err := h.tagClient.AddTagsToReport(ctx, response.Seq, req.Tags)
+		if err != nil {
+			log.Printf("Failed to add tags to report %d: %v", response.Seq, err)
+			// Don't fail the whole operation for tag processing
+		} else {
+			log.Printf("Successfully added %d tags to report %d: %v", len(addedTags), response.Seq, addedTags)
+		}
+	}
+	
 	return response.Seq, nil
 }
 
@@ -494,3 +511,4 @@ func (h *Handlers) GetResponsesByStatus(c *gin.Context) {
 		"count":   len(responses),
 	})
 }
+
