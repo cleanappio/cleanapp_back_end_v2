@@ -1,11 +1,14 @@
 # Multi-stage build for Rust report-tags service
 
-FROM rust:1.82-bullseye AS builder
+FROM rust:1.85-alpine AS builder
+
+# Install build dependencies
+RUN apk add --no-cache musl-dev pkgconfig openssl-dev
 
 WORKDIR /app
 
 # Cache deps
-COPY Cargo.toml Cargo.lock ./
+COPY Cargo.toml ./
 RUN mkdir -p src && echo "fn main(){}" > src/main.rs && cargo build --release || true
 
 # Build actual sources

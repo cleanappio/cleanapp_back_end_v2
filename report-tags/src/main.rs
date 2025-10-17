@@ -48,11 +48,11 @@ async fn main() -> anyhow::Result<()> {
     
     // Create server
     let addr = SocketAddr::from(([0, 0, 0, 0], config.port));
-    let listener = tokio::net::TcpListener::bind(addr).await?;
     
     tracing::info!("Server listening on {}", addr);
     
     // Start server with graceful shutdown
+    let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await?;
