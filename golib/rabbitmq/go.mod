@@ -1,4 +1,4 @@
-module cleanapp/golib/rabbitmq
+module github.com/cleanappio/cleanapp_back_end_v2/cleanapp/golib/rabbitmq
 
 go 1.21
 

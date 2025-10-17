@@ -5,7 +5,7 @@ import (
 	"log"
 	"time"
 
-	"cleanapp/golib/rabbitmq"
+	"github.com/cleanappio/cleanapp_back_end_v2/cleanapp/golib/rabbitmq"
 )
 
 // Example message structure (same as publisher example)
