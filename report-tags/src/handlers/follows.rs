@@ -7,6 +7,7 @@ use sqlx::MySqlPool;
 use crate::models::{FollowTagRequest, FollowTagResponse, UnfollowTagResponse, GetFollowsResponse};
 use crate::services::tag_service;
 use crate::utils::normalization::normalize_tag;
+use log;
 
 pub async fn follow_tag(
     State(pool): State<MySqlPool>,
@@ -29,7 +30,7 @@ pub async fn follow_tag(
             if e.to_string().contains("Follow limit exceeded") {
                 Err((StatusCode::TOO_MANY_REQUESTS, e.to_string()))
             } else {
-                tracing::error!("Failed to follow tag '{}' for user '{}': {}", request.tag, user_id, e);
+                log::error!("Failed to follow tag '{}' for user '{}': {}", request.tag, user_id, e);
                 Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
             }
         }
@@ -46,7 +47,7 @@ pub async fn unfollow_tag(
             Ok(Json(response))
         }
         Err(e) => {
-            tracing::error!("Failed to unfollow tag {} for user '{}': {}", tag_id, user_id, e);
+            log::error!("Failed to unfollow tag {} for user '{}': {}", tag_id, user_id, e);
             Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
         }
     }
@@ -62,7 +63,7 @@ pub async fn get_user_follows(
             Ok(Json(response))
         }
         Err(e) => {
-            tracing::error!("Failed to get follows for user '{}': {}", user_id, e);
+            log::error!("Failed to get follows for user '{}': {}", user_id, e);
             Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
         }
     }

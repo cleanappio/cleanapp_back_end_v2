@@ -6,6 +6,7 @@ use axum::{
 use sqlx::MySqlPool;
 use crate::models::{AddTagsRequest, AddTagsResponse, GetTagsResponse};
 use crate::services::tag_service;
+use log;
 
 pub async fn add_tags_to_report(
     State(pool): State<MySqlPool>,
@@ -21,7 +22,7 @@ pub async fn add_tags_to_report(
             Ok(Json(response))
         }
         Err(e) => {
-            tracing::error!("Failed to add tags to report {}: {}", report_seq, e);
+            log::error!("Failed to add tags to report {}: {}", report_seq, e);
             Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
         }
     }
@@ -37,7 +38,7 @@ pub async fn get_report_tags(
             Ok(Json(response))
         }
         Err(e) => {
-            tracing::error!("Failed to get tags for report {}: {}", report_seq, e);
+            log::error!("Failed to get tags for report {}: {}", report_seq, e);
             Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
         }
     }

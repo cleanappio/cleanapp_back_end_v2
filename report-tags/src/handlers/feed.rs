@@ -7,6 +7,7 @@ use sqlx::MySqlPool;
 use serde::Deserialize;
 use crate::models::FeedResponse;
 use crate::services::feed_service;
+use log;
 
 #[derive(Debug, Deserialize)]
 pub struct FeedQuery {
@@ -30,7 +31,7 @@ pub async fn get_location_feed(
     let total = match feed_service::get_feed_count(&pool, params.lat, params.lon, radius, &params.user_id).await {
         Ok(count) => count,
         Err(e) => {
-            tracing::error!("Failed to get feed count: {}", e);
+            log::error!("Failed to get feed count: {}", e);
             return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()));
         }
     };
@@ -47,7 +48,7 @@ pub async fn get_location_feed(
     ).await {
         Ok(reports) => reports,
         Err(e) => {
-            tracing::error!("Failed to get location feed: {}", e);
+            log::error!("Failed to get location feed: {}", e);
             return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()));
         }
     };

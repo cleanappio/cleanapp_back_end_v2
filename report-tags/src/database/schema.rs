@@ -1,11 +1,12 @@
 use sqlx::{MySql, Pool};
 use anyhow::Result;
-use tracing::info;
+use log;
 
 pub async fn initialize_schema(pool: &Pool<MySql>) -> Result<()> {
-    info!("Initializing database schema...");
+    log::info!("Initializing database schema...");
 
     // Create tags table
+    log::info!("Creating tags table...");
     sqlx::query(
         r#"
         CREATE TABLE IF NOT EXISTS tags (
@@ -23,8 +24,10 @@ pub async fn initialize_schema(pool: &Pool<MySql>) -> Result<()> {
     )
     .execute(pool)
     .await?;
+    log::info!("Tags table created successfully");
 
     // Create report_tags table
+    log::info!("Creating report_tags table...");
     sqlx::query(
         r#"
         CREATE TABLE IF NOT EXISTS report_tags (
@@ -40,8 +43,10 @@ pub async fn initialize_schema(pool: &Pool<MySql>) -> Result<()> {
     )
     .execute(pool)
     .await?;
+    log::info!("Report_tags table created successfully");
 
     // Create user_tag_follows table
+    log::info!("Creating user_tag_follows table...");
     sqlx::query(
         r#"
         CREATE TABLE IF NOT EXISTS user_tag_follows (
@@ -57,7 +62,8 @@ pub async fn initialize_schema(pool: &Pool<MySql>) -> Result<()> {
     )
     .execute(pool)
     .await?;
+    log::info!("User_tag_follows table created successfully");
 
-    info!("Database schema initialized successfully");
+    log::info!("Database schema initialized successfully");
     Ok(())
 }

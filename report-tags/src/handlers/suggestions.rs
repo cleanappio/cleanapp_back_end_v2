@@ -7,6 +7,7 @@ use sqlx::MySqlPool;
 use serde::Deserialize;
 use crate::models::SuggestionsResponse;
 use crate::services::tag_service;
+use log;
 
 #[derive(Debug, Deserialize)]
 pub struct SuggestionQuery {
@@ -26,7 +27,7 @@ pub async fn get_tag_suggestions(
             Ok(Json(response))
         }
         Err(e) => {
-            tracing::error!("Failed to get tag suggestions for query '{}': {}", params.q, e);
+            log::error!("Failed to get tag suggestions for query '{}': {}", params.q, e);
             Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
         }
     }
@@ -44,7 +45,7 @@ pub async fn get_trending_tags(
             Ok(Json(response))
         }
         Err(e) => {
-            tracing::error!("Failed to get trending tags: {}", e);
+            log::error!("Failed to get trending tags: {}", e);
             Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
         }
     }
