@@ -743,9 +743,13 @@ services:
     container_name: cleanapp_report_tags_service
     image: ${REPORT_TAGS_SERVICE_DOCKER_IMAGE}
     environment:
-      - DATABASE_URL=mysql://server:\${MYSQL_APP_PASSWORD}@cleanapp_db:3306/cleanapp
-      - SERVER_PORT=8080
-      - TAG_FOLLOW_LIMIT=200
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+      - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
+      - DB_NAME=cleanapp
+      - PORT=8080
+      - MAX_TAG_FOLLOWS=200
       - RUST_LOG=info,sqlx=warn
     ports:
       - 9093:8080

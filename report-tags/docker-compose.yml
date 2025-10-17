@@ -4,14 +4,14 @@ services:
   report-tags:
     build: .
     ports:
-      - "8083:8083"
+      - "8083:8080"
     environment:
       DB_HOST: db
       DB_PORT: 3306
       DB_USER: server
       DB_PASSWORD: secret_app
       DB_NAME: cleanapp
-      PORT: 8083
+      PORT: 8080
       RUST_LOG: info
       MAX_TAG_FOLLOWS: 200
     depends_on:
