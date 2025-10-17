@@ -182,6 +182,7 @@ GDPR_PROCESS_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-gdpr-process-servic
 REPORTS_PUSHER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-reports-pusher-image:${OPT}"
 FACE_DETECTOR_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-face-detector-image:${OPT}"
 VOICE_ASSISTANT_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-voice-assistant-service-image:${OPT}"
+REPORT_TAGS_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-tags-service-image:${OPT}"
 REPORT_ANALYSIS_BACKFILL_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-analysis-backfill-image:${OPT}"
 EPC_PUSHER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-epc-pusher-image:${OPT}"
 
@@ -223,6 +224,7 @@ docker pull ${REPORT_OWNERSHIP_SERVICE_DOCKER_IMAGE}
 docker pull ${GDPR_PROCESS_SERVICE_DOCKER_IMAGE}
 docker pull ${REPORTS_PUSHER_DOCKER_IMAGE}
 docker pull ${VOICE_ASSISTANT_SERVICE_DOCKER_IMAGE}
+docker pull ${REPORT_TAGS_SERVICE_DOCKER_IMAGE}
 docker pull ${REPORT_ANALYSIS_BACKFILL_DOCKER_IMAGE}
 docker pull ${EMAIL_SERVICE_V3_DOCKER_IMAGE}
 docker pull ${EPC_PUSHER_DOCKER_IMAGE}
@@ -583,6 +585,7 @@ services:
       - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
       - REPORT_AUTH_SERVICE_URL=http://cleanapp_report_auth_service:8080
       - REPORTS_SUBMISSION_URL=http://cleanapp_service:8080
+      - TAG_SERVICE_URL=http://cleanapp_report_tags_service:8080
       - OPENAI_API_KEY=\${OPENAI_API_KEY}
       - REPORTS_RADIUS_METERS=35.0
       - GIN_MODE=${GIN_MODE}
@@ -749,6 +752,19 @@ services:
       - ALLOWED_ORIGINS=*
     ports:
       - 9092:8080
+
+  cleanapp_report_tags_service:
+    container_name: cleanapp_report_tags_service
+    image: ${REPORT_TAGS_SERVICE_DOCKER_IMAGE}
+    environment:
+      - DATABASE_URL=mysql://server:\${MYSQL_APP_PASSWORD}@cleanapp_db:3306/cleanapp
+      - SERVER_PORT=8080
+      - TAG_FOLLOW_LIMIT=200
+      - RUST_LOG=info,sqlx=warn
+    ports:
+      - 9093:8080
+    depends_on:
+      - cleanapp_db
 
 COMPOSE
 
