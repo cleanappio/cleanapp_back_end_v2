@@ -135,9 +135,9 @@ func (s *Service) startRabbitMQSubscription() {
 func (s *Service) processReport(ctx context.Context, reportWithAnalysis models.ReportWithAnalysis) error {
 	report := reportWithAnalysis.Report
 	analysis := reportWithAnalysis.Analysis[0]
-	for _, analysis := range reportWithAnalysis.Analysis {
-		if analysis.Language == "en" {
-			analysis = analysis
+	for _, an := range reportWithAnalysis.Analysis {
+		if an.Language == "en" {
+			analysis = an
 			break
 		}
 	}
