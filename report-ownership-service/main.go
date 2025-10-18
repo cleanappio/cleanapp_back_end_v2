@@ -37,7 +37,10 @@ func main() {
 
 	// Create ownership service
 	ownershipService := database.NewOwnershipService(db)
-	svc := service.NewService(cfg, ownershipService)
+	svc, err := service.NewService(cfg, ownershipService)
+	if err != nil {
+		log.Fatal("Failed to create service:", err)
+	}
 
 	// Start service
 	if err := svc.Start(); err != nil {

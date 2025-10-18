@@ -4,9 +4,12 @@ import (
 	"log"
 	"strings"
 	"sync"
+	"time"
 
+	"report-analyze-pipeline/rabbitmq"
 	"report-analyze-pipeline/config"
 	"report-analyze-pipeline/database"
+	"report-analyze-pipeline/models"
 	"report-analyze-pipeline/openai"
 	"report-analyze-pipeline/parser"
 	"report-analyze-pipeline/services"
@@ -14,11 +17,12 @@ import (
 
 // Service represents the report analysis service
 type Service struct {
-	config          *config.Config
-	db              *database.Database
-	openai          *openai.Client
-	brandService    *services.BrandService
-	stopChan        chan bool
+	config       *config.Config
+	db           *database.Database
+	openai       *openai.Client
+	brandService *services.BrandService
+	publisher    *rabbitmq.Publisher
+	stopChan     chan bool
 }
 
 // NewService creates a new report analysis service
@@ -26,12 +30,25 @@ func NewService(cfg *config.Config, db *database.Database) *Service {
 	client := openai.NewClient(cfg.OpenAIAPIKey, cfg.OpenAIModel)
 	brandService := services.NewBrandService()
 
+	// Initialize RabbitMQ publisher
+	publisher, err := rabbitmq.NewPublisher(
+		cfg.RabbitMQ.GetAMQPURL(),
+		cfg.RabbitMQ.Exchange,
+		cfg.RabbitMQ.AnalysedReportRoutingKey,
+	)
+	if err != nil {
+		log.Printf("Failed to initialize RabbitMQ publisher: %v", err)
+		// Continue without publisher - analysis will still work
+		publisher = nil
+	}
+
 	return &Service{
-		config:          cfg,
-		db:              db,
-		openai:          client,
-		brandService:    brandService,
-		stopChan:        make(chan bool),
+		config:       cfg,
+		db:           db,
+		openai:       client,
+		brandService: brandService,
+		publisher:    publisher,
+		stopChan:     make(chan bool),
 	}
 }
 
@@ -55,13 +72,109 @@ func (s *Service) Start() {
 // Stop stops the analysis service
 func (s *Service) Stop() {
 	log.Println("Stopping report analysis service...")
+
+	// Close RabbitMQ publisher if it exists
+	if s.publisher != nil {
+		if err := s.publisher.Close(); err != nil {
+			log.Printf("Failed to close RabbitMQ publisher: %v", err)
+		}
+	}
+
 	close(s.stopChan)
+}
+
+// publishAnalyzedReport publishes a report with its analysis to RabbitMQ
+func (s *Service) publishAnalyzedReport(report *database.Report, analyses []*database.ReportAnalysis) {
+	if s.publisher == nil {
+		log.Printf("RabbitMQ publisher not available, skipping publish for report %d", report.Seq)
+		return
+	}
+
+	// Convert database models to API models
+	apiReport := models.Report{
+		Seq:         report.Seq,
+		Timestamp:   report.Timestamp,
+		ID:          report.ID,
+		Team:        report.Team,
+		Latitude:    report.Latitude,
+		Longitude:   report.Longitude,
+		X:           report.X,
+		Y:           report.Y,
+		ActionID:    report.ActionID,
+		Description: report.Description,
+	}
+
+	var apiAnalyses []models.ReportAnalysis
+	for _, analysis := range analyses {
+		apiAnalysis := models.ReportAnalysis{
+			Seq:                   analysis.Seq,
+			Source:                analysis.Source,
+			AnalysisText:          analysis.AnalysisText,
+			Title:                 analysis.Title,
+			Description:           analysis.Description,
+			BrandName:             analysis.BrandName,
+			BrandDisplayName:      analysis.BrandDisplayName,
+			LitterProbability:     analysis.LitterProbability,
+			HazardProbability:     analysis.HazardProbability,
+			DigitalBugProbability: analysis.DigitalBugProbability,
+			SeverityLevel:         analysis.SeverityLevel,
+			Summary:               analysis.Summary,
+			Language:              analysis.Language,
+			Classification:        analysis.Classification,
+			IsValid:               analysis.IsValid,
+			InferredContactEmails: analysis.InferredContactEmails,
+			CreatedAt:             time.Now(), // We don't have this in database model, use current time
+			UpdatedAt:             time.Now(),
+		}
+		apiAnalyses = append(apiAnalyses, apiAnalysis)
+	}
+
+	// Create the report with analysis message
+	reportWithAnalysis := models.ReportWithAnalysis{
+		Report:   apiReport,
+		Analysis: apiAnalyses,
+	}
+
+	// Publish to RabbitMQ
+	if err := s.publisher.Publish(reportWithAnalysis); err != nil {
+		log.Printf("Failed to publish analyzed report %d: %v", report.Seq, err)
+	} else {
+		log.Printf("Successfully published analyzed report %d with %d analyses", report.Seq, len(apiAnalyses))
+	}
 }
 
 // analyzeReport analyzes a single report
 func (s *Service) AnalyzeReport(report *database.Report) {
+	// Collect all analyses for publishing
+	var allAnalyses []*database.ReportAnalysis
+
+	// Fetch only the image data from database
+	imageData, err := s.db.GetReportImage(report.Seq)
+	if err != nil {
+		log.Printf("Failed to fetch image for report %d from database: %v", report.Seq, err)
+		// Save error report
+		errorAnalysis := &database.ReportAnalysis{
+			Seq:            report.Seq,
+			Source:         "ChatGPT",
+			IsValid:        false,
+			Classification: "physical",
+		}
+		if saveErr := s.db.SaveAnalysis(errorAnalysis); saveErr != nil {
+			log.Printf("Failed to save error analysis for report %d: %v", report.Seq, saveErr)
+		} else {
+			log.Printf("Saved error analysis for report %d (image fetch failed)", report.Seq)
+		}
+		// Add error analysis to collection and publish
+		allAnalyses = append(allAnalyses, errorAnalysis)
+		s.publishAnalyzedReport(report, allAnalyses)
+		return
+	}
+
+	// Use the image from database and other fields from the report message
+	log.Printf("Analyzing report %d with image size: %d bytes", report.Seq, len(imageData))
+
 	// Call OpenAI API with assistant for initial analysis in English
-	response, err := s.openai.AnalyzeImage(report.Image, report.Description)
+	response, err := s.openai.AnalyzeImage(imageData, report.Description)
 	if err != nil {
 		log.Printf("Failed to analyze report %d: %v", report.Seq, err)
 		// Save error report
@@ -76,6 +189,9 @@ func (s *Service) AnalyzeReport(report *database.Report) {
 		} else {
 			log.Printf("Saved error analysis for report %d (analysis failed)", report.Seq)
 		}
+		// Add error analysis to collection and publish
+		allAnalyses = append(allAnalyses, errorAnalysis)
+		s.publishAnalyzedReport(report, allAnalyses)
 		return
 	}
 
@@ -95,6 +211,9 @@ func (s *Service) AnalyzeReport(report *database.Report) {
 		} else {
 			log.Printf("Saved error analysis for report %d (parsing failed)", report.Seq)
 		}
+		// Add error analysis to collection and publish
+		allAnalyses = append(allAnalyses, errorAnalysis)
+		s.publishAnalyzedReport(report, allAnalyses)
 		return
 	}
 
@@ -134,8 +253,12 @@ func (s *Service) AnalyzeReport(report *database.Report) {
 		log.Printf("Successfully saved English analysis for report %d", report.Seq)
 	}
 
+	// Add English analysis to collection
+	allAnalyses = append(allAnalyses, analysisResult)
+
 	// Asynchronous translations
 	var transWg sync.WaitGroup
+	var analysesMutex sync.Mutex
 	for code, fullName := range s.config.TranslationLanguages {
 		if code == "en" || fullName == "English" {
 			continue // Skip English as we already have it
@@ -193,8 +316,15 @@ func (s *Service) AnalyzeReport(report *database.Report) {
 				log.Printf("Failed to save %s analysis for report %d: %v", langName, report.Seq, err)
 			} else {
 				log.Printf("Successfully saved %s analysis for report %d", langName, report.Seq)
+				// Add translated analysis to collection safely
+				analysesMutex.Lock()
+				allAnalyses = append(allAnalyses, translatedResult)
+				analysesMutex.Unlock()
 			}
 		}()
 	}
 	transWg.Wait()
+
+	// Publish the analyzed report to RabbitMQ
+	s.publishAnalyzedReport(report, allAnalyses)
 }

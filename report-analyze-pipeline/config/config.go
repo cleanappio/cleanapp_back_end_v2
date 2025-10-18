@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -44,6 +45,26 @@ type Config struct {
 
 	// Start Point
 	SeqStartFrom int
+
+	// RabbitMQ configuration
+	RabbitMQ RabbitMQConfig
+}
+
+// RabbitMQConfig holds RabbitMQ connection and queue configuration
+type RabbitMQConfig struct {
+	Host                     string
+	Port                     string
+	User                     string
+	Password                 string
+	Exchange                 string
+	Queue                    string
+	RawReportRoutingKey      string
+	AnalysedReportRoutingKey string
+}
+
+// GetAMQPURL constructs the AMQP URL from the RabbitMQ configuration
+func (r *RabbitMQConfig) GetAMQPURL() string {
+	return fmt.Sprintf("amqp://%s:%s@%s:%s/", r.User, r.Password, r.Host, r.Port)
 }
 
 // Load loads configuration from environment variables
@@ -60,7 +81,7 @@ func Load() *Config {
 		Port: getEnv("PORT", "8080"),
 
 		// OpenAI defaults
-		OpenAIAPIKey: getEnv("OPENAI_API_KEY", ""),
+		OpenAIAPIKey:      getEnv("OPENAI_API_KEY", ""),
 		OpenAIAssistantID: getEnv("OPENAI_ASSISTANT_ID", ""),
 		OpenAIModel:       getEnv("OPENAI_MODEL", "gpt-4o"),
 
@@ -76,6 +97,18 @@ func Load() *Config {
 
 		// Start Point
 		SeqStartFrom: getIntEnv("SEQ_START_FROM", 0),
+
+		// RabbitMQ configuration
+		RabbitMQ: RabbitMQConfig{
+			Host:                     getEnv("AMQP_HOST", "localhost"),
+			Port:                     getEnv("AMQP_PORT", "5672"),
+			User:                     getEnv("AMQP_USER", "guest"),
+			Password:                 getEnv("AMQP_PASSWORD", "guest"),
+			Exchange:                 getEnv("RABBITMQ_EXCHANGE", "cleanapp"),
+			Queue:                    getEnv("RABBITMQ_QUEUE", "report-analyze"),
+			RawReportRoutingKey:      getEnv("RABBITMQ_RAW_REPORT_ROUTING_KEY", "report.raw"),
+			AnalysedReportRoutingKey: getEnv("RABBITMQ_ANALYSED_REPORT_ROUTING_KEY", "report.analysed"),
+		},
 	}
 
 	return config

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"time"
@@ -18,6 +19,15 @@ type Config struct {
 	// Service configuration
 	PollInterval time.Duration
 	BatchSize    int
+
+	// RabbitMQ configuration
+	RabbitMQHost                     string
+	RabbitMQPort                     string
+	RabbitMQUser                     string
+	RabbitMQPassword                 string
+	RabbitMQExchange                 string
+	RabbitMQQueue                    string
+	RabbitMQAnalysedReportRoutingKey string
 
 	// Logging
 	LogLevel string
@@ -37,11 +47,25 @@ func Load() *Config {
 		PollInterval: getDurationEnv("POLL_INTERVAL", 30*time.Second),
 		BatchSize:    getIntEnv("BATCH_SIZE", 100),
 
+		// RabbitMQ defaults
+		RabbitMQHost:                     getEnv("AMQP_HOST", "localhost"),
+		RabbitMQPort:                     getEnv("AMQP_PORT", "5672"),
+		RabbitMQUser:                     getEnv("AMQP_USER", "guest"),
+		RabbitMQPassword:                 getEnv("AMQP_PASSWORD", "guest"),
+		RabbitMQExchange:                 getEnv("RABBITMQ_EXCHANGE", "report_exchange"),
+		RabbitMQQueue:                    getEnv("RABBITMQ_QUEUE", "ownership_queue"),
+		RabbitMQAnalysedReportRoutingKey: getEnv("RABBITMQ_ANALYSED_REPORT_ROUTING_KEY", "report.raw"),
+
 		// Logging defaults
 		LogLevel: getEnv("LOG_LEVEL", "info"),
 	}
 
 	return config
+}
+
+// GetRabbitMQURL constructs the AMQP URL from individual components
+func (c *Config) GetRabbitMQURL() string {
+	return fmt.Sprintf("amqp://%s:%s@%s:%s", c.RabbitMQUser, c.RabbitMQPassword, c.RabbitMQHost, c.RabbitMQPort)
 }
 
 // getEnv gets an environment variable or returns a default value

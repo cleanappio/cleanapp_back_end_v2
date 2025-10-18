@@ -19,59 +19,6 @@ func NewGdprService(db *sql.DB) *GdprService {
 	return &GdprService{db: db}
 }
 
-// GetUnprocessedUsers returns users that haven't been processed for GDPR
-func (s *GdprService) GetUnprocessedUsers() ([]string, error) {
-	// Use a watermark based on the latest processed user's timestamp to bound the scan
-	// and still ensure correctness with NOT EXISTS. Requires index on users(ts).
-	query := `
-        SELECT u.id
-        FROM users u
-        WHERE u.ts > (
-            SELECT COALESCE(MAX(u2.ts), '1970-01-01')
-            FROM users u2
-            INNER JOIN users_gdpr ug2 ON ug2.id = u2.id
-        )
-        AND NOT EXISTS (
-            SELECT 1 FROM users_gdpr ug WHERE ug.id = u.id
-        )
-        ORDER BY u.ts ASC
-        LIMIT 100`
-
-	rows, err := s.db.Query(query)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query unprocessed users: %w", err)
-	}
-	defer rows.Close()
-
-	var userIDs []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, fmt.Errorf("failed to scan user ID: %w", err)
-		}
-		userIDs = append(userIDs, id)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating over user rows: %w", err)
-	}
-
-	return userIDs, nil
-}
-
-// GetUserData returns user data including avatar for a specific user ID
-func (s *GdprService) GetUserData(userID string) (string, error) {
-	query := `SELECT avatar FROM users WHERE id = ?`
-
-	var avatar string
-	err := s.db.QueryRow(query, userID).Scan(&avatar)
-	if err != nil {
-		return "", fmt.Errorf("failed to get user data for %s: %w", userID, err)
-	}
-
-	return avatar, nil
-}
-
 // AvatarExists checks if an avatar value already exists in the users table
 func (s *GdprService) AvatarExists(avatar string) (bool, error) {
 	query := `SELECT COUNT(*) FROM users WHERE avatar = ?`
@@ -128,41 +75,6 @@ func (s *GdprService) GenerateUniqueAvatar(obfuscatedAvatar string) (string, err
 	log.Warnf("Reached maximum attempts for avatar uniqueness, using fallback: '%s'", fallbackAvatar)
 
 	return fallbackAvatar, nil
-}
-
-// GetUnprocessedReports returns reports that haven't been processed for GDPR
-func (s *GdprService) GetUnprocessedReports() ([]int, error) {
-	// Use last processed seq watermark to fetch forward with an index-friendly range
-	query := `
-        SELECT r.seq
-        FROM reports r
-        INNER JOIN report_analysis ra ON r.seq = ra.seq
-        WHERE r.seq > (
-            SELECT COALESCE(MAX(seq), 0) FROM reports_gdpr
-        )
-        ORDER BY r.seq ASC
-        LIMIT 100`
-
-	rows, err := s.db.Query(query)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query unprocessed reports: %w", err)
-	}
-	defer rows.Close()
-
-	var reportSeqs []int
-	for rows.Next() {
-		var seq int
-		if err := rows.Scan(&seq); err != nil {
-			return nil, fmt.Errorf("failed to scan report seq: %w", err)
-		}
-		reportSeqs = append(reportSeqs, seq)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating over report rows: %w", err)
-	}
-
-	return reportSeqs, nil
 }
 
 // MarkUserProcessed marks a user as processed for GDPR

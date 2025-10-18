@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	"report-ownership-service/rabbitmq"
 	"report-ownership-service/config"
 	"report-ownership-service/database"
 	"report-ownership-service/models"
@@ -13,31 +14,45 @@ import (
 
 // Service represents the main ownership service
 type Service struct {
-	cfg     *config.Config
-	db      *database.OwnershipService
-	ctx     context.Context
-	cancel  context.CancelFunc
-	stopped chan struct{}
+	cfg        *config.Config
+	db         *database.OwnershipService
+	subscriber *rabbitmq.Subscriber
+	ctx        context.Context
+	cancel     context.CancelFunc
+	stopped    chan struct{}
 }
 
 // NewService creates a new ownership service instance
-func NewService(cfg *config.Config, db *database.OwnershipService) *Service {
+func NewService(cfg *config.Config, db *database.OwnershipService) (*Service, error) {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Service{
-		cfg:     cfg,
-		db:      db,
-		ctx:     ctx,
-		cancel:  cancel,
-		stopped: make(chan struct{}),
+
+	// Create RabbitMQ subscriber
+	subscriber, err := rabbitmq.NewSubscriber(
+		cfg.GetRabbitMQURL(),
+		cfg.RabbitMQExchange,
+		cfg.RabbitMQQueue,
+	)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to create RabbitMQ subscriber: %w", err)
 	}
+
+	return &Service{
+		cfg:        cfg,
+		db:         db,
+		subscriber: subscriber,
+		ctx:        ctx,
+		cancel:     cancel,
+		stopped:    make(chan struct{}),
+	}, nil
 }
 
 // Start starts the ownership service
 func (s *Service) Start() error {
 	log.Println("Starting report ownership service...")
 
-	// Start the ownership processing loop
-	go s.processOwnershipLoop()
+	// Start the RabbitMQ subscription
+	go s.startRabbitMQSubscription()
 
 	log.Println("Report ownership service started successfully")
 	return nil
@@ -47,8 +62,15 @@ func (s *Service) Start() error {
 func (s *Service) Stop() error {
 	log.Println("Stopping report ownership service...")
 
-	// Cancel the context to stop the processing loop
+	// Cancel the context to stop the processing
 	s.cancel()
+
+	// Close RabbitMQ subscriber
+	if s.subscriber != nil {
+		if err := s.subscriber.Close(); err != nil {
+			log.Printf("Error closing RabbitMQ subscriber: %v", err)
+		}
+	}
 
 	// Wait for the service to stop
 	select {
@@ -61,60 +83,64 @@ func (s *Service) Stop() error {
 	return nil
 }
 
-// processOwnershipLoop continuously processes unprocessed reports
-func (s *Service) processOwnershipLoop() {
-	ticker := time.NewTicker(s.cfg.PollInterval)
-	defer ticker.Stop()
+// handleReportMessage processes a single report message from RabbitMQ
+func (s *Service) handleReportMessage(msg *rabbitmq.Message) error {
+	var reportWithAnalysis models.ReportWithAnalysis
 
-	log.Printf("Starting ownership processing loop with %v interval", s.cfg.PollInterval)
-
-	for {
-		select {
-		case <-s.ctx.Done():
-			log.Println("Ownership processing loop stopped")
-			close(s.stopped)
-			return
-		case <-ticker.C:
-			if err := s.processBatch(); err != nil {
-				log.Printf("ERROR: Failed to process batch: %v", err)
-			}
-		}
+	// Unmarshal the message body
+	if err := msg.UnmarshalTo(&reportWithAnalysis); err != nil {
+		return fmt.Errorf("failed to unmarshal report message: %w", err)
 	}
-}
 
-// processBatch processes a batch of unprocessed reports
-func (s *Service) processBatch() error {
+	log.Printf("Received report %d for ownership processing", reportWithAnalysis.Report.Seq)
+
+	// Process the report
 	ctx, cancel := context.WithTimeout(s.ctx, 5*time.Minute)
 	defer cancel()
 
-	// Get unprocessed reports with analysis
-	reportsWithAnalysis, err := s.db.GetUnprocessedReports(ctx, s.cfg.BatchSize)
-	if err != nil {
-		return fmt.Errorf("failed to get unprocessed reports: %w", err)
+	if err := s.processReport(ctx, reportWithAnalysis); err != nil {
+		return fmt.Errorf("failed to process report %d: %w", reportWithAnalysis.Report.Seq, err)
 	}
 
-	if len(reportsWithAnalysis) == 0 {
-		return nil
-	}
-
-	log.Printf("Processing %d reports for ownership determination", len(reportsWithAnalysis))
-
-	// Process each report
-	for _, reportWithAnalysis := range reportsWithAnalysis {
-		if err := s.processReport(ctx, reportWithAnalysis); err != nil {
-			log.Printf("ERROR: Failed to process report %d: %v", reportWithAnalysis.Report.Seq, err)
-			continue
-		}
-	}
-
-	log.Printf("Successfully processed %d reports", len(reportsWithAnalysis))
+	log.Printf("Successfully processed report %d for ownership", reportWithAnalysis.Report.Seq)
 	return nil
+}
+
+// startRabbitMQSubscription starts the RabbitMQ subscription for report processing
+func (s *Service) startRabbitMQSubscription() {
+	defer close(s.stopped)
+
+	log.Printf("Starting RabbitMQ subscription for routing key: %s",
+		s.cfg.RabbitMQAnalysedReportRoutingKey)
+
+	// Set up routing key callbacks
+	routingKeyCallbacks := map[string]rabbitmq.CallbackFunc{
+		s.cfg.RabbitMQAnalysedReportRoutingKey: s.handleReportMessage,
+	}
+
+	// Start the subscriber
+	if err := s.subscriber.Start(routingKeyCallbacks); err != nil {
+		log.Printf("ERROR: Failed to start RabbitMQ subscription: %v", err)
+		return
+	}
+
+	log.Println("RabbitMQ subscription started successfully")
+
+	// Wait for context cancellation
+	<-s.ctx.Done()
+	log.Println("RabbitMQ subscription stopped")
 }
 
 // processReport determines and stores ownership for a single report
 func (s *Service) processReport(ctx context.Context, reportWithAnalysis models.ReportWithAnalysis) error {
 	report := reportWithAnalysis.Report
-	analysis := reportWithAnalysis.Analysis
+	analysis := reportWithAnalysis.Analysis[0]
+	for _, analysis := range reportWithAnalysis.Analysis {
+		if analysis.Language == "en" {
+			analysis = analysis
+			break
+		}
+	}
 
 	log.Printf("DEBUG: Processing report %d for ownership", report.Seq)
 

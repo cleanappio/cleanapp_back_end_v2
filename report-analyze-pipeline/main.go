@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"report-analyze-pipeline/rabbitmq"
 	"report-analyze-pipeline/config"
 	"report-analyze-pipeline/database"
 	"report-analyze-pipeline/handlers"
@@ -16,6 +18,69 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+// Global RabbitMQ subscriber instance
+var reportSubscriber *rabbitmq.Subscriber
+
+// initializeReportSubscriber initializes the RabbitMQ subscriber for reports
+func initializeReportSubscriber(cfg *config.Config, analysisService *service.Service) error {
+	// Get RabbitMQ configuration from config
+	rabbitMQConfig := cfg.RabbitMQ
+	amqpURL := rabbitMQConfig.GetAMQPURL()
+
+	subscriber, err := rabbitmq.NewSubscriber(amqpURL, rabbitMQConfig.Exchange, rabbitMQConfig.Queue)
+	if err != nil {
+		return fmt.Errorf("failed to initialize RabbitMQ subscriber: %w", err)
+	}
+
+	// Define callback for report processing
+	callbacks := map[string]rabbitmq.CallbackFunc{
+		rabbitMQConfig.RawReportRoutingKey: func(msg *rabbitmq.Message) error {
+			return processReportMessage(msg, analysisService)
+		},
+	}
+
+	// Start consuming messages
+	err = subscriber.Start(callbacks)
+	if err != nil {
+		subscriber.Close()
+		return fmt.Errorf("failed to start RabbitMQ subscriber: %w", err)
+	}
+
+	reportSubscriber = subscriber
+	log.Printf("RabbitMQ subscriber initialized: exchange=%s, queue=%s, routing_key=%s",
+		rabbitMQConfig.Exchange, rabbitMQConfig.Queue, rabbitMQConfig.RawReportRoutingKey)
+	return nil
+}
+
+// closeReportSubscriber closes the RabbitMQ subscriber
+func closeReportSubscriber() {
+	if reportSubscriber != nil {
+		err := reportSubscriber.Close()
+		if err != nil {
+			log.Printf("Failed to close RabbitMQ subscriber: %v", err)
+		} else {
+			log.Println("RabbitMQ subscriber closed successfully")
+		}
+	}
+}
+
+// processReportMessage processes a report message from RabbitMQ
+func processReportMessage(msg *rabbitmq.Message, analysisService *service.Service) error {
+	var report database.Report
+	err := msg.UnmarshalTo(&report)
+	if err != nil {
+		return fmt.Errorf("failed to unmarshal report message: %w", err)
+	}
+
+	log.Printf("Received report for analysis from RabbitMQ: seq=%d, image_size=%d bytes", report.Seq, len(report.Image))
+
+	// Analyze the report using the same logic as the HTTP handler
+	// The AnalyzeReport method will fetch the complete report data (including image) from the database
+	go analysisService.AnalyzeReport(&report)
+
+	return nil
+}
 
 func main() {
 	// Load configuration
@@ -41,6 +106,15 @@ func main() {
 	// Initialize service
 	analysisService := service.NewService(cfg, db)
 
+	// Initialize RabbitMQ subscriber for reports
+	err = initializeReportSubscriber(cfg, analysisService)
+	if err != nil {
+		log.Fatalf("Failed to initialize RabbitMQ subscriber: %v", err)
+	}
+
+	// Ensure cleanup on exit
+	defer closeReportSubscriber()
+
 	// Initialize handlers
 	handlers := handlers.NewHandlers(db, analysisService)
 
@@ -54,7 +128,6 @@ func main() {
 		api.GET("/status", handlers.GetAnalysisStatus)
 		api.GET("/analysis/:seq", handlers.GetAnalysisBySeq)
 		api.GET("/stats", handlers.GetAnalysisStats)
-		api.POST("/analysis", handlers.DoAnalysis)
 	}
 
 	// Create HTTP server
