@@ -740,32 +740,6 @@ services:
     depends_on:
       - cleanapp_db
 
-  # Optional EPC pusher
-  ${ENABLE_EPC_PUSHER:+cleanapp_epc_pusher:}
-  ${ENABLE_EPC_PUSHER:+  container_name: cleanapp_epc_pusher}
-  ${ENABLE_EPC_PUSHER:+  image: ${EPC_PUSHER_DOCKER_IMAGE}}
-  ${ENABLE_EPC_PUSHER:+  restart: unless-stopped}
-  ${ENABLE_EPC_PUSHER:+  environment:}
-  ${ENABLE_EPC_PUSHER:+    - DB_HOST=cleanapp_db}
-  ${ENABLE_EPC_PUSHER:+    - DB_PORT=3306}
-  ${ENABLE_EPC_PUSHER:+    - DB_USER=server}
-  ${ENABLE_EPC_PUSHER:+    - DB_PASSWORD=\${MYSQL_APP_PASSWORD}}
-  ${ENABLE_EPC_PUSHER:+    - MYSQL_APP_PASSWORD=\${MYSQL_APP_PASSWORD}}
-  ${ENABLE_EPC_PUSHER:+    - DB_NAME=cleanapp}
-  ${ENABLE_EPC_PUSHER:+    - BLOCKSCAN_CHAT_API_KEY=\${BLOCKSCAN_CHAT_API_KEY}}
-  ${ENABLE_EPC_PUSHER:+    - EPC_CONTRACT_ADDRESS=${CONTRACT_ADDRESS_MAIN}}
-  ${ENABLE_EPC_PUSHER:+    - EPC_DISPATCH=${EPC_DISPATCH}}
-  ${ENABLE_EPC_PUSHER:+    - EPC_REPORTS_START_SEQ=${EPC_REPORTS_START_SEQ}}
-  ${ENABLE_EPC_PUSHER:+    - EPC_ONLY_VALID=${EPC_ONLY_VALID}}
-  ${ENABLE_EPC_PUSHER:+    - EPC_FILTER_LANGUAGE=${EPC_FILTER_LANGUAGE}}
-  ${ENABLE_EPC_PUSHER:+    - EPC_FILTER_SOURCE=${EPC_FILTER_SOURCE}}
-  ${ENABLE_EPC_PUSHER:+  env_file:}
-  ${ENABLE_EPC_PUSHER:+    - .env}
-  ${ENABLE_EPC_PUSHER:+  depends_on:}
-  ${ENABLE_EPC_PUSHER:+    - cleanapp_db}
-  ${ENABLE_EPC_PUSHER:+  links:}
-  ${ENABLE_EPC_PUSHER:+    - cleanapp_db}
-
   cleanapp_voice_assistant_service:
     container_name: cleanapp_voice_assistant_service
     image: ${VOICE_ASSISTANT_SERVICE_DOCKER_IMAGE}
@@ -780,9 +754,34 @@ services:
 
 COMPOSE
 
-# Sanitize docker-compose.yml to avoid YAML parse issues on target
-sed -i 's/\r$//' docker-compose.yml
-sed -i '/^[[:space:]]*[{}][[:space:]]*$/d' docker-compose.yml
+if [ "${ENABLE_EPC_PUSHER}" == "true" ]; then
+  cat >>docker-compose.yml << COMPOSE_EPC_PUSHER
+  cleanapp_epc_pusher:
+    container_name: cleanapp_epc_pusher
+    image: ${EPC_PUSHER_DOCKER_IMAGE}
+    restart: unless-stopped
+    environment:
+    - DB_HOST=cleanapp_db
+    - DB_PORT=3306
+    - DB_USER=server
+    - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
+    - MYSQL_APP_PASSWORD=\${MYSQL_APP_PASSWORD}
+    - DB_NAME=cleanapp
+    - BLOCKSCAN_CHAT_API_KEY=\${BLOCKSCAN_CHAT_API_KEY}
+    - EPC_CONTRACT_ADDRESS=${CONTRACT_ADDRESS_MAIN}
+    - EPC_DISPATCH=${EPC_DISPATCH}
+    - EPC_REPORTS_START_SEQ=${EPC_REPORTS_START_SEQ}
+    - EPC_ONLY_VALID=${EPC_ONLY_VALID}
+    - EPC_FILTER_LANGUAGE=${EPC_FILTER_LANGUAGE}
+    - EPC_FILTER_SOURCE=${EPC_FILTER_SOURCE}
+  env_file:
+    - .env
+  depends_on:
+    - cleanapp_db
+  links:
+    - cleanapp_db
+COMPOSE_EPC_PUSHER
+fi
 
 FACE_DETECTOR_COUNT=10
 FACE_DETECTOR_FILE="docker-compose.yml"
