@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"time"
@@ -23,9 +24,9 @@ type Config struct {
 	OpenAIModel  string
 
 	// Face detector service configuration
-	FaceDetectorURL string
+	FaceDetectorURL       string
 	FaceDetectorPortStart int
-	FaceDetectorCount int
+	FaceDetectorCount     int
 
 	// Image placeholder configuration
 	ImagePlaceholderPath string
@@ -33,6 +34,16 @@ type Config struct {
 	// Parallel processing configuration
 	BatchSize  int // number of users to process in each batch
 	MaxWorkers int // maximum number of concurrent OpenAI API calls
+
+	// RabbitMQ configuration
+	RabbitMQHost             string
+	RabbitMQPort             string
+	RabbitMQUser             string
+	RabbitMQPassword         string
+	RabbitMQExchange         string
+	RabbitMQQueue            string
+	RabbitMQReportRoutingKey string
+	RabbitMQUserRoutingKey   string
 }
 
 // Load loads configuration from environment variables
@@ -53,9 +64,9 @@ func Load() *Config {
 		OpenAIModel:  getEnv("OPENAI_MODEL", "gpt-5"),
 
 		// Face detector defaults
-		FaceDetectorURL: getEnv("FACE_DETECTOR_URL", "http://localhost:8000"),
+		FaceDetectorURL:       getEnv("FACE_DETECTOR_URL", "http://localhost:8000"),
 		FaceDetectorPortStart: getIntEnv("FACE_DETECTOR_PORT_START", 9500),
-		FaceDetectorCount: getIntEnv("FACE_DETECTOR_COUNT", 10),
+		FaceDetectorCount:     getIntEnv("FACE_DETECTOR_COUNT", 10),
 
 		// Image placeholder defaults
 		ImagePlaceholderPath: getEnv("IMAGE_PLACEHOLDER_PATH", "./image_placeholder.jpg"),
@@ -63,9 +74,24 @@ func Load() *Config {
 		// Parallel processing defaults
 		BatchSize:  getIntEnv("BATCH_SIZE", 10),
 		MaxWorkers: getIntEnv("MAX_WORKERS", 10),
+
+		// RabbitMQ defaults
+		RabbitMQHost:             getEnv("AMQP_HOST", "localhost"),
+		RabbitMQPort:             getEnv("AMQP_PORT", "5672"),
+		RabbitMQUser:             getEnv("AMQP_USER", "guest"),
+		RabbitMQPassword:         getEnv("AMQP_PASSWORD", "guest"),
+		RabbitMQExchange:         getEnv("RABBITMQ_EXCHANGE", "cleanapp-exchange"),
+		RabbitMQQueue:            getEnv("RABBITMQ_QUEUE", "gdpr-queue"),
+		RabbitMQReportRoutingKey: getEnv("RABBITMQ_RAW_REPORT_ROUTING_KEY", "report.raw"),
+		RabbitMQUserRoutingKey:   getEnv("RABBITMQ_USER_ROUTING_KEY", "user.add"),
 	}
 
 	return config
+}
+
+// GetRabbitMQURL constructs the AMQP URL from individual components
+func (c *Config) GetRabbitMQURL() string {
+	return fmt.Sprintf("amqp://%s:%s@%s:%s", c.RabbitMQUser, c.RabbitMQPassword, c.RabbitMQHost, c.RabbitMQPort)
 }
 
 func getDurationEnv(key string, defaultValue time.Duration) time.Duration {

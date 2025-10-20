@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"gdpr-process-service/config"
 	"gdpr-process-service/database"
@@ -9,9 +10,30 @@ import (
 	"gdpr-process-service/processor"
 	"gdpr-process-service/utils"
 	"log"
-	"sync"
-	"time"
+
+	"gdpr-process-service/rabbitmq"
 )
+
+// Message types for RabbitMQ
+type UserMessage struct {
+	Version  string `json:"version"`
+	Id       string `json:"id"`
+	Avatar   string `json:"avatar"`
+	Referral string `json:"referral"`
+}
+
+type ReportMessage struct {
+	Seq         int     `json:"seq"`
+	Timestamp   string  `json:"timestamp"`
+	ID          string  `json:"id"`
+	Team        int     `json:"team"`
+	Latitude    float64 `json:"latitude"`
+	Longitude   float64 `json:"longitude"`
+	X           float64 `json:"x"`
+	Y           float64 `json:"y"`
+	ActionID    string  `json:"action_id"`
+	Description string  `json:"description"`
+}
 
 func main() {
 	// Load configuration
@@ -41,7 +63,7 @@ func main() {
 	gdprService := database.NewGdprService(db)
 	gdprProcessor := processor.NewGdprProcessor(openaiClient, faceDetectorClient)
 
-	log.Printf("GDPR process service started. Polling every %d seconds...", cfg.PollInterval)
+	log.Printf("GDPR process service started. Connecting to RabbitMQ...")
 
 	// Test OpenAI integration if API key is available
 	testOpenAI()
@@ -49,172 +71,70 @@ func main() {
 	// Test database update functionality
 	testDatabaseUpdate()
 
-	// Start the polling loop
-	// TODO: Replace with RabbitMQ event subscription
-	for {
-		if err := processBatch(gdprService, gdprProcessor, cfg); err != nil {
-			log.Printf("Error processing batch: %v", err)
-		}
-
-		// Wait before next polling cycle
-		time.Sleep(cfg.PollInterval)
+	// Initialize RabbitMQ subscriber
+	subscriber, err := rabbitmq.NewSubscriber(cfg.GetRabbitMQURL(), cfg.RabbitMQExchange, cfg.RabbitMQQueue)
+	if err != nil {
+		log.Fatalf("Failed to initialize RabbitMQ subscriber: %v", err)
 	}
+	defer subscriber.Close()
+
+	// Define callbacks for different message types
+	callbacks := map[string]rabbitmq.CallbackFunc{
+		cfg.RabbitMQUserRoutingKey: func(msg *rabbitmq.Message) error {
+			return handleUserMessage(msg, gdprService, gdprProcessor)
+		},
+		cfg.RabbitMQReportRoutingKey: func(msg *rabbitmq.Message) error {
+			return handleReportMessage(msg, gdprService, gdprProcessor, cfg.ImagePlaceholderPath)
+		},
+	}
+
+	// Start consuming messages
+	err = subscriber.Start(callbacks)
+	if err != nil {
+		log.Fatalf("Failed to start RabbitMQ subscriber: %v", err)
+	}
+
+	log.Printf("GDPR process service listening for messages on exchange: %s, queue: %s", cfg.RabbitMQExchange, cfg.RabbitMQQueue)
+
+	// Keep the service running
+	select {}
 }
 
-// processBatch processes a batch of unprocessed users and reports
-func processBatch(gdprService *database.GdprService, gdprProcessor *processor.GdprProcessor, cfg *config.Config) error {
-	// Process users in parallel batches
-	userIDs, err := gdprService.GetUnprocessedUsers()
-	if err != nil {
-		return err
+// handleUserMessage processes a user message from RabbitMQ
+func handleUserMessage(msg *rabbitmq.Message, gdprService *database.GdprService, gdprProcessor *processor.GdprProcessor) error {
+	var userMsg UserMessage
+	if err := json.Unmarshal(msg.Body, &userMsg); err != nil {
+		return fmt.Errorf("failed to unmarshal user message: %w", err)
 	}
 
-	if len(userIDs) > 0 {
-		if err := processUsersInParallel(gdprService, gdprProcessor, userIDs, cfg.BatchSize, cfg.MaxWorkers); err != nil {
-			log.Printf("Error processing users in parallel: %v", err)
-		}
+	log.Printf("Processing user message for user ID: %s, avatar: %s", userMsg.Id, userMsg.Avatar)
+
+	// Process the single user with full user data
+	result := processSingleUser(gdprService, gdprProcessor, userMsg.Id, userMsg.Avatar)
+	if result.err != nil {
+		return fmt.Errorf("failed to process user %s: %w", userMsg.Id, result.err)
 	}
 
-	// Process reports in parallel batches
-	reportSeqs, err := gdprService.GetUnprocessedReports()
-	if err != nil {
-		return err
-	}
-
-	if len(reportSeqs) > 0 {
-		if err := processReportsInParallel(gdprService, gdprProcessor, reportSeqs, cfg.BatchSize, cfg.MaxWorkers, cfg.ImagePlaceholderPath); err != nil {
-			log.Printf("Error processing reports in parallel: %v", err)
-		}
-	}
-
-	// Log processing statistics
-	if len(userIDs) > 0 || len(reportSeqs) > 0 {
-		log.Printf("Processed %d users and %d reports", len(userIDs), len(reportSeqs))
-	}
-
+	log.Printf("Successfully processed user: %s", userMsg.Id)
 	return nil
 }
 
-// processUsersInParallel processes users in parallel batches
-func processUsersInParallel(gdprService *database.GdprService, gdprProcessor *processor.GdprProcessor, userIDs []string, batchSize int, maxWorkers int) error {
-
-	log.Printf("Processing %d users in parallel batches of %d", len(userIDs), batchSize)
-
-	// Create a channel to collect results
-	resultChan := make(chan userProcessResult, len(userIDs))
-
-	// Create a semaphore to limit concurrent workers
-	semaphore := make(chan struct{}, maxWorkers)
-
-	// Process users in batches
-	for i := 0; i < len(userIDs); i += batchSize {
-		end := i + batchSize
-		if end > len(userIDs) {
-			end = len(userIDs)
-		}
-
-		batch := userIDs[i:end]
-		log.Printf("Processing batch %d-%d (%d users)", i+1, end, len(batch))
-
-		// Process batch concurrently
-		var wg sync.WaitGroup
-		for _, userID := range batch {
-			wg.Add(1)
-			go func(uid string) {
-				defer wg.Done()
-
-				// Acquire semaphore
-				semaphore <- struct{}{}
-				defer func() { <-semaphore }()
-
-				// Process user
-				result := processSingleUser(gdprService, gdprProcessor, uid)
-				resultChan <- result
-			}(userID)
-		}
-
-		// Wait for current batch to complete
-		wg.Wait()
+// handleReportMessage processes a report message from RabbitMQ
+func handleReportMessage(msg *rabbitmq.Message, gdprService *database.GdprService, gdprProcessor *processor.GdprProcessor, imagePlaceholderPath string) error {
+	var reportMsg ReportMessage
+	if err := json.Unmarshal(msg.Body, &reportMsg); err != nil {
+		return fmt.Errorf("failed to unmarshal report message: %w", err)
 	}
 
-	// Close result channel after all goroutines complete
-	close(resultChan)
+	log.Printf("Processing report message for report seq: %d, description: %s", reportMsg.Seq, reportMsg.Description)
 
-	// Collect and process results
-	successCount := 0
-	errorCount := 0
-
-	for result := range resultChan {
-		if result.err != nil {
-			errorCount++
-			log.Printf("Failed to process user %s: %v", result.userID, result.err)
-		} else {
-			successCount++
-			log.Printf("Successfully processed user %s", result.userID)
-		}
+	// Process the single report with full report data
+	result := processSingleReport(gdprService, gdprProcessor, reportMsg.Seq, reportMsg.Description, imagePlaceholderPath, 1)
+	if result.err != nil {
+		return fmt.Errorf("failed to process report %d: %w", reportMsg.Seq, result.err)
 	}
 
-	log.Printf("Batch processing completed: %d successful, %d failed", successCount, errorCount)
-	return nil
-}
-
-// processReportsInParallel processes reports in parallel batches
-func processReportsInParallel(gdprService *database.GdprService, gdprProcessor *processor.GdprProcessor, reportSeqs []int, batchSize int, maxWorkers int, imagePlaceholderPath string) error {
-
-	log.Printf("Processing %d reports in parallel batches of %d", len(reportSeqs), batchSize)
-
-	// Create a channel to collect results
-	resultChan := make(chan reportProcessResult, len(reportSeqs))
-
-	// Create a semaphore to limit concurrent workers
-	semaphore := make(chan struct{}, maxWorkers)
-
-	// Process reports in batches
-	for i := 0; i < len(reportSeqs); i += batchSize {
-		end := min(i + batchSize, len(reportSeqs))
-
-		batch := reportSeqs[i:end]
-		log.Printf("Processing batch %d-%d (%d reports)", i+1, end, len(batch))
-
-		// Process batch concurrently
-		var wg sync.WaitGroup
-		for i, seq := range batch {
-			wg.Add(1)
-			go func(reportSeq int, processNumber int) {
-				defer wg.Done()
-
-				// Acquire semaphore
-				semaphore <- struct{}{}
-				defer func() { <-semaphore }()
-
-				// Process report
-				result := processSingleReport(gdprService, gdprProcessor, reportSeq, imagePlaceholderPath, processNumber)
-				resultChan <- result
-			}(seq, i+1)
-		}
-
-		// Wait for current batch to complete
-		wg.Wait()
-	}
-
-	// Close result channel after all goroutines complete
-	close(resultChan)
-
-	// Collect and process results
-	successCount := 0
-	errorCount := 0
-
-	for result := range resultChan {
-		if result.err != nil {
-			errorCount++
-			log.Printf("Failed to process report %d: %v", result.seq, result.err)
-		} else {
-			successCount++
-			log.Printf("Successfully processed report %d", result.seq)
-		}
-	}
-
-	log.Printf("Report batch processing completed: %d successful, %d failed", successCount, errorCount)
+	log.Printf("Successfully processed report: %d", reportMsg.Seq)
 	return nil
 }
 
@@ -225,12 +145,9 @@ type userProcessResult struct {
 }
 
 // processSingleUser processes a single user and returns the result
-func processSingleUser(gdprService *database.GdprService, gdprProcessor *processor.GdprProcessor, userID string) userProcessResult {
-	// Fetch user avatar data
-	avatar, err := gdprService.GetUserData(userID)
-	if err != nil {
-		return userProcessResult{userID: userID, err: fmt.Errorf("failed to fetch user data: %w", err)}
-	}
+func processSingleUser(gdprService *database.GdprService, gdprProcessor *processor.GdprProcessor, userID string, avatar string) userProcessResult {
+	// Use the avatar from the message instead of fetching from database
+	log.Printf("Processing user %s with avatar: %s", userID, avatar)
 
 	// Process user with OpenAI
 	if err := gdprProcessor.ProcessUser(userID, avatar, gdprService.UpdateUserAvatar, gdprService.GenerateUniqueAvatar); err != nil {
@@ -252,8 +169,10 @@ type reportProcessResult struct {
 }
 
 // processSingleReport processes a single report and returns the result
-func processSingleReport(gdprService *database.GdprService, gdprProcessor *processor.GdprProcessor, seq int, imagePlaceholderPath string, processNumber int) reportProcessResult {
-	// Process report with GDPR processor
+func processSingleReport(gdprService *database.GdprService, gdprProcessor *processor.GdprProcessor, seq int, description string, imagePlaceholderPath string, processNumber int) reportProcessResult {
+	// Process report with GDPR processor using description from message
+	log.Printf("Processing report %d with description: %s", seq, description)
+
 	if err := gdprProcessor.ProcessReport(seq, gdprService.GetReportImage, gdprService.UpdateReportImage, gdprService.GetPlaceholderImage, imagePlaceholderPath, processNumber); err != nil {
 		return reportProcessResult{seq: seq, err: fmt.Errorf("failed to process report: %w", err)}
 	}

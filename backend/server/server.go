@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"time"
+
+	"cleanapp/backend/rabbitmq"
 
 	"github.com/apex/log"
 	"github.com/gin-contrib/cors"
@@ -40,8 +43,101 @@ var (
 	serverPort = flag.Int("port", 8080, "The port used by the service.")
 )
 
+// Global RabbitMQ publisher instance
+var rabbitmqPublisher *rabbitmq.Publisher
+
+// Global user routing key
+var userRoutingKey string
+
+// getRabbitMQConfig returns RabbitMQ configuration from environment variables
+func getRabbitMQConfig() (string, string, string, string) {
+	// Get AMQP URL components
+	host := os.Getenv("AMQP_HOST")
+	if host == "" {
+		host = "localhost"
+	}
+
+	port := os.Getenv("AMQP_PORT")
+	if port == "" {
+		port = "5672"
+	}
+
+	user := os.Getenv("AMQP_USER")
+	if user == "" {
+		user = "guest"
+	}
+
+	password := os.Getenv("AMQP_PASSWORD")
+	if password == "" {
+		password = "guest"
+	}
+
+	// Construct AMQP URL
+	amqpURL := fmt.Sprintf("amqp://%s:%s@%s:%s/", user, password, host, port)
+
+	// Get exchange name
+	exchangeName := os.Getenv("RABBITMQ_EXCHANGE")
+	if exchangeName == "" {
+		exchangeName = "cleanapp"
+	}
+
+	// Get report routing key
+	reportRoutingKey := os.Getenv("RABBITMQ_RAW_REPORT_ROUTING_KEY")
+	if reportRoutingKey == "" {
+		reportRoutingKey = "report.raw"
+	}
+
+	// Get user routing key
+	userRoutingKey := os.Getenv("RABBITMQ_USER_ROUTING_KEY")
+	if userRoutingKey == "" {
+		userRoutingKey = "user.add"
+	}
+
+	return amqpURL, exchangeName, reportRoutingKey, userRoutingKey
+}
+
+// initializePublisher initializes the RabbitMQ publisher for reports and user events
+func initializePublisher() error {
+	amqpURL, exchangeName, reportRoutingKey, userRoutingKeyFromEnv := getRabbitMQConfig()
+
+	publisher, err := rabbitmq.NewPublisher(amqpURL, exchangeName, reportRoutingKey)
+	if err != nil {
+		return fmt.Errorf("failed to initialize RabbitMQ publisher: %w", err)
+	}
+
+	rabbitmqPublisher = publisher
+	// Store the user routing key globally for use in user events
+	userRoutingKey = userRoutingKeyFromEnv
+	log.Infof("RabbitMQ publisher initialized: exchange=%s, report_routing_key=%s, user_routing_key=%s",
+		exchangeName, reportRoutingKey, userRoutingKeyFromEnv)
+	return nil
+}
+
+// closePublisher closes the RabbitMQ publisher
+func closePublisher() {
+	if rabbitmqPublisher != nil {
+		err := rabbitmqPublisher.Close()
+		if err != nil {
+			log.Errorf("Failed to close RabbitMQ publisher: %v", err)
+		} else {
+			log.Info("RabbitMQ publisher closed successfully")
+		}
+	}
+}
+
 func StartService() {
 	log.Info("Starting the service...")
+
+	// Initialize RabbitMQ publisher for reports and user events
+	err := initializePublisher()
+	if err != nil {
+		log.Errorf("Failed to initialize RabbitMQ publisher: %v", err)
+		log.Info("Continuing without RabbitMQ publisher...")
+	}
+
+	// Ensure cleanup on exit
+	defer closePublisher()
+
 	router := gin.Default()
 	router.Use(cors.New(cors.Config{
 		AllowMethods:     []string{"GET", "POST", "OPTIONS"},

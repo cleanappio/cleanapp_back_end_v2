@@ -154,6 +154,19 @@ case ${OPT} in
   *) echo "invalid option $REPLY";;
 esac
 
+# RabbitMQ vars
+AMQP_HOST="cleanapp_rabbitmq"
+AMQP_PORT="5672"
+AMQP_USER="cleanapp"
+AMQP_PASSWORD="cleanapp"
+RABBITMQ_EXCHANGE="cleanapp-exchange"
+RABBITMQ_GDPR_PROCESS_QUEUE="gdpr-processing-queue"
+RABBITMQ_REPORT_ANALYSIS_QUEUE="report-analysis-queue"
+RABBITMQ_REPORT_OWNERSHIP_QUEUE="report-ownership-queue"
+RABBITMQ_RAW_REPORT_ROUTING_KEY="report.raw"
+RABBITMQ_ANALYSED_REPORT_ROUTING_KEY="report.analysed"
+RABBITMQ_USER_ROUTING_KEY="user.add"
+
 SECRET_SUFFIX=$(echo ${OPT} | tr '[a-z]' '[A-Z]')
 
 # Docker images
@@ -354,6 +367,13 @@ services:
       - CLEANAPP_ANDROID_URL=${REACT_APP_PLAYSTORE_URL}
       - CLEANAPP_IOS_URL=${REACT_APP_APPSTORE_URL}
       - REPORT_ANALYSIS_URL=http://cleanapp_report_analyze_pipeline:8080
+      - AMQP_HOST=${AMQP_HOST}
+      - AMQP_PORT=${AMQP_PORT}
+      - AMQP_USER=${AMQP_USER}
+      - AMQP_PASSWORD=${AMQP_PASSWORD}
+      - RABBITMQ_EXCHANGE=${RABBITMQ_EXCHANGE}
+      - RABBITMQ_RAW_REPORT_ROUTING_KEY=${RABBITMQ_RAW_REPORT_ROUTING_KEY}
+      - RABBITMQ_USER_ROUTING_KEY=${RABBITMQ_USER_ROUTING_KEY}
       - GIN_MODE=${GIN_MODE}
     ports:
       - 8080:8080
@@ -477,6 +497,14 @@ services:
       - ANALYSIS_PROMPT=${ANALYSIS_PROMPT}
       - LOG_LEVEL=info
       - SEQ_START_FROM=${SEQ_START_FROM}
+      - AMQP_HOST=${AMQP_HOST}
+      - AMQP_PORT=${AMQP_PORT}
+      - AMQP_USER=${AMQP_USER}
+      - AMQP_PASSWORD=${AMQP_PASSWORD}
+      - RABBITMQ_EXCHANGE=${RABBITMQ_EXCHANGE}
+      - RABBITMQ_QUEUE=${RABBITMQ_REPORT_ANALYSIS_QUEUE}
+      - RABBITMQ_RAW_REPORT_ROUTING_KEY=${RABBITMQ_RAW_REPORT_ROUTING_KEY}
+      - RABBITMQ_ANALYSED_REPORT_ROUTING_KEY=${RABBITMQ_ANALYSED_REPORT_ROUTING_KEY}
       - GIN_MODE=${GIN_MODE}
     ports:
       - 9082:8080
@@ -664,6 +692,14 @@ services:
       - DB_NAME=cleanapp
       - POLL_INTERVAL=1s
       - BATCH_SIZE=100
+      - AMQP_HOST=${AMQP_HOST}
+      - AMQP_PORT=${AMQP_PORT}
+      - AMQP_USER=${AMQP_USER}
+      - AMQP_PASSWORD=${AMQP_PASSWORD}
+      - RABBITMQ_EXCHANGE=${RABBITMQ_EXCHANGE}
+      - RABBITMQ_QUEUE=${RABBITMQ_REPORT_OWNERSHIP_QUEUE}
+      - RABBITMQ_RAW_REPORT_ROUTING_KEY=${RABBITMQ_RAW_REPORT_ROUTING_KEY}
+      - RABBITMQ_ANALYSED_REPORT_ROUTING_KEY=${RABBITMQ_ANALYSED_REPORT_ROUTING_KEY}
       - GIN_MODE=${GIN_MODE}
     ports:
       - 9090:8080
@@ -695,37 +731,19 @@ services:
       - FACE_DETECTOR_URL=http://${FACE_DETECTOR_INTERNAL_HOST}
       - FACE_DETECTOR_PORT_START=${FACE_DETECTOR_PORT_START}
       - POLL_INTERVAL=500ms
+      - AMQP_HOST=${AMQP_HOST}
+      - AMQP_PORT=${AMQP_PORT}
+      - AMQP_USER=${AMQP_USER}
+      - AMQP_PASSWORD=${AMQP_PASSWORD}
+      - RABBITMQ_EXCHANGE=${RABBITMQ_EXCHANGE}
+      - RABBITMQ_QUEUE=${RABBITMQ_GDPR_PROCESS_QUEUE}
+      - RABBITMQ_RAW_REPORT_ROUTING_KEY=${RABBITMQ_RAW_REPORT_ROUTING_KEY}
+      - RABBITMQ_USER_ROUTING_KEY=${RABBITMQ_USER_ROUTING_KEY}
       - GIN_MODE=${GIN_MODE}
     ports:
       - 9091:8080
     depends_on:
       - cleanapp_db
-
-  # Optional EPC pusher
-  ${ENABLE_EPC_PUSHER:+cleanapp_epc_pusher:}
-  ${ENABLE_EPC_PUSHER:+  container_name: cleanapp_epc_pusher}
-  ${ENABLE_EPC_PUSHER:+  image: ${EPC_PUSHER_DOCKER_IMAGE}}
-  ${ENABLE_EPC_PUSHER:+  restart: unless-stopped}
-  ${ENABLE_EPC_PUSHER:+  environment:}
-  ${ENABLE_EPC_PUSHER:+    - DB_HOST=cleanapp_db}
-  ${ENABLE_EPC_PUSHER:+    - DB_PORT=3306}
-  ${ENABLE_EPC_PUSHER:+    - DB_USER=server}
-  ${ENABLE_EPC_PUSHER:+    - DB_PASSWORD=\${MYSQL_APP_PASSWORD}}
-  ${ENABLE_EPC_PUSHER:+    - MYSQL_APP_PASSWORD=\${MYSQL_APP_PASSWORD}}
-  ${ENABLE_EPC_PUSHER:+    - DB_NAME=cleanapp}
-  ${ENABLE_EPC_PUSHER:+    - BLOCKSCAN_CHAT_API_KEY=\${BLOCKSCAN_CHAT_API_KEY}}
-  ${ENABLE_EPC_PUSHER:+    - EPC_CONTRACT_ADDRESS=${CONTRACT_ADDRESS_MAIN}}
-  ${ENABLE_EPC_PUSHER:+    - EPC_DISPATCH=${EPC_DISPATCH}}
-  ${ENABLE_EPC_PUSHER:+    - EPC_REPORTS_START_SEQ=${EPC_REPORTS_START_SEQ}}
-  ${ENABLE_EPC_PUSHER:+    - EPC_ONLY_VALID=${EPC_ONLY_VALID}}
-  ${ENABLE_EPC_PUSHER:+    - EPC_FILTER_LANGUAGE=${EPC_FILTER_LANGUAGE}}
-  ${ENABLE_EPC_PUSHER:+    - EPC_FILTER_SOURCE=${EPC_FILTER_SOURCE}}
-  ${ENABLE_EPC_PUSHER:+  env_file:}
-  ${ENABLE_EPC_PUSHER:+    - .env}
-  ${ENABLE_EPC_PUSHER:+  depends_on:}
-  ${ENABLE_EPC_PUSHER:+    - cleanapp_db}
-  ${ENABLE_EPC_PUSHER:+  links:}
-  ${ENABLE_EPC_PUSHER:+    - cleanapp_db}
 
   cleanapp_voice_assistant_service:
     container_name: cleanapp_voice_assistant_service
@@ -758,9 +776,34 @@ services:
 
 COMPOSE
 
-# Sanitize docker-compose.yml to avoid YAML parse issues on target
-sed -i 's/\r$//' docker-compose.yml
-sed -i '/^[[:space:]]*[{}][[:space:]]*$/d' docker-compose.yml
+if [ "${ENABLE_EPC_PUSHER}" == "true" ]; then
+  cat >>docker-compose.yml << COMPOSE_EPC_PUSHER
+  cleanapp_epc_pusher:
+    container_name: cleanapp_epc_pusher
+    image: ${EPC_PUSHER_DOCKER_IMAGE}
+    restart: unless-stopped
+    environment:
+    - DB_HOST=cleanapp_db
+    - DB_PORT=3306
+    - DB_USER=server
+    - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
+    - MYSQL_APP_PASSWORD=\${MYSQL_APP_PASSWORD}
+    - DB_NAME=cleanapp
+    - BLOCKSCAN_CHAT_API_KEY=\${BLOCKSCAN_CHAT_API_KEY}
+    - EPC_CONTRACT_ADDRESS=${CONTRACT_ADDRESS_MAIN}
+    - EPC_DISPATCH=${EPC_DISPATCH}
+    - EPC_REPORTS_START_SEQ=${EPC_REPORTS_START_SEQ}
+    - EPC_ONLY_VALID=${EPC_ONLY_VALID}
+    - EPC_FILTER_LANGUAGE=${EPC_FILTER_LANGUAGE}
+    - EPC_FILTER_SOURCE=${EPC_FILTER_SOURCE}
+  env_file:
+    - .env
+  depends_on:
+    - cleanapp_db
+  links:
+    - cleanapp_db
+COMPOSE_EPC_PUSHER
+fi
 
 FACE_DETECTOR_COUNT=10
 FACE_DETECTOR_FILE="docker-compose.yml"

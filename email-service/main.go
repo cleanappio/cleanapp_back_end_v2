@@ -63,6 +63,7 @@ func main() {
 	}()
 
 	// Start polling for reports in a goroutine
+	// TODO: Replace with the RabbitMQ subscription
 	go func() {
 		pollInterval := cfg.GetPollInterval()
 		log.Printf("Email service started. Polling every %v", pollInterval)

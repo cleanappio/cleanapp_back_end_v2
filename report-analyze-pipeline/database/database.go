@@ -305,6 +305,56 @@ func (d *Database) GetUnanalyzedReports(cfg *config.Config, limit int) ([]Report
 	return reports, nil
 }
 
+// GetReportBySeq gets a single report by sequence number
+func (d *Database) GetReportBySeq(seq int) (*Report, error) {
+	query := `
+	SELECT r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.image, r.action_id, r.description
+	FROM reports r
+	WHERE r.seq = ?`
+
+	var report Report
+	var description sql.NullString
+
+	err := d.db.QueryRow(query, seq).Scan(
+		&report.Seq,
+		&report.Timestamp,
+		&report.ID,
+		&report.Team,
+		&report.Latitude,
+		&report.Longitude,
+		&report.X,
+		&report.Y,
+		&report.Image,
+		&report.ActionID,
+		&description,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("report with seq %d not found", seq)
+		}
+		return nil, fmt.Errorf("failed to fetch report %d: %w", seq, err)
+	}
+
+	report.Description = description.String
+	return &report, nil
+}
+
+// GetReportImage gets only the image data for a report by sequence number
+func (d *Database) GetReportImage(seq int) ([]byte, error) {
+	query := `SELECT r.image FROM reports r WHERE r.seq = ?`
+
+	var image []byte
+	err := d.db.QueryRow(query, seq).Scan(&image)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("report with seq %d not found", seq)
+		}
+		return nil, fmt.Errorf("failed to fetch image for report %d: %w", seq, err)
+	}
+
+	return image, nil
+}
+
 // SaveAnalysis saves the analysis result to the database
 func (d *Database) SaveAnalysis(analysis *ReportAnalysis) error {
 	query := `

@@ -1,0 +1,18 @@
+[package]
+name = "rabbitmq-publisher"
+version = "0.1.0"
+edition = "2021"
+description = "Standalone RabbitMQ Publisher Application"
+authors = ["CleanApp Team"]
+license = "MIT"
+
+[[bin]]
+name = "rabbitmq-publisher"
+path = "src/main.rs"
+
+[dependencies]
+rabbitmq = { path = "../rustlib/rabbitmq" }
+tokio = { version = "1.0", features = ["full"] }
+chrono = { version = "0.4", features = ["serde"] }
+serde = { version = "1.0", features = ["derive"] }
+env_logger = "0.10"

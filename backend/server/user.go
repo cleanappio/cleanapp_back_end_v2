@@ -2,9 +2,9 @@ package server
 
 import (
 	"flag"
+	"net/http"
 
 	"cleanapp/common"
-	"net/http"
 
 	"cleanapp/backend/db"
 	"cleanapp/backend/server/api"
@@ -22,6 +22,22 @@ var (
 	privateKeyMain      = flag.String("eth_private_key_main", "", "The private key for connecting to the smart contract for main chain.")
 	contractAddressMain = flag.String("contract_address_main", "", "The contract address in HEX for main chain.")
 )
+
+// publishUserEvent publishes a user event to RabbitMQ using the shared publisher
+func publishUserEvent(routingKey string, userData interface{}) {
+	if rabbitmqPublisher == nil {
+		log.Errorf("RabbitMQ publisher not initialized, cannot publish user event: %s", routingKey)
+		return
+	}
+
+	err := rabbitmqPublisher.PublishWithRoutingKey(routingKey, userData)
+	if err != nil {
+		log.Errorf("Failed to publish user event %s: %v", routingKey, err)
+		return
+	}
+
+	log.Infof("Successfully published user event: %s", routingKey)
+}
 
 func CreateOrUpdateUser(c *gin.Context) {
 	var user api.UserArgs
@@ -64,6 +80,10 @@ func CreateOrUpdateUser(c *gin.Context) {
 			c.Status(http.StatusInternalServerError) // 500
 			return
 		}
+	}
+	// Publish user add/edit event for successful user creation/update
+	if err == nil {
+		publishUserEvent(userRoutingKey, user)
 	}
 
 	if user.Referral != "" {
