@@ -84,6 +84,8 @@ fi
 
 if [ "${OPT}" == "dev" ]; then
   echo "Building and pushing docker image..."
+  # Create cache-busting file tied to BUILD_VERSION
+  echo "${BUILD_VERSION}" > build_version.txt
   gcloud builds submit \
     --region=${CLOUD_REGION} \
     --tag=${DOCKER_TAG}:${BUILD_VERSION}

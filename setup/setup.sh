@@ -783,25 +783,23 @@ if [ "${ENABLE_EPC_PUSHER}" == "true" ]; then
     image: ${EPC_PUSHER_DOCKER_IMAGE}
     restart: unless-stopped
     environment:
-    - DB_HOST=cleanapp_db
-    - DB_PORT=3306
-    - DB_USER=server
-    - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
-    - MYSQL_APP_PASSWORD=\${MYSQL_APP_PASSWORD}
-    - DB_NAME=cleanapp
-    - BLOCKSCAN_CHAT_API_KEY=\${BLOCKSCAN_CHAT_API_KEY}
-    - EPC_CONTRACT_ADDRESS=${CONTRACT_ADDRESS_MAIN}
-    - EPC_DISPATCH=${EPC_DISPATCH}
-    - EPC_REPORTS_START_SEQ=${EPC_REPORTS_START_SEQ}
-    - EPC_ONLY_VALID=${EPC_ONLY_VALID}
-    - EPC_FILTER_LANGUAGE=${EPC_FILTER_LANGUAGE}
-    - EPC_FILTER_SOURCE=${EPC_FILTER_SOURCE}
-  env_file:
-    - .env
-  depends_on:
-    - cleanapp_db
-  links:
-    - cleanapp_db
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+      - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
+      - MYSQL_APP_PASSWORD=\${MYSQL_APP_PASSWORD}
+      - DB_NAME=cleanapp
+      - BLOCKSCAN_CHAT_API_KEY=\${BLOCKSCAN_CHAT_API_KEY}
+      - EPC_CONTRACT_ADDRESS=${CONTRACT_ADDRESS_MAIN}
+      - EPC_DISPATCH=${EPC_DISPATCH}
+      - EPC_REPORTS_START_SEQ=${EPC_REPORTS_START_SEQ}
+      - EPC_ONLY_VALID=${EPC_ONLY_VALID}
+      - EPC_FILTER_LANGUAGE=${EPC_FILTER_LANGUAGE}
+      - EPC_FILTER_SOURCE=${EPC_FILTER_SOURCE}
+    env_file:
+      - .env
+    depends_on:
+      - cleanapp_db
 COMPOSE_EPC_PUSHER
 fi
 
@@ -876,7 +874,7 @@ fi
 
 # Start docker containers.
 if [ -n "${SSH_KEYFILE}" ]; then
-  ssh -i ${SSH_KEYFILE} deployer@${CLEANAPP_HOST} "./up1.sh"
+  ssh -i ${SSH_KEYFILE} deployer@${CLEANAPP_HOST} "docker compose pull cleanapp_report_tags_service || true; ./up1.sh"
 else
   ssh deployer@${CLEANAPP_HOST} "./up1.sh"
 fi
