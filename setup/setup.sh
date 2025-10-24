@@ -163,6 +163,7 @@ RABBITMQ_EXCHANGE="cleanapp-exchange"
 RABBITMQ_GDPR_PROCESS_QUEUE="gdpr-processing-queue"
 RABBITMQ_REPORT_ANALYSIS_QUEUE="report-analysis-queue"
 RABBITMQ_REPORT_OWNERSHIP_QUEUE="report-ownership-queue"
+RABBITMQ_REPORT_RENDERER_QUEUE="report-renderer-queue"
 RABBITMQ_RAW_REPORT_ROUTING_KEY="report.raw"
 RABBITMQ_ANALYSED_REPORT_ROUTING_KEY="report.analysed"
 RABBITMQ_USER_ROUTING_KEY="user.add"
@@ -196,6 +197,7 @@ REPORTS_PUSHER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-reports-pusher-image:${OP
 FACE_DETECTOR_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-face-detector-image:${OPT}"
 VOICE_ASSISTANT_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-voice-assistant-service-image:${OPT}"
 EPC_PUSHER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-epc-pusher-image:${OPT}"
+REPORT_RENDERER_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-fast-renderer-image:${OPT}"
 
 OPENAI_ASSISTANT_ID="asst_kBtuzDRWNorZgw9o2OJTGOn0"
 
@@ -238,6 +240,7 @@ docker pull ${VOICE_ASSISTANT_SERVICE_DOCKER_IMAGE}
 docker pull ${EMAIL_SERVICE_V3_DOCKER_IMAGE}
 docker pull ${EPC_PUSHER_DOCKER_IMAGE}
 docker pull ${EMAIL_FETCHER_DOCKER_IMAGE}
+docker pull ${REPORT_RENDERER_SERVICE_DOCKER_IMAGE}
 
 # Secrets
 cat >.env << ENV
@@ -751,6 +754,24 @@ services:
       - ALLOWED_ORIGINS=*
     ports:
       - 9092:8080
+  
+  cleanapp_report_renderer_service:
+    container_name: cleanapp_report_renderer_service
+    image: ${REPORT_RENDERER_SERVICE_DOCKER_IMAGE}
+    environment:
+      - AMQP_HOST=${AMQP_HOST}
+      - AMQP_PORT=${AMQP_PORT}
+      - AMQP_USER=${AMQP_USER}
+      - AMQP_PASSWORD=${AMQP_PASSWORD}
+      - RABBITMQ_EXCHANGE=${RABBITMQ_EXCHANGE}
+      - RABBITMQ_RENDERER_QUEUE_NAME=${RABBITMQ_REPORT_RENDERER_QUEUE}
+      - RABBITMQ_ANALYSED_REPORT_ROUTING_KEY=${RABBITMQ_ANALYSED_REPORT_ROUTING_KEY}
+      - GIN_MODE=${GIN_MODE}
+    ports:
+      - 9093:8080
+    depends_on:
+      - cleanapp_db
+      - cleanapp_rabbitmq
 
 COMPOSE
 
@@ -761,25 +782,25 @@ if [ "${ENABLE_EPC_PUSHER}" == "true" ]; then
     image: ${EPC_PUSHER_DOCKER_IMAGE}
     restart: unless-stopped
     environment:
-    - DB_HOST=cleanapp_db
-    - DB_PORT=3306
-    - DB_USER=server
-    - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
-    - MYSQL_APP_PASSWORD=\${MYSQL_APP_PASSWORD}
-    - DB_NAME=cleanapp
-    - BLOCKSCAN_CHAT_API_KEY=\${BLOCKSCAN_CHAT_API_KEY}
-    - EPC_CONTRACT_ADDRESS=${CONTRACT_ADDRESS_MAIN}
-    - EPC_DISPATCH=${EPC_DISPATCH}
-    - EPC_REPORTS_START_SEQ=${EPC_REPORTS_START_SEQ}
-    - EPC_ONLY_VALID=${EPC_ONLY_VALID}
-    - EPC_FILTER_LANGUAGE=${EPC_FILTER_LANGUAGE}
-    - EPC_FILTER_SOURCE=${EPC_FILTER_SOURCE}
-  env_file:
-    - .env
-  depends_on:
-    - cleanapp_db
-  links:
-    - cleanapp_db
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+      - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
+      - MYSQL_APP_PASSWORD=\${MYSQL_APP_PASSWORD}
+      - DB_NAME=cleanapp
+      - BLOCKSCAN_CHAT_API_KEY=\${BLOCKSCAN_CHAT_API_KEY}
+      - EPC_CONTRACT_ADDRESS=${CONTRACT_ADDRESS_MAIN}
+      - EPC_DISPATCH=${EPC_DISPATCH}
+      - EPC_REPORTS_START_SEQ=${EPC_REPORTS_START_SEQ}
+      - EPC_ONLY_VALID=${EPC_ONLY_VALID}
+      - EPC_FILTER_LANGUAGE=${EPC_FILTER_LANGUAGE}
+      - EPC_FILTER_SOURCE=${EPC_FILTER_SOURCE}
+    env_file:
+      - .env
+    depends_on:
+      - cleanapp_db
+    links:
+      - cleanapp_db
 COMPOSE_EPC_PUSHER
 fi
 

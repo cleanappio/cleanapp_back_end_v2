@@ -1,0 +1,13 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '--build-arg', 'GIT_COMMIT=${_GIT_COMMIT}', '-t', '${_TAG}', '.']
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '${_TAG}']
+
+options:
+  machineType: 'E2_HIGHCPU_32'
+
+substitutions:
+  _TAG: 'override-this'
+  _GIT_COMMIT: 'unknown'
