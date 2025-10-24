@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use rabbitmq::{CallbackFunc, Message, Subscriber};
+use cleanapp_rustlib::rabbitmq::subscriber::{CallbackFunc, Message, Subscriber};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, sync::Arc};
 

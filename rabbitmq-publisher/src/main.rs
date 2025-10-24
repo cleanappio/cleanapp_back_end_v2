@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use rabbitmq::Publisher;
+use cleanapp_rustlib::rabbitmq::publisher::Publisher;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
