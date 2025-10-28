@@ -31,6 +31,9 @@ async fn main() {
 }
 
 async fn run() -> Result<()> {
+    println!("boot: report-listener-v4 starting");
+    use std::io::Write as _;
+    let _ = std::io::stdout().flush();
     dotenvy::dotenv().ok();
     tracing_subscriber::registry()
         .with(
@@ -59,8 +62,12 @@ async fn run() -> Result<()> {
     let addr: SocketAddr = format!("0.0.0.0:{}", cfg.http_port).parse().unwrap();
     tracing::info!("report-listener-v4 binding on {}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
-    Ok(())
+    if let Err(e) = axum::serve(listener, app).await {
+        eprintln!("server error: {:#}", e);
+        std::process::exit(1);
+    }
+    eprintln!("server exited unexpectedly");
+    std::process::exit(2)
 }
 
 async fn health() -> impl IntoResponse {

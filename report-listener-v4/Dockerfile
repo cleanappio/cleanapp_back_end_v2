@@ -2,11 +2,8 @@ FROM rust:1.82-bullseye AS builder
 
 WORKDIR /app
 
-# Cache deps
+# Build with full sources (avoid accidental stub carryover)
 COPY Cargo.toml Cargo.lock ./
-RUN mkdir -p src && echo "fn main(){}" > src/main.rs && cargo build --release || true
-
-# Build actual sources
 COPY src ./src
 RUN cargo build --release --bins
 
@@ -17,7 +14,7 @@ COPY --from=builder /app/target/release/report-listener-v4 /usr/local/bin/report
 ENV HTTP_PORT=9084
 ENV RUST_LOG=info
 ENV RUST_BACKTRACE=1
-CMD ["/usr/local/bin/report-listener-v4"]
+ENTRYPOINT ["/usr/local/bin/report-listener-v4"]
 
 
 

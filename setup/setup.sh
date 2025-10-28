@@ -833,7 +833,7 @@ services:
       - DB_NAME=cleanapp
       - HTTP_PORT=8080
     ports:
-      - 9095:8080
+      - 9097:8080
     depends_on:
       - cleanapp_db
 
