@@ -614,7 +614,7 @@ services:
     ports:
       - 9095:8080
     depends_on:
-      - cleanapp_db:
+      cleanapp_db:
         condition: service_healthy
 
   cleanapp_auth_service:
