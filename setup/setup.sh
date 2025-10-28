@@ -88,6 +88,8 @@ case ${OPT} in
       NEW_YORK_AREA_SUB_IDS="6971,6972,6973,6974,6975"
       DEVCONNECT_2025_AREA_ID=18544700
       DEVCONNECT_2025_AREA_SUB_IDS="18544700"
+      EDGE_CITY_AREA_ID=-3340828
+      EDGE_CITY_AREA_SUB_IDS="-3340828"
       OPT_OUT_URL="http://dev.cleanapp.io/api/optout"
       FACE_DETECTOR_COUNT=10
       FACE_DETECTOR_HOST=34.68.94.220
@@ -136,6 +138,8 @@ case ${OPT} in
       NEW_YORK_AREA_SUB_IDS="6637,6638,6639,6640,6641"
       DEVCONNECT_2025_AREA_ID=18544700
       DEVCONNECT_2025_AREA_SUB_IDS="18544700"
+      EDGE_CITY_AREA_ID=-3340828
+      EDGE_CITY_AREA_SUB_IDS="-3340828"
       GIN_MODE=release
       OPT_OUT_URL="https://cleanapp.io/api/optout"
       FACE_DETECTOR_COUNT=10
@@ -589,6 +593,28 @@ services:
       - 9094:8080
     depends_on:
       cleanapp_db:
+        condition: service_healthy
+  
+  cleanapp_edge_city_areas:
+    container_name: cleanapp_edge_city_areas
+    image: ${AREAS_DASHBOARD_DOCKER_IMAGE}
+    environment:
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+      - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
+      - DB_NAME=cleanapp
+      - LOG_LEVEL=info
+      - LOG_FORMAT=json
+      - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
+      - REPORT_AUTH_SERVICE_URL=http://cleanapp_report_auth_service:8080
+      - GIN_MODE=${GIN_MODE}
+      - CUSTOM_AREA_ID=${EDGE_CITY_AREA_ID}
+      - CUSTOM_AREA_SUB_IDS=${EDGE_CITY_AREA_SUB_IDS}
+    ports:
+      - 9095:8080
+    depends_on:
+      - cleanapp_db:
         condition: service_healthy
 
   cleanapp_auth_service:
