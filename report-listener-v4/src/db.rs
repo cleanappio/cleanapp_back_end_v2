@@ -34,9 +34,14 @@ pub fn fetch_reports_by_brand(pool: &my::Pool, brand_name: &str, limit: usize) -
     let mut conn = pool.get_conn()?;
 
     // Reports query similar to Go version, with filters on status/ownership
-    let report_rows: Vec<(i64, String, String, f64, f64, Vec<u8>)> = conn.exec(
+    let report_rows: Vec<my::Row> = conn.exec(
         r#"
-        SELECT DISTINCT r.seq, r.ts, r.id, r.latitude, r.longitude, r.image
+        SELECT DISTINCT r.seq,
+               DATE_FORMAT(r.ts, '%Y-%m-%d %H:%i:%s') AS ts,
+               r.id,
+               r.latitude,
+               r.longitude,
+               COALESCE(r.image, '') AS image
         FROM reports r
         INNER JOIN report_analysis ra ON r.seq = ra.seq
         LEFT JOIN report_status rs ON r.seq = rs.seq
@@ -45,7 +50,7 @@ pub fn fetch_reports_by_brand(pool: &my::Pool, brand_name: &str, limit: usize) -
           AND (rs.status IS NULL OR rs.status = 'active')
           AND ra.is_valid = TRUE
           AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE)
-        ORDER BY r.ts DESC
+        ORDER BY ts DESC
         LIMIT ?
         "#,
         (brand_name, limit as u64),
@@ -57,7 +62,13 @@ pub fn fetch_reports_by_brand(pool: &my::Pool, brand_name: &str, limit: usize) -
 
     let mut reports: Vec<Report> = Vec::with_capacity(report_rows.len());
     let mut seqs: Vec<i64> = Vec::with_capacity(report_rows.len());
-    for (seq, ts, id, lat, lon, image) in report_rows {
+    for mut row in report_rows {
+        let seq: i64 = row.take::<i64, _>(0).unwrap_or(0);
+        let ts: String = row.take::<Option<String>, _>(1).unwrap_or(None).unwrap_or_default();
+        let id: String = row.take::<Option<String>, _>(2).unwrap_or(None).unwrap_or_default();
+        let lat: f64 = row.take::<Option<f64>, _>(3).unwrap_or(None).unwrap_or(0.0);
+        let lon: f64 = row.take::<Option<f64>, _>(4).unwrap_or(None).unwrap_or(0.0);
+        let image: Vec<u8> = row.take::<Option<Vec<u8>>, _>(5).unwrap_or(None).unwrap_or_default();
         reports.push(Report { seq, timestamp: ts, id, latitude: lat, longitude: lon, image });
         seqs.push(seq);
     }
