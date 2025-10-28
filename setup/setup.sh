@@ -357,6 +357,11 @@ services:
     volumes:
       - rabbitmq-lib:/var/lib/rabbitmq/
       - rabbitmq-log:/var/log/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   cleanapp_service:
     container_name: cleanapp_service
@@ -409,6 +414,11 @@ services:
       - mysql:/var/lib/mysql
     ports:
       - 3306:3306
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p\${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 3s
+      timeout: 1s
+      retries: 10
 
   cleanapp_web:
     container_name: cleanapp_web
@@ -514,7 +524,8 @@ services:
     ports:
       - 9082:8080
     depends_on:
-      - cleanapp_db
+      cleanapp_db:
+        condition: service_healthy
 
   cleanapp_montenegro_areas:
     container_name: cleanapp_montenegro_areas
@@ -535,7 +546,8 @@ services:
     ports:
       - 9083:8080
     depends_on:
-      - cleanapp_db
+      cleanapp_db:
+        condition: service_healthy
 
   cleanapp_new_york_areas:
     container_name: cleanapp_new_york_areas
@@ -556,7 +568,8 @@ services:
     ports:
       - 9088:8080
     depends_on:
-      - cleanapp_db
+      cleanapp_db:
+        condition: service_healthy
 
   cleanapp_devconnect_2025_areas:
     container_name: cleanapp_devconnect_2025_areas
@@ -577,7 +590,8 @@ services:
     ports:
       - 9094:8080
     depends_on:
-      - cleanapp_db
+      cleanapp_db:
+        condition: service_healthy
 
   cleanapp_auth_service:
     container_name: cleanapp_auth_service
@@ -595,7 +609,8 @@ services:
     ports:
       - 9084:8080
     depends_on:
-      - cleanapp_db
+      cleanapp_db:
+        condition: service_healthy
 
   cleanapp_red_bull_dashboard:
     container_name: cleanapp_red_bull_dashboard
@@ -664,7 +679,8 @@ services:
     ports:
       - 9089:8080
     depends_on:
-      - cleanapp_db
+      cleanapp_db:
+        condition: service_healthy
 
   cleanapp_email_service_v3:
     container_name: cleanapp_email_service_v3
@@ -686,7 +702,8 @@ services:
       - BCC_EMAIL_ADDRESS=cleanapp@stxn.io
       - ENABLE_EMAIL_V3=${ENABLE_EMAIL_V3}
     depends_on:
-      - cleanapp_db
+      cleanapp_db:
+        condition: service_healthy
 
   cleanapp_email_fetcher:
     container_name: cleanapp_email_fetcher
@@ -704,7 +721,8 @@ services:
       - BATCH_LIMIT=100
       - ENABLE_EMAIL_FETCHER=${ENABLE_EMAIL_FETCHER}
     depends_on:
-      - cleanapp_db
+      cleanapp_db:
+        condition: service_healthy
 
   cleanapp_report_ownership_service:
     container_name: cleanapp_report_ownership_service
@@ -739,7 +757,8 @@ services:
       - CHAIN_ID=${CHAIN_ID}
       - POLL_SECS=5
     depends_on:
-      - cleanapp_db
+      cleanapp_db:
+        condition: service_healthy
 
   cleanapp_gdpr_process_service:
     container_name: cleanapp_gdpr_process_service
@@ -768,7 +787,8 @@ services:
     ports:
       - 9091:8080
     depends_on:
-      - cleanapp_db
+      cleanapp_db:
+        condition: service_healthy
 
   cleanapp_voice_assistant_service:
     container_name: cleanapp_voice_assistant_service
@@ -797,8 +817,10 @@ services:
     ports:
       - 9093:8080
     depends_on:
-      - cleanapp_db
-      - cleanapp_rabbitmq
+      cleanapp_db:
+        condition: service_healthy
+      cleanapp_rabbitmq:
+        condition: service_healthy
 
   cleanapp_report_listener_v4:
     container_name: cleanapp_report_listener_v4
@@ -840,7 +862,8 @@ if [ "${ENABLE_EPC_PUSHER}" == "true" ]; then
     env_file:
       - .env
     depends_on:
-      - cleanapp_db
+      cleanapp_db:
+        condition: service_healthy
     links:
       - cleanapp_db
 COMPOSE_EPC_PUSHER
