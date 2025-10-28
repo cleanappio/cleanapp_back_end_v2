@@ -202,6 +202,7 @@ FACE_DETECTOR_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-face-detector-image:${OPT}
 VOICE_ASSISTANT_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-voice-assistant-service-image:${OPT}"
 EPC_PUSHER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-epc-pusher-image:${OPT}"
 REPORT_RENDERER_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-fast-renderer-image:${OPT}"
+REPORT_LISTENER_V4_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-listener-v4-image:${OPT}"
 
 OPENAI_ASSISTANT_ID="asst_kBtuzDRWNorZgw9o2OJTGOn0"
 
@@ -245,6 +246,7 @@ docker pull ${EMAIL_SERVICE_V3_DOCKER_IMAGE}
 docker pull ${EPC_PUSHER_DOCKER_IMAGE}
 docker pull ${EMAIL_FETCHER_DOCKER_IMAGE}
 docker pull ${REPORT_RENDERER_SERVICE_DOCKER_IMAGE}
+docker pull ${REPORT_LISTENER_V4_DOCKER_IMAGE}
 
 # Secrets
 cat >.env << ENV
@@ -798,6 +800,21 @@ services:
       - cleanapp_db
       - cleanapp_rabbitmq
 
+  cleanapp_report_listener_v4:
+    container_name: cleanapp_report_listener_v4
+    image: ${REPORT_LISTENER_V4_DOCKER_IMAGE}
+    environment:
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+      - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
+      - DB_NAME=cleanapp
+      - HTTP_PORT=8080
+    ports:
+      - 9095:8080
+    depends_on:
+      - cleanapp_db
+
 COMPOSE
 
 if [ "${ENABLE_EPC_PUSHER}" == "true" ]; then
@@ -903,6 +920,18 @@ if [ -n "${SSH_KEYFILE}" ]; then
   ssh -i ${SSH_KEYFILE} deployer@${CLEANAPP_HOST} "./up1.sh"
 else
   ssh deployer@${CLEANAPP_HOST} "./up1.sh"
+fi
+
+# Deploy nginx v4 config and reload
+LOCAL_NGINX_CONF="cleanapp_back_end_v2/conf/nginx/${OPT}/conf.d/livecleanapp-v4.conf"
+if [ -f "${LOCAL_NGINX_CONF}" ]; then
+  if [ -n "${SSH_KEYFILE}" ]; then
+    scp -i ${SSH_KEYFILE} ${LOCAL_NGINX_CONF} deployer@${CLEANAPP_HOST}:~/livecleanapp-v4.conf
+    ssh -i ${SSH_KEYFILE} deployer@${CLEANAPP_HOST} "sudo cp ~/livecleanapp-v4.conf /etc/nginx/conf.d/livecleanapp-v4.conf && sudo nginx -t && sudo systemctl reload nginx"
+  else
+    scp ${LOCAL_NGINX_CONF} deployer@${CLEANAPP_HOST}:~/livecleanapp-v4.conf
+    ssh deployer@${CLEANAPP_HOST} "sudo cp ~/livecleanapp-v4.conf /etc/nginx/conf.d/livecleanapp-v4.conf && sudo nginx -t && sudo systemctl reload nginx"
+  fi
 fi
 if [[ "${CLEANAPP_HOST}" != "${FACE_DETECTOR_HOST}" ]]; then
   if [ -n "${SSH_KEYFILE}" ]; then
