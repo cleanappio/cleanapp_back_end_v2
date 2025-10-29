@@ -20,7 +20,7 @@ mod models;
 mod openapi;
 
 use cfg::Config;
-use models::{BrandSummaryItem, ReportBatch};
+use models::{BrandSummaryItem, ReportBatch, ReportPoint, ReportWithAnalysis};
 
 #[tokio::main]
 async fn main() {
@@ -51,6 +51,8 @@ async fn run() -> Result<()> {
         .route("/api/v4/health", get(health))
         .route("/api/v4/brands/summary", get(get_brands_summary))
         .route("/api/v4/reports/by-brand", get(get_reports_by_brand))
+        .route("/api/v4/reports/points", get(get_report_points))
+        .route("/api/v4/reports/by-seq", get(get_report_by_seq))
         .merge(openapi::routes())
         .with_state(pool.clone())
         .layer(
@@ -124,6 +126,47 @@ async fn get_reports_by_brand(
     let limit = params.n.unwrap_or(1000) as usize;
     let batch = db::fetch_reports_by_brand(&pool, &params.brand_name, limit).map_err(internal_error)?;
     Ok(Json(batch))
+}
+
+#[derive(Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
+struct PointsParams {
+    classification: Option<String>,
+}
+
+/// GET /api/v4/reports/points
+#[utoipa::path(
+    get,
+    path = "/api/v4/reports/points",
+    params(PointsParams),
+    responses((status = 200, description = "Report points", body = [ReportPoint]))
+)]
+async fn get_report_points(
+    axum::extract::State(pool): axum::extract::State<my::Pool>,
+    Query(params): Query<PointsParams>,
+) -> Result<Json<Vec<ReportPoint>>, (StatusCode, String)> {
+    let classification = params.classification.unwrap_or_else(|| "all".to_string());
+    let items = db::fetch_report_points(&pool, &classification).map_err(internal_error)?;
+    Ok(Json(items))
+}
+
+#[derive(Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
+struct BySeqParams { seq: i64 }
+
+/// GET /api/v4/reports/by-seq
+#[utoipa::path(
+    get,
+    path = "/api/v4/reports/by-seq",
+    params(BySeqParams),
+    responses((status = 200, description = "Report by seq", body = ReportWithAnalysis))
+)]
+async fn get_report_by_seq(
+    axum::extract::State(pool): axum::extract::State<my::Pool>,
+    Query(params): Query<BySeqParams>,
+) -> Result<Json<ReportWithAnalysis>, (StatusCode, String)> {
+    let item = db::fetch_report_by_seq(&pool, params.seq).map_err(internal_error)?;
+    Ok(Json(item))
 }
 
 fn internal_error<E: std::fmt::Display>(e: E) -> (StatusCode, String) {

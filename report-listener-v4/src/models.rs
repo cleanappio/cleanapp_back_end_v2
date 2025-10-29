@@ -53,5 +53,13 @@ pub struct ReportBatch {
     pub to_seq: i64,
 }
 
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ReportPoint {
+    pub seq: i64,
+    pub severity_level: f64,
+    pub latitude: f64,
+    pub longitude: f64,
+}
+
 
 
