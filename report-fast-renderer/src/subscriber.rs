@@ -1,11 +1,10 @@
 use cleanapp_rustlib::rabbitmq::subscriber::{
   Subscriber,
   SubscriberError,
-  CallbackFunc,
-  Message,
+  Callback,
 };
 use crate::config::get_config;
-use tracing::{info, debug};
+use tracing::info;
 use std::{collections::HashMap, sync::Arc};
 
 pub struct FastRendererSubscriber {
@@ -27,35 +26,19 @@ impl FastRendererSubscriber {
         })
     }
 
-    pub async fn start_listening(&mut self) -> Result<(), SubscriberError> {
+    pub async fn start_listening(&mut self, callback: Arc<dyn Callback + Send + Sync + 'static>) -> Result<(), SubscriberError> {
         info!("Starting FastRendererSubscriber listener...");
         
         // Create routing key callbacks
         let config = get_config();
-        let mut routing_key_callbacks: HashMap<String, CallbackFunc> = HashMap::new();
-        
+        let mut routing_key_callbacks: HashMap<String, Arc<dyn Callback + Send + Sync + 'static>> = HashMap::new();
+
         // Add callback for the analysed report routing key
-        let callback: CallbackFunc = Arc::new(default_message_handler);
         routing_key_callbacks.insert(config.routing_key.clone(), callback);
-        
+
         // Start the subscriber
         self.subscriber.start(routing_key_callbacks).await?;
         
         Ok(())
     }
-}
-
-// Default callback for handling messages
-pub fn default_message_handler(message: &Message) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    debug!("Received message: {:?}", message);
-    
-    // TODO: Implement actual message processing logic
-    // This is where you would:
-    // 1. Parse the message content
-    // 2. Extract report data
-    // 3. Process/render the report
-    // 4. Send response back or store results
-    
-    info!("Message processed successfully");
-    Ok(())
 }

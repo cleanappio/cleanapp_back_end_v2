@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 )
@@ -45,8 +46,15 @@ func Connect() *sql.DB {
 		log.Fatalf(" DB connection failed: %v", err)
 	}
 
-	if err := db.Ping(); err != nil {
-		log.Fatalf(" DB ping failed: %v", err)
+	// Test connection with exponential backoff retry
+	var waitInterval time.Duration = 1 * time.Second
+	for {
+		if err := db.Ping(); err == nil {
+			break // Connection successful
+		}
+		log.Printf("Database connection failed, retrying in %v: %v", waitInterval, err)
+		time.Sleep(waitInterval)
+		waitInterval *= 2 // Exponential backoff: 1s, 2s, 4s, 8s, ...
 	}
 
 	log.Println(" Connected to MySQL!")

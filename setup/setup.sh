@@ -832,6 +832,12 @@ services:
     container_name: cleanapp_report_renderer_service
     image: ${REPORT_RENDERER_SERVICE_DOCKER_IMAGE}
     environment:
+      - SERVER_PORT=8080
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+      - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
+      - DB_NAME=cleanapp
       - AMQP_HOST=${AMQP_HOST}
       - AMQP_PORT=${AMQP_PORT}
       - AMQP_USER=${AMQP_USER}
@@ -972,14 +978,17 @@ else
 fi
 
 # Deploy nginx v4 config and reload
-LOCAL_NGINX_CONF="cleanapp_back_end_v2/conf/nginx/${OPT}/conf.d/livecleanapp-v4.conf"
-if [ -f "${LOCAL_NGINX_CONF}" ]; then
+LEAVECLEANAPP_V4_CONF="cleanapp_back_end_v2/conf/nginx/${OPT}/conf.d/livecleanapp-v4.conf"
+RENDERER_CONF="cleanapp_back_end_v2/conf/nginx/${OPT}/conf.d/fastrenderercleanapp.conf"
+if [ -f "${LEAVECLEANAPP_V4_CONF}" ]; then
   if [ -n "${SSH_KEYFILE}" ]; then
-    scp -i ${SSH_KEYFILE} ${LOCAL_NGINX_CONF} deployer@${CLEANAPP_HOST}:~/livecleanapp-v4.conf
-    ssh -i ${SSH_KEYFILE} deployer@${CLEANAPP_HOST} "sudo cp ~/livecleanapp-v4.conf /etc/nginx/conf.d/livecleanapp-v4.conf && sudo nginx -t && sudo systemctl reload nginx"
+    scp -i ${SSH_KEYFILE} ${LEAVECLEANAPP_V4_CONF} deployer@${CLEANAPP_HOST}:~/livecleanapp-v4.conf
+    scp -i ${SSH_KEYFILE} ${RENDERER_CONF} deployer@${CLEANAPP_HOST}:~/fastrenderercleanapp.conf
+    ssh -i ${SSH_KEYFILE} deployer@${CLEANAPP_HOST} "sudo cp ~/livecleanapp-v4.conf /etc/nginx/conf.d/livecleanapp-v4.conf && sudo cp ~/fastrenderercleanapp.conf /etc/nginx/conf.d/fastrenderercleanapp.conf && sudo nginx -t && sudo systemctl reload nginx"
   else
-    scp ${LOCAL_NGINX_CONF} deployer@${CLEANAPP_HOST}:~/livecleanapp-v4.conf
-    ssh deployer@${CLEANAPP_HOST} "sudo cp ~/livecleanapp-v4.conf /etc/nginx/conf.d/livecleanapp-v4.conf && sudo nginx -t && sudo systemctl reload nginx"
+    scp ${LEAVECLEANAPP_V4_CONF} deployer@${CLEANAPP_HOST}:~/livecleanapp-v4.conf
+    scp ${RENDERER_CONF} deployer@${CLEANAPP_HOST}:~/fastrenderercleanapp.conf
+    ssh deployer@${CLEANAPP_HOST} "sudo cp ~/livecleanapp-v4.conf /etc/nginx/conf.d/livecleanapp-v4.conf && sudo cp ~/fastrenderercleanapp.conf /etc/nginx/conf.d/fastrenderercleanapp.conf && sudo nginx -t && sudo systemctl reload nginx"
   fi
 fi
 if [[ "${CLEANAPP_HOST}" != "${FACE_DETECTOR_HOST}" ]]; then

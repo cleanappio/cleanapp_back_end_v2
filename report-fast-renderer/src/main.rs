@@ -1,42 +1,35 @@
-use axum::{
-    extract::Path,
-    http::StatusCode,
-    response::Json,
-    routing::{get, post},
-    Router,
-};
+use std::sync::Arc;
+
+use axum::{response::Json, routing::get, Router};
 use serde::{Deserialize, Serialize};
 use tower::ServiceBuilder;
 use tower_http::{
+    compression::CompressionLayer,
     cors::{Any, CorsLayer},
     trace::TraceLayer,
 };
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod config;
+mod db;
+mod handlers;
+mod model;
+mod reports_memory;
 mod subscriber;
 
-use config::{init_config, get_config};
+use config::{get_config, init_config};
 use subscriber::FastRendererSubscriber;
+
+use crate::{
+    handlers::{get_brands_summary, get_report_points},
+    reports_memory::InMemoryReports,
+};
 
 #[derive(Serialize, Deserialize)]
 struct HealthResponse {
     status: String,
     service: String,
     version: String,
-}
-
-#[derive(Serialize, Deserialize)]
-struct RenderRequest {
-    content: String,
-    format: Option<String>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct RenderResponse {
-    rendered_content: String,
-    format: String,
-    success: bool,
 }
 
 async fn health_check() -> Json<HealthResponse> {
@@ -47,42 +40,14 @@ async fn health_check() -> Json<HealthResponse> {
     })
 }
 
-async fn render_report(
-    Json(payload): Json<RenderRequest>,
-) -> Result<Json<RenderResponse>, StatusCode> {
-    // TODO: Implement actual rendering logic
-    let format = payload.format.unwrap_or_else(|| "html".to_string());
-    
-    Ok(Json(RenderResponse {
-        rendered_content: format!("Rendered: {}", payload.content),
-        format,
-        success: true,
-    }))
-}
-
-async fn get_render_status(Path(id): Path<String>) -> Result<Json<serde_json::Value>, StatusCode> {
-    // TODO: Implement status checking logic
-    let status = serde_json::json!({
-        "id": id,
-        "status": "completed",
-        "progress": 100
-    });
-    
-    Ok(Json(status))
-}
-
-async fn list_formats() -> Json<Vec<String>> {
-    Json(vec![
-        "html".to_string(),
-        "pdf".to_string(),
-        "markdown".to_string(),
-        "json".to_string(),
-    ])
-}
-
 async fn get_config_info() -> Json<serde_json::Value> {
     let config = get_config();
     Json(serde_json::json!({
+        "db_host": config.db_host,
+        "db_port": config.db_port,
+        "db_user": config.db_user,
+        "db_password": config.db_password,
+        "db_name": config.db_name,
         "amqp_host": config.amqp_host,
         "amqp_port": config.amqp_port,
         "amqp_user": config.amqp_user,
@@ -90,15 +55,6 @@ async fn get_config_info() -> Json<serde_json::Value> {
         "queue_name": config.queue_name,
         "routing_key": config.routing_key,
         "amqp_url": config.amqp_url()
-    }))
-}
-
-async fn get_subscriber_status() -> Json<serde_json::Value> {
-    // Note: In a real implementation, you'd want to store the subscriber
-    // in a way that allows checking its status from handlers
-    Json(serde_json::json!({
-        "status": "initialized",
-        "message": "Subscriber status endpoint - implementation needed"
     }))
 }
 
@@ -116,7 +72,7 @@ async fn main() -> anyhow::Result<()> {
     // Initialize configuration
     tracing::info!("🔧 Initializing configuration from environment variables...");
     init_config().map_err(|e| anyhow::anyhow!("Failed to initialize config: {}", e))?;
-    
+
     let config = get_config();
     tracing::info!("✅ Configuration loaded successfully");
     tracing::debug!("AMQP URL: {}", config.amqp_url());
@@ -126,42 +82,71 @@ async fn main() -> anyhow::Result<()> {
 
     // Initialize RabbitMQ subscriber
     tracing::info!("🐰 Initializing RabbitMQ subscriber...");
-    let mut subscriber = FastRendererSubscriber::new().await
+    let mut subscriber = FastRendererSubscriber::new()
+        .await
         .map_err(|e| anyhow::anyhow!("Failed to initialize subscriber: {}", e))?;
-    
+
     tracing::info!("✅ RabbitMQ subscriber initialized successfully");
 
-    // Start subscriber in background task
-    tokio::spawn(async move {
-        tracing::info!("🚀 Starting subscriber listener in background...");
-        if let Err(e) = subscriber.start_listening().await {
-            tracing::error!("Failed to start subscriber: {}", e);
+    let reports_memory = Arc::new(InMemoryReports::new().await);
+
+    // Load reports into memory from the database
+    tracing::info!("📥 Loading reports into in-memory storage...");
+    let physical_reports = db::fetch_report_points(&db::connect_pool()?, "physical")?;
+    {
+        let physical_map = reports_memory.get_physical_content();
+        let mut guard = physical_map
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Failed to lock physical reports map: {}", e))?;
+        for report in physical_reports {
+            guard.insert(report.seq, report);
         }
-    });
+        tracing::info!("✅ Loaded {} physical reports into memory", guard.len());
+    }
+    let digital_reports = db::fetch_brand_summaries(&db::connect_pool()?, "digital", "en")?;
+    {
+        let digital_map = reports_memory.get_digital_content();
+        let mut guard = digital_map
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Failed to lock digital reports map: {}", e))?;
+        for report in digital_reports {
+            guard.insert(report.brand_name.clone(), report);
+        }
+        tracing::info!("✅ Loaded {} digital reports into memory", guard.len());
+    }
+
+    // Start listening to messages
+    let reports_memory_for_subscriber = reports_memory.clone();
+    subscriber
+        .start_listening(reports_memory_for_subscriber)
+        .await
+        .map_err(|e| tracing::error!("Failed to start subscriber listening: {}", e))
+        .ok();
 
     // Build our application with routes
     let app = Router::new()
         .route("/health", get(health_check))
         .route("/config", get(get_config_info))
-        .route("/subscriber/status", get(get_subscriber_status))
-        .route("/render", post(render_report))
-        .route("/render/:id/status", get(get_render_status))
-        .route("/formats", get(list_formats))
+        .route("/api/v4/brands/summary", get(get_brands_summary))
+        .route("/api/v4/reports/points", get(get_report_points))
         .layer(
             ServiceBuilder::new()
                 .layer(TraceLayer::new_for_http())
+                .layer(CompressionLayer::new())
                 .layer(
                     CorsLayer::new()
                         .allow_origin(Any)
                         .allow_methods(Any)
                         .allow_headers(Any),
                 ),
-        );
+        )
+        .with_state(reports_memory.clone());
 
     // Run the server
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
-    tracing::info!("🚀 Report Fast Renderer server starting on http://0.0.0.0:3000");
-    
+    let port = get_config().server_port.clone();
+    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
+    tracing::info!("🚀 Report Fast Renderer server starting on http://0.0.0.0:{}", port);
+
     axum::serve(listener, app).await?;
 
     Ok(())
