@@ -197,7 +197,6 @@ func (d *Database) GetReportsSince(ctx context.Context, sinceSeq int) ([]models.
 	defer reportRows.Close()
 
 	// Collect all report sequences
-	var reportSeqs []int
 	var reports []models.Report
 	for reportRows.Next() {
 		var report models.Report
@@ -212,7 +211,6 @@ func (d *Database) GetReportsSince(ctx context.Context, sinceSeq int) ([]models.
 			return nil, fmt.Errorf("failed to scan report: %w", err)
 		}
 		reports = append(reports, report)
-		reportSeqs = append(reportSeqs, report.Seq)
 	}
 
 	if err = reportRows.Err(); err != nil {
@@ -223,27 +221,18 @@ func (d *Database) GetReportsSince(ctx context.Context, sinceSeq int) ([]models.
 		return []models.ReportWithAnalysis{}, nil
 	}
 
-	// Build placeholders for the IN clause
-	placeholders := make([]string, len(reportSeqs))
-	args := make([]interface{}, len(reportSeqs))
-	for i, seq := range reportSeqs {
-		placeholders[i] = "?"
-		args[i] = seq
-	}
-
 	// Then, get all analyses for these reports
-	analysesQuery := fmt.Sprintf(`
+	analysesQuery := `
 		SELECT 
 			ra.seq, ra.source, ra.analysis_text,
 			ra.title, ra.description, ra.brand_name, ra.brand_display_name,
 			ra.litter_probability, ra.hazard_probability, ra.digital_bug_probability,
 			ra.severity_level, ra.summary, ra.language, ra.classification, ra.created_at
 		FROM report_analysis ra
-		WHERE ra.seq IN (%s)
-		ORDER BY ra.seq ASC, ra.language ASC
-	`, strings.Join(placeholders, ","))
+		WHERE ra.seq > ?
+		ORDER BY ra.seq ASC, ra.language ASC`
 
-	analysisRows, err := d.db.QueryContext(ctx, analysesQuery, args...)
+	analysisRows, err := d.db.QueryContext(ctx, analysesQuery, sinceSeq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query analyses: %w", err)
 	}
@@ -399,7 +388,6 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int, class
 	defer reportRows.Close()
 
 	// Collect all report sequences
-	var reportSeqs []int
 	var reports []models.Report
 	for reportRows.Next() {
 		var report models.Report
@@ -414,7 +402,6 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int, class
 			return nil, fmt.Errorf("failed to scan report: %w", err)
 		}
 		reports = append(reports, report)
-		reportSeqs = append(reportSeqs, report.Seq)
 	}
 
 	if err = reportRows.Err(); err != nil {
@@ -424,27 +411,19 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int, class
 	if len(reports) == 0 {
 		return []models.ReportWithAnalysis{}, nil
 	}
-
-	// Build placeholders for the IN clause
-	placeholders := make([]string, len(reportSeqs))
-	args := make([]interface{}, len(reportSeqs))
-	for i, seq := range reportSeqs {
-		placeholders[i] = "?"
-		args[i] = seq
-	}
-
+	firstSeq := reports[len(reports)-1].Seq
 	// If full_data is false, return reports with minimal analysis (severity, classification, language, title)
 	if !full_data {
 		// Get minimal analysis data (severity, classification, language, title)
-		minimalAnalysesQuery := fmt.Sprintf(`
+		minimalAnalysesQuery := `
 			SELECT 
 				ra.seq, ra.severity_level, ra.classification, ra.language, ra.title
 			FROM report_analysis ra
-			WHERE ra.seq IN (%s)
+			WHERE ra.seq > ?
 			ORDER BY ra.seq DESC, ra.language ASC
-		`, strings.Join(placeholders, ","))
+		`
 
-		minimalAnalysisRows, err := d.db.QueryContext(ctx, minimalAnalysesQuery, args...)
+		minimalAnalysisRows, err := d.db.QueryContext(ctx, minimalAnalysesQuery, firstSeq)
 		if err != nil {
 			return nil, fmt.Errorf("failed to query minimal analyses: %w", err)
 		}
@@ -492,18 +471,18 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int, class
 	}
 
 	// Then, get all analyses for these reports
-	analysesQuery := fmt.Sprintf(`
+	analysesQuery := `
 		SELECT 
 			ra.seq, ra.source, ra.analysis_text,
 			ra.title, ra.description, ra.brand_name, ra.brand_display_name,
 			ra.litter_probability, ra.hazard_probability, ra.digital_bug_probability,
 			ra.severity_level, ra.summary, ra.language, ra.classification, ra.created_at
 		FROM report_analysis ra
-		WHERE ra.seq IN (%s)
+		WHERE ra.seq > ?
 		ORDER BY ra.seq DESC, ra.language ASC
-	`, strings.Join(placeholders, ","))
+	`
 
-	analysisRows, err := d.db.QueryContext(ctx, analysesQuery, args...)
+	analysisRows, err := d.db.QueryContext(ctx, analysesQuery, firstSeq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query analyses: %w", err)
 	}
