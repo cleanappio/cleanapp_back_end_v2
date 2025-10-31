@@ -8,7 +8,7 @@ axum = "0.8.6"
 cleanapp_rustlib = { git = "https://github.com/cleanappio/cleanapp-rustlib", tag = "v1.1.7" }
 tokio = { version = "1.0", features = ["full"] }
 tower = "0.5.2"
-tower-http = { version = "0.6.5", features = ["cors", "trace", "compression-full"] }
+tower-http = { version = "0.6.5", features = ["cors", "trace", "compression-full", "compression-gzip"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 serde = { version = "1.0", features = ["derive"] }
