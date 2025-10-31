@@ -1,27 +1,27 @@
 use std::{
     collections::BTreeMap,
-    sync::{Arc, Mutex},
+    sync::{Arc, RwLock},
 };
 
 use crate::model::{BrandSummaryItem, ReportPoint, ReportWithAnalysis};
 use cleanapp_rustlib::rabbitmq::subscriber::{Callback, Message};
 
 pub struct InMemoryReports {
-    physical_content: Arc<Mutex<BTreeMap<i64, ReportPoint>>>,
-    digital_content: Arc<Mutex<BTreeMap<String, BrandSummaryItem>>>,
+    physical_content: Arc<RwLock<BTreeMap<i64, ReportPoint>>>,
+    digital_content: Arc<RwLock<BTreeMap<String, BrandSummaryItem>>>,
 }
 
 impl InMemoryReports {
     pub async fn new() -> Self {
         Self {
-            physical_content: Arc::new(Mutex::new(BTreeMap::new())),
-            digital_content: Arc::new(Mutex::new(BTreeMap::new())),
+            physical_content: Arc::new(RwLock::new(BTreeMap::new())),
+            digital_content: Arc::new(RwLock::new(BTreeMap::new())),
         }
     }
-    pub fn get_digital_content(&self) -> Arc<Mutex<BTreeMap<String, BrandSummaryItem>>> {
+    pub fn get_digital_content(&self) -> Arc<RwLock<BTreeMap<String, BrandSummaryItem>>> {
         self.digital_content.clone()
     }
-    pub fn get_physical_content(&self) -> Arc<Mutex<BTreeMap<i64, ReportPoint>>> {
+    pub fn get_physical_content(&self) -> Arc<RwLock<BTreeMap<i64, ReportPoint>>> {
         self.physical_content.clone()
     }
 }
@@ -46,6 +46,7 @@ impl Callback for InMemoryReports {
             tracing::debug!("Parsed ReportWithAnalysis message successfully");
             let res = res.ok().unwrap();
             let report = &res.report;
+            tracing::info!("Got a new report: seq={}", report.seq);
             let (classification, severity_level, brand_name, brand_display_name) = res
                 .analysis
                 .iter()
@@ -62,7 +63,7 @@ impl Callback for InMemoryReports {
                 .unwrap_or(("", 0f64, "", ""));
             match classification {
                 "physical" => {
-                    let mut physical_lock = physical_content.lock().unwrap_or_else(|e| {
+                    let mut physical_lock = physical_content.write().unwrap_or_else(|e| {
                         panic!("Failed to acquire lock on physical_content: {}", e);
                     });
                     physical_lock.insert(
@@ -76,7 +77,7 @@ impl Callback for InMemoryReports {
                     );
                 }
                 "digital" => {
-                    let mut digital_lock = digital_content.lock().unwrap_or_else(|e| {
+                    let mut digital_lock = digital_content.write().unwrap_or_else(|e| {
                         panic!("Failed to acquire lock on digital_content: {}", e);
                     });
                     match digital_lock.get_mut(brand_name) {

@@ -1,6 +1,10 @@
-use std::{collections::BTreeMap, sync::{Arc, Mutex}};
+use std::sync::Arc;
 
-use axum::{Json, extract::{Query, State}, http::StatusCode};
+use axum::{
+    extract::{Query, State},
+    http::StatusCode,
+    Json,
+};
 use serde::Deserialize;
 
 use crate::{
@@ -32,9 +36,14 @@ pub async fn get_report_points(
         ));
     }
 
-    let physical_map: Arc<Mutex<BTreeMap<i64, ReportPoint>>> = reports_memory.get_physical_content();
+    let physical_map = reports_memory.get_physical_content();
     let items: Vec<ReportPoint> = {
-        let guard = physical_map.lock().map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to access reports memory".to_string()))?;
+        let guard = physical_map.read().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to access reports memory".to_string(),
+            )
+        })?;
         guard.values().cloned().collect()
     };
 
@@ -74,11 +83,32 @@ pub async fn get_brands_summary(
         ));
     }
 
-    let digital_map: Arc<Mutex<BTreeMap<String, BrandSummaryItem>>> = reports_memory.get_digital_content();
+    let digital_map = reports_memory.get_digital_content();
     let items: Vec<BrandSummaryItem> = {
-        let guard = digital_map.lock().map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to access reports memory".to_string()))?;
+        let guard = digital_map.read().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to access reports memory".to_string(),
+            )
+        })?;
         guard.values().cloned().collect()
     };
 
     Ok(Json(items))
+}
+
+pub async fn get_stats_info(
+    State(reports_memory): State<Arc<InMemoryReports>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let physical_map = reports_memory.get_physical_content();
+    let digital_map = reports_memory.get_digital_content();
+    let stats = serde_json::json!({
+        "total_physical_reports": {
+            "count": physical_map.read().map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to access reports memory".to_string()))?.len(),
+        },
+        "total_digital_bouquets": {
+            "count": digital_map.read().map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to access reports memory".to_string()))?.len(),
+        },
+    });
+    Ok(Json(stats))
 }

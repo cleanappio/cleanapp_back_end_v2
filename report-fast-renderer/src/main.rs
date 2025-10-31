@@ -21,7 +21,7 @@ use config::{get_config, init_config};
 use subscriber::FastRendererSubscriber;
 
 use crate::{
-    handlers::{get_brands_summary, get_report_points},
+    handlers::{get_brands_summary, get_report_points, get_stats_info},
     reports_memory::InMemoryReports,
 };
 
@@ -96,7 +96,7 @@ async fn main() -> anyhow::Result<()> {
     {
         let physical_map = reports_memory.get_physical_content();
         let mut guard = physical_map
-            .lock()
+            .write()
             .map_err(|e| anyhow::anyhow!("Failed to lock physical reports map: {}", e))?;
         for report in physical_reports {
             guard.insert(report.seq, report);
@@ -107,7 +107,7 @@ async fn main() -> anyhow::Result<()> {
     {
         let digital_map = reports_memory.get_digital_content();
         let mut guard = digital_map
-            .lock()
+            .write()
             .map_err(|e| anyhow::anyhow!("Failed to lock digital reports map: {}", e))?;
         for report in digital_reports {
             guard.insert(report.brand_name.clone(), report);
@@ -127,6 +127,7 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/health", get(health_check))
         .route("/config", get(get_config_info))
+        .route("/stats", get(get_stats_info))
         .route("/api/v4/brands/summary", get(get_brands_summary))
         .route("/api/v4/reports/points", get(get_report_points))
         .layer(
