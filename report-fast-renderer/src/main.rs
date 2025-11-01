@@ -53,7 +53,6 @@ async fn get_config_info() -> Json<serde_json::Value> {
         "exchange": config.exchange,
         "queue_name": config.queue_name,
         "routing_key": config.routing_key,
-        "amqp_url": config.amqp_url()
     }))
 }
 
