@@ -46,7 +46,6 @@ async fn get_config_info() -> Json<serde_json::Value> {
         "db_host": config.db_host,
         "db_port": config.db_port,
         "db_user": config.db_user,
-        "db_password": config.db_password,
         "db_name": config.db_name,
         "amqp_host": config.amqp_host,
         "amqp_port": config.amqp_port,
