@@ -86,6 +86,10 @@ case ${OPT} in
       MONTENEGRO_AREA_SUB_IDS="6753,6754,6755,6757,6758,6759,6760,6761,6762,6763,6764,6765,6766,6767,6768,6769,6770,6778,6895,6910,6948,6951,6953,6954,6955"
       NEW_YORK_AREA_ID=6970
       NEW_YORK_AREA_SUB_IDS="6971,6972,6973,6974,6975"
+      DEVCONNECT_2025_AREA_ID=18544700
+      DEVCONNECT_2025_AREA_SUB_IDS="18544700"
+      EDGE_CITY_AREA_ID=18544701
+      EDGE_CITY_AREA_SUB_IDS="18544701"
       OPT_OUT_URL="http://dev.cleanapp.io/api/optout"
       FACE_DETECTOR_COUNT=10
       FACE_DETECTOR_HOST=34.68.94.220
@@ -132,6 +136,10 @@ case ${OPT} in
       MONTENEGRO_AREA_SUB_IDS="6761,6762,6763,6765,6766,6767,6768,6769,6770,6771,6772,6773,6774,6775,6776,6777,6778,6786,6903,6918,6956,6959,6961,6962,6963"
       NEW_YORK_AREA_ID=6636
       NEW_YORK_AREA_SUB_IDS="6637,6638,6639,6640,6641"
+      DEVCONNECT_2025_AREA_ID=18544700
+      DEVCONNECT_2025_AREA_SUB_IDS="18544700"
+      EDGE_CITY_AREA_ID=18544701
+      EDGE_CITY_AREA_SUB_IDS="18544701"
       GIN_MODE=release
       OPT_OUT_URL="https://cleanapp.io/api/optout"
       FACE_DETECTOR_COUNT=10
@@ -163,6 +171,7 @@ RABBITMQ_EXCHANGE="cleanapp-exchange"
 RABBITMQ_GDPR_PROCESS_QUEUE="gdpr-processing-queue"
 RABBITMQ_REPORT_ANALYSIS_QUEUE="report-analysis-queue"
 RABBITMQ_REPORT_OWNERSHIP_QUEUE="report-ownership-queue"
+RABBITMQ_REPORT_RENDERER_QUEUE="report-renderer-queue"
 RABBITMQ_RAW_REPORT_ROUTING_KEY="report.raw"
 RABBITMQ_ANALYSED_REPORT_ROUTING_KEY="report.analysed"
 RABBITMQ_USER_ROUTING_KEY="user.add"
@@ -198,6 +207,8 @@ VOICE_ASSISTANT_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-voice-assistant-
 REPORT_TAGS_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-tags-service-image:${OPT}"
 REPORT_ANALYSIS_BACKFILL_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-analysis-backfill-image:${OPT}"
 EPC_PUSHER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-epc-pusher-image:${OPT}"
+REPORT_RENDERER_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-fast-renderer-image:${OPT}"
+REPORT_LISTENER_V4_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-listener-v4-image:${OPT}"
 
 OPENAI_ASSISTANT_ID="asst_kBtuzDRWNorZgw9o2OJTGOn0"
 
@@ -242,6 +253,8 @@ docker pull ${REPORT_ANALYSIS_BACKFILL_DOCKER_IMAGE}
 docker pull ${EMAIL_SERVICE_V3_DOCKER_IMAGE}
 docker pull ${EPC_PUSHER_DOCKER_IMAGE}
 docker pull ${EMAIL_FETCHER_DOCKER_IMAGE}
+docker pull ${REPORT_RENDERER_SERVICE_DOCKER_IMAGE}
+docker pull ${REPORT_LISTENER_V4_DOCKER_IMAGE}
 
 # Secrets
 cat >.env << ENV
@@ -352,6 +365,11 @@ services:
     volumes:
       - rabbitmq-lib:/var/lib/rabbitmq/
       - rabbitmq-log:/var/log/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   cleanapp_service:
     container_name: cleanapp_service
@@ -404,6 +422,11 @@ services:
       - mysql:/var/lib/mysql
     ports:
       - 3306:3306
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p\${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 3s
+      timeout: 1s
+      retries: 10
 
   cleanapp_web:
     container_name: cleanapp_web
@@ -509,7 +532,8 @@ services:
     ports:
       - 9082:8080
     depends_on:
-      - cleanapp_db
+      cleanapp_db:
+        condition: service_healthy
 
   cleanapp_montenegro_areas:
     container_name: cleanapp_montenegro_areas
@@ -530,7 +554,8 @@ services:
     ports:
       - 9083:8080
     depends_on:
-      - cleanapp_db
+      cleanapp_db:
+        condition: service_healthy
 
   cleanapp_new_york_areas:
     container_name: cleanapp_new_york_areas
@@ -551,7 +576,52 @@ services:
     ports:
       - 9088:8080
     depends_on:
-      - cleanapp_db
+      cleanapp_db:
+        condition: service_healthy
+
+  cleanapp_devconnect_2025_areas:
+    container_name: cleanapp_devconnect_2025_areas
+    image: ${AREAS_DASHBOARD_DOCKER_IMAGE}
+    environment:
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+      - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
+      - DB_NAME=cleanapp
+      - LOG_LEVEL=info
+      - LOG_FORMAT=json
+      - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
+      - REPORT_AUTH_SERVICE_URL=http://cleanapp_report_auth_service:8080
+      - GIN_MODE=${GIN_MODE}
+      - CUSTOM_AREA_ID=${DEVCONNECT_2025_AREA_ID}
+      - CUSTOM_AREA_SUB_IDS=${DEVCONNECT_2025_AREA_SUB_IDS}
+    ports:
+      - 9094:8080
+    depends_on:
+      cleanapp_db:
+        condition: service_healthy
+  
+  cleanapp_edge_city_areas:
+    container_name: cleanapp_edge_city_areas
+    image: ${AREAS_DASHBOARD_DOCKER_IMAGE}
+    environment:
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+      - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
+      - DB_NAME=cleanapp
+      - LOG_LEVEL=info
+      - LOG_FORMAT=json
+      - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
+      - REPORT_AUTH_SERVICE_URL=http://cleanapp_report_auth_service:8080
+      - GIN_MODE=${GIN_MODE}
+      - CUSTOM_AREA_ID=${EDGE_CITY_AREA_ID}
+      - CUSTOM_AREA_SUB_IDS=${EDGE_CITY_AREA_SUB_IDS}
+    ports:
+      - 9095:8080
+    depends_on:
+      cleanapp_db:
+        condition: service_healthy
 
   cleanapp_auth_service:
     container_name: cleanapp_auth_service
@@ -569,7 +639,8 @@ services:
     ports:
       - 9084:8080
     depends_on:
-      - cleanapp_db
+      cleanapp_db:
+        condition: service_healthy
 
   cleanapp_red_bull_dashboard:
     container_name: cleanapp_red_bull_dashboard
@@ -639,7 +710,8 @@ services:
     ports:
       - 9089:8080
     depends_on:
-      - cleanapp_db
+      cleanapp_db:
+        condition: service_healthy
 
   cleanapp_email_service_v3:
     container_name: cleanapp_email_service_v3
@@ -661,7 +733,8 @@ services:
       - BCC_EMAIL_ADDRESS=cleanapp@stxn.io
       - ENABLE_EMAIL_V3=${ENABLE_EMAIL_V3}
     depends_on:
-      - cleanapp_db
+      cleanapp_db:
+        condition: service_healthy
 
   cleanapp_email_fetcher:
     container_name: cleanapp_email_fetcher
@@ -679,7 +752,8 @@ services:
       - BATCH_LIMIT=100
       - ENABLE_EMAIL_FETCHER=${ENABLE_EMAIL_FETCHER}
     depends_on:
-      - cleanapp_db
+      cleanapp_db:
+        condition: service_healthy
 
   cleanapp_report_ownership_service:
     container_name: cleanapp_report_ownership_service
@@ -714,7 +788,8 @@ services:
       - CHAIN_ID=${CHAIN_ID}
       - POLL_SECS=5
     depends_on:
-      - cleanapp_db
+      cleanapp_db:
+        condition: service_healthy
 
   cleanapp_gdpr_process_service:
     container_name: cleanapp_gdpr_process_service
@@ -743,7 +818,8 @@ services:
     ports:
       - 9091:8080
     depends_on:
-      - cleanapp_db
+      cleanapp_db:
+        condition: service_healthy
 
   cleanapp_voice_assistant_service:
     container_name: cleanapp_voice_assistant_service
@@ -756,21 +832,45 @@ services:
       - ALLOWED_ORIGINS=*
     ports:
       - 9092:8080
+  
+  cleanapp_report_renderer_service:
+    container_name: cleanapp_report_renderer_service
+    image: ${REPORT_RENDERER_SERVICE_DOCKER_IMAGE}
+    environment:
+      - SERVER_PORT=8080
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+      - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
+      - DB_NAME=cleanapp
+      - AMQP_HOST=${AMQP_HOST}
+      - AMQP_PORT=${AMQP_PORT}
+      - AMQP_USER=${AMQP_USER}
+      - AMQP_PASSWORD=${AMQP_PASSWORD}
+      - RABBITMQ_EXCHANGE=${RABBITMQ_EXCHANGE}
+      - RABBITMQ_RENDERER_QUEUE_NAME=${RABBITMQ_REPORT_RENDERER_QUEUE}
+      - RABBITMQ_ANALYSED_REPORT_ROUTING_KEY=${RABBITMQ_ANALYSED_REPORT_ROUTING_KEY}
+      - GIN_MODE=${GIN_MODE}
+    ports:
+      - 9093:8080
+    depends_on:
+      cleanapp_db:
+        condition: service_healthy
+      cleanapp_rabbitmq:
+        condition: service_healthy
 
-  cleanapp_report_tags_service:
-    container_name: cleanapp_report_tags_service
-    image: ${REPORT_TAGS_SERVICE_DOCKER_IMAGE}
+  cleanapp_report_listener_v4:
+    container_name: cleanapp_report_listener_v4
+    image: ${REPORT_LISTENER_V4_DOCKER_IMAGE}
     environment:
       - DB_HOST=cleanapp_db
       - DB_PORT=3306
       - DB_USER=server
       - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
       - DB_NAME=cleanapp
-      - PORT=8080
-      - MAX_TAG_FOLLOWS=200
-      - RUST_LOG=info,sqlx=warn
+      - HTTP_PORT=8080
     ports:
-      - 9093:8080
+      - 9097:8080
     depends_on:
       - cleanapp_db
 
@@ -799,6 +899,9 @@ if [ "${ENABLE_EPC_PUSHER}" == "true" ]; then
     env_file:
       - .env
     depends_on:
+      cleanapp_db:
+        condition: service_healthy
+    links:
       - cleanapp_db
 COMPOSE_EPC_PUSHER
 fi
@@ -877,6 +980,21 @@ if [ -n "${SSH_KEYFILE}" ]; then
   ssh -i ${SSH_KEYFILE} deployer@${CLEANAPP_HOST} "docker compose pull cleanapp_report_tags_service || true; ./up1.sh"
 else
   ssh deployer@${CLEANAPP_HOST} "./up1.sh"
+fi
+
+# Deploy nginx v4 config and reload
+LEAVECLEANAPP_V4_CONF="cleanapp_back_end_v2/conf/nginx/${OPT}/conf.d/livecleanapp-v4.conf"
+RENDERER_CONF="cleanapp_back_end_v2/conf/nginx/${OPT}/conf.d/fastrenderercleanapp.conf"
+if [ -f "${LEAVECLEANAPP_V4_CONF}" ]; then
+  if [ -n "${SSH_KEYFILE}" ]; then
+    scp -i ${SSH_KEYFILE} ${LEAVECLEANAPP_V4_CONF} deployer@${CLEANAPP_HOST}:~/livecleanapp-v4.conf
+    scp -i ${SSH_KEYFILE} ${RENDERER_CONF} deployer@${CLEANAPP_HOST}:~/fastrenderercleanapp.conf
+    ssh -i ${SSH_KEYFILE} deployer@${CLEANAPP_HOST} "sudo cp ~/livecleanapp-v4.conf /etc/nginx/conf.d/livecleanapp-v4.conf && sudo cp ~/fastrenderercleanapp.conf /etc/nginx/conf.d/fastrenderercleanapp.conf && sudo nginx -t && sudo systemctl reload nginx"
+  else
+    scp ${LEAVECLEANAPP_V4_CONF} deployer@${CLEANAPP_HOST}:~/livecleanapp-v4.conf
+    scp ${RENDERER_CONF} deployer@${CLEANAPP_HOST}:~/fastrenderercleanapp.conf
+    ssh deployer@${CLEANAPP_HOST} "sudo cp ~/livecleanapp-v4.conf /etc/nginx/conf.d/livecleanapp-v4.conf && sudo cp ~/fastrenderercleanapp.conf /etc/nginx/conf.d/fastrenderercleanapp.conf && sudo nginx -t && sudo systemctl reload nginx"
+  fi
 fi
 if [[ "${CLEANAPP_HOST}" != "${FACE_DETECTOR_HOST}" ]]; then
   if [ -n "${SSH_KEYFILE}" ]; then

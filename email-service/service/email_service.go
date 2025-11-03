@@ -59,9 +59,15 @@ func NewEmailService(cfg *config.Config) (*EmailService, error) {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	// Test connection
-	if err := db.Ping(); err != nil {
-		return nil, fmt.Errorf("failed to ping database: %w", err)
+	// Test connection with exponential backoff retry
+	var waitInterval time.Duration = 1 * time.Second
+	for {
+		if err := db.Ping(); err == nil {
+			break // Connection successful
+		}
+		log.WithError(err).Warnf("Database connection failed, retrying in %v", waitInterval)
+		time.Sleep(waitInterval)
+		waitInterval *= 2 // Exponential backoff: 1s, 2s, 4s, 8s, ...
 	}
 
 	// Verify and create required tables

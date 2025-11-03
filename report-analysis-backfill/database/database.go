@@ -27,9 +27,15 @@ func NewDatabase(cfg *config.Config) (*Database, error) {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	// Test the connection
-	if err := db.Ping(); err != nil {
-		return nil, fmt.Errorf("failed to ping database: %w", err)
+	// Test connection with exponential backoff retry
+	var waitInterval time.Duration = 1 * time.Second
+	for {
+		if err := db.Ping(); err == nil {
+			break // Connection successful
+		}
+		log.Printf("Database connection failed, retrying in %v: %v", waitInterval, err)
+		time.Sleep(waitInterval)
+		waitInterval *= 2 // Exponential backoff: 1s, 2s, 4s, 8s, ...
 	}
 
 	// Set connection pool settings

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"time"
 
 	"auth-service/config"
 	"auth-service/database"
@@ -61,10 +62,15 @@ func setupDatabase(cfg *config.Config) (*sql.DB, error) {
 		return nil, err
 	}
 
-	// Test connection
-	if err := db.Ping(); err != nil {
-		log.Printf("ERROR: Failed to ping database: %v", err)
-		return nil, err
+	// Test connection with exponential backoff retry
+	var waitInterval time.Duration = 1 * time.Second
+	for {
+		if err := db.Ping(); err == nil {
+			break // Connection successful
+		}
+		log.Printf("Database connection failed, retrying in %v: %v", waitInterval, err)
+		time.Sleep(waitInterval)
+		waitInterval *= 2 // Exponential backoff: 1s, 2s, 4s, 8s, ...
 	}
 
 	return db, nil

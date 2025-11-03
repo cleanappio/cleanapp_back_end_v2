@@ -1,0 +1,23 @@
+[package]
+name = "report-listener-v4"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1"
+axum = { version = "0.7", features = ["macros"] }
+dotenvy = "0.15"
+mysql = "24"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tower = "0.5"
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+utoipa = { version = "4", features = ["axum_extras", "chrono", "uuid", "yaml"] }
+utoipa-swagger-ui = { version = "7", features = ["axum"] }
+time = { version = "0.3", features = ["serde-human-readable"] }
+chrono = { version = "0.4", features = ["serde", "clock"] }
+
+
