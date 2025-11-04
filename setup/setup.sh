@@ -867,7 +867,8 @@ services:
     ports:
       - 9097:8080
     depends_on:
-      - cleanapp_db
+      cleanapp_db:
+        condition: service_healthy
 
 COMPOSE
 
