@@ -16,7 +16,7 @@ mod indexer_twitter_schema;
 #[derive(Parser, Debug, Clone)]
 struct Args {
     #[arg(long, default_value = "config.toml")] config_path: String,
-    #[arg(long)] db_url: Option<String>,
+    #[arg(long, env = "DB_URL")] db_url: Option<String>,
     #[arg(long, env = "TWITTER_BEARER_TOKEN")] bearer_token: Option<String>,
     #[arg(long, env = "TWITTER_TAGS", default_value = "cleanapp")] tags: String,
     #[arg(long, env = "TWITTER_MENTIONS", default_value = "CleanApp")] mentions: String,
@@ -238,8 +238,9 @@ fn canonical_tag_key(tags: &str, mentions: &str) -> String {
 }
 
 fn build_recent_url(args: &Args, since_id: Option<String>, next_token: Option<&String>) -> String {
+    // mentions: operator is not available on our plan; match literal @username instead
     let query = format!(
-        "(#{tag} OR \"{tag}\" OR mentions:{mention}) -is:retweet -is:quote -is:reply",
+        "(#{tag} OR \"{tag}\" OR @{mention}) -is:retweet -is:quote -is:reply",
         tag = args.tags,
         mention = args.mentions
     );

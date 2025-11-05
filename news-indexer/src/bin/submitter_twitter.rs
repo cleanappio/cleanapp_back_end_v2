@@ -31,13 +31,15 @@ struct SubmitConfig {
 #[derive(Parser, Debug, Clone)]
 struct Args {
     #[arg(long, default_value = "config.toml")] config_path: String,
-    #[arg(long)] db_url: Option<String>,
-    #[arg(long)] endpoint_url: Option<String>,
-    #[arg(long)] token: Option<String>,
+    #[arg(long, env = "DB_URL")] db_url: Option<String>,
+    #[arg(long, env = "SUBMIT_ENDPOINT_URL")] endpoint_url: Option<String>,
+    #[arg(long, env = "SUBMIT_TOKEN")] token: Option<String>,
 
-    #[arg(long, default_value_t = 300)] batch_size: usize,
+    #[arg(long, env = "SUBMIT_BATCH_SIZE", default_value_t = 300)] batch_size: usize,
     #[arg(long, default_value_t = 0)] limit_total: u64,
     #[arg(long)] since_created: Option<String>,
+    /// Interval between submit cycles when limit_total = 0 (seconds)
+    #[arg(long, env = "SUBMIT_INTERVAL_SECS", default_value_t = 300)] interval_secs: u64,
 }
 
 #[tokio::main]
@@ -81,15 +83,16 @@ async fn main() -> Result<()> {
         .timeout(StdDuration::from_secs(60))
         .build()?;
 
-    let mut total_sent: u64 = 0;
-    let mut total_inserted: u64 = 0;
-    let mut total_updated: u64 = 0;
-    let mut total_skipped: u64 = 0;
-    let mut total_errors: u64 = 0;
-    let mut effective_batch_size: usize = batch_size;
+    loop {
+        let mut total_sent: u64 = 0;
+        let mut total_inserted: u64 = 0;
+        let mut total_updated: u64 = 0;
+        let mut total_skipped: u64 = 0;
+        let mut total_errors: u64 = 0;
+        let mut effective_batch_size: usize = batch_size;
 
-    'outer: loop {
-        if args.limit_total > 0 && total_sent >= args.limit_total { break; }
+        'outer: loop {
+            if args.limit_total > 0 && total_sent >= args.limit_total { break; }
 
         // Determine start anchors from state table
         let (saved_created, saved_tweet_id): (Option<String>, Option<i64>) = {
@@ -180,7 +183,7 @@ async fn main() -> Result<()> {
             .await?
         };
 
-        if rows.is_empty() { info!("no more rows to submit"); break; }
+        if rows.is_empty() { info!("no more rows to submit"); break 'outer; }
 
         // Build payload
         let items: Vec<_> = rows
@@ -322,12 +325,17 @@ async fn main() -> Result<()> {
             break 'outer;
         }
         sleep(StdDuration::from_millis(250)).await;
+        }
+
+        info!(
+            "submitter_twitter finished cycle: total_sent={} totals: inserted={} updated={} skipped={} errors={}",
+            total_sent, total_inserted, total_updated, total_skipped, total_errors
+        );
+
+        if args.limit_total > 0 { break; }
+        sleep(StdDuration::from_secs(args.interval_secs)).await;
     }
 
-    info!(
-        "submitter_twitter finished: total_sent={} totals: inserted={} updated={} skipped={} errors={}",
-        total_sent, total_inserted, total_updated, total_skipped, total_errors
-    );
     Ok(())
 }
 
