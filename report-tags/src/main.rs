@@ -4,13 +4,15 @@ mod database;
 mod services;
 mod handlers;
 mod utils;
+mod rabbitmq;
+mod app_state;
 
 use axum::{
     routing::{get, post, delete},
     Router,
 };
-use sqlx::MySqlPool;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use tokio::signal;
 use tower_http::{
     cors::{Any, CorsLayer},
@@ -18,6 +20,8 @@ use tower_http::{
 };
 use stderrlog::{self, Timestamp};
 use log;
+use crate::rabbitmq::TagEventPublisher;
+use crate::app_state::AppState;
 
 #[tokio::main]
 async fn main() {
@@ -78,9 +82,30 @@ async fn run() -> anyhow::Result<()> {
     database::schema::initialize_schema(&pool).await?;
     log::info!("Database schema initialized successfully");
     
+    // Initialize RabbitMQ publisher (optional, graceful degradation)
+    let publisher = match TagEventPublisher::new(&config).await {
+        Ok(pub_) => {
+            log::info!("RabbitMQ publisher initialized successfully");
+            Some(Arc::new(pub_))
+        }
+        Err(e) => {
+            log::warn!("Failed to initialize RabbitMQ publisher: {}. Continuing without RabbitMQ.", e);
+            None
+        }
+    };
+    
+    // Clone publisher for shutdown handler before moving into state
+    let shutdown_publisher = publisher.clone();
+    
+    // Create application state
+    let app_state = AppState {
+        pool,
+        publisher,
+    };
+    
     // Create router
     log::info!("Creating HTTP router...");
-    let app = create_router(pool);
+    let app = create_router(app_state);
     log::info!("HTTP router created successfully");
     
     // Create server
@@ -98,11 +123,18 @@ async fn run() -> anyhow::Result<()> {
         .with_graceful_shutdown(shutdown_signal())
         .await?;
     
+    // Close publisher on shutdown
+    // Note: Publisher close consumes self, so we can't close through Arc
+    // The connection will be closed when Arc is dropped
+    if shutdown_publisher.is_some() {
+        log::info!("RabbitMQ publisher will be closed on drop");
+    }
+    
     log::info!("Server shutdown complete");
     Ok(())
 }
 
-fn create_router(pool: MySqlPool) -> Router {
+fn create_router(state: AppState) -> Router {
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
@@ -120,7 +152,7 @@ fn create_router(pool: MySqlPool) -> Router {
         .route("/api/v3/feed", get(handlers::feed::get_location_feed))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
-        .with_state(pool)
+        .with_state(state)
 }
 
 async fn shutdown_signal() {

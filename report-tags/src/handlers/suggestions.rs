@@ -3,8 +3,8 @@ use axum::{
     response::Json,
     http::StatusCode,
 };
-use sqlx::MySqlPool;
 use serde::Deserialize;
+use crate::app_state::AppState;
 use crate::models::SuggestionsResponse;
 use crate::services::tag_service;
 use log;
@@ -16,12 +16,12 @@ pub struct SuggestionQuery {
 }
 
 pub async fn get_tag_suggestions(
-    State(pool): State<MySqlPool>,
+    State(state): State<AppState>,
     Query(params): Query<SuggestionQuery>,
 ) -> Result<Json<SuggestionsResponse>, (StatusCode, String)> {
     let limit = params.limit.unwrap_or(10).min(50); // Cap at 50
     
-    match tag_service::get_tag_suggestions(&pool, &params.q, limit).await {
+    match tag_service::get_tag_suggestions(&state.pool, &params.q, limit).await {
         Ok(suggestions) => {
             let response = SuggestionsResponse { suggestions };
             Ok(Json(response))
@@ -34,12 +34,12 @@ pub async fn get_tag_suggestions(
 }
 
 pub async fn get_trending_tags(
-    State(pool): State<MySqlPool>,
+    State(state): State<AppState>,
     Query(params): Query<TrendingQuery>,
 ) -> Result<Json<crate::models::TrendingResponse>, (StatusCode, String)> {
     let limit = params.limit.unwrap_or(20).min(100); // Cap at 100
     
-    match tag_service::get_trending_tags(&pool, limit).await {
+    match tag_service::get_trending_tags(&state.pool, limit).await {
         Ok(trending) => {
             let response = crate::models::TrendingResponse { trending };
             Ok(Json(response))

@@ -3,14 +3,14 @@ use axum::{
     response::Json,
     http::StatusCode,
 };
-use sqlx::MySqlPool;
+use crate::app_state::AppState;
 use crate::models::{FollowTagRequest, FollowTagResponse, UnfollowTagResponse, GetFollowsResponse};
 use crate::services::tag_service;
 use crate::utils::normalization::normalize_tag;
 use log;
 
 pub async fn follow_tag(
-    State(pool): State<MySqlPool>,
+    State(state): State<AppState>,
     Path(user_id): Path<String>,
     Json(request): Json<FollowTagRequest>,
 ) -> Result<Json<FollowTagResponse>, (StatusCode, String)> {
@@ -18,7 +18,7 @@ pub async fn follow_tag(
     let (canonical, _) = normalize_tag(&request.tag)
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
     
-    match tag_service::follow_tag(&pool, &user_id, &canonical, 200).await {
+    match tag_service::follow_tag(&state.pool, &user_id, &canonical, 200).await {
         Ok(tag_id) => {
             let response = FollowTagResponse {
                 followed: true,
@@ -38,10 +38,10 @@ pub async fn follow_tag(
 }
 
 pub async fn unfollow_tag(
-    State(pool): State<MySqlPool>,
+    State(state): State<AppState>,
     Path((user_id, tag_id)): Path<(String, u64)>,
 ) -> Result<Json<UnfollowTagResponse>, (StatusCode, String)> {
-    match tag_service::unfollow_tag(&pool, &user_id, tag_id).await {
+    match tag_service::unfollow_tag(&state.pool, &user_id, tag_id).await {
         Ok(unfollowed) => {
             let response = UnfollowTagResponse { unfollowed };
             Ok(Json(response))
@@ -54,10 +54,10 @@ pub async fn unfollow_tag(
 }
 
 pub async fn get_user_follows(
-    State(pool): State<MySqlPool>,
+    State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<GetFollowsResponse>, (StatusCode, String)> {
-    match tag_service::get_user_follows(&pool, &user_id).await {
+    match tag_service::get_user_follows(&state.pool, &user_id).await {
         Ok(follows) => {
             let response = GetFollowsResponse { follows };
             Ok(Json(response))

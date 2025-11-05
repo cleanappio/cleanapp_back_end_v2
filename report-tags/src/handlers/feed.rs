@@ -3,8 +3,8 @@ use axum::{
     response::Json,
     http::StatusCode,
 };
-use sqlx::MySqlPool;
 use serde::Deserialize;
+use crate::app_state::AppState;
 use crate::models::FeedResponse;
 use crate::services::feed_service;
 use log;
@@ -20,7 +20,7 @@ pub struct FeedQuery {
 }
 
 pub async fn get_location_feed(
-    State(pool): State<MySqlPool>,
+    State(state): State<AppState>,
     Query(params): Query<FeedQuery>,
 ) -> Result<Json<FeedResponse>, (StatusCode, String)> {
     let radius = params.radius.unwrap_or(500.0);
@@ -28,7 +28,7 @@ pub async fn get_location_feed(
     let offset = params.offset.unwrap_or(0);
     
     // Get total count
-    let total = match feed_service::get_feed_count(&pool, params.lat, params.lon, radius, &params.user_id).await {
+    let total = match feed_service::get_feed_count(&state.pool, params.lat, params.lon, radius, &params.user_id).await {
         Ok(count) => count,
         Err(e) => {
             log::error!("Failed to get feed count: {}", e);
@@ -38,7 +38,7 @@ pub async fn get_location_feed(
     
     // Get reports
     let reports = match feed_service::get_location_feed(
-        &pool, 
+        &state.pool, 
         params.lat, 
         params.lon, 
         radius, 

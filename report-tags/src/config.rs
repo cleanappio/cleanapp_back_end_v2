@@ -11,6 +11,14 @@ pub struct Config {
     pub redis_url: Option<String>,
     pub rust_log: String,
     pub max_tag_follows: u32,
+    pub amqp_host: String,
+    pub amqp_port: u16,
+    pub amqp_user: String,
+    pub amqp_password: String,
+    pub rabbitmq_exchange: String,
+    pub rabbitmq_queue: String,
+    pub rabbitmq_raw_report_routing_key: String,
+    pub rabbitmq_tag_event_routing_key: String,
 }
 
 impl Config {
@@ -34,6 +42,19 @@ impl Config {
                 .unwrap_or_else(|_| "200".to_string())
                 .parse()
                 .unwrap_or(200),
+            amqp_host: env::var("AMQP_HOST").unwrap_or_else(|_| "localhost".to_string()),
+            amqp_port: env::var("AMQP_PORT")
+                .unwrap_or_else(|_| "5672".to_string())
+                .parse()
+                .unwrap_or(5672),
+            amqp_user: env::var("AMQP_USER").unwrap_or_else(|_| "guest".to_string()),
+            amqp_password: env::var("AMQP_PASSWORD").unwrap_or_else(|_| "guest".to_string()),
+            rabbitmq_exchange: env::var("RABBITMQ_EXCHANGE").unwrap_or_else(|_| "cleanapp".to_string()),
+            rabbitmq_queue: env::var("RABBITMQ_QUEUE").unwrap_or_else(|_| "report-tags".to_string()),
+            rabbitmq_raw_report_routing_key: env::var("RABBITMQ_RAW_REPORT_ROUTING_KEY")
+                .unwrap_or_else(|_| "report.raw".to_string()),
+            rabbitmq_tag_event_routing_key: env::var("RABBITMQ_TAG_EVENT_ROUTING_KEY")
+                .unwrap_or_else(|_| "tag.added".to_string()),
         };
         
         // Validate configuration
@@ -54,5 +75,13 @@ impl Config {
         }
         
         config
+    }
+
+    pub fn amqp_url(&self) -> String {
+        format!("amqp://{}:{}@{}:{}", 
+                self.amqp_user, 
+                self.amqp_password, 
+                self.amqp_host, 
+                self.amqp_port)
     }
 }

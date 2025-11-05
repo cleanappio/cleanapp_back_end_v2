@@ -3,17 +3,17 @@ use axum::{
     response::Json,
     http::StatusCode,
 };
-use sqlx::MySqlPool;
+use crate::app_state::AppState;
 use crate::models::{AddTagsRequest, AddTagsResponse, GetTagsResponse};
 use crate::services::tag_service;
 use log;
 
 pub async fn add_tags_to_report(
-    State(pool): State<MySqlPool>,
+    State(state): State<AppState>,
     Path(report_seq): Path<i32>,
     Json(request): Json<AddTagsRequest>,
 ) -> Result<Json<AddTagsResponse>, (StatusCode, String)> {
-    match tag_service::add_tags_to_report(&pool, report_seq, request.tags).await {
+    match tag_service::add_tags_to_report(&state.pool, report_seq, request.tags, state.publisher.clone()).await {
         Ok(tags_added) => {
             let response = AddTagsResponse {
                 report_seq,
@@ -29,10 +29,10 @@ pub async fn add_tags_to_report(
 }
 
 pub async fn get_report_tags(
-    State(pool): State<MySqlPool>,
+    State(state): State<AppState>,
     Path(report_seq): Path<i32>,
 ) -> Result<Json<GetTagsResponse>, (StatusCode, String)> {
-    match tag_service::get_tags_for_report(&pool, report_seq).await {
+    match tag_service::get_tags_for_report(&state.pool, report_seq).await {
         Ok(tags) => {
             let response = GetTagsResponse { tags };
             Ok(Json(response))

@@ -2,6 +2,9 @@ use sqlx::{MySql, Pool, Row};
 use anyhow::Result;
 use crate::models::Tag;
 use crate::utils::normalization::normalize_tag;
+use crate::rabbitmq::TagEventPublisher;
+use std::sync::Arc;
+use log;
 
 pub async fn upsert_tag(pool: &Pool<MySql>, canonical: &str, display: &str) -> Result<u64> {
     let result = sqlx::query(
@@ -103,7 +106,8 @@ pub async fn get_tags_for_report(pool: &Pool<MySql>, report_seq: i32) -> Result<
 pub async fn add_tags_to_report(
     pool: &Pool<MySql>, 
     report_seq: i32, 
-    tag_strings: Vec<String>
+    tag_strings: Vec<String>,
+    publisher: Option<Arc<TagEventPublisher>>
 ) -> Result<Vec<String>> {
     let mut added_tags = Vec::new();
     
@@ -127,6 +131,14 @@ pub async fn add_tags_to_report(
         increment_tag_usage(pool, tag_id).await?;
         
         added_tags.push(canonical);
+    }
+    
+    // Publish tag added event if publisher is available
+    if let Some(pub_) = publisher {
+        if let Err(e) = pub_.publish_tag_added(report_seq, added_tags.clone()).await {
+            log::error!("Failed to publish tag added event for report {}: {}", report_seq, e);
+            // Don't fail the request if publishing fails
+        }
     }
     
     Ok(added_tags)

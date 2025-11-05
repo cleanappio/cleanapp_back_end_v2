@@ -172,6 +172,7 @@ RABBITMQ_GDPR_PROCESS_QUEUE="gdpr-processing-queue"
 RABBITMQ_REPORT_ANALYSIS_QUEUE="report-analysis-queue"
 RABBITMQ_REPORT_OWNERSHIP_QUEUE="report-ownership-queue"
 RABBITMQ_REPORT_RENDERER_QUEUE="report-renderer-queue"
+RABBITMQ_REPORT_TAGS_QUEUE="report-tags-queue"
 RABBITMQ_RAW_REPORT_ROUTING_KEY="report.raw"
 RABBITMQ_ANALYSED_REPORT_ROUTING_KEY="report.analysed"
 RABBITMQ_USER_ROUTING_KEY="user.add"
@@ -873,6 +874,34 @@ services:
       - 9097:8080
     depends_on:
       - cleanapp_db
+
+  cleanapp_report_tags_service:
+    container_name: cleanapp_report_tags_service
+    image: ${REPORT_TAGS_SERVICE_DOCKER_IMAGE}
+    environment:
+      - PORT=8080
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+      - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
+      - DB_NAME=cleanapp
+      - AMQP_HOST=${AMQP_HOST}
+      - AMQP_PORT=${AMQP_PORT}
+      - AMQP_USER=${AMQP_USER}
+      - AMQP_PASSWORD=${AMQP_PASSWORD}
+      - RABBITMQ_EXCHANGE=${RABBITMQ_EXCHANGE}
+      - RABBITMQ_QUEUE=${RABBITMQ_REPORT_TAGS_QUEUE}
+      - RABBITMQ_RAW_REPORT_ROUTING_KEY=${RABBITMQ_RAW_REPORT_ROUTING_KEY}
+      - RABBITMQ_TAG_EVENT_ROUTING_KEY=tag.added
+      - RUST_LOG=info
+      - MAX_TAG_FOLLOWS=200
+    ports:
+      - 9098:8080
+    depends_on:
+      cleanapp_db:
+        condition: service_healthy
+      cleanapp_rabbitmq:
+        condition: service_healthy
 
 COMPOSE
 
