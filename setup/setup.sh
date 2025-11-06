@@ -613,6 +613,7 @@ services:
       - GIN_MODE=${GIN_MODE}
       - CUSTOM_AREA_ID=${EDGE_CITY_AREA_ID}
       - CUSTOM_AREA_SUB_IDS=${EDGE_CITY_AREA_SUB_IDS}
+      - IS_PUBLIC=true
     ports:
       - 9095:8080
     depends_on:
