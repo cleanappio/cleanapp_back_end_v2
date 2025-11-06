@@ -208,6 +208,11 @@ EPC_PUSHER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-epc-pusher-image:${OPT}"
 REPORT_RENDERER_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-fast-renderer-image:${OPT}"
 REPORT_LISTENER_V4_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-listener-v4-image:${OPT}"
 
+# News indexer Twitter flow images
+NEWS_INDEXER_TWITTER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-news-indexer-twitter-image:${OPT}"
+NEWS_ANALYZER_TWITTER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-news-analyzer-twitter-image:${OPT}"
+NEWS_SUBMITTER_TWITTER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-news-submitter-twitter-image:${OPT}"
+
 OPENAI_ASSISTANT_ID="asst_kBtuzDRWNorZgw9o2OJTGOn0"
 
 RED_BULL_BRAND_NAMES="Red Bull"
@@ -252,6 +257,11 @@ docker pull ${EMAIL_FETCHER_DOCKER_IMAGE}
 docker pull ${REPORT_RENDERER_SERVICE_DOCKER_IMAGE}
 docker pull ${REPORT_LISTENER_V4_DOCKER_IMAGE}
 
+# Pull news indexer Twitter flow images
+docker pull ${NEWS_INDEXER_TWITTER_DOCKER_IMAGE}
+docker pull ${NEWS_ANALYZER_TWITTER_DOCKER_IMAGE}
+docker pull ${NEWS_SUBMITTER_TWITTER_DOCKER_IMAGE}
+
 # Secrets
 cat >.env << ENV
 MYSQL_ROOT_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_ROOT_PASSWORD_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
@@ -267,6 +277,11 @@ STRIPE_WEBHOOK_SECRET=\$(gcloud secrets versions access 1 --secret="STRIPE_WEBHO
 OPENAI_API_KEY=\$(gcloud secrets versions access 1 --secret="CLEANAPP_CHATGPT_API_KEY" | tr -d '\r' | sed -e 's/[$]/$$/g')
 TRASHFORMER_OPENAI_API_KEY=\$(gcloud secrets versions access 1 --secret="CLEANAPP_TRASHFORMER_OPENAI_API_KEY" | tr -d '\r' | sed -e 's/[$]/$$/g')
 BLOCKSCAN_CHAT_API_KEY=\$(gcloud secrets versions access latest --secret="BLOCKSCAN_CHAT_API_KEY_${SECRET_SUFFIX}" --project cleanup-mysql-v2 | tr -d '\r' | sed -e 's/^"//' -e 's/"$//' | sed -e 's/[$]/$$/g')
+
+# News indexer Twitter flow secrets
+TWITTER_BEARER_TOKEN=\$(gcloud secrets versions access 1 --secret="TWITTER_BEARER_TOKEN_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
+GEMINI_API_KEY=\$(gcloud secrets versions access 1 --secret="GEMINI_API_KEY_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
+CLEANAPP_TWITTER_FETCHER_TOKEN=\$(gcloud secrets versions access 1 --secret="CLEANAPP_TWITTER_FETCHER_TOKEN_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
 
 ENV
 
@@ -870,6 +885,48 @@ services:
     depends_on:
       cleanapp_db:
         condition: service_healthy
+
+  cleanapp_news_indexer_twitter:
+    container_name: cleanapp_news_indexer_twitter
+    image: ${NEWS_INDEXER_TWITTER_DOCKER_IMAGE}
+    environment:
+      - DB_URL=mysql://server:\${MYSQL_APP_PASSWORD}@cleanapp_db:3306/cleanapp
+      - TWITTER_BEARER_TOKEN=\${TWITTER_BEARER_TOKEN}
+      - TWITTER_TAGS=cleanapp
+      - TWITTER_MENTIONS=CleanApp
+      - TWITTER_INTERVAL_SECS=3600
+      - TWITTER_PAGES_PER_RUN=3
+    depends_on:
+      cleanapp_db:
+        condition: service_healthy
+
+  cleanapp_news_analyzer_twitter:
+    container_name: cleanapp_news_analyzer_twitter
+    image: ${NEWS_ANALYZER_TWITTER_DOCKER_IMAGE}
+    environment:
+      - DB_URL=mysql://server:\${MYSQL_APP_PASSWORD}@cleanapp_db:3306/cleanapp
+      - GEMINI_API_KEY=\${GEMINI_API_KEY}
+      - GEMINI_MODEL=gemini-1.5-flash
+      - ANALYZER_BATCH_SIZE=10
+      - ANALYZER_INTERVAL_SECS=300
+      - ANALYZER_ONLY_WITH_IMAGES=false
+    depends_on:
+      cleanapp_db:
+        condition: service_healthy
+
+  cleanapp_news_submitter_twitter:
+    container_name: cleanapp_news_submitter_twitter
+    image: ${NEWS_SUBMITTER_TWITTER_DOCKER_IMAGE}
+    environment:
+      - DB_URL=mysql://server:\${MYSQL_APP_PASSWORD}@cleanapp_db:3306/cleanapp
+      - SUBMIT_ENDPOINT_URL=http://cleanapp_report_listener:8080
+      - SUBMIT_TOKEN=\${CLEANAPP_TWITTER_FETCHER_TOKEN}
+      - SUBMIT_BATCH_SIZE=300
+    depends_on:
+      cleanapp_db:
+        condition: service_healthy
+      cleanapp_report_listener:
+        condition: service_started
 
 COMPOSE
 

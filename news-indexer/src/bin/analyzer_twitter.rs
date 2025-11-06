@@ -3,7 +3,7 @@ use clap::Parser;
 use log::{info, warn};
 use mysql_async::prelude::*;
 use mysql_async::Pool;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Value as JsonValue};
 use std::time::Duration as StdDuration;
 use tokio::time::sleep;
@@ -14,7 +14,7 @@ mod indexer_twitter_schema;
 #[derive(Parser, Debug, Clone)]
 struct Args {
     #[arg(long, default_value = "config.toml")] config_path: String,
-    #[arg(long)] db_url: Option<String>,
+    #[arg(long, env = "DB_URL")] db_url: Option<String>,
     #[arg(long, env = "GEMINI_API_KEY")] gemini_api_key: Option<String>,
     #[arg(long, env = "GEMINI_MODEL", default_value = "gemini-1.5-flash")] gemini_model: String,
     #[arg(long, env = "ANALYZER_BATCH_SIZE", default_value_t = 10)] batch_size: usize,
@@ -143,15 +143,17 @@ async fn run_once(pool: &Pool, client: &reqwest::Client, gemini_key: &str, args:
             .await?;
         let mut images_base64: Vec<(String, String)> = Vec::new(); // (mime, data)
         for sha in media_hashes.iter() {
-            if let Some((mime, data)): Option<(Option<String>, Vec<u8>)> = conn
+            let row: Option<(Option<String>, Vec<u8>)> = conn
                 .exec_first(
                     r#"SELECT mime, data FROM indexer_media_blob WHERE sha256 = ?"#,
                     (sha.clone(),),
                 )
-                .await?
-            {
-                let mime = mime.unwrap_or_else(|| "image/jpeg".to_string());
-                let b64 = base64::encode(&data);
+                .await?;
+            if let Some((mime_opt, data)) = row {
+                let mime = mime_opt.unwrap_or_else(|| "image/jpeg".to_string());
+                use base64::engine::general_purpose::STANDARD;
+                use base64::Engine;
+                let b64 = STANDARD.encode(&data);
                 images_base64.push((mime, b64));
             }
         }
@@ -232,23 +234,23 @@ async fn run_once(pool: &Pool, client: &reqwest::Client, gemini_key: &str, args:
                     brand_name=VALUES(brand_name), brand_display_name=VALUES(brand_display_name), summary=VALUES(summary),
                     language=VALUES(language), inferred_contact_emails=VALUES(inferred_contact_emails), raw_llm=VALUES(raw_llm),
                     error=VALUES(error)"#,
-            (
-                tweet_id,
-                is_relevant,
-                relevance,
-                classification,
-                litter_probability,
-                hazard_probability,
-                digital_bug_probability,
-                severity_level,
-                brand_name,
-                brand_display_name,
-                summary,
-                language,
-                serde_json::to_string(&inferred_contact_emails).unwrap_or("[]".into()),
-                serde_json::to_string(&raw_llm).unwrap_or("null".into()),
-                err_text,
-            ),
+            mysql_async::params::Params::Positional(vec![
+                tweet_id.into(),
+                is_relevant.into(),
+                relevance.into(),
+                classification.into(),
+                litter_probability.into(),
+                hazard_probability.into(),
+                digital_bug_probability.into(),
+                severity_level.into(),
+                brand_name.into(),
+                brand_display_name.into(),
+                summary.into(),
+                language.into(),
+                serde_json::to_string(&inferred_contact_emails).unwrap_or("[]".into()).into(),
+                serde_json::to_string(&raw_llm).unwrap_or("null".into()).into(),
+                err_text.into(),
+            ]),
         )
         .await?;
 

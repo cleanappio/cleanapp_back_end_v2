@@ -28,12 +28,21 @@ pub async fn ensure_twitter_tables(pool: &Pool) -> anyhow::Result<()> {
             media_keys JSON NULL,
             raw JSON NULL,
             ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             PRIMARY KEY (tweet_id),
             INDEX idx_created_at (created_at),
             INDEX idx_username (username),
             INDEX idx_lang (lang)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     "#).await?;
+
+    // Best-effort migration in case table exists without updated_at
+    if let Err(_e) = conn.query_drop(
+        r#"ALTER TABLE indexer_twitter_tweet
+            ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ON UPDATE CURRENT_TIMESTAMP"#).await {
+        // ignore if column already exists or lack of privileges
+    }
 
     // Media blob store with dedup by sha256
     conn.query_drop(r#"
