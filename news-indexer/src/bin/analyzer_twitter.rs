@@ -101,7 +101,7 @@ async fn run_once(pool: &Pool, client: &reqwest::Client, gemini_key: &str, args:
                        COALESCE(t.url,'')
                 FROM indexer_twitter_tweet t
                 LEFT JOIN indexer_twitter_analysis a ON a.tweet_id = t.tweet_id
-                WHERE a.tweet_id IS NULL
+                WHERE (a.tweet_id IS NULL OR a.error IS NOT NULL)
                   AND EXISTS (SELECT 1 FROM indexer_twitter_media m WHERE m.tweet_id = t.tweet_id AND m.type = 'photo')
                 ORDER BY t.created_at ASC
                 LIMIT ?"#,
@@ -117,7 +117,7 @@ async fn run_once(pool: &Pool, client: &reqwest::Client, gemini_key: &str, args:
                        COALESCE(t.url,'')
                 FROM indexer_twitter_tweet t
                 LEFT JOIN indexer_twitter_analysis a ON a.tweet_id = t.tweet_id
-                WHERE a.tweet_id IS NULL
+                WHERE (a.tweet_id IS NULL OR a.error IS NOT NULL)
                 ORDER BY t.created_at ASC
                 LIMIT ?"#,
             (args.batch_size as u64,),
@@ -160,7 +160,7 @@ async fn run_once(pool: &Pool, client: &reqwest::Client, gemini_key: &str, args:
 
         let req_body = build_gemini_request(&text, &username, &lang, &url, &images_base64);
         let endpoint = format!(
-            "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
+            "https://generativelanguage.googleapis.com/v1/models/{}:generateContent?key={}",
             args.gemini_model, gemini_key
         );
         let mut is_relevant = false;

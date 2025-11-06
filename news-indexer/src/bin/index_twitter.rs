@@ -81,6 +81,8 @@ async fn run_once(pool: &Pool, client: &reqwest::Client, bearer: &str, args: &Ar
         )
         .await?;
 
+    if let Some(sid) = since_id { info!("using since_id={}", sid); }
+
     let mut newest_id_seen: Option<i64> = since_id;
     let mut next_token: Option<String> = None;
     let mut pages = 0usize;
@@ -108,6 +110,11 @@ async fn run_once(pool: &Pool, client: &reqwest::Client, bearer: &str, args: &Ar
         let data = v.get("data").and_then(|d| d.as_array()).cloned().unwrap_or_default();
         if data.is_empty() {
             info!("no tweets in page");
+        } else {
+            let mut photos_downloaded: usize = 0;
+            info!("tweets in page: {}", data.len());
+            // We'll accumulate per-tweet media stats below
+            // (counter updated inside the loop)
         }
         let includes = v.get("includes").cloned().unwrap_or(JsonValue::Null);
         let users_by_id = index_users(&includes);
@@ -123,6 +130,7 @@ async fn run_once(pool: &Pool, client: &reqwest::Client, bearer: &str, args: &Ar
             next_token = meta.get("next_token").and_then(|x| x.as_str()).map(|s| s.to_string());
         }
 
+        let mut photos_downloaded_page: usize = 0;
         for (pos, tw) in data.iter().enumerate() {
             if let Some(tid) = tw.get("id").and_then(|x| x.as_str()).and_then(|s| s.parse::<i64>().ok()) {
                 let created_at_db = tw
@@ -202,6 +210,7 @@ async fn run_once(pool: &Pool, client: &reqwest::Client, bearer: &str, args: &Ar
                                                       ON DUPLICATE KEY UPDATE sha256=VALUES(sha256), url=VALUES(url)"#,
                                                     (tid, k, i as i32, digest_vec, murl),
                                                 ).await?;
+                                                photos_downloaded_page += 1;
                                             }
                                         }
                                     }
@@ -218,6 +227,10 @@ async fn run_once(pool: &Pool, client: &reqwest::Client, bearer: &str, args: &Ar
             if pos % 20 == 0 { sleep(StdDuration::from_millis(50)).await; }
         }
 
+        if !data.is_empty() {
+            info!("processed page: tweets={} photos_saved={} next_token={:?}", data.len(), photos_downloaded_page, next_token);
+        }
+
         if next_token.is_none() { break; }
     }
 
@@ -228,6 +241,7 @@ async fn run_once(pool: &Pool, client: &reqwest::Client, bearer: &str, args: &Ar
             (tag_key, newest),
         )
         .await?;
+        info!("updated cursor tag={} since_id={}", canonical_tag_key(&args.tags, &args.mentions), newest);
     }
 
     Ok(())
