@@ -66,6 +66,7 @@
       "properties": {
         "osm_id": 18544700,
         "name": "Predio Ferial de Buenos Aires",
+        "type": "poi",
         "amenity": "exhibition_centre"
       }
     }

@@ -70,6 +70,7 @@ func (s *DatabaseService) Close() error {
 // GetReportsByCustomArea gets the last n reports with analysis that are contained within the custom area defined in config
 // Only returns reports that are not privately owned by other users
 func (s *DatabaseService) GetReportsByCustomArea(n int, userID string) ([]models.ReportWithAnalysis, error) {
+	log.Printf("INFO: Getting reports by custom area: %d", s.cfg.CustomAreaID)
 	// Fetch the geometry for the cfg.CustomAreaID
 	geometryQuery := `
 		SELECT ST_AsText(geom)
@@ -82,6 +83,8 @@ func (s *DatabaseService) GetReportsByCustomArea(n int, userID string) ([]models
 	if err != nil {
 		return nil, fmt.Errorf("failed to query geometry: %w", err)
 	}
+
+	log.Printf("INFO: Geometry: %s", geometry)
 
 	// Get all reports within the area using area_index table
 	// Filter out reports that are privately owned by other users

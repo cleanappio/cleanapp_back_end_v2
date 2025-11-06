@@ -1114,6 +1114,7 @@
       "properties": {
         "osm_id": -3340828,
         "name": "Municipio de San Martín de los Andes",
+        "type": "admin",
         "name_en": null,
         "boundary": "administrative",
         "admin_level": 7,
