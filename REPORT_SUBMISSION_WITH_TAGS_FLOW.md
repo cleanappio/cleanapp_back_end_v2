@@ -1,21 +1,37 @@
 # Report Submission with Tags Flow
 
+> **TODO**: This document needs to be updated to reflect the actual RabbitMQ-based event manager implementation. The communication between report-processor and report-tags should be via RabbitMQ message broker, not HTTP API.
+
 ## Overview
 
-This document explains the updated flow when a new report is submitted with tags in the optimized CleanApp architecture. The system now uses a clean separation between the report processor (Go) and tag service (Rust) with no duplicate functionality.
+This document explains the updated flow when a new report is submitted with tags in the optimized CleanApp architecture. The system now uses a clean separation between the report processor (Go) and tag service (Rust) with no duplicate functionality. Communication between services is handled via RabbitMQ event manager.
 
 ## Architecture
 
 ```
-┌─────────────────────┐    HTTP API    ┌─────────────────────┐
-│  report-processor   │ ──────────────►│    report-tags      │
-│     (Go: 8080)      │                │    (Rust: 8083)     │
-│                     │                │                     │
-│ • Report submission │                │ • All tag ops       │
-│ • Image matching    │                │ • Tag normalization │
-│ • Delegates tags    │                │ • Suggestions       │
-│ • Tag client        │                │ • Trending          │
-└─────────────────────┘                └─────────────────────┘
+┌─────────────────────┐                    ┌─────────────────────┐
+│  report-processor   │                    │    report-tags      │
+│     (Go: 8080)      │                    │    (Rust: 8083)     │
+│                     │                    │                     │
+│ • Report submission │                    │ • All tag ops       │
+│ • Image matching    │                    │ • Tag normalization │
+│ • Publishes events  │                    │ • Suggestions       │
+│                     │                    │ • Trending          │
+└──────────┬──────────┘                    └──────────┬──────────┘
+           │                                          │
+           │  RabbitMQ Event Manager                  │
+           │  (Exchange: cleanapp)                    │
+           │                                          │
+           │  Routing Keys:                           │
+           │  • report.raw (publish)                  │
+           │  • tag.added (subscribe)                 │
+           │                                          │
+           ▼                                          ▼
+    ┌──────────────────────────────────────────────────┐
+    │           RabbitMQ Message Broker                │
+    │         (Exchange: cleanapp)                      │
+    │         Queue: report-tags                       │
+    └──────────────────────────────────────────────────┘
 ```
 
 ## Report Submission Flow
@@ -64,29 +80,54 @@ The report-processor service handles the request:
 
 #### 2.4 Tag Processing
 
-- **If tags are provided**: Calls the tag service via HTTP API
+- **If tags are provided**: Publishes a message to RabbitMQ with routing key `report.raw`
 - **If no tags**: Skips tag processing
+
+The message published to RabbitMQ includes:
+
+- `report_seq`: The sequence number of the newly created report
+- `tags`: Array of tag strings from the request
+- `timestamp`: When the message was created
 
 ```go
 // Process tags if provided
 if len(req.Tags) > 0 {
-    addedTags, err := h.tagClient.AddTagsToReport(ctx, response.Seq, req.Tags)
+    // Publish tag processing event to RabbitMQ
+    event := TagProcessingEvent{
+        ReportSeq: response.Seq,
+        Tags:      req.Tags,
+        Timestamp: time.Now(),
+    }
+
+    err := h.rabbitmqPublisher.Publish(
+        ctx,
+        "report.raw",  // routing key
+        event,
+    )
     if err != nil {
-        log.Printf("Failed to add tags to report %d: %v", response.Seq, err)
+        log.Printf("Failed to publish tag event for report %d: %v", response.Seq, err)
         // Don't fail the whole operation for tag processing
     } else {
-        log.Printf("Successfully added %d tags to report %d: %v", len(addedTags), response.Seq, addedTags)
+        log.Printf("Successfully published tag event for report %d with %d tags", response.Seq, len(req.Tags))
     }
 }
 ```
 
+**Note**: The report-processor publishes the event asynchronously and does not wait for tag processing to complete. This ensures the client receives a response quickly while tag processing happens in the background.
+
 ### 3. Tag Service (Rust Service)
 
-The tag service processes the tags:
+The tag service subscribes to RabbitMQ messages and processes tags asynchronously:
+
+#### 3.0 Message Consumption
+
+- The tag service subscribes to the `report-tags` queue
+- Listens for messages with routing key `report.raw`
+- Processes messages asynchronously as they arrive
 
 #### 3.1 Tag Normalization
 
-For each tag in the request:
+For each tag in the RabbitMQ message:
 
 - Trim whitespace
 - Remove leading `#` if present
@@ -123,16 +164,19 @@ For each normalized tag:
    WHERE id = ?
    ```
 
-#### 3.3 Response
+#### 3.3 Event Publishing
 
-Returns the successfully added tags:
+After successfully processing tags, the tag service publishes a `TagAddedEvent` to RabbitMQ:
 
 ```json
 {
   "report_seq": 123,
-  "tags_added": ["beach", "plastic", "cleanup"]
+  "tags": ["beach", "plastic", "cleanup"],
+  "timestamp": "2024-01-15T10:30:00Z"
 }
 ```
+
+This event is published with routing key `tag.added` and can be consumed by other services that need to react to tag additions.
 
 ### 4. Final Response
 
@@ -184,23 +228,31 @@ CREATE TABLE IF NOT EXISTS report_tags (
 
 ### Graceful Degradation
 
-- If tag service is unavailable, report submission still succeeds
+- If RabbitMQ is unavailable, report submission still succeeds
 - Tag processing errors are logged but don't fail the entire operation
 - Client receives successful response even if tag processing fails
+- Messages are persisted in RabbitMQ queue, so tag processing can resume when the service is available
 
 ### Error Scenarios
 
 1. **Invalid tags**: Invalid tags are skipped, valid ones are processed
-2. **Tag service down**: Report is submitted, tags are logged as failed
-3. **Database errors**: Tag operations fail gracefully, report submission continues
+2. **RabbitMQ down**: Report is submitted, tag event publishing fails gracefully
+3. **Tag service down**: Messages accumulate in RabbitMQ queue and are processed when service recovers
+4. **Database errors**: Tag operations fail gracefully, messages can be retried
+5. **Message processing errors**: Failed messages are rejected and can be handled by dead letter queue (if configured)
 
 ## Configuration
 
 ### Report Processor Environment Variables
 
 ```bash
-# Tag service URL
-TAG_SERVICE_URL=http://localhost:8083
+# RabbitMQ Configuration (for publishing tag events)
+AMQP_HOST=localhost
+AMQP_PORT=5672
+AMQP_USER=guest
+AMQP_PASSWORD=guest
+RABBITMQ_EXCHANGE=cleanapp
+RABBITMQ_RAW_REPORT_ROUTING_KEY=report.raw
 
 # Database (for report processing)
 DB_HOST=localhost
@@ -222,6 +274,16 @@ DB_USER=root
 DB_PASSWORD=db_password
 DB_NAME=cleanapp
 
+# RabbitMQ Configuration (for consuming tag events and publishing tag.added events)
+AMQP_HOST=localhost
+AMQP_PORT=5672
+AMQP_USER=guest
+AMQP_PASSWORD=guest
+RABBITMQ_EXCHANGE=cleanapp
+RABBITMQ_QUEUE=report-tags
+RABBITMQ_RAW_REPORT_ROUTING_KEY=report.raw
+RABBITMQ_TAG_EVENT_ROUTING_KEY=tag.added
+
 # Server
 PORT=8083
 RUST_LOG=info
@@ -233,8 +295,11 @@ MAX_TAG_FOLLOWS=200
 ### Report Submission
 
 - **POST** `/api/v3/match_report` - Submit report with optional tags
+  - Tags are processed asynchronously via RabbitMQ (routing key: `report.raw`)
 
-### Tag Operations (via Tag Service)
+### Tag Operations (via Tag Service HTTP API)
+
+**Note**: While tag processing during report submission uses RabbitMQ, the tag service also exposes HTTP endpoints for querying and managing tags:
 
 - **POST** `/api/v3/reports/:report_seq/tags` - Add tags to existing report
 - **GET** `/api/v3/reports/:report_seq/tags` - Get tags for report
@@ -257,7 +322,7 @@ MAX_TAG_FOLLOWS=200
 
 - Report processor: Report submission, matching, analysis
 - Tag service: All tag-related functionality
-- Clean HTTP API communication
+- Event-driven communication via RabbitMQ message broker
 
 ### 3. **Scalability**
 
@@ -281,13 +346,38 @@ MAX_TAG_FOLLOWS=200
 ### 1. Start Services
 
 ```bash
+# Start RabbitMQ (if not already running)
+docker run -d --name rabbitmq \
+  -p 5672:5672 \
+  -p 15672:15672 \
+  -e RABBITMQ_DEFAULT_USER=guest \
+  -e RABBITMQ_DEFAULT_PASS=guest \
+  rabbitmq:3-management-alpine
+
 # Start tag service
 cd report-tags
-RUST_LOG=info DATABASE_URL="mysql://root:db_password@localhost:3306/cleanapp" PORT=8083 cargo run &
+RUST_LOG=info \
+  DATABASE_URL="mysql://root:db_password@localhost:3306/cleanapp" \
+  AMQP_HOST=localhost \
+  AMQP_PORT=5672 \
+  AMQP_USER=guest \
+  AMQP_PASSWORD=guest \
+  RABBITMQ_EXCHANGE=cleanapp \
+  RABBITMQ_QUEUE=report-tags \
+  RABBITMQ_RAW_REPORT_ROUTING_KEY=report.raw \
+  RABBITMQ_TAG_EVENT_ROUTING_KEY=tag.added \
+  PORT=8083 \
+  cargo run &
 
 # Start report processor
 cd report-processor
-TAG_SERVICE_URL=http://localhost:8083 go run main.go &
+AMQP_HOST=localhost \
+  AMQP_PORT=5672 \
+  AMQP_USER=guest \
+  AMQP_PASSWORD=guest \
+  RABBITMQ_EXCHANGE=cleanapp \
+  RABBITMQ_RAW_REPORT_ROUTING_KEY=report.raw \
+  go run main.go &
 ```
 
 ### 2. Test Report Submission
@@ -326,9 +416,9 @@ curl "http://localhost:8083/api/v3/tags/trending?limit=5"
 The optimized architecture provides a clean, efficient flow for report submission with tags:
 
 1. **Client** submits report with tags to report-processor
-2. **Report-processor** handles report submission and delegates tag processing
-3. **Tag service** normalizes, validates, and stores tags
-4. **Both services** work together seamlessly via HTTP API
-5. **Client** receives successful response with report processed and tags added
+2. **Report-processor** handles report submission and publishes tag processing event to RabbitMQ
+3. **Tag service** consumes the event from RabbitMQ, normalizes, validates, and stores tags
+4. **Both services** work together seamlessly via RabbitMQ event manager (asynchronous, decoupled)
+5. **Client** receives successful response immediately; tag processing happens asynchronously in the background
 
-This architecture eliminates duplication, provides clear separation of concerns, and enables independent scaling of services while maintaining a seamless user experience.
+This architecture eliminates duplication, provides clear separation of concerns, and enables independent scaling of services while maintaining a seamless user experience. The event-driven approach ensures loose coupling and high availability.
