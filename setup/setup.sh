@@ -1017,18 +1017,44 @@ else
   ssh deployer@${CLEANAPP_HOST} "./up1.sh"
 fi
 
-# Deploy nginx v4 config and reload
+# Deploy nginx configs and reload
 LEAVECLEANAPP_V4_CONF="cleanapp_back_end_v2/conf/nginx/${OPT}/conf.d/livecleanapp-v4.conf"
 RENDERER_CONF="cleanapp_back_end_v2/conf/nginx/${OPT}/conf.d/fastrenderercleanapp.conf"
+TAGS_CONF="cleanapp_back_end_v2/conf/nginx/${OPT}/conf.d/tagcleanapp.conf"
+
+NGINX_COPIES=""
 if [ -f "${LEAVECLEANAPP_V4_CONF}" ]; then
   if [ -n "${SSH_KEYFILE}" ]; then
     scp -i ${SSH_KEYFILE} ${LEAVECLEANAPP_V4_CONF} deployer@${CLEANAPP_HOST}:~/livecleanapp-v4.conf
-    scp -i ${SSH_KEYFILE} ${RENDERER_CONF} deployer@${CLEANAPP_HOST}:~/fastrenderercleanapp.conf
-    ssh -i ${SSH_KEYFILE} deployer@${CLEANAPP_HOST} "sudo cp ~/livecleanapp-v4.conf /etc/nginx/conf.d/livecleanapp-v4.conf && sudo cp ~/fastrenderercleanapp.conf /etc/nginx/conf.d/fastrenderercleanapp.conf && sudo nginx -t && sudo systemctl reload nginx"
   else
     scp ${LEAVECLEANAPP_V4_CONF} deployer@${CLEANAPP_HOST}:~/livecleanapp-v4.conf
+  fi
+  NGINX_COPIES="${NGINX_COPIES}sudo cp ~/livecleanapp-v4.conf /etc/nginx/conf.d/livecleanapp-v4.conf && "
+fi
+
+if [ -f "${RENDERER_CONF}" ]; then
+  if [ -n "${SSH_KEYFILE}" ]; then
+    scp -i ${SSH_KEYFILE} ${RENDERER_CONF} deployer@${CLEANAPP_HOST}:~/fastrenderercleanapp.conf
+  else
     scp ${RENDERER_CONF} deployer@${CLEANAPP_HOST}:~/fastrenderercleanapp.conf
-    ssh deployer@${CLEANAPP_HOST} "sudo cp ~/livecleanapp-v4.conf /etc/nginx/conf.d/livecleanapp-v4.conf && sudo cp ~/fastrenderercleanapp.conf /etc/nginx/conf.d/fastrenderercleanapp.conf && sudo nginx -t && sudo systemctl reload nginx"
+  fi
+  NGINX_COPIES="${NGINX_COPIES}sudo cp ~/fastrenderercleanapp.conf /etc/nginx/conf.d/fastrenderercleanapp.conf && "
+fi
+
+if [ -f "${TAGS_CONF}" ]; then
+  if [ -n "${SSH_KEYFILE}" ]; then
+    scp -i ${SSH_KEYFILE} ${TAGS_CONF} deployer@${CLEANAPP_HOST}:~/tagcleanapp.conf
+  else
+    scp ${TAGS_CONF} deployer@${CLEANAPP_HOST}:~/tagcleanapp.conf
+  fi
+  NGINX_COPIES="${NGINX_COPIES}sudo cp ~/tagcleanapp.conf /etc/nginx/conf.d/tagcleanapp.conf && "
+fi
+
+if [ -n "${NGINX_COPIES}" ]; then
+  if [ -n "${SSH_KEYFILE}" ]; then
+    ssh -i ${SSH_KEYFILE} deployer@${CLEANAPP_HOST} "${NGINX_COPIES}sudo nginx -t && sudo systemctl reload nginx"
+  else
+    ssh deployer@${CLEANAPP_HOST} "${NGINX_COPIES}sudo nginx -t && sudo systemctl reload nginx"
   fi
 fi
 if [[ "${CLEANAPP_HOST}" != "${FACE_DETECTOR_HOST}" ]]; then
