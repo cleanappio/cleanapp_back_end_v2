@@ -15,28 +15,36 @@ import (
 	"report_processor/database"
 	"report_processor/models"
 	"report_processor/openai"
+	"report_processor/rabbitmq"
+	"report_processor/services"
 
 	"github.com/gin-gonic/gin"
 )
 
 // Handlers holds all HTTP handlers
 type Handlers struct {
-	db           *database.Database
-	config       *config.Config
-	openaiClient *openai.Client
+	db              *database.Database
+	config          *config.Config
+	openaiClient    *openai.Client
+	tagClient       *services.TagClient
+	rabbitmqPublisher *rabbitmq.Publisher
 }
 
 // NewHandlers creates a new handlers instance
-func NewHandlers(db *database.Database, cfg *config.Config) *Handlers {
+func NewHandlers(db *database.Database, cfg *config.Config, rabbitmqPublisher *rabbitmq.Publisher) *Handlers {
 	var openaiClient *openai.Client
 	if cfg.OpenAIAPIKey != "" {
 		openaiClient = openai.NewClient(cfg.OpenAIAPIKey, cfg.OpenAIModel)
 	}
 
+	tagClient := services.NewTagClient(cfg.TagServiceURL)
+
 	return &Handlers{
-		db:           db,
-		config:       cfg,
-		openaiClient: openaiClient,
+		db:              db,
+		config:          cfg,
+		openaiClient:    openaiClient,
+		tagClient:       tagClient,
+		rabbitmqPublisher: rabbitmqPublisher,
 	}
 }
 
@@ -409,6 +417,28 @@ func (h *Handlers) submitReport(ctx context.Context, req models.MatchReportReque
 	}
 
 	log.Printf("Successfully submitted report %s to %s with seq %d", req.ID, url, response.Seq)
+	
+	// Process tags if provided
+	if len(req.Tags) > 0 {
+		// Publish tag processing event to RabbitMQ
+		if h.rabbitmqPublisher != nil {
+			tagMessage := models.ReportWithTagsMessage{
+				Seq:  response.Seq,
+				Tags: req.Tags,
+			}
+			
+			err := h.rabbitmqPublisher.PublishWithRoutingKey(h.config.RabbitMQRawReportRoutingKey, tagMessage)
+			if err != nil {
+				log.Printf("Failed to publish tag event for report %d: %v", response.Seq, err)
+				// Don't fail the whole operation for tag processing
+			} else {
+				log.Printf("Successfully published tag event for report %d with %d tags", response.Seq, len(req.Tags))
+			}
+		} else {
+			log.Printf("RabbitMQ publisher not available, skipping tag processing for report %d", response.Seq)
+		}
+	}
+	
 	return response.Seq, nil
 }
 
@@ -494,3 +524,4 @@ func (h *Handlers) GetResponsesByStatus(c *gin.Context) {
 		"count":   len(responses),
 	})
 }
+
