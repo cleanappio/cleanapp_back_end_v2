@@ -52,25 +52,11 @@ if [ "${PROJECT_NAME}" != "${CURRENT_PROJECT}" ]; then
   gcloud config set project ${PROJECT_NAME}
 fi
 
-echo "Building indexer image..."
+echo "Building all twitter images in a single build (shared compile cache)..."
 gcloud builds submit \
   --region=${CLOUD_REGION} \
-  --config=cloudbuild.indexer.yaml \
-  --substitutions=_IMAGE_TAG=${TAG_INDEXER} \
-  .
-
-echo "Building analyzer image..."
-gcloud builds submit \
-  --region=${CLOUD_REGION} \
-  --config=cloudbuild.analyzer.yaml \
-  --substitutions=_IMAGE_TAG=${TAG_ANALYZER} \
-  .
-
-echo "Building submitter image..."
-gcloud builds submit \
-  --region=${CLOUD_REGION} \
-  --config=cloudbuild.submitter.yaml \
-  --substitutions=_IMAGE_TAG=${TAG_SUBMITTER} \
+  --config=cloudbuild.all.yaml \
+  --substitutions=_TAG_INDEXER=${TAG_INDEXER},_TAG_ANALYZER=${TAG_ANALYZER},_TAG_SUBMITTER=${TAG_SUBMITTER} \
   .
 
 echo "Tagging images as ${OPT}..."

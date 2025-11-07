@@ -16,7 +16,7 @@ struct Args {
     #[arg(long, default_value = "config.toml")] config_path: String,
     #[arg(long, env = "DB_URL")] db_url: Option<String>,
     #[arg(long, env = "GEMINI_API_KEY")] gemini_api_key: Option<String>,
-    #[arg(long, env = "GEMINI_MODEL", default_value = "gemini-1.5-flash")] gemini_model: String,
+    #[arg(long, env = "GEMINI_MODEL", default_value = "gemini-1.5-flash-002")] gemini_model: String,
     #[arg(long, env = "ANALYZER_BATCH_SIZE", default_value_t = 10)] batch_size: usize,
     #[arg(long, env = "ANALYZER_INTERVAL_SECS", default_value_t = 300)] interval_secs: u64,
     #[arg(long, env = "ANALYZER_ONLY_WITH_IMAGES", default_value_t = false)] only_with_images: bool,
@@ -159,10 +159,16 @@ async fn run_once(pool: &Pool, client: &reqwest::Client, gemini_key: &str, args:
         }
 
         let req_body = build_gemini_request(&text, &username, &lang, &url, &images_base64);
-        let endpoint = format!(
-            "https://generativelanguage.googleapis.com/v1/models/{}:generateContent?key={}",
-            args.gemini_model, gemini_key
-        );
+        // Try a small set of endpoint/model fallbacks to handle API version/model naming differences
+        let mut attempts: Vec<String> = Vec::new();
+        attempts.push(format!("https://generativelanguage.googleapis.com/v1/models/{}:generateContent?key={}", args.gemini_model, gemini_key));
+        if !args.gemini_model.contains("-002") {
+            attempts.push(format!("https://generativelanguage.googleapis.com/v1/models/{}-002:generateContent?key={}", args.gemini_model, gemini_key));
+        }
+        attempts.push(format!("https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}", args.gemini_model, gemini_key));
+        if !args.gemini_model.contains("-002") {
+            attempts.push(format!("https://generativelanguage.googleapis.com/v1beta/models/{}-002:generateContent?key={}", args.gemini_model, gemini_key));
+        }
         let mut is_relevant = false;
         let mut relevance = 0.0;
         let mut classification = "unknown".to_string();
@@ -178,47 +184,53 @@ async fn run_once(pool: &Pool, client: &reqwest::Client, gemini_key: &str, args:
         let mut raw_llm: JsonValue = JsonValue::Null;
         let mut err_text: Option<String> = None;
 
-        match client.post(&endpoint).json(&req_body).send().await {
-            Ok(resp) => {
-                if !resp.status().is_success() {
-                    let st = resp.status();
-                    let body = resp.text().await.unwrap_or_default();
-                    warn!("gemini http {}: {}", st, body);
-                    err_text = Some(format!("http {}", st));
-                } else {
-                    let v: JsonValue = resp.json().await.unwrap_or(JsonValue::Null);
-                    raw_llm = v.clone();
-                    if let Some(text_out) = extract_gemini_text(&v) {
-                        match serde_json::from_str::<JsonValue>(&text_out) {
-                            Ok(obj) => {
-                                is_relevant = obj.get("is_relevant").and_then(|x| x.as_bool()).unwrap_or(false);
-                                relevance = obj.get("relevance").and_then(|x| x.as_f64()).unwrap_or(0.0);
-                                classification = obj.get("classification").and_then(|x| x.as_str()).unwrap_or("unknown").to_string();
-                                litter_probability = obj.get("litter_probability").and_then(|x| x.as_f64()).unwrap_or(0.0);
-                                hazard_probability = obj.get("hazard_probability").and_then(|x| x.as_f64()).unwrap_or(0.0);
-                                digital_bug_probability = obj.get("digital_bug_probability").and_then(|x| x.as_f64()).unwrap_or(0.0);
-                                severity_level = obj.get("severity_level").and_then(|x| x.as_f64()).unwrap_or(0.0);
-                                brand_display_name = obj.get("brand_display_name").and_then(|x| x.as_str()).unwrap_or("").to_string();
-                                brand_name = obj.get("brand_name").and_then(|x| x.as_str()).unwrap_or("").to_string();
-                                summary = obj.get("summary").and_then(|x| x.as_str()).unwrap_or("").to_string();
-                                if let Some(l) = obj.get("language").and_then(|x| x.as_str()) { language = l.to_string(); }
-                                if let Some(emails) = obj.get("inferred_contact_emails").cloned() { inferred_contact_emails = emails; }
-                            }
-                            Err(e) => {
-                                warn!("gemini parse json failed: {}", e);
-                                err_text = Some("invalid_json".to_string());
-                            }
-                        }
+        let mut last_err: Option<String> = None;
+        for ep in attempts.iter() {
+            match client.post(ep).json(&req_body).send().await {
+                Ok(resp) => {
+                    if !resp.status().is_success() {
+                        let st = resp.status();
+                        let body = resp.text().await.unwrap_or_default();
+                        warn!("gemini http {}: {}", st, body);
+                        // Retry on 404 only with next attempt
+                        if st.as_u16() == 404 { last_err = Some(format!("http 404")); continue; }
+                        last_err = Some(format!("http {}", st));
+                        break;
                     } else {
-                        err_text = Some("no_text_candidate".to_string());
+                        let v: JsonValue = resp.json().await.unwrap_or(JsonValue::Null);
+                        raw_llm = v.clone();
+                        if let Some(text_out) = extract_gemini_text(&v) {
+                            match serde_json::from_str::<JsonValue>(&text_out) {
+                                Ok(obj) => {
+                                    is_relevant = obj.get("is_relevant").and_then(|x| x.as_bool()).unwrap_or(false);
+                                    relevance = obj.get("relevance").and_then(|x| x.as_f64()).unwrap_or(0.0);
+                                    classification = obj.get("classification").and_then(|x| x.as_str()).unwrap_or("unknown").to_string();
+                                    litter_probability = obj.get("litter_probability").and_then(|x| x.as_f64()).unwrap_or(0.0);
+                                    hazard_probability = obj.get("hazard_probability").and_then(|x| x.as_f64()).unwrap_or(0.0);
+                                    digital_bug_probability = obj.get("digital_bug_probability").and_then(|x| x.as_f64()).unwrap_or(0.0);
+                                    severity_level = obj.get("severity_level").and_then(|x| x.as_f64()).unwrap_or(0.0);
+                                    brand_display_name = obj.get("brand_display_name").and_then(|x| x.as_str()).unwrap_or("").to_string();
+                                    brand_name = obj.get("brand_name").and_then(|x| x.as_str()).unwrap_or("").to_string();
+                                    summary = obj.get("summary").and_then(|x| x.as_str()).unwrap_or("").to_string();
+                                    if let Some(l) = obj.get("language").and_then(|x| x.as_str()) { language = l.to_string(); }
+                                    if let Some(emails) = obj.get("inferred_contact_emails").cloned() { inferred_contact_emails = emails; }
+                                    last_err = None; // success
+                                }
+                                Err(e) => {
+                                    warn!("gemini parse json failed: {}", e);
+                                    last_err = Some("invalid_json".to_string());
+                                }
+                            }
+                        } else {
+                            last_err = Some("no_text_candidate".to_string());
+                        }
+                        break; // processed a success response (even if parsing issue)
                     }
                 }
-            }
-            Err(e) => {
-                warn!("gemini request failed: {}", e);
-                err_text = Some("request_failed".to_string());
+                Err(e) => { warn!("gemini request failed: {}", e); last_err = Some("request_failed".to_string()); break; }
             }
         }
+        err_text = last_err;
 
         // Insert analysis
         conn.exec_drop(
