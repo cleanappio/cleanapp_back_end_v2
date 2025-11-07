@@ -1,10 +1,8 @@
 # Report Submission with Tags Flow
 
-> **TODO**: This document needs to be updated to reflect the actual RabbitMQ-based event manager implementation. The communication between report-processor and report-tags should be via RabbitMQ message broker, not HTTP API.
-
 ## Overview
 
-This document explains the updated flow when a new report is submitted with tags in the optimized CleanApp architecture. The system now uses a clean separation between the report processor (Go) and tag service (Rust) with no duplicate functionality. Communication between services is handled via RabbitMQ event manager.
+This document explains the flow when a new report is submitted with tags in the optimized CleanApp architecture. The system uses a clean separation between the report processor (Go) and tag service (Rust) with no duplicate functionality. Communication between services is handled via RabbitMQ event manager for asynchronous, event-driven tag processing.
 
 ## Architecture
 
@@ -24,7 +22,6 @@ This document explains the updated flow when a new report is submitted with tags
            │                                          │
            │  Routing Keys:                           │
            │  • report.raw (publish)                  │
-           │  • tag.added (subscribe)                 │
            │                                          │
            ▼                                          ▼
     ┌──────────────────────────────────────────────────┐
@@ -85,30 +82,29 @@ The report-processor service handles the request:
 
 The message published to RabbitMQ includes:
 
-- `report_seq`: The sequence number of the newly created report
+- `seq`: The sequence number of the newly created report
 - `tags`: Array of tag strings from the request
-- `timestamp`: When the message was created
 
 ```go
 // Process tags if provided
 if len(req.Tags) > 0 {
     // Publish tag processing event to RabbitMQ
-    event := TagProcessingEvent{
-        ReportSeq: response.Seq,
-        Tags:      req.Tags,
-        Timestamp: time.Now(),
-    }
+    if h.rabbitmqPublisher != nil {
+        tagMessage := models.ReportWithTagsMessage{
+            Seq:  response.Seq,
+            Tags: req.Tags,
+        }
 
-    err := h.rabbitmqPublisher.Publish(
-        ctx,
-        "report.raw",  // routing key
-        event,
-    )
-    if err != nil {
-        log.Printf("Failed to publish tag event for report %d: %v", response.Seq, err)
-        // Don't fail the whole operation for tag processing
-    } else {
-        log.Printf("Successfully published tag event for report %d with %d tags", response.Seq, len(req.Tags))
+        err := h.rabbitmqPublisher.PublishWithRoutingKey(
+            h.config.RabbitMQRawReportRoutingKey,
+            tagMessage
+        )
+        if err != nil {
+            log.Printf("Failed to publish tag event for report %d: %v", response.Seq, err)
+            // Don't fail the whole operation for tag processing
+        } else {
+            log.Printf("Successfully published tag event for report %d with %d tags", response.Seq, len(req.Tags))
+        }
     }
 }
 ```
@@ -166,17 +162,9 @@ For each normalized tag:
 
 #### 3.3 Event Publishing
 
-After successfully processing tags, the tag service publishes a `TagAddedEvent` to RabbitMQ:
+After successfully processing tags, the tag service can publish events to RabbitMQ (currently disabled - see note below).
 
-```json
-{
-  "report_seq": 123,
-  "tags": ["beach", "plastic", "cleanup"],
-  "timestamp": "2024-01-15T10:30:00Z"
-}
-```
-
-This event is published with routing key `tag.added` and can be consumed by other services that need to react to tag additions.
+**Note**: Tag event publishing (`tag.added`) is currently disabled as there are no consumers. This can be re-enabled when a use case arises.
 
 ### 4. Final Response
 
@@ -274,7 +262,7 @@ DB_USER=root
 DB_PASSWORD=db_password
 DB_NAME=cleanapp
 
-# RabbitMQ Configuration (for consuming tag events and publishing tag.added events)
+# RabbitMQ Configuration (for consuming tag events)
 AMQP_HOST=localhost
 AMQP_PORT=5672
 AMQP_USER=guest
@@ -282,7 +270,6 @@ AMQP_PASSWORD=guest
 RABBITMQ_EXCHANGE=cleanapp
 RABBITMQ_QUEUE=report-tags
 RABBITMQ_RAW_REPORT_ROUTING_KEY=report.raw
-RABBITMQ_TAG_EVENT_ROUTING_KEY=tag.added
 
 # Server
 PORT=8083
@@ -365,7 +352,6 @@ RUST_LOG=info \
   RABBITMQ_EXCHANGE=cleanapp \
   RABBITMQ_QUEUE=report-tags \
   RABBITMQ_RAW_REPORT_ROUTING_KEY=report.raw \
-  RABBITMQ_TAG_EVENT_ROUTING_KEY=tag.added \
   PORT=8083 \
   cargo run &
 

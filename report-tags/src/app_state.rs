@@ -1,10 +1,9 @@
 use sqlx::MySqlPool;
-use std::sync::Arc;
-use crate::rabbitmq::TagEventPublisher;
 
 #[derive(Clone)]
 pub struct AppState {
     pub pool: MySqlPool,
-    pub publisher: Option<Arc<TagEventPublisher>>,
+    // TODO: Add tag event publisher back when we have consumers for tag.added events
+    // pub publisher: Option<Arc<TagEventPublisher>>,
 }
 

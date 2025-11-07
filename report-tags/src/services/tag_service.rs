@@ -2,15 +2,21 @@ use sqlx::{MySql, Pool, Row};
 use anyhow::Result;
 use crate::models::Tag;
 use crate::utils::normalization::normalize_tag;
-use crate::rabbitmq::TagEventPublisher;
-use std::sync::Arc;
+// TODO: Re-enable when we have consumers for tag.added events
+// use crate::rabbitmq::TagEventPublisher;
+// use std::sync::Arc;
 use log;
 
 pub async fn upsert_tag(pool: &Pool<MySql>, canonical: &str, display: &str) -> Result<u64> {
+    // First try to get existing tag
+    if let Some(existing_tag) = get_tag_by_canonical(pool, canonical).await? {
+        return Ok(existing_tag.id);
+    }
+    
+    // If not found, insert new tag
     let result = sqlx::query(
         "INSERT INTO tags (canonical_name, display_name, usage_count, last_used_at) 
-         VALUES (?, ?, 0, NULL)
-         ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)"
+         VALUES (?, ?, 0, NULL)"
     )
     .bind(canonical)
     .bind(display)
@@ -107,39 +113,105 @@ pub async fn add_tags_to_report(
     pool: &Pool<MySql>, 
     report_seq: i32, 
     tag_strings: Vec<String>,
-    publisher: Option<Arc<TagEventPublisher>>
+    // TODO: Re-add publisher parameter when we have consumers for tag.added events
+    // publisher: Option<Arc<TagEventPublisher>>
 ) -> Result<Vec<String>> {
+    log::info!("Adding tags to report {}: {:?}", report_seq, tag_strings);
+    
+    // Verify that the report exists
+    let report_exists: Option<i32> = sqlx::query_scalar(
+        "SELECT seq FROM reports WHERE seq = ?"
+    )
+    .bind(report_seq)
+    .fetch_optional(pool)
+    .await?;
+    
+    if report_exists.is_none() {
+        log::error!("Report {} does not exist in the reports table", report_seq);
+        return Err(anyhow::anyhow!("Report {} does not exist", report_seq));
+    }
+    
+    log::debug!("Verified report {} exists", report_seq);
+    
+    if tag_strings.is_empty() {
+        log::warn!("Empty tags array provided for report {}", report_seq);
+        return Ok(Vec::new());
+    }
+    
     let mut added_tags = Vec::new();
     
     for tag_string in tag_strings {
+        log::debug!("Processing tag: '{}' for report {}", tag_string, report_seq);
+        
         // Normalize the tag
-        let (canonical, display) = normalize_tag(&tag_string)?;
+        let (canonical, display) = match normalize_tag(&tag_string) {
+            Ok((canonical, display)) => {
+                log::debug!("Normalized tag '{}' to canonical: '{}', display: '{}'", tag_string, canonical, display);
+                (canonical, display)
+            }
+            Err(e) => {
+                log::error!("Failed to normalize tag '{}' for report {}: {}", tag_string, report_seq, e);
+                continue; // Skip invalid tags instead of failing the entire request
+            }
+        };
         
         // Upsert the tag
-        let tag_id = upsert_tag(pool, &canonical, &display).await?;
+        let tag_id = match upsert_tag(pool, &canonical, &display).await {
+            Ok(id) => {
+                log::debug!("Upserted tag '{}' with id: {}", canonical, id);
+                id
+            }
+            Err(e) => {
+                log::error!("Failed to upsert tag '{}' for report {}: {}", canonical, report_seq, e);
+                return Err(e);
+            }
+        };
         
         // Add to report_tags (ignore if already exists)
-        sqlx::query(
+        match sqlx::query(
             "INSERT IGNORE INTO report_tags (report_seq, tag_id) VALUES (?, ?)"
         )
         .bind(report_seq)
         .bind(tag_id)
         .execute(pool)
-        .await?;
+        .await {
+            Ok(result) => {
+                let rows_affected = result.rows_affected();
+                if rows_affected > 0 {
+                    log::info!("Successfully inserted tag {} (canonical: '{}') into report_tags for report {} (rows affected: {})", 
+                              tag_id, canonical, report_seq, rows_affected);
+                } else {
+                    log::warn!("Tag {} (canonical: '{}') already exists for report {} or insert was ignored (rows affected: {})", 
+                              tag_id, canonical, report_seq, rows_affected);
+                }
+            }
+            Err(e) => {
+                log::error!("Failed to insert tag {} (canonical: '{}') into report_tags for report {}: {}", 
+                           tag_id, canonical, report_seq, e);
+                return Err(e.into());
+            }
+        }
         
         // Increment usage count
-        increment_tag_usage(pool, tag_id).await?;
+        if let Err(e) = increment_tag_usage(pool, tag_id).await {
+            log::error!("Failed to increment usage count for tag {}: {}", tag_id, e);
+            return Err(e);
+        }
         
+        log::debug!("Successfully added tag '{}' to report {}", canonical, report_seq);
         added_tags.push(canonical);
     }
     
+    log::info!("Successfully added {} tags to report {}: {:?}", added_tags.len(), report_seq, added_tags);
+    
+    // TODO: Re-enable tag event publishing when we have consumers for tag.added events
     // Publish tag added event if publisher is available
-    if let Some(pub_) = publisher {
-        if let Err(e) = pub_.publish_tag_added(report_seq, added_tags.clone()).await {
-            log::error!("Failed to publish tag added event for report {}: {}", report_seq, e);
-            // Don't fail the request if publishing fails
-        }
-    }
+    // if let Some(pub_) = publisher {
+    //     if let Err(e) = pub_.publish_tag_added(report_seq, added_tags.clone()).await {
+    //         log::error!("Failed to publish tag added event for report {}: {}", report_seq, e);
+    //         // Don't fail the request if publishing fails
+    //     }
+    // }
     
     Ok(added_tags)
 }

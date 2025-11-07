@@ -13,6 +13,7 @@ import (
 	"report_processor/database"
 	"report_processor/handlers"
 	"report_processor/middleware"
+	"report_processor/rabbitmq"
 
 	"github.com/gin-gonic/gin"
 )
@@ -46,8 +47,20 @@ func main() {
 		log.Fatal("Failed to ensure report_clusters table:", err)
 	}
 
+	// Initialize RabbitMQ publisher for tag processing
+	var rabbitmqPublisher *rabbitmq.Publisher
+	amqpURL := cfg.GetAMQPURL()
+	publisher, err := rabbitmq.NewPublisher(amqpURL, cfg.RabbitMQExchange, cfg.RabbitMQRawReportRoutingKey)
+	if err != nil {
+		log.Printf("Warning: Failed to initialize RabbitMQ publisher: %v", err)
+		log.Printf("Tag processing via RabbitMQ will be unavailable. Continuing without RabbitMQ...")
+	} else {
+		rabbitmqPublisher = publisher
+		log.Printf("RabbitMQ publisher initialized: exchange=%s, routing_key=%s", cfg.RabbitMQExchange, cfg.RabbitMQRawReportRoutingKey)
+	}
+
 	// Create handlers
-	h := handlers.NewHandlers(db, cfg)
+	h := handlers.NewHandlers(db, cfg, rabbitmqPublisher)
 
 	// Setup HTTP server
 	router := setupRouter(cfg, h, authClient)
@@ -80,6 +93,15 @@ func main() {
 	// Shutdown the HTTP server
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Fatal("Server forced to shutdown:", err)
+	}
+
+	// Close RabbitMQ publisher if it was initialized
+	if rabbitmqPublisher != nil {
+		if err := rabbitmqPublisher.Close(); err != nil {
+			log.Printf("Failed to close RabbitMQ publisher: %v", err)
+		} else {
+			log.Println("RabbitMQ publisher closed successfully")
+		}
 	}
 
 	log.Println("Server exited")

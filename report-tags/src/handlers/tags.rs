@@ -13,7 +13,7 @@ pub async fn add_tags_to_report(
     Path(report_seq): Path<i32>,
     Json(request): Json<AddTagsRequest>,
 ) -> Result<Json<AddTagsResponse>, (StatusCode, String)> {
-    match tag_service::add_tags_to_report(&state.pool, report_seq, request.tags, state.publisher.clone()).await {
+    match tag_service::add_tags_to_report(&state.pool, report_seq, request.tags).await {
         Ok(tags_added) => {
             let response = AddTagsResponse {
                 report_seq,

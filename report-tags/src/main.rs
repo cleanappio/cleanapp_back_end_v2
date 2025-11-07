@@ -12,7 +12,8 @@ use axum::{
     Router,
 };
 use std::net::SocketAddr;
-use std::sync::Arc;
+// TODO: Re-enable when we have consumers for tag.added events
+// use std::sync::Arc;
 use tokio::signal;
 use tower_http::{
     cors::{Any, CorsLayer},
@@ -20,7 +21,9 @@ use tower_http::{
 };
 use stderrlog::{self, Timestamp};
 use log;
-use crate::rabbitmq::TagEventPublisher;
+// TODO: Re-enable when we have consumers for tag.added events
+// use crate::rabbitmq::TagEventPublisher;
+use crate::rabbitmq::ReportTagsSubscriber;
 use crate::app_state::AppState;
 
 #[tokio::main]
@@ -82,25 +85,54 @@ async fn run() -> anyhow::Result<()> {
     database::schema::initialize_schema(&pool).await?;
     log::info!("Database schema initialized successfully");
     
-    // Initialize RabbitMQ publisher (optional, graceful degradation)
-    let publisher = match TagEventPublisher::new(&config).await {
-        Ok(pub_) => {
-            log::info!("RabbitMQ publisher initialized successfully");
-            Some(Arc::new(pub_))
+    // Initialize RabbitMQ subscriber for processing report tags (optional, graceful degradation)
+    let mut report_subscriber = match ReportTagsSubscriber::new(&config).await {
+        Ok(sub) => {
+            log::info!("RabbitMQ subscriber initialized successfully");
+            Some(sub)
         }
         Err(e) => {
-            log::warn!("Failed to initialize RabbitMQ publisher: {}. Continuing without RabbitMQ.", e);
+            log::warn!("Failed to initialize RabbitMQ subscriber: {}. Continuing without RabbitMQ. Tag processing via HTTP API will still work.", e);
             None
         }
     };
     
-    // Clone publisher for shutdown handler before moving into state
-    let shutdown_publisher = publisher.clone();
+    // Start the subscriber if it was initialized
+    if let Some(ref mut subscriber) = report_subscriber {
+        let pool_clone = pool.clone();
+        let routing_key = config.rabbitmq_raw_report_routing_key.clone();
+        
+        match subscriber.start(pool_clone, &routing_key).await {
+            Ok(_) => {
+                log::info!("RabbitMQ subscriber started successfully for routing key: {}", routing_key);
+            }
+            Err(e) => {
+                log::error!("Failed to start RabbitMQ subscriber: {}. Continuing without RabbitMQ.", e);
+                report_subscriber = None;
+            }
+        }
+    }
+    
+    // TODO: Re-enable RabbitMQ tag event publisher when we have consumers for tag.added events
+    // Initialize RabbitMQ publisher (optional, graceful degradation)
+    // let publisher = match TagEventPublisher::new(&config).await {
+    //     Ok(pub_) => {
+    //         log::info!("RabbitMQ publisher initialized successfully");
+    //         Some(Arc::new(pub_))
+    //     }
+    //     Err(e) => {
+    //         log::warn!("Failed to initialize RabbitMQ publisher: {}. Continuing without RabbitMQ.", e);
+    //         None
+    //     }
+    // };
+    // 
+    // // Clone publisher for shutdown handler before moving into state
+    // let shutdown_publisher = publisher.clone();
     
     // Create application state
     let app_state = AppState {
         pool,
-        publisher,
+        // publisher,
     };
     
     // Create router
@@ -123,12 +155,22 @@ async fn run() -> anyhow::Result<()> {
         .with_graceful_shutdown(shutdown_signal())
         .await?;
     
+    // Close subscriber on shutdown
+    if let Some(subscriber) = report_subscriber {
+        if let Err(e) = subscriber.close().await {
+            log::error!("Failed to close RabbitMQ subscriber: {}", e);
+        } else {
+            log::info!("RabbitMQ subscriber closed successfully");
+        }
+    }
+    
+    // TODO: Re-enable publisher shutdown when we have consumers for tag.added events
     // Close publisher on shutdown
     // Note: Publisher close consumes self, so we can't close through Arc
     // The connection will be closed when Arc is dropped
-    if shutdown_publisher.is_some() {
-        log::info!("RabbitMQ publisher will be closed on drop");
-    }
+    // if shutdown_publisher.is_some() {
+    //     log::info!("RabbitMQ publisher will be closed on drop");
+    // }
     
     log::info!("Server shutdown complete");
     Ok(())
