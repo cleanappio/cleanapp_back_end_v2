@@ -50,13 +50,16 @@ func main() {
 	r.GET("/health", areasHandler.HealthHandler)
 
 	// Protected routes
-	protected := r.Group("/")
-	protected.Use(middleware.AuthMiddleware(cfg))
+	group := r.Group("/")
+	log.Printf("INFO: Public dashboard: %v", cfg.IsPublic)
+	if !cfg.IsPublic {
+		group.Use(middleware.AuthMiddleware(cfg))
+	}
 	{
-		protected.GET("/areas", areasHandler.AreasHandler)
-		protected.GET("/sub_areas", areasHandler.SubAreasHandler)
-		protected.GET("/reports", areasHandler.ReportsHandler)
-		protected.GET("/reports_aggr", areasHandler.ReportsAggrHandler)
+		group.GET("/areas", areasHandler.AreasHandler)
+		group.GET("/sub_areas", areasHandler.SubAreasHandler)
+		group.GET("/reports", areasHandler.ReportsHandler)
+		group.GET("/reports_aggr", areasHandler.ReportsAggrHandler)
 	}
 
 	log.Printf("Starting Custom Area Dashboard service on %s:%s", cfg.Host, cfg.Port)

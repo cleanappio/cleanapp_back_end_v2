@@ -48,15 +48,16 @@ func (h *Handlers) Db() *database.Database {
 type BulkIngestRequest struct {
 	Source string `json:"source"`
 	Items  []struct {
-		ExternalID string                 `json:"external_id"`
-		Title      string                 `json:"title"`
-		Content    string                 `json:"content"`
-		URL        string                 `json:"url"`
-		CreatedAt  string                 `json:"created_at"`
-		UpdatedAt  string                 `json:"updated_at"`
-		Score      float64                `json:"score"`
-		Metadata   map[string]interface{} `json:"metadata"`
-		SkipAI     *bool                  `json:"skip_ai"`
+		ExternalID  string                 `json:"external_id"`
+		Title       string                 `json:"title"`
+		Content     string                 `json:"content"`
+		URL         string                 `json:"url"`
+		CreatedAt   string                 `json:"created_at"`
+		UpdatedAt   string                 `json:"updated_at"`
+		Score       float64                `json:"score"`
+		Metadata    map[string]interface{} `json:"metadata"`
+		SkipAI      *bool                  `json:"skip_ai"`
+		ImageBase64 string                 `json:"image_base64,omitempty"`
 	} `json:"items"`
 }
 
@@ -113,6 +114,19 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 			continue
 		}
 
+		// Decode optional base64 image (best-effort)
+		var imgBytes []byte
+		if strings.TrimSpace(it.ImageBase64) != "" {
+			if b, err := base64.StdEncoding.DecodeString(it.ImageBase64); err == nil {
+				imgBytes = b
+			} else {
+				// ignore invalid image, proceed without image
+				imgBytes = []byte{}
+			}
+		} else {
+			imgBytes = []byte{}
+		}
+
 		if !exists {
 			// Insert report + analysis + mapping in one transaction to avoid orphan rows
 			tx, err := h.db.DB().BeginTx(c.Request.Context(), &sql.TxOptions{Isolation: sql.LevelReadCommitted})
@@ -126,7 +140,7 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 			team := 1 + rand.Intn(2)
 			res, err := tx.ExecContext(c.Request.Context(),
 				`INSERT INTO reports (id, team, action_id, latitude, longitude, x, y, image, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-				reporterID, team, "", 0.0, 0.0, 0.0, 0.0, []byte{}, truncateRunes(stripNonBMP(it.Title), 255),
+				reporterID, team, "", 0.0, 0.0, 0.0, 0.0, imgBytes, truncateRunes(stripNonBMP(it.Title), 255),
 			)
 			if err != nil {
 				tx.Rollback()
@@ -221,6 +235,14 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 			if err != nil {
 				resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: truncate(fmt.Sprintf("update analysis failed: %v", err), 256)})
 				continue
+			}
+
+			// Update report image if provided
+			if len(imgBytes) > 0 {
+				if _, err := h.db.DB().ExecContext(c.Request.Context(), `UPDATE reports SET image = ?, ts = ts WHERE seq = ?`, imgBytes, seq); err != nil {
+					resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: truncate(fmt.Sprintf("update image failed: %v", err), 256)})
+					continue
+				}
 			}
 
 			// Upsert report_details as well on update path

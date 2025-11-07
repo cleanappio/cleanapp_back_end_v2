@@ -86,10 +86,10 @@ case ${OPT} in
       MONTENEGRO_AREA_SUB_IDS="6753,6754,6755,6757,6758,6759,6760,6761,6762,6763,6764,6765,6766,6767,6768,6769,6770,6778,6895,6910,6948,6951,6953,6954,6955"
       NEW_YORK_AREA_ID=6970
       NEW_YORK_AREA_SUB_IDS="6971,6972,6973,6974,6975"
-      DEVCONNECT_2025_AREA_ID=18544700
-      DEVCONNECT_2025_AREA_SUB_IDS="18544700"
-      EDGE_CITY_AREA_ID=18544701
-      EDGE_CITY_AREA_SUB_IDS="18544701"
+      DEVCONNECT_2025_AREA_ID=18544708
+      DEVCONNECT_2025_AREA_SUB_IDS="18544708"
+      EDGE_CITY_AREA_ID=18544709
+      EDGE_CITY_AREA_SUB_IDS="18544709"
       OPT_OUT_URL="http://dev.cleanapp.io/api/optout"
       FACE_DETECTOR_COUNT=10
       FACE_DETECTOR_HOST=34.68.94.220
@@ -136,10 +136,10 @@ case ${OPT} in
       MONTENEGRO_AREA_SUB_IDS="6761,6762,6763,6765,6766,6767,6768,6769,6770,6771,6772,6773,6774,6775,6776,6777,6778,6786,6903,6918,6956,6959,6961,6962,6963"
       NEW_YORK_AREA_ID=6636
       NEW_YORK_AREA_SUB_IDS="6637,6638,6639,6640,6641"
-      DEVCONNECT_2025_AREA_ID=18544700
-      DEVCONNECT_2025_AREA_SUB_IDS="18544700"
-      EDGE_CITY_AREA_ID=18544701
-      EDGE_CITY_AREA_SUB_IDS="18544701"
+      DEVCONNECT_2025_AREA_ID=18544708
+      DEVCONNECT_2025_AREA_SUB_IDS="18544708"
+      EDGE_CITY_AREA_ID=18544709
+      EDGE_CITY_AREA_SUB_IDS="18544709"
       GIN_MODE=release
       OPT_OUT_URL="https://cleanapp.io/api/optout"
       FACE_DETECTOR_COUNT=10
@@ -211,6 +211,11 @@ EPC_PUSHER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-epc-pusher-image:${OPT}"
 REPORT_RENDERER_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-fast-renderer-image:${OPT}"
 REPORT_LISTENER_V4_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-listener-v4-image:${OPT}"
 
+# News indexer Twitter flow images
+NEWS_INDEXER_TWITTER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-news-indexer-twitter-image:${OPT}"
+NEWS_ANALYZER_TWITTER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-news-analyzer-twitter-image:${OPT}"
+NEWS_SUBMITTER_TWITTER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-news-submitter-twitter-image:${OPT}"
+
 OPENAI_ASSISTANT_ID="asst_kBtuzDRWNorZgw9o2OJTGOn0"
 
 RED_BULL_BRAND_NAMES="Red Bull"
@@ -257,6 +262,11 @@ docker pull ${EMAIL_FETCHER_DOCKER_IMAGE}
 docker pull ${REPORT_RENDERER_SERVICE_DOCKER_IMAGE}
 docker pull ${REPORT_LISTENER_V4_DOCKER_IMAGE}
 
+# Pull news indexer Twitter flow images
+docker pull ${NEWS_INDEXER_TWITTER_DOCKER_IMAGE}
+docker pull ${NEWS_ANALYZER_TWITTER_DOCKER_IMAGE}
+docker pull ${NEWS_SUBMITTER_TWITTER_DOCKER_IMAGE}
+
 # Secrets
 cat >.env << ENV
 MYSQL_ROOT_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_ROOT_PASSWORD_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
@@ -272,6 +282,11 @@ STRIPE_WEBHOOK_SECRET=\$(gcloud secrets versions access 1 --secret="STRIPE_WEBHO
 OPENAI_API_KEY=\$(gcloud secrets versions access 1 --secret="CLEANAPP_CHATGPT_API_KEY" | tr -d '\r' | sed -e 's/[$]/$$/g')
 TRASHFORMER_OPENAI_API_KEY=\$(gcloud secrets versions access 1 --secret="CLEANAPP_TRASHFORMER_OPENAI_API_KEY" | tr -d '\r' | sed -e 's/[$]/$$/g')
 BLOCKSCAN_CHAT_API_KEY=\$(gcloud secrets versions access latest --secret="BLOCKSCAN_CHAT_API_KEY_${SECRET_SUFFIX}" --project cleanup-mysql-v2 | tr -d '\r' | sed -e 's/^"//' -e 's/"$//' | sed -e 's/[$]/$$/g')
+
+# News indexer Twitter flow secrets
+TWITTER_BEARER_TOKEN=\$(gcloud secrets versions access 1 --secret="TWITTER_BEARER_TOKEN_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
+GEMINI_API_KEY=\$(gcloud secrets versions access 1 --secret="GEMINI_API_KEY_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
+CLEANAPP_TWITTER_FETCHER_TOKEN=\$(gcloud secrets versions access 1 --secret="CLEANAPP_TWITTER_FETCHER_TOKEN_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
 
 ENV
 
@@ -618,6 +633,7 @@ services:
       - GIN_MODE=${GIN_MODE}
       - CUSTOM_AREA_ID=${EDGE_CITY_AREA_ID}
       - CUSTOM_AREA_SUB_IDS=${EDGE_CITY_AREA_SUB_IDS}
+      - IS_PUBLIC=true
     ports:
       - 9095:8080
     depends_on:
@@ -879,7 +895,50 @@ services:
     ports:
       - 9097:8080
     depends_on:
-      - cleanapp_db
+      cleanapp_db:
+        condition: service_healthy
+
+  cleanapp_news_indexer_twitter:
+    container_name: cleanapp_news_indexer_twitter
+    image: ${NEWS_INDEXER_TWITTER_DOCKER_IMAGE}
+    environment:
+      - DB_URL=mysql://server:\${MYSQL_APP_PASSWORD}@cleanapp_db:3306/cleanapp
+      - TWITTER_BEARER_TOKEN=\${TWITTER_BEARER_TOKEN}
+      - TWITTER_TAGS=cleanapp
+      - TWITTER_MENTIONS=CleanApp
+      - TWITTER_INTERVAL_SECS=60
+      - TWITTER_PAGES_PER_RUN=3
+    depends_on:
+      cleanapp_db:
+        condition: service_healthy
+
+  cleanapp_news_analyzer_twitter:
+    container_name: cleanapp_news_analyzer_twitter
+    image: ${NEWS_ANALYZER_TWITTER_DOCKER_IMAGE}
+    environment:
+      - DB_URL=mysql://server:\${MYSQL_APP_PASSWORD}@cleanapp_db:3306/cleanapp
+      - GEMINI_API_KEY=\${GEMINI_API_KEY}
+      - GEMINI_MODEL=gemini-1.5-flash
+      - ANALYZER_BATCH_SIZE=10
+      - ANALYZER_INTERVAL_SECS=300
+      - ANALYZER_ONLY_WITH_IMAGES=false
+    depends_on:
+      cleanapp_db:
+        condition: service_healthy
+
+  cleanapp_news_submitter_twitter:
+    container_name: cleanapp_news_submitter_twitter
+    image: ${NEWS_SUBMITTER_TWITTER_DOCKER_IMAGE}
+    environment:
+      - DB_URL=mysql://server:\${MYSQL_APP_PASSWORD}@cleanapp_db:3306/cleanapp
+      - SUBMIT_ENDPOINT_URL=http://cleanapp_report_listener:8080
+      - SUBMIT_TOKEN=\${CLEANAPP_TWITTER_FETCHER_TOKEN}
+      - SUBMIT_BATCH_SIZE=300
+    depends_on:
+      cleanapp_db:
+        condition: service_healthy
+      cleanapp_report_listener:
+        condition: service_started
 
   cleanapp_report_tags_service:
     container_name: cleanapp_report_tags_service

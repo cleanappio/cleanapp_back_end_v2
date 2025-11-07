@@ -25,6 +25,9 @@ type Config struct {
 	// Custom Area Configuration
 	CustomAreaID     int64
 	CustomAreaSubIDs []int64
+
+	// Is Public
+	IsPublic bool
 }
 
 func Load() *Config {
@@ -42,9 +45,19 @@ func Load() *Config {
 		// Custom Area Configuration
 		CustomAreaID:     getRequiredEnvAsInt64("CUSTOM_AREA_ID"),
 		CustomAreaSubIDs: getRequiredEnvAsInt64Slice("CUSTOM_AREA_SUB_IDS"),
+
+		// Is Public
+		IsPublic: getEnvAsBool("IS_PUBLIC", false),
 	}
 
 	return cfg
+}
+
+func getEnvAsBool(s string, defaultValue bool) bool {
+	if value := os.Getenv(s); value != "" {
+		return value == "true"
+	}
+	return defaultValue
 }
 
 func getRequiredEnvAsInt64Slice(key string) []int64 {

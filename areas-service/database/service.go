@@ -199,9 +199,9 @@ func (s *AreasService) GetAreas(ctx context.Context, areaIds []uint64, areaType 
 		var (
 			id          uint64
 			name        string
-			description string
+			description sql.NullString
 			isCustom    bool
-			contactName string
+			contactName sql.NullString
 			areaType    string
 			areaJson    string
 			createdAt   string
@@ -222,12 +222,24 @@ func (s *AreasService) GetAreas(ctx context.Context, areaIds []uint64, areaType 
 			return nil, err
 		}
 
+		// Handle null description
+		descValue := ""
+		if description.Valid {
+			descValue = description.String
+		}
+
+		// Handle null contact name
+		contactNameValue := ""
+		if contactName.Valid {
+			contactNameValue = contactName.String
+		}
+
 		ar := &models.Area{
 			Id:          id,
 			Name:        name,
-			Description: description,
+			Description: descValue,
 			IsCustom:    isCustom,
-			ContactName: contactName,
+			ContactName: contactNameValue,
 			Type:        areaType,
 			Coordinates: coords,
 			CreatedAt:   cr,
