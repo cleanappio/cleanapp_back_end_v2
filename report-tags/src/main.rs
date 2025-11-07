@@ -86,7 +86,7 @@ async fn run() -> anyhow::Result<()> {
     log::info!("Database schema initialized successfully");
     
     // Initialize RabbitMQ subscriber for processing report tags (optional, graceful degradation)
-    let mut report_subscriber = match ReportTagsSubscriber::new(&config).await {
+    let report_subscriber = match ReportTagsSubscriber::new(&config).await {
         Ok(sub) => {
             log::info!("RabbitMQ subscriber initialized successfully");
             Some(sub)
@@ -97,20 +97,33 @@ async fn run() -> anyhow::Result<()> {
         }
     };
     
-    // Start the subscriber if it was initialized
-    if let Some(ref mut subscriber) = report_subscriber {
+    // Start the subscriber if it was initialized (in a background task so it doesn't block HTTP server)
+    // Use a separate thread with LocalSet because Callback trait is not Send
+    if let Some(mut subscriber) = report_subscriber {
         let pool_clone = pool.clone();
         let routing_key = config.rabbitmq_raw_report_routing_key.clone();
         
-        match subscriber.start(pool_clone, &routing_key).await {
-            Ok(_) => {
-                log::info!("RabbitMQ subscriber started successfully for routing key: {}", routing_key);
-            }
-            Err(e) => {
-                log::error!("Failed to start RabbitMQ subscriber: {}. Continuing without RabbitMQ.", e);
-                report_subscriber = None;
-            }
-        }
+        // Spawn a thread with its own LocalSet to run the non-Send subscriber
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                let local_set = tokio::task::LocalSet::new();
+                local_set.spawn_local(async move {
+                    match subscriber.start(pool_clone, &routing_key).await {
+                        Ok(_) => {
+                            log::info!("RabbitMQ subscriber started successfully for routing key: {}", routing_key);
+                        }
+                        Err(e) => {
+                            log::error!("Failed to start RabbitMQ subscriber: {}. Continuing without RabbitMQ.", e);
+                        }
+                    }
+                });
+                local_set.await;
+            });
+        });
+        
+        // Note: subscriber is moved into the spawned thread, so we can't use it for shutdown
+        // We'll need to handle shutdown differently if needed
     }
     
     // TODO: Re-enable RabbitMQ tag event publisher when we have consumers for tag.added events
@@ -155,14 +168,10 @@ async fn run() -> anyhow::Result<()> {
         .with_graceful_shutdown(shutdown_signal())
         .await?;
     
-    // Close subscriber on shutdown
-    if let Some(subscriber) = report_subscriber {
-        if let Err(e) = subscriber.close().await {
-            log::error!("Failed to close RabbitMQ subscriber: {}", e);
-        } else {
-            log::info!("RabbitMQ subscriber closed successfully");
-        }
-    }
+    // Note: Subscriber is running in a background task and will be cleaned up
+    // when the process exits. If graceful shutdown of subscriber is needed,
+    // we would need to use a channel or other synchronization mechanism.
+    log::info!("HTTP server shutdown, background tasks will be cleaned up");
     
     // TODO: Re-enable publisher shutdown when we have consumers for tag.added events
     // Close publisher on shutdown
