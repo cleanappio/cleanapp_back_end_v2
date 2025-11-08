@@ -16,7 +16,7 @@ struct Args {
     #[arg(long, default_value = "config.toml")] config_path: String,
     #[arg(long, env = "DB_URL")] db_url: Option<String>,
     #[arg(long, env = "GEMINI_API_KEY")] gemini_api_key: Option<String>,
-    #[arg(long, env = "GEMINI_MODEL", default_value = "gemini-1.5-flash-002")] gemini_model: String,
+    #[arg(long, env = "GEMINI_MODEL", default_value = "gemini-flash-latest")] gemini_model: String,
     #[arg(long, env = "ANALYZER_BATCH_SIZE", default_value_t = 10)] batch_size: usize,
     #[arg(long, env = "ANALYZER_INTERVAL_SECS", default_value_t = 300)] interval_secs: u64,
     #[arg(long, env = "ANALYZER_ONLY_WITH_IMAGES", default_value_t = false)] only_with_images: bool,
@@ -37,7 +37,9 @@ Return ONLY a strict JSON object with the following fields:
   "litter_probability": number,
   "hazard_probability": number,
   "digital_bug_probability": number,
-  "severity_level": number,
+  "severity_level": number,  // MUST be in the range [0.0, 1.0]
+  "latitude": number | null,  // If coordinates are explicitly present in text or media EXIF; otherwise null
+  "longitude": number | null, // Valid ranges: latitude [-90,90], longitude [-180,180]
   "brand_display_name": string,
   "brand_name": string,
   "summary": string,
@@ -49,6 +51,10 @@ Rules:
 - If not relevant, set is_relevant=false and probabilities near 0.0.
 - brand_name is a normalized lowercase version of brand_display_name.
 - summary <= 300 chars.
+
+Geolocation guidance:
+- Only set latitude/longitude if the tweet text contains explicit coordinates or a link with coordinates,
+  or if image EXIF contains GPS data. Do NOT infer approximate locations from landmarks; use null instead.
 "#;
 
 #[tokio::main]
@@ -161,13 +167,14 @@ async fn run_once(pool: &Pool, client: &reqwest::Client, gemini_key: &str, args:
         let req_body = build_gemini_request(&text, &username, &lang, &url, &images_base64);
         // Try a small set of endpoint/model fallbacks to handle API version/model naming differences
         let mut attempts: Vec<String> = Vec::new();
-        attempts.push(format!("https://generativelanguage.googleapis.com/v1/models/{}:generateContent?key={}", args.gemini_model, gemini_key));
-        if !args.gemini_model.contains("-002") {
-            attempts.push(format!("https://generativelanguage.googleapis.com/v1/models/{}-002:generateContent?key={}", args.gemini_model, gemini_key));
-        }
+        // Prefer v1beta for widely available model aliases like gemini-flash-latest
         attempts.push(format!("https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}", args.gemini_model, gemini_key));
         if !args.gemini_model.contains("-002") {
             attempts.push(format!("https://generativelanguage.googleapis.com/v1beta/models/{}-002:generateContent?key={}", args.gemini_model, gemini_key));
+        }
+        attempts.push(format!("https://generativelanguage.googleapis.com/v1/models/{}:generateContent?key={}", args.gemini_model, gemini_key));
+        if !args.gemini_model.contains("-002") {
+            attempts.push(format!("https://generativelanguage.googleapis.com/v1/models/{}-002:generateContent?key={}", args.gemini_model, gemini_key));
         }
         let mut is_relevant = false;
         let mut relevance = 0.0;
@@ -183,6 +190,8 @@ async fn run_once(pool: &Pool, client: &reqwest::Client, gemini_key: &str, args:
         let mut inferred_contact_emails = JsonValue::Array(vec![]);
         let mut raw_llm: JsonValue = JsonValue::Null;
         let mut err_text: Option<String> = None;
+        let mut latitude: Option<f64> = None;
+        let mut longitude: Option<f64> = None;
 
         let mut last_err: Option<String> = None;
         for ep in attempts.iter() {
@@ -208,12 +217,18 @@ async fn run_once(pool: &Pool, client: &reqwest::Client, gemini_key: &str, args:
                                     litter_probability = obj.get("litter_probability").and_then(|x| x.as_f64()).unwrap_or(0.0);
                                     hazard_probability = obj.get("hazard_probability").and_then(|x| x.as_f64()).unwrap_or(0.0);
                                     digital_bug_probability = obj.get("digital_bug_probability").and_then(|x| x.as_f64()).unwrap_or(0.0);
-                                    severity_level = obj.get("severity_level").and_then(|x| x.as_f64()).unwrap_or(0.0);
+                                severity_level = obj.get("severity_level").and_then(|x| x.as_f64()).unwrap_or(0.0);
+                                if severity_level < 0.0 { severity_level = 0.0; }
+                                if severity_level > 1.0 { severity_level = 1.0; }
                                     brand_display_name = obj.get("brand_display_name").and_then(|x| x.as_str()).unwrap_or("").to_string();
                                     brand_name = obj.get("brand_name").and_then(|x| x.as_str()).unwrap_or("").to_string();
                                     summary = obj.get("summary").and_then(|x| x.as_str()).unwrap_or("").to_string();
                                     if let Some(l) = obj.get("language").and_then(|x| x.as_str()) { language = l.to_string(); }
                                     if let Some(emails) = obj.get("inferred_contact_emails").cloned() { inferred_contact_emails = emails; }
+                                    latitude = obj.get("latitude").and_then(|x| x.as_f64());
+                                    longitude = obj.get("longitude").and_then(|x| x.as_f64());
+                                    if let Some(lat) = latitude { if !(lat >= -90.0 && lat <= 90.0) { latitude = None; } }
+                                    if let Some(lon) = longitude { if !(lon >= -180.0 && lon <= 180.0) { longitude = None; } }
                                     last_err = None; // success
                                 }
                                 Err(e) => {
@@ -236,13 +251,14 @@ async fn run_once(pool: &Pool, client: &reqwest::Client, gemini_key: &str, args:
         conn.exec_drop(
             r#"INSERT INTO indexer_twitter_analysis (
                     tweet_id, is_relevant, relevance, classification, litter_probability,
-                    hazard_probability, digital_bug_probability, severity_level, brand_name,
-                    brand_display_name, summary, language, inferred_contact_emails, raw_llm, analyzed_at, error
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?)
+                    hazard_probability, digital_bug_probability, severity_level, latitude, longitude,
+                    brand_name, brand_display_name, summary, language, inferred_contact_emails, raw_llm, error
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON DUPLICATE KEY UPDATE
                     is_relevant=VALUES(is_relevant), relevance=VALUES(relevance), classification=VALUES(classification),
                     litter_probability=VALUES(litter_probability), hazard_probability=VALUES(hazard_probability),
                     digital_bug_probability=VALUES(digital_bug_probability), severity_level=VALUES(severity_level),
+                    latitude=VALUES(latitude), longitude=VALUES(longitude),
                     brand_name=VALUES(brand_name), brand_display_name=VALUES(brand_display_name), summary=VALUES(summary),
                     language=VALUES(language), inferred_contact_emails=VALUES(inferred_contact_emails), raw_llm=VALUES(raw_llm),
                     error=VALUES(error)"#,
@@ -255,6 +271,8 @@ async fn run_once(pool: &Pool, client: &reqwest::Client, gemini_key: &str, args:
                 hazard_probability.into(),
                 digital_bug_probability.into(),
                 severity_level.into(),
+                latitude.into(),
+                longitude.into(),
                 brand_name.into(),
                 brand_display_name.into(),
                 summary.into(),
@@ -286,7 +304,10 @@ fn build_gemini_request(
     for (mime, b64) in images.iter() {
         parts.push(json!({ "inline_data": { "mime_type": mime, "data": b64 } }));
     }
-    json!({ "contents": [{ "parts": parts }] })
+    json!({
+        "generationConfig": { "response_mime_type": "application/json" },
+        "contents": [{ "role": "user", "parts": parts }]
+    })
 }
 
 fn extract_gemini_text(v: &JsonValue) -> Option<String> {

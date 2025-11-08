@@ -138,9 +138,23 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 			// Insert report
 			// randomize team between 1 and 2
 			team := 1 + rand.Intn(2)
+			// Optional coordinates from metadata
+			lat := 0.0
+			if it.Metadata != nil {
+				if v, ok := it.Metadata["latitude"].(float64); ok {
+					lat = v
+				}
+			}
+			lon := 0.0
+			if it.Metadata != nil {
+				if v, ok := it.Metadata["longitude"].(float64); ok {
+					lon = v
+				}
+			}
+
 			res, err := tx.ExecContext(c.Request.Context(),
 				`INSERT INTO reports (id, team, action_id, latitude, longitude, x, y, image, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-				reporterID, team, "", 0.0, 0.0, 0.0, 0.0, imgBytes, truncateRunes(stripNonBMP(it.Title), 255),
+				reporterID, team, "", lat, lon, 0.0, 0.0, imgBytes, truncateRunes(stripNonBMP(it.Title), 255),
 			)
 			if err != nil {
 				tx.Rollback()
@@ -170,13 +184,58 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 			// Compose trimmed description for summary
 			trimmedDesc := trimmedDescriptionForSummary(description)
 			// Insert analysis (truncate to avoid oversized multi-byte issues)
+			// Extract optional analysis fields from metadata if provided by submitter
+			lp := 0.0
+			if v, ok := it.Metadata["litter_probability"].(float64); ok {
+				lp = v
+			}
+			hp := 0.0
+			if v, ok := it.Metadata["hazard_probability"].(float64); ok {
+				hp = v
+			}
+			dbp := 1.0
+			if v, ok := it.Metadata["digital_bug_probability"].(float64); ok {
+				dbp = v
+			} else if v, ok := it.Metadata["classification"].(string); ok && v == "physical" {
+				dbp = 0.0
+			}
+			// severity from Score (already clamped), but allow override via metadata.severity_level
+			if v, ok := it.Metadata["severity_level"].(float64); ok {
+				severity = clampSeverity(v)
+			}
+			// classification override
+			classification := "digital"
+			if v, ok := it.Metadata["classification"].(string); ok && v != "" {
+				classification = v
+			}
+			// language optional
+			lang := "en"
+			if v, ok := it.Metadata["language"].(string); ok && v != "" {
+				lang = v
+			}
+			// summary: prefer metadata.summary, fall back to composed summary
+			metaSummary, _ := it.Metadata["summary"].(string)
+			if metaSummary == "" {
+				metaSummary = title + " : " + trimmedDesc + " : " + safeURL(it.URL)
+			} else {
+				metaSummary = truncate(trimmedDesc, 0) // noop to keep truncate function referenced
+				metaSummary = ""                       // reset; maintain below explicit string build
+			}
+			effectiveSummary := it.Metadata["summary"]
+			if s, ok := effectiveSummary.(string); ok && s != "" {
+				// indexer summary + tweet URL
+				metaSummary = s + " : " + safeURL(it.URL)
+			} else {
+				metaSummary = title + " : " + trimmedDesc + " : " + safeURL(it.URL)
+			}
+
 			_, err = tx.ExecContext(c.Request.Context(), `
                 INSERT INTO report_analysis (
                     seq, source, analysis_text, analysis_image, title, description,
                     brand_name, brand_display_name, litter_probability, hazard_probability,
                     digital_bug_probability, severity_level, summary, language, is_valid, classification
-                ) VALUES (?, ?, '', NULL, ?, ?, ?, ?, 0.0, 0.0, 1.0, ?, CONCAT(?, ' : ', ?, ' : ', ?), 'en', TRUE, 'digital')
-            `, seq, req.Source, title, description, brandName, brandDisplay, severity, title, trimmedDesc, safeURL(it.URL))
+                ) VALUES (?, ?, '', NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, ?)
+            `, seq, req.Source, title, description, brandName, brandDisplay, lp, hp, dbp, severity, truncate(metaSummary, 8192), lang, classification)
 			if err != nil {
 				tx.Rollback()
 				resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: truncate(fmt.Sprintf("insert analysis failed: %v", err), 256)})
@@ -227,11 +286,54 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 
 			// Compose trimmed description for summary
 			trimmedDesc := trimmedDescriptionForSummary(description)
+			// Extract optional analysis fields from metadata for update
+			lp := 0.0
+			if v, ok := it.Metadata["litter_probability"].(float64); ok {
+				lp = v
+			}
+			hp := 0.0
+			if v, ok := it.Metadata["hazard_probability"].(float64); ok {
+				hp = v
+			}
+			dbp := 1.0
+			if v, ok := it.Metadata["digital_bug_probability"].(float64); ok {
+				dbp = v
+			} else if v, ok := it.Metadata["classification"].(string); ok && v == "physical" {
+				dbp = 0.0
+			}
+			if v, ok := it.Metadata["severity_level"].(float64); ok {
+				severity = clampSeverity(v)
+			}
+			classification := ""
+			if v, ok := it.Metadata["classification"].(string); ok {
+				classification = v
+			}
+			lang := ""
+			if v, ok := it.Metadata["language"].(string); ok {
+				lang = v
+			}
+			effSummary := title + " : " + trimmedDesc + " : " + safeURL(it.URL)
+			if s, ok := it.Metadata["summary"].(string); ok && s != "" {
+				effSummary = s + " : " + safeURL(it.URL)
+			}
+
+			// Update analysis fields
 			_, err = h.db.DB().ExecContext(c.Request.Context(), `
                 UPDATE report_analysis SET title = ?, description = ?, brand_name = ?, brand_display_name = ?,
-                    severity_level = ?, summary = CONCAT(?, ' : ', ?, ' : ', ?), updated_at = NOW()
+                    litter_probability = IFNULL(?, litter_probability),
+                    hazard_probability = IFNULL(?, hazard_probability),
+                    digital_bug_probability = IFNULL(?, digital_bug_probability),
+                    severity_level = ?, summary = ?, 
+                    classification = IF(?, ?, classification),
+                    language = IF(?, ?, language),
+                    updated_at = NOW()
                 WHERE seq = ?
-            `, title, description, brandName, brandDisplay, severity, title, trimmedDesc, safeURL(it.URL), seq)
+            `, title, description, brandName, brandDisplay, lp, hp, dbp, severity, truncate(effSummary, 8192),
+				// classification conditional
+				classification, classification,
+				// language conditional
+				lang, lang,
+				seq)
 			if err != nil {
 				resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: truncate(fmt.Sprintf("update analysis failed: %v", err), 256)})
 				continue

@@ -86,6 +86,8 @@ pub async fn ensure_twitter_tables(pool: &Pool) -> anyhow::Result<()> {
             hazard_probability FLOAT DEFAULT 0.0,
             digital_bug_probability FLOAT DEFAULT 0.0,
             severity_level FLOAT DEFAULT 0.0,
+            latitude DOUBLE NULL,
+            longitude DOUBLE NULL,
             brand_name VARCHAR(255) DEFAULT '',
             brand_display_name VARCHAR(255) DEFAULT '',
             summary TEXT,
@@ -96,6 +98,16 @@ pub async fn ensure_twitter_tables(pool: &Pool) -> anyhow::Result<()> {
             error TEXT NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     "#).await?;
+
+    // Best-effort migrations for new columns
+    if let Err(_e) = conn.query_drop(
+        r#"ALTER TABLE indexer_twitter_analysis ADD COLUMN latitude DOUBLE NULL"#).await {
+        // ignore
+    }
+    if let Err(_e) = conn.query_drop(
+        r#"ALTER TABLE indexer_twitter_analysis ADD COLUMN longitude DOUBLE NULL"#).await {
+        // ignore
+    }
 
     // Submit state
     conn.query_drop(r#"

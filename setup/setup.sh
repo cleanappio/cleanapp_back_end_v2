@@ -80,7 +80,7 @@ case ${OPT} in
       STRIPE_PRICE_BASE_MONTHLY=price_1ReIJJFW3SknKzLcejkfepTO
       STRIPE_PRICE_BASE_ANNUAL=price_1ReIJJFW3SknKzLcXOje9FBb
       STRIPE_PRICE_ADVANCED_MONTHLY=price_1ReIKiFW3SknKzLcaPTOR5Ny
-      STRIPE_PRICE_ADVANCED_ANNUAL=price_1ReIKiFW3SknKzLcVMZe6U3U
+      STRIPE_PRICE_ADVANCED_ANNUAL=price_1Rg0hEF5CkX59CnmF40QClFx
       SEQ_START_FROM=1
       MONTENEGRO_AREA_ID=6779
       MONTENEGRO_AREA_SUB_IDS="6753,6754,6755,6757,6758,6759,6760,6761,6762,6763,6764,6765,6766,6767,6768,6769,6770,6778,6895,6910,6948,6951,6953,6954,6955"
@@ -284,9 +284,9 @@ TRASHFORMER_OPENAI_API_KEY=\$(gcloud secrets versions access 1 --secret="CLEANAP
 BLOCKSCAN_CHAT_API_KEY=\$(gcloud secrets versions access latest --secret="BLOCKSCAN_CHAT_API_KEY_${SECRET_SUFFIX}" --project cleanup-mysql-v2 | tr -d '\r' | sed -e 's/^"//' -e 's/"$//' | sed -e 's/[$]/$$/g')
 
 # News indexer Twitter flow secrets
-TWITTER_BEARER_TOKEN=\$(gcloud secrets versions access 1 --secret="TWITTER_BEARER_TOKEN_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
-GEMINI_API_KEY=\$(gcloud secrets versions access 1 --secret="GEMINI_API_KEY_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
-CLEANAPP_TWITTER_FETCHER_TOKEN=\$(gcloud secrets versions access 1 --secret="CLEANAPP_TWITTER_FETCHER_TOKEN_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
+TWITTER_BEARER_TOKEN=$(gcloud secrets versions access latest --secret="TWITTER_BEARER_TOKEN_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
+GEMINI_API_KEY=$(gcloud secrets versions access latest --secret="GEMINI_API_KEY_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
+CLEANAPP_TWITTER_FETCHER_TOKEN=$(gcloud secrets versions access latest --secret="CLEANAPP_TWITTER_FETCHER_TOKEN_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
 
 ENV
 
@@ -918,7 +918,7 @@ services:
     environment:
       - DB_URL=mysql://server:\${MYSQL_APP_PASSWORD}@cleanapp_db:3306/cleanapp
       - GEMINI_API_KEY=\${GEMINI_API_KEY}
-      - GEMINI_MODEL=gemini-1.5-flash
+      - GEMINI_MODEL=gemini-flash-latest
       - ANALYZER_BATCH_SIZE=10
       - ANALYZER_INTERVAL_SECS=300
       - ANALYZER_ONLY_WITH_IMAGES=false
