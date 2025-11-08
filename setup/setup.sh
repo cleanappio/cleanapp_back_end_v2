@@ -906,7 +906,7 @@ services:
       - TWITTER_BEARER_TOKEN=\${TWITTER_BEARER_TOKEN}
       - TWITTER_TAGS=cleanapp
       - TWITTER_MENTIONS=CleanApp
-      - TWITTER_INTERVAL_SECS=60
+      - TWITTER_INTERVAL_SECS=3600
       - TWITTER_PAGES_PER_RUN=3
     depends_on:
       cleanapp_db:
