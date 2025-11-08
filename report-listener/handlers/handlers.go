@@ -172,11 +172,26 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 			// Prepare analysis fields per spec
 			title := truncateRunes(stripNonBMP(it.Title), 500)
 			description := truncateRunes(stripNonBMP(it.Content), 16000)
-			brandDisplay := extractBrandDisplay(it.Title, it.Metadata)
+			// Brand fields:
+			// - For twitter: keep empty unless explicitly provided in metadata
+			// - For github_issue: derive brand from owner/repo
+			// - Otherwise: derive using generic extractor
+			var brandDisplay string
 			var brandName string
-			if strings.EqualFold(req.Source, "github_issue") {
+			if strings.EqualFold(req.Source, "twitter") {
+				if it.Metadata != nil {
+					if v, ok := it.Metadata["brand_display_name"].(string); ok && strings.TrimSpace(v) != "" {
+						brandDisplay = v
+					}
+					if v, ok := it.Metadata["brand_name"].(string); ok && strings.TrimSpace(v) != "" {
+						brandName = v
+					}
+				}
+			} else if strings.EqualFold(req.Source, "github_issue") {
+				brandDisplay = extractBrandDisplay(it.Title, it.Metadata)
 				brandName = normalizeGithubBrandName(brandDisplay)
 			} else {
+				brandDisplay = extractBrandDisplay(it.Title, it.Metadata)
 				brandName = brandutil.NormalizeBrandName(brandDisplay)
 			}
 			severity := clampSeverity(it.Score)
@@ -274,11 +289,23 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 			// Optional update of analysis if changed
 			title := truncateRunes(stripNonBMP(it.Title), 500)
 			description := truncateRunes(stripNonBMP(it.Content), 16000)
-			brandDisplay := extractBrandDisplay(it.Title, it.Metadata)
+			// Brand fields (same policy as insert)
+			var brandDisplay string
 			var brandName string
-			if strings.EqualFold(req.Source, "github_issue") {
+			if strings.EqualFold(req.Source, "twitter") {
+				if it.Metadata != nil {
+					if v, ok := it.Metadata["brand_display_name"].(string); ok && strings.TrimSpace(v) != "" {
+						brandDisplay = v
+					}
+					if v, ok := it.Metadata["brand_name"].(string); ok && strings.TrimSpace(v) != "" {
+						brandName = v
+					}
+				}
+			} else if strings.EqualFold(req.Source, "github_issue") {
+				brandDisplay = extractBrandDisplay(it.Title, it.Metadata)
 				brandName = normalizeGithubBrandName(brandDisplay)
 			} else {
+				brandDisplay = extractBrandDisplay(it.Title, it.Metadata)
 				brandName = brandutil.NormalizeBrandName(brandDisplay)
 			}
 			severity := clampSeverity(it.Score)
