@@ -88,6 +88,8 @@ pub async fn ensure_twitter_tables(pool: &Pool) -> anyhow::Result<()> {
             severity_level FLOAT DEFAULT 0.0,
             latitude DOUBLE NULL,
             longitude DOUBLE NULL,
+            report_title VARCHAR(512) DEFAULT '',
+            report_description TEXT NULL,
             brand_name VARCHAR(255) DEFAULT '',
             brand_display_name VARCHAR(255) DEFAULT '',
             summary TEXT,
@@ -106,6 +108,14 @@ pub async fn ensure_twitter_tables(pool: &Pool) -> anyhow::Result<()> {
     }
     if let Err(_e) = conn.query_drop(
         r#"ALTER TABLE indexer_twitter_analysis ADD COLUMN longitude DOUBLE NULL"#).await {
+        // ignore
+    }
+    if let Err(_e) = conn.query_drop(
+        r#"ALTER TABLE indexer_twitter_analysis ADD COLUMN report_title VARCHAR(512) DEFAULT ''"#).await {
+        // ignore
+    }
+    if let Err(_e) = conn.query_drop(
+        r#"ALTER TABLE indexer_twitter_analysis ADD COLUMN report_description TEXT NULL"#).await {
         // ignore
     }
 

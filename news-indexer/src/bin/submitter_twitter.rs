@@ -126,7 +126,9 @@ async fn main() -> Result<()> {
                                (SELECT data FROM indexer_media_blob b WHERE b.sha256 = (SELECT m.sha256 FROM indexer_twitter_media m WHERE m.tweet_id=t.tweet_id AND m.type='photo' ORDER BY position ASC LIMIT 1) LIMIT 1),
                                COALESCE(a.summary, ''),
                                a.latitude,
-                               a.longitude
+                               a.longitude,
+                               COALESCE(a.report_title, ''),
+                               COALESCE(a.report_description, '')
                         FROM indexer_twitter_tweet t
                         JOIN indexer_twitter_analysis a ON a.tweet_id = t.tweet_id
                         WHERE a.is_relevant = TRUE
@@ -152,7 +154,9 @@ async fn main() -> Result<()> {
                                (SELECT data FROM indexer_media_blob b WHERE b.sha256 = (SELECT m.sha256 FROM indexer_twitter_media m WHERE m.tweet_id=t.tweet_id AND m.type='photo' ORDER BY position ASC LIMIT 1) LIMIT 1),
                                COALESCE(a.summary, ''),
                                a.latitude,
-                               a.longitude
+                               a.longitude,
+                               COALESCE(a.report_title, ''),
+                               COALESCE(a.report_description, '')
                         FROM indexer_twitter_tweet t
                         JOIN indexer_twitter_analysis a ON a.tweet_id = t.tweet_id
                         WHERE a.is_relevant = TRUE
@@ -179,7 +183,9 @@ async fn main() -> Result<()> {
                            (SELECT data FROM indexer_media_blob b WHERE b.sha256 = (SELECT m.sha256 FROM indexer_twitter_media m WHERE m.tweet_id=t.tweet_id AND m.type='photo' ORDER BY position ASC LIMIT 1) LIMIT 1),
                            COALESCE(a.summary, ''),
                            a.latitude,
-                           a.longitude
+                           a.longitude,
+                           COALESCE(a.report_title, ''),
+                           COALESCE(a.report_description, '')
                     FROM indexer_twitter_tweet t
                     JOIN indexer_twitter_analysis a ON a.tweet_id = t.tweet_id
                     WHERE a.is_relevant = TRUE
@@ -210,15 +216,23 @@ async fn main() -> Result<()> {
                 let summary: String = row.get::<Option<String>, _>(11).unwrap_or(None).unwrap_or_default();
                 let latitude_opt: Option<f64> = row.get::<Option<f64>, _>(12).unwrap_or(None);
                 let longitude_opt: Option<f64> = row.get::<Option<f64>, _>(13).unwrap_or(None);
+                let report_title: String = row.get::<Option<String>, _>(14).unwrap_or(None).unwrap_or_default();
+                let report_description: String = row.get::<Option<String>, _>(15).unwrap_or(None).unwrap_or_default();
 
-                let title = truncate_chars(&text, 120);
+                let title_source = if !report_title.is_empty() { report_title.clone() } else { text.clone() };
+                let title = truncate_chars(&title_source, 120);
                 let score = normalize_score(severity, relevance);
                 let image_base64 = img_opt.as_ref().map(|b| STANDARD.encode(b));
                 let url = format!("https://twitter.com/{}/status/{}", username, tweet_id);
+                let mut content = if !report_description.is_empty() { report_description } else { text.clone() };
+                // append link to description
+                if !url.is_empty() {
+                    content = format!("{} : {}", content, url);
+                }
                 json!({
                     "external_id": tweet_id.to_string(),
                     "title": title,
-                    "content": truncate_chars(&text, 4000),
+                    "content": truncate_chars(&content, 4000),
                     "url": url,
                     "created_at": created_iso,
                     "updated_at": created_iso,

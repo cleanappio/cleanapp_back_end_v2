@@ -40,6 +40,8 @@ Return ONLY a strict JSON object with the following fields:
   "severity_level": number,  // MUST be in the range [0.0, 1.0]
   "latitude": number | null,  // If coordinates are explicitly present in text or media EXIF; otherwise null
   "longitude": number | null, // Valid ranges: latitude [-90,90], longitude [-180,180]
+  "report_title": string,      // A short, human-friendly report title (<= 120 chars)
+  "report_description": string,// A concise description suitable for a report body (<= 1000 chars)
   "brand_display_name": string,
   "brand_name": string,
   "summary": string,
@@ -51,6 +53,7 @@ Rules:
 - If not relevant, set is_relevant=false and probabilities near 0.0.
 - brand_name is a normalized lowercase version of brand_display_name.
 - summary <= 300 chars.
+ - report_title <= 120 chars; report_description <= 1000 chars.
 
 Geolocation guidance:
 - Only set latitude/longitude if the tweet text contains explicit coordinates or a link with coordinates,
@@ -186,6 +189,8 @@ async fn run_once(pool: &Pool, client: &reqwest::Client, gemini_key: &str, args:
         let mut brand_display_name = String::new();
         let mut brand_name = String::new();
         let mut summary = String::new();
+        let mut report_title = String::new();
+        let mut report_description = String::new();
         let mut language = if lang.is_empty() { "en".to_string() } else { lang.clone() };
         let mut inferred_contact_emails = JsonValue::Array(vec![]);
         let mut raw_llm: JsonValue = JsonValue::Null;
@@ -223,6 +228,8 @@ async fn run_once(pool: &Pool, client: &reqwest::Client, gemini_key: &str, args:
                                     brand_display_name = obj.get("brand_display_name").and_then(|x| x.as_str()).unwrap_or("").to_string();
                                     brand_name = obj.get("brand_name").and_then(|x| x.as_str()).unwrap_or("").to_string();
                                     summary = obj.get("summary").and_then(|x| x.as_str()).unwrap_or("").to_string();
+                                    report_title = obj.get("report_title").and_then(|x| x.as_str()).unwrap_or("").to_string();
+                                    report_description = obj.get("report_description").and_then(|x| x.as_str()).unwrap_or("").to_string();
                                     if let Some(l) = obj.get("language").and_then(|x| x.as_str()) { language = l.to_string(); }
                                     if let Some(emails) = obj.get("inferred_contact_emails").cloned() { inferred_contact_emails = emails; }
                                     latitude = obj.get("latitude").and_then(|x| x.as_f64());
@@ -252,13 +259,15 @@ async fn run_once(pool: &Pool, client: &reqwest::Client, gemini_key: &str, args:
             r#"INSERT INTO indexer_twitter_analysis (
                     tweet_id, is_relevant, relevance, classification, litter_probability,
                     hazard_probability, digital_bug_probability, severity_level, latitude, longitude,
-                    brand_name, brand_display_name, summary, language, inferred_contact_emails, raw_llm, error
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    report_title, report_description, brand_name, brand_display_name, summary, language,
+                    inferred_contact_emails, raw_llm, error
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON DUPLICATE KEY UPDATE
                     is_relevant=VALUES(is_relevant), relevance=VALUES(relevance), classification=VALUES(classification),
                     litter_probability=VALUES(litter_probability), hazard_probability=VALUES(hazard_probability),
                     digital_bug_probability=VALUES(digital_bug_probability), severity_level=VALUES(severity_level),
                     latitude=VALUES(latitude), longitude=VALUES(longitude),
+                    report_title=VALUES(report_title), report_description=VALUES(report_description),
                     brand_name=VALUES(brand_name), brand_display_name=VALUES(brand_display_name), summary=VALUES(summary),
                     language=VALUES(language), inferred_contact_emails=VALUES(inferred_contact_emails), raw_llm=VALUES(raw_llm),
                     error=VALUES(error)"#,
@@ -273,6 +282,8 @@ async fn run_once(pool: &Pool, client: &reqwest::Client, gemini_key: &str, args:
                 severity_level.into(),
                 latitude.into(),
                 longitude.into(),
+                report_title.into(),
+                report_description.into(),
                 brand_name.into(),
                 brand_display_name.into(),
                 summary.into(),
