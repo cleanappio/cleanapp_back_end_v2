@@ -218,7 +218,11 @@ async fn run_once(pool: &Pool, client: &reqwest::Client, gemini_key: &str, args:
                                 Ok(obj) => {
                                     is_relevant = obj.get("is_relevant").and_then(|x| x.as_bool()).unwrap_or(false);
                                     relevance = obj.get("relevance").and_then(|x| x.as_f64()).unwrap_or(0.0);
-                                    classification = obj.get("classification").and_then(|x| x.as_str()).unwrap_or("unknown").to_string();
+                                    classification = obj.get("classification").and_then(|x| x.as_str()).unwrap_or("unknown").to_lowercase();
+                                    // normalize unexpected variants
+                                    if classification != "physical" && classification != "digital" && classification != "unknown" {
+                                        classification = "unknown".to_string();
+                                    }
                                     litter_probability = obj.get("litter_probability").and_then(|x| x.as_f64()).unwrap_or(0.0);
                                     hazard_probability = obj.get("hazard_probability").and_then(|x| x.as_f64()).unwrap_or(0.0);
                                     digital_bug_probability = obj.get("digital_bug_probability").and_then(|x| x.as_f64()).unwrap_or(0.0);

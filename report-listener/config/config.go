@@ -23,6 +23,14 @@ type Config struct {
 
 	// Logging
 	LogLevel string
+
+	// RabbitMQ configuration
+	AMQPHost                       string
+	AMQPPort                       string
+	AMQPUser                       string
+	AMQPPassword                   string
+	RabbitExchange                 string
+	RabbitAnalysedReportRoutingKey string
 }
 
 // Load loads configuration from environment variables
@@ -43,9 +51,22 @@ func Load() *Config {
 
 		// Logging defaults
 		LogLevel: getEnv("LOG_LEVEL", "info"),
+
+		// RabbitMQ defaults
+		AMQPHost:                       getEnv("AMQP_HOST", "rabbitmq"),
+		AMQPPort:                       getEnv("AMQP_PORT", "5672"),
+		AMQPUser:                       getEnv("AMQP_USER", "guest"),
+		AMQPPassword:                   getEnv("AMQP_PASSWORD", "guest"),
+		RabbitExchange:                 getEnv("RABBITMQ_EXCHANGE", "cleanapp"),
+		RabbitAnalysedReportRoutingKey: getEnv("RABBITMQ_ANALYSED_REPORT_ROUTING_KEY", "report.analysed"),
 	}
 
 	return config
+}
+
+// AMQPURL builds the AMQP URL from parts
+func (c *Config) AMQPURL() string {
+	return "amqp://" + c.AMQPUser + ":" + c.AMQPPassword + "@" + c.AMQPHost + ":" + c.AMQPPort
 }
 
 // getEnv gets an environment variable or returns a default value

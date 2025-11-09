@@ -131,7 +131,11 @@ async fn main() -> Result<()> {
                                COALESCE(a.report_description, '')
                         FROM indexer_twitter_tweet t
                         JOIN indexer_twitter_analysis a ON a.tweet_id = t.tweet_id
+                        LEFT JOIN external_ingest_index ei 
+                          ON ei.source COLLATE utf8mb4_general_ci = 'twitter' COLLATE utf8mb4_general_ci
+                         AND ei.external_id COLLATE utf8mb4_general_ci = CAST(t.tweet_id AS CHAR) COLLATE utf8mb4_general_ci
                         WHERE a.is_relevant = TRUE
+                          AND ei.seq IS NULL
                           AND (t.created_at > ? OR (t.created_at = ? AND t.tweet_id > ?))
                         ORDER BY t.created_at ASC, t.tweet_id ASC
                         LIMIT ?"#,
@@ -159,7 +163,11 @@ async fn main() -> Result<()> {
                                COALESCE(a.report_description, '')
                         FROM indexer_twitter_tweet t
                         JOIN indexer_twitter_analysis a ON a.tweet_id = t.tweet_id
+                        LEFT JOIN external_ingest_index ei 
+                          ON ei.source COLLATE utf8mb4_general_ci = 'twitter' COLLATE utf8mb4_general_ci
+                         AND ei.external_id COLLATE utf8mb4_general_ci = CAST(t.tweet_id AS CHAR) COLLATE utf8mb4_general_ci
                         WHERE a.is_relevant = TRUE
+                          AND ei.seq IS NULL
                           AND t.created_at >= ?
                         ORDER BY t.created_at ASC, t.tweet_id ASC
                         LIMIT ?"#,
@@ -188,7 +196,11 @@ async fn main() -> Result<()> {
                            COALESCE(a.report_description, '')
                     FROM indexer_twitter_tweet t
                     JOIN indexer_twitter_analysis a ON a.tweet_id = t.tweet_id
+                    LEFT JOIN external_ingest_index ei 
+                      ON ei.source COLLATE utf8mb4_general_ci = 'twitter' COLLATE utf8mb4_general_ci
+                     AND ei.external_id COLLATE utf8mb4_general_ci = CAST(t.tweet_id AS CHAR) COLLATE utf8mb4_general_ci
                     WHERE a.is_relevant = TRUE
+                      AND ei.seq IS NULL
                     ORDER BY t.created_at ASC, t.tweet_id ASC
                     LIMIT ?"#,
                 (effective_batch_size as u64,),

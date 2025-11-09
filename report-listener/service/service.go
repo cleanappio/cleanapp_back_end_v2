@@ -10,6 +10,7 @@ import (
 	"report-listener/config"
 	"report-listener/database"
 	"report-listener/handlers"
+	"report-listener/rabbitmq"
 	"report-listener/websocket"
 )
 
@@ -27,6 +28,9 @@ type Service struct {
 	// Control channels
 	stopChan chan struct{}
 	wg       sync.WaitGroup
+
+	// RabbitMQ
+	publisher *rabbitmq.Publisher
 }
 
 // NewService creates a new report listener service
@@ -40,15 +44,24 @@ func NewService(cfg *config.Config) (*Service, error) {
 	// Initialize WebSocket hub
 	hub := websocket.NewHub()
 
+	// Initialize RabbitMQ publisher (best-effort)
+	var pub *rabbitmq.Publisher
+	if p, err := rabbitmq.NewPublisher(cfg.AMQPURL(), cfg.RabbitExchange, cfg.RabbitAnalysedReportRoutingKey); err != nil {
+		log.Printf("warn: unable to init RabbitMQ publisher: %v", err)
+	} else {
+		pub = p
+	}
+
 	// Initialize handlers
-	handlers := handlers.NewHandlers(hub, db)
+	handlers := handlers.NewHandlers(hub, db, pub)
 
 	service := &Service{
-		config:   cfg,
-		db:       db,
-		hub:      hub,
-		handlers: handlers,
-		stopChan: make(chan struct{}),
+		config:    cfg,
+		db:        db,
+		hub:       hub,
+		handlers:  handlers,
+		publisher: pub,
+		stopChan:  make(chan struct{}),
 	}
 
 	return service, nil
@@ -116,6 +129,13 @@ func (s *Service) Stop() error {
 	// Close database connection
 	if err := s.db.Close(); err != nil {
 		log.Printf("Error closing database: %v", err)
+	}
+
+	// Close RabbitMQ publisher
+	if s.publisher != nil {
+		if err := s.publisher.Close(); err != nil {
+			log.Printf("Error closing rabbitmq publisher: %v", err)
+		}
 	}
 
 	log.Printf("Report listener service stopped")

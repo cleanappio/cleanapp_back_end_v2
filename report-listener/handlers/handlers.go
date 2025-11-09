@@ -13,6 +13,7 @@ import (
 
 	"report-listener/database"
 	"report-listener/models"
+	"report-listener/rabbitmq"
 	brandutil "report-listener/utils"
 	ws "report-listener/websocket"
 
@@ -27,15 +28,17 @@ const (
 
 // Handlers contains all HTTP handlers
 type Handlers struct {
-	hub *ws.Hub
-	db  *database.Database
+	hub               *ws.Hub
+	db                *database.Database
+	rabbitmqPublisher *rabbitmq.Publisher
 }
 
 // NewHandlers creates a new handlers instance
-func NewHandlers(hub *ws.Hub, db *database.Database) *Handlers {
+func NewHandlers(hub *ws.Hub, db *database.Database, pub *rabbitmq.Publisher) *Handlers {
 	return &Handlers{
-		hub: hub,
-		db:  db,
+		hub:               hub,
+		db:                db,
+		rabbitmqPublisher: pub,
 	}
 }
 
@@ -218,10 +221,13 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 			if v, ok := it.Metadata["severity_level"].(float64); ok {
 				severity = clampSeverity(v)
 			}
-			// classification override
+			// classification override (normalize to allowed enum values)
 			classification := "digital"
 			if v, ok := it.Metadata["classification"].(string); ok && v != "" {
-				classification = v
+				vv := strings.ToLower(strings.TrimSpace(v))
+				if vv == "physical" || vv == "digital" {
+					classification = vv
+				}
 			}
 			// language optional
 			lang := "en"
@@ -285,6 +291,11 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 				continue
 			}
 			resp.Inserted++
+
+			// Publish to RabbitMQ for fast renderer
+			if h.rabbitmqPublisher != nil {
+				publishForRenderer(c, h, seq)
+			}
 		} else {
 			// Optional update of analysis if changed
 			title := truncateRunes(stripNonBMP(it.Title), 500)
@@ -333,7 +344,12 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 			}
 			classification := ""
 			if v, ok := it.Metadata["classification"].(string); ok {
-				classification = v
+				vv := strings.ToLower(strings.TrimSpace(v))
+				if vv == "physical" || vv == "digital" {
+					classification = vv
+				} else {
+					classification = ""
+				}
 			}
 			lang := ""
 			if v, ok := it.Metadata["language"].(string); ok {
@@ -351,15 +367,15 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
                     hazard_probability = IFNULL(?, hazard_probability),
                     digital_bug_probability = IFNULL(?, digital_bug_probability),
                     severity_level = ?, summary = ?, 
-                    classification = IF(?, ?, classification),
-                    language = IF(?, ?, language),
+                    classification = COALESCE(NULLIF(?, ''), classification),
+                    language = COALESCE(NULLIF(?, ''), language),
                     updated_at = NOW()
                 WHERE seq = ?
             `, title, description, brandName, brandDisplay, lp, hp, dbp, severity, truncate(effSummary, 8192),
-				// classification conditional
-				classification, classification,
-				// language conditional
-				lang, lang,
+				// classification conditional (empty string => keep existing)
+				classification,
+				// language conditional (empty string => keep existing)
+				lang,
 				seq)
 			if err != nil {
 				resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: truncate(fmt.Sprintf("update analysis failed: %v", err), 256)})
@@ -385,10 +401,35 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 				continue
 			}
 			resp.Updated++
+
+			// Publish to RabbitMQ for fast renderer on update as well
+			if h.rabbitmqPublisher != nil {
+				publishForRenderer(c, h, seq)
+			}
 		}
 	}
 
 	c.JSON(http.StatusOK, resp)
+}
+
+// publishForRenderer publishes a sanitized ReportWithAnalysis to RabbitMQ for the fast renderer
+func publishForRenderer(c *gin.Context, h *Handlers, seq int) {
+	if h.rabbitmqPublisher == nil {
+		return
+	}
+	rwa, err := h.db.GetReportBySeq(c.Request.Context(), seq)
+	if err != nil {
+		log.Printf("warn: cannot fetch report %d for rabbitmq publish: %v", seq, err)
+		return
+	}
+	// Strip images from the event to match renderer expectations
+	rwa.Report.Image = nil
+	for i := range rwa.Analysis {
+		rwa.Analysis[i].AnalysisImage = nil
+	}
+	if err := h.rabbitmqPublisher.Publish(rwa); err != nil {
+		log.Printf("warn: rabbitmq publish failed for seq=%d: %v", seq, err)
+	}
 }
 
 func truncate(s string, max int) string {

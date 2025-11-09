@@ -514,10 +514,17 @@ services:
       - BROADCAST_INTERVAL=1s
       - LOG_LEVEL=info
       - GIN_MODE=${GIN_MODE}
+      - AMQP_HOST=${AMQP_HOST}
+      - AMQP_PORT=${AMQP_PORT}
+      - AMQP_USER=${AMQP_USER}
+      - AMQP_PASSWORD=${AMQP_PASSWORD}
+      - RABBITMQ_EXCHANGE=${RABBITMQ_EXCHANGE}
+      - RABBITMQ_ANALYSED_REPORT_ROUTING_KEY=${RABBITMQ_ANALYSED_REPORT_ROUTING_KEY}
     ports:
       - 9081:8080
     depends_on:
       - cleanapp_db
+      - cleanapp_rabbitmq
 
   cleanapp_report_analyze_pipeline:
     container_name: cleanapp_report_analyze_pipeline
@@ -906,7 +913,7 @@ services:
       - TWITTER_BEARER_TOKEN=\${TWITTER_BEARER_TOKEN}
       - TWITTER_TAGS=cleanapp
       - TWITTER_MENTIONS=CleanApp
-      - TWITTER_INTERVAL_SECS=3600
+      - TWITTER_INTERVAL_SECS=60
       - TWITTER_PAGES_PER_RUN=3
     depends_on:
       cleanapp_db:
@@ -919,8 +926,8 @@ services:
       - DB_URL=mysql://server:\${MYSQL_APP_PASSWORD}@cleanapp_db:3306/cleanapp
       - GEMINI_API_KEY=\${GEMINI_API_KEY}
       - GEMINI_MODEL=gemini-flash-latest
-      - ANALYZER_BATCH_SIZE=10
-      - ANALYZER_INTERVAL_SECS=300
+      - ANALYZER_BATCH_SIZE=100
+      - ANALYZER_INTERVAL_SECS=60
       - ANALYZER_ONLY_WITH_IMAGES=false
     depends_on:
       cleanapp_db:
@@ -933,7 +940,7 @@ services:
       - DB_URL=mysql://server:\${MYSQL_APP_PASSWORD}@cleanapp_db:3306/cleanapp
       - SUBMIT_ENDPOINT_URL=http://cleanapp_report_listener:8080
       - SUBMIT_TOKEN=\${CLEANAPP_TWITTER_FETCHER_TOKEN}
-      - SUBMIT_BATCH_SIZE=300
+      - SUBMIT_BATCH_SIZE=60
     depends_on:
       cleanapp_db:
         condition: service_healthy
