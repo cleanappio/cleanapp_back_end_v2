@@ -105,6 +105,9 @@ case ${OPT} in
       ENABLE_EPC_PUSHER="true"
       EPC_DISPATCH="true"
       EPC_REPORTS_START_SEQ="29604"
+      # News indexer/analyzer intervals (0 disables in binaries)
+      TWITTER_INTERVAL_SECS="0"
+      ANALYZER_INTERVAL_SECS="0"
       ;;
   "prod")
       echo "Using prod environment"
@@ -155,6 +158,9 @@ case ${OPT} in
       ENABLE_EPC_PUSHER=""
       EPC_DISPATCH="false"
       EPC_REPORTS_START_SEQ=""
+      # News indexer/analyzer intervals
+      TWITTER_INTERVAL_SECS="300"
+      ANALYZER_INTERVAL_SECS="300"
       ;;
   "quit")
       exit
@@ -913,7 +919,7 @@ services:
       - TWITTER_BEARER_TOKEN=\${TWITTER_BEARER_TOKEN}
       - TWITTER_TAGS=cleanapp
       - TWITTER_MENTIONS=CleanApp
-      - TWITTER_INTERVAL_SECS=60
+      - TWITTER_INTERVAL_SECS=${TWITTER_INTERVAL_SECS}
       - TWITTER_PAGES_PER_RUN=3
     depends_on:
       cleanapp_db:
@@ -927,7 +933,7 @@ services:
       - GEMINI_API_KEY=\${GEMINI_API_KEY}
       - GEMINI_MODEL=gemini-flash-latest
       - ANALYZER_BATCH_SIZE=100
-      - ANALYZER_INTERVAL_SECS=60
+      - ANALYZER_INTERVAL_SECS=${ANALYZER_INTERVAL_SECS}
       - ANALYZER_ONLY_WITH_IMAGES=false
     depends_on:
       cleanapp_db:

@@ -64,6 +64,11 @@ Geolocation guidance:
 async fn main() -> Result<()> {
     env_logger::init();
     let args = Args::parse();
+    // Disable component if interval is set to 0
+    if args.interval_secs == 0 {
+        info!("analyzer_twitter disabled by option: ANALYZER_INTERVAL_SECS=0; exiting");
+        return Ok(());
+    }
     let cfg: Option<Config> = match std::fs::read_to_string(&args.config_path) {
         Ok(s) => toml::from_str(&s).ok(),
         Err(_) => None,
