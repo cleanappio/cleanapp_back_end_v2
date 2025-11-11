@@ -108,6 +108,7 @@ case ${OPT} in
       # News indexer/analyzer intervals (0 disables in binaries)
       TWITTER_INTERVAL_SECS="0"
       ANALYZER_INTERVAL_SECS="0"
+      TWITTER_INCLUDE_REPLIES_QUOTES="true"
       ;;
   "prod")
       echo "Using prod environment"
@@ -161,6 +162,7 @@ case ${OPT} in
       # News indexer/analyzer intervals
       TWITTER_INTERVAL_SECS="300"
       ANALYZER_INTERVAL_SECS="300"
+      TWITTER_INCLUDE_REPLIES_QUOTES="true"
       ;;
   "quit")
       exit
@@ -921,6 +923,7 @@ services:
       - TWITTER_MENTIONS=CleanApp
       - TWITTER_INTERVAL_SECS=${TWITTER_INTERVAL_SECS}
       - TWITTER_PAGES_PER_RUN=3
+      - TWITTER_INCLUDE_REPLIES_QUOTES=${TWITTER_INCLUDE_REPLIES_QUOTES}
     depends_on:
       cleanapp_db:
         condition: service_healthy

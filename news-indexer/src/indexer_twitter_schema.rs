@@ -18,6 +18,7 @@ pub async fn ensure_twitter_tables(pool: &Pool) -> anyhow::Result<()> {
         CREATE TABLE IF NOT EXISTS indexer_twitter_tweet (
             tweet_id BIGINT NOT NULL,
             created_at DATETIME NULL,
+            conversation_id BIGINT NULL,
             author_id BIGINT NULL,
             username VARCHAR(64) DEFAULT '',
             lang VARCHAR(8) DEFAULT '',
@@ -26,11 +27,16 @@ pub async fn ensure_twitter_tables(pool: &Pool) -> anyhow::Result<()> {
             public_metrics JSON NULL,
             entities JSON NULL,
             media_keys JSON NULL,
+            anchor_tweet_id BIGINT NULL,
+            relation ENUM('original','reply','quote','retweet','other') DEFAULT 'original',
+            matched_by_filter BOOL DEFAULT FALSE,
             raw JSON NULL,
             ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             PRIMARY KEY (tweet_id),
             INDEX idx_created_at (created_at),
+            INDEX idx_conversation (conversation_id),
+            INDEX idx_anchor (anchor_tweet_id),
             INDEX idx_username (username),
             INDEX idx_lang (lang)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
@@ -42,6 +48,31 @@ pub async fn ensure_twitter_tables(pool: &Pool) -> anyhow::Result<()> {
             ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             ON UPDATE CURRENT_TIMESTAMP"#).await {
         // ignore if column already exists or lack of privileges
+    }
+    // Best-effort migrations for new tweet relationship columns
+    if let Err(_e) = conn.query_drop(
+        r#"ALTER TABLE indexer_twitter_tweet ADD COLUMN conversation_id BIGINT NULL"#).await {
+        // ignore
+    }
+    if let Err(_e) = conn.query_drop(
+        r#"ALTER TABLE indexer_twitter_tweet ADD COLUMN anchor_tweet_id BIGINT NULL"#).await {
+        // ignore
+    }
+    if let Err(_e) = conn.query_drop(
+        r#"ALTER TABLE indexer_twitter_tweet ADD COLUMN relation ENUM('original','reply','quote','retweet','other') DEFAULT 'original'"#).await {
+        // ignore
+    }
+    if let Err(_e) = conn.query_drop(
+        r#"ALTER TABLE indexer_twitter_tweet ADD COLUMN matched_by_filter BOOL DEFAULT FALSE"#).await {
+        // ignore
+    }
+    if let Err(_e) = conn.query_drop(
+        r#"ALTER TABLE indexer_twitter_tweet ADD INDEX idx_conversation (conversation_id)"#).await {
+        // ignore
+    }
+    if let Err(_e) = conn.query_drop(
+        r#"ALTER TABLE indexer_twitter_tweet ADD INDEX idx_anchor (anchor_tweet_id)"#).await {
+        // ignore
     }
 
     // Media blob store with dedup by sha256

@@ -112,8 +112,8 @@ async fn main() -> Result<()> {
         let rows: Vec<Row> = if let Some(ref since) = since_created {
             if let Some(aid) = after_tweet_id {
                 info!("selecting tweets with (created_at, tweet_id) > ({}, {}) batch_size={} totals: ins={} upd={} err={}", since, aid, effective_batch_size, total_inserted, total_updated, total_errors);
-                conn.exec(
-                    r#"SELECT t.tweet_id,
+                        conn.exec(
+                            r#"SELECT t.tweet_id,
                                COALESCE(t.username,''),
                                COALESCE(t.lang,''),
                                COALESCE(t.text,''),
@@ -123,7 +123,10 @@ async fn main() -> Result<()> {
                                COALESCE(a.hazard_probability, 0.0),
                                COALESCE(a.classification, 'unknown'),
                                DATE_FORMAT(t.created_at, '%Y-%m-%dT%H:%i:%sZ'),
-                               (SELECT data FROM indexer_media_blob b WHERE b.sha256 = (SELECT m.sha256 FROM indexer_twitter_media m WHERE m.tweet_id=t.tweet_id AND m.type='photo' ORDER BY position ASC LIMIT 1) LIMIT 1),
+                               COALESCE(
+                                 (SELECT data FROM indexer_media_blob b WHERE b.sha256 = (SELECT m.sha256 FROM indexer_twitter_media m WHERE m.tweet_id=t.tweet_id AND m.type='photo' ORDER BY position ASC LIMIT 1) LIMIT 1),
+                                 (SELECT data FROM indexer_media_blob b WHERE b.sha256 = (SELECT m.sha256 FROM indexer_twitter_media m WHERE m.tweet_id=t.anchor_tweet_id AND m.type='photo' ORDER BY position ASC LIMIT 1) LIMIT 1)
+                               ),
                                COALESCE(a.summary, ''),
                                a.latitude,
                                a.longitude,
@@ -155,7 +158,10 @@ async fn main() -> Result<()> {
                                COALESCE(a.hazard_probability, 0.0),
                                COALESCE(a.classification, 'unknown'),
                                DATE_FORMAT(t.created_at, '%Y-%m-%dT%H:%i:%sZ'),
-                               (SELECT data FROM indexer_media_blob b WHERE b.sha256 = (SELECT m.sha256 FROM indexer_twitter_media m WHERE m.tweet_id=t.tweet_id AND m.type='photo' ORDER BY position ASC LIMIT 1) LIMIT 1),
+                           COALESCE(
+                             (SELECT data FROM indexer_media_blob b WHERE b.sha256 = (SELECT m.sha256 FROM indexer_twitter_media m WHERE m.tweet_id=t.tweet_id AND m.type='photo' ORDER BY position ASC LIMIT 1) LIMIT 1),
+                             (SELECT data FROM indexer_media_blob b WHERE b.sha256 = (SELECT m.sha256 FROM indexer_twitter_media m WHERE m.tweet_id=t.anchor_tweet_id AND m.type='photo' ORDER BY position ASC LIMIT 1) LIMIT 1)
+                           ),
                                COALESCE(a.summary, ''),
                                a.latitude,
                                a.longitude,
@@ -188,7 +194,10 @@ async fn main() -> Result<()> {
                            COALESCE(a.hazard_probability, 0.0),
                            COALESCE(a.classification, 'unknown'),
                            DATE_FORMAT(t.created_at, '%Y-%m-%dT%H:%i:%sZ'),
-                           (SELECT data FROM indexer_media_blob b WHERE b.sha256 = (SELECT m.sha256 FROM indexer_twitter_media m WHERE m.tweet_id=t.tweet_id AND m.type='photo' ORDER BY position ASC LIMIT 1) LIMIT 1),
+                           COALESCE(
+                             (SELECT data FROM indexer_media_blob b WHERE b.sha256 = (SELECT m.sha256 FROM indexer_twitter_media m WHERE m.tweet_id=t.tweet_id AND m.type='photo' ORDER BY position ASC LIMIT 1) LIMIT 1),
+                             (SELECT data FROM indexer_media_blob b WHERE b.sha256 = (SELECT m.sha256 FROM indexer_twitter_media m WHERE m.tweet_id=t.anchor_tweet_id AND m.type='photo' ORDER BY position ASC LIMIT 1) LIMIT 1)
+                           ),
                            COALESCE(a.summary, ''),
                            a.latitude,
                            a.longitude,

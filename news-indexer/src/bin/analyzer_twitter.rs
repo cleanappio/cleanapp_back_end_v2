@@ -106,17 +106,20 @@ async fn main() -> Result<()> {
 
 async fn run_once(pool: &Pool, client: &reqwest::Client, gemini_key: &str, args: &Args) -> Result<()> {
     let mut conn = pool.get_conn().await?;
-    let mut rows: Vec<(i64, String, String, String, String)> = if args.only_with_images {
+    let mut rows: Vec<(i64, String, String, String, String, Option<i64>, String)> = if args.only_with_images {
         conn.exec(
             r#"SELECT t.tweet_id,
                        COALESCE(t.text,''),
                        COALESCE(t.username,''),
                        COALESCE(t.lang,''),
-                       COALESCE(t.url,'')
+                       COALESCE(t.url,''),
+                       t.anchor_tweet_id,
+                       COALESCE(t.relation,'original')
                 FROM indexer_twitter_tweet t
                 LEFT JOIN indexer_twitter_analysis a ON a.tweet_id = t.tweet_id
                 WHERE (a.tweet_id IS NULL OR a.error IS NOT NULL)
                   AND EXISTS (SELECT 1 FROM indexer_twitter_media m WHERE m.tweet_id = t.tweet_id AND m.type = 'photo')
+                  AND (t.matched_by_filter = TRUE OR t.relation <> 'original')
                 ORDER BY t.created_at ASC
                 LIMIT ?"#,
             (args.batch_size as u64,),
@@ -128,10 +131,13 @@ async fn run_once(pool: &Pool, client: &reqwest::Client, gemini_key: &str, args:
                        COALESCE(t.text,''),
                        COALESCE(t.username,''),
                        COALESCE(t.lang,''),
-                       COALESCE(t.url,'')
+                       COALESCE(t.url,''),
+                       t.anchor_tweet_id,
+                       COALESCE(t.relation,'original')
                 FROM indexer_twitter_tweet t
                 LEFT JOIN indexer_twitter_analysis a ON a.tweet_id = t.tweet_id
                 WHERE (a.tweet_id IS NULL OR a.error IS NOT NULL)
+                  AND (t.matched_by_filter = TRUE OR t.relation <> 'original')
                 ORDER BY t.created_at ASC
                 LIMIT ?"#,
             (args.batch_size as u64,),
@@ -144,8 +150,8 @@ async fn run_once(pool: &Pool, client: &reqwest::Client, gemini_key: &str, args:
         return Ok(());
     }
 
-    for (tweet_id, text, username, lang, url) in rows.into_iter() {
-        // Load up to 4 images
+    for (tweet_id, text, username, lang, url, anchor_tweet_id, relation) in rows.into_iter() {
+        // Load up to 4 images, prioritizing the child tweet, then fill with anchor's images
         let media_hashes: Vec<Vec<u8>> = conn
             .exec(
                 r#"SELECT sha256 FROM indexer_twitter_media
@@ -171,8 +177,60 @@ async fn run_once(pool: &Pool, client: &reqwest::Client, gemini_key: &str, args:
                 images_base64.push((mime, b64));
             }
         }
+        // Optionally load anchor tweet context and images
+        let mut combined_text = text.clone();
+        let mut combined_username = username.clone();
+        let mut combined_url = url.clone();
+        if let Some(parent_id) = anchor_tweet_id {
+            // Load parent tweet minimal fields
+            let parent_row: Option<(String, String, String, String)> = conn
+                .exec_first(
+                    r#"SELECT COALESCE(text,''), COALESCE(username,''), COALESCE(lang,''), COALESCE(url,'')
+                        FROM indexer_twitter_tweet WHERE tweet_id = ?"#,
+                    (parent_id,),
+                )
+                .await?;
+            if let Some((p_text, p_user, p_lang, p_url)) = parent_row {
+                // Merge context: show original then child
+                let rel_label = if relation == "quote" { "Quote" } else if relation == "reply" { "Reply" } else { "Child" };
+                combined_text = format!(
+                    "Original tweet by @{} (lang={}):\n{}\nURL: {}\n----\n{} by @{} (lang={}):\n{}\nURL: {}",
+                    p_user, p_lang, p_text, p_url, rel_label, username, lang, text, url
+                );
+                combined_username = format!("{} + {}", p_user, username);
+                combined_url = url.clone();
+                // Load parent images if room remains
+                if images_base64.len() < 4 {
+                    let parent_hashes: Vec<Vec<u8>> = conn
+                        .exec(
+                            r#"SELECT sha256 FROM indexer_twitter_media
+                               WHERE tweet_id = ? AND type = 'photo' AND sha256 IS NOT NULL
+                               ORDER BY position ASC
+                               LIMIT 4"#,
+                            (parent_id,),
+                        )
+                        .await?;
+                    for sha in parent_hashes.iter() {
+                        if images_base64.len() >= 4 { break; }
+                        let parent_blob: Option<(Option<String>, Vec<u8>)> = conn
+                            .exec_first(
+                                r#"SELECT mime, data FROM indexer_media_blob WHERE sha256 = ?"#,
+                                (sha.clone(),),
+                            )
+                            .await?;
+                        if let Some((mime_opt, data)) = parent_blob {
+                            let mime = mime_opt.unwrap_or_else(|| "image/jpeg".to_string());
+                            use base64::engine::general_purpose::STANDARD;
+                            use base64::Engine;
+                            let b64 = STANDARD.encode(&data);
+                            images_base64.push((mime, b64));
+                        }
+                    }
+                }
+            }
+        }
 
-        let req_body = build_gemini_request(&text, &username, &lang, &url, &images_base64);
+        let req_body = build_gemini_request(&combined_text, &combined_username, &lang, &combined_url, &images_base64);
         // Try a small set of endpoint/model fallbacks to handle API version/model naming differences
         let mut attempts: Vec<String> = Vec::new();
         // Prefer v1beta for widely available model aliases like gemini-flash-latest
