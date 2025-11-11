@@ -947,6 +947,7 @@ services:
       - SUBMIT_ENDPOINT_URL=http://cleanapp_report_listener:8080
       - SUBMIT_TOKEN=\${CLEANAPP_TWITTER_FETCHER_TOKEN}
       - SUBMIT_BATCH_SIZE=60
+      - SUBMIT_INTERVAL_SECS=10
     depends_on:
       cleanapp_db:
         condition: service_healthy
