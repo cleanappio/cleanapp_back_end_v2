@@ -16,3 +16,5 @@ images:
   - '${_TAG_ANALYZER}'
   - '${_TAG_SUBMITTER}'
 
+options:
+  machineType: 'E2_HIGHCPU_32'
