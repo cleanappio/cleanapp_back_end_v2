@@ -131,7 +131,9 @@ async fn main() -> Result<()> {
                                a.latitude,
                                a.longitude,
                                COALESCE(a.report_title, ''),
-                               COALESCE(a.report_description, '')
+                               COALESCE(a.report_description, ''),
+                               COALESCE(a.brand_display_name, ''),
+                               COALESCE(a.brand_name, '')
                         FROM indexer_twitter_tweet t
                         JOIN indexer_twitter_analysis a ON a.tweet_id = t.tweet_id
                         LEFT JOIN external_ingest_index ei 
@@ -166,7 +168,9 @@ async fn main() -> Result<()> {
                                a.latitude,
                                a.longitude,
                                COALESCE(a.report_title, ''),
-                               COALESCE(a.report_description, '')
+                               COALESCE(a.report_description, ''),
+                               COALESCE(a.brand_display_name, ''),
+                               COALESCE(a.brand_name, '')
                         FROM indexer_twitter_tweet t
                         JOIN indexer_twitter_analysis a ON a.tweet_id = t.tweet_id
                         LEFT JOIN external_ingest_index ei 
@@ -202,7 +206,9 @@ async fn main() -> Result<()> {
                            a.latitude,
                            a.longitude,
                            COALESCE(a.report_title, ''),
-                           COALESCE(a.report_description, '')
+                           COALESCE(a.report_description, ''),
+                           COALESCE(a.brand_display_name, ''),
+                           COALESCE(a.brand_name, '')
                     FROM indexer_twitter_tweet t
                     JOIN indexer_twitter_analysis a ON a.tweet_id = t.tweet_id
                     LEFT JOIN external_ingest_index ei 
@@ -239,6 +245,8 @@ async fn main() -> Result<()> {
                 let longitude_opt: Option<f64> = row.get::<Option<f64>, _>(13).unwrap_or(None);
                 let report_title: String = row.get::<Option<String>, _>(14).unwrap_or(None).unwrap_or_default();
                 let report_description: String = row.get::<Option<String>, _>(15).unwrap_or(None).unwrap_or_default();
+                let brand_display_name: String = row.get::<Option<String>, _>(16).unwrap_or(None).unwrap_or_default();
+                let brand_name: String = row.get::<Option<String>, _>(17).unwrap_or(None).unwrap_or_default();
 
                 let title_source = if !report_title.is_empty() { report_title.clone() } else { text.clone() };
                 let title = truncate_chars(&title_source, 120);
@@ -268,7 +276,9 @@ async fn main() -> Result<()> {
                         "severity_level": severity,
                         "summary": summary,
                         "latitude": latitude_opt,
-                        "longitude": longitude_opt
+                        "longitude": longitude_opt,
+                        "brand_display_name": brand_display_name,
+                        "brand_name": brand_name
                     },
                     "skip_ai": true,
                     "image_base64": image_base64
