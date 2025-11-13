@@ -80,7 +80,7 @@ case ${OPT} in
       STRIPE_PRICE_BASE_MONTHLY=price_1ReIJJFW3SknKzLcejkfepTO
       STRIPE_PRICE_BASE_ANNUAL=price_1ReIJJFW3SknKzLcXOje9FBb
       STRIPE_PRICE_ADVANCED_MONTHLY=price_1ReIKiFW3SknKzLcaPTOR5Ny
-      STRIPE_PRICE_ADVANCED_ANNUAL=price_1ReIKiFW3SknKzLcVMZe6U3U
+      STRIPE_PRICE_ADVANCED_ANNUAL=price_1Rg0hEF5CkX59CnmF40QClFx
       SEQ_START_FROM=1
       MONTENEGRO_AREA_ID=6779
       MONTENEGRO_AREA_SUB_IDS="6753,6754,6755,6757,6758,6759,6760,6761,6762,6763,6764,6765,6766,6767,6768,6769,6770,6778,6895,6910,6948,6951,6953,6954,6955"
@@ -105,6 +105,10 @@ case ${OPT} in
       ENABLE_EPC_PUSHER="true"
       EPC_DISPATCH="true"
       EPC_REPORTS_START_SEQ="29604"
+      # News indexer/analyzer intervals (0 disables in binaries)
+      TWITTER_INTERVAL_SECS="0"
+      ANALYZER_INTERVAL_SECS="0"
+      TWITTER_INCLUDE_REPLIES_QUOTES="true"
       ;;
   "prod")
       echo "Using prod environment"
@@ -155,6 +159,10 @@ case ${OPT} in
       ENABLE_EPC_PUSHER=""
       EPC_DISPATCH="false"
       EPC_REPORTS_START_SEQ=""
+      # News indexer/analyzer intervals
+      TWITTER_INTERVAL_SECS="300"
+      ANALYZER_INTERVAL_SECS="300"
+      TWITTER_INCLUDE_REPLIES_QUOTES="true"
       ;;
   "quit")
       exit
@@ -172,6 +180,7 @@ RABBITMQ_GDPR_PROCESS_QUEUE="gdpr-processing-queue"
 RABBITMQ_REPORT_ANALYSIS_QUEUE="report-analysis-queue"
 RABBITMQ_REPORT_OWNERSHIP_QUEUE="report-ownership-queue"
 RABBITMQ_REPORT_RENDERER_QUEUE="report-renderer-queue"
+RABBITMQ_REPORT_TAGS_QUEUE="report-tags-queue"
 RABBITMQ_RAW_REPORT_ROUTING_KEY="report.raw"
 RABBITMQ_ANALYSED_REPORT_ROUTING_KEY="report.analysed"
 RABBITMQ_USER_ROUTING_KEY="user.add"
@@ -204,6 +213,8 @@ GDPR_PROCESS_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-gdpr-process-servic
 REPORTS_PUSHER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-reports-pusher-image:${OPT}"
 FACE_DETECTOR_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-face-detector-image:${OPT}"
 VOICE_ASSISTANT_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-voice-assistant-service-image:${OPT}"
+REPORT_TAGS_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-tags-service-image:${OPT}"
+REPORT_ANALYSIS_BACKFILL_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-analysis-backfill-image:${OPT}"
 EPC_PUSHER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-epc-pusher-image:${OPT}"
 REPORT_RENDERER_SERVICE_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-fast-renderer-image:${OPT}"
 REPORT_LISTENER_V4_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-listener-v4-image:${OPT}"
@@ -251,6 +262,8 @@ docker pull ${REPORT_OWNERSHIP_SERVICE_DOCKER_IMAGE}
 docker pull ${GDPR_PROCESS_SERVICE_DOCKER_IMAGE}
 docker pull ${REPORTS_PUSHER_DOCKER_IMAGE}
 docker pull ${VOICE_ASSISTANT_SERVICE_DOCKER_IMAGE}
+docker pull ${REPORT_TAGS_SERVICE_DOCKER_IMAGE}
+docker pull ${REPORT_ANALYSIS_BACKFILL_DOCKER_IMAGE}
 docker pull ${EMAIL_SERVICE_V3_DOCKER_IMAGE}
 docker pull ${EPC_PUSHER_DOCKER_IMAGE}
 docker pull ${EMAIL_FETCHER_DOCKER_IMAGE}
@@ -279,9 +292,9 @@ TRASHFORMER_OPENAI_API_KEY=\$(gcloud secrets versions access 1 --secret="CLEANAP
 BLOCKSCAN_CHAT_API_KEY=\$(gcloud secrets versions access latest --secret="BLOCKSCAN_CHAT_API_KEY_${SECRET_SUFFIX}" --project cleanup-mysql-v2 | tr -d '\r' | sed -e 's/^"//' -e 's/"$//' | sed -e 's/[$]/$$/g')
 
 # News indexer Twitter flow secrets
-TWITTER_BEARER_TOKEN=\$(gcloud secrets versions access 1 --secret="TWITTER_BEARER_TOKEN_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
-GEMINI_API_KEY=\$(gcloud secrets versions access 1 --secret="GEMINI_API_KEY_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
-CLEANAPP_TWITTER_FETCHER_TOKEN=\$(gcloud secrets versions access 1 --secret="CLEANAPP_TWITTER_FETCHER_TOKEN_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
+TWITTER_BEARER_TOKEN=$(gcloud secrets versions access latest --secret="TWITTER_BEARER_TOKEN_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
+GEMINI_API_KEY=$(gcloud secrets versions access latest --secret="GEMINI_API_KEY_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
+CLEANAPP_TWITTER_FETCHER_TOKEN=$(gcloud secrets versions access latest --secret="CLEANAPP_TWITTER_FETCHER_TOKEN_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
 
 ENV
 
@@ -509,10 +522,17 @@ services:
       - BROADCAST_INTERVAL=1s
       - LOG_LEVEL=info
       - GIN_MODE=${GIN_MODE}
+      - AMQP_HOST=${AMQP_HOST}
+      - AMQP_PORT=${AMQP_PORT}
+      - AMQP_USER=${AMQP_USER}
+      - AMQP_PASSWORD=${AMQP_PASSWORD}
+      - RABBITMQ_EXCHANGE=${RABBITMQ_EXCHANGE}
+      - RABBITMQ_ANALYSED_REPORT_ROUTING_KEY=${RABBITMQ_ANALYSED_REPORT_ROUTING_KEY}
     ports:
       - 9081:8080
     depends_on:
       - cleanapp_db
+      - cleanapp_rabbitmq
 
   cleanapp_report_analyze_pipeline:
     container_name: cleanapp_report_analyze_pipeline
@@ -696,9 +716,16 @@ services:
       - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
       - REPORT_AUTH_SERVICE_URL=http://cleanapp_report_auth_service:8080
       - REPORTS_SUBMISSION_URL=http://cleanapp_service:8080
+      - TAG_SERVICE_URL=http://cleanapp_report_tags_service:8080
       - OPENAI_API_KEY=\${OPENAI_API_KEY}
       - REPORTS_RADIUS_METERS=35.0
       - GIN_MODE=${GIN_MODE}
+      - AMQP_HOST=${AMQP_HOST}
+      - AMQP_PORT=${AMQP_PORT}
+      - AMQP_USER=${AMQP_USER}
+      - AMQP_PASSWORD=${AMQP_PASSWORD}
+      - RABBITMQ_EXCHANGE=${RABBITMQ_EXCHANGE}
+      - RABBITMQ_RAW_REPORT_ROUTING_KEY=${RABBITMQ_RAW_REPORT_ROUTING_KEY}
     ports:
       - 9087:8080
 
@@ -894,8 +921,9 @@ services:
       - TWITTER_BEARER_TOKEN=\${TWITTER_BEARER_TOKEN}
       - TWITTER_TAGS=cleanapp
       - TWITTER_MENTIONS=CleanApp
-      - TWITTER_INTERVAL_SECS=3600
+      - TWITTER_INTERVAL_SECS=${TWITTER_INTERVAL_SECS}
       - TWITTER_PAGES_PER_RUN=3
+      - TWITTER_INCLUDE_REPLIES_QUOTES=${TWITTER_INCLUDE_REPLIES_QUOTES}
     depends_on:
       cleanapp_db:
         condition: service_healthy
@@ -906,9 +934,9 @@ services:
     environment:
       - DB_URL=mysql://server:\${MYSQL_APP_PASSWORD}@cleanapp_db:3306/cleanapp
       - GEMINI_API_KEY=\${GEMINI_API_KEY}
-      - GEMINI_MODEL=gemini-1.5-flash
-      - ANALYZER_BATCH_SIZE=10
-      - ANALYZER_INTERVAL_SECS=300
+      - GEMINI_MODEL=gemini-flash-latest
+      - ANALYZER_BATCH_SIZE=100
+      - ANALYZER_INTERVAL_SECS=${ANALYZER_INTERVAL_SECS}
       - ANALYZER_ONLY_WITH_IMAGES=false
     depends_on:
       cleanapp_db:
@@ -921,12 +949,41 @@ services:
       - DB_URL=mysql://server:\${MYSQL_APP_PASSWORD}@cleanapp_db:3306/cleanapp
       - SUBMIT_ENDPOINT_URL=http://cleanapp_report_listener:8080
       - SUBMIT_TOKEN=\${CLEANAPP_TWITTER_FETCHER_TOKEN}
-      - SUBMIT_BATCH_SIZE=300
+      - SUBMIT_BATCH_SIZE=60
+      - SUBMIT_INTERVAL_SECS=10
     depends_on:
       cleanapp_db:
         condition: service_healthy
       cleanapp_report_listener:
         condition: service_started
+
+  cleanapp_report_tags_service:
+    container_name: cleanapp_report_tags_service
+    image: ${REPORT_TAGS_SERVICE_DOCKER_IMAGE}
+    environment:
+      - PORT=8080
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+      - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
+      - DB_NAME=cleanapp
+      - AMQP_HOST=${AMQP_HOST}
+      - AMQP_PORT=${AMQP_PORT}
+      - AMQP_USER=${AMQP_USER}
+      - AMQP_PASSWORD=${AMQP_PASSWORD}
+      - RABBITMQ_EXCHANGE=${RABBITMQ_EXCHANGE}
+      - RABBITMQ_QUEUE=${RABBITMQ_REPORT_TAGS_QUEUE}
+      - RABBITMQ_RAW_REPORT_ROUTING_KEY=${RABBITMQ_RAW_REPORT_ROUTING_KEY}
+      - RABBITMQ_TAG_EVENT_ROUTING_KEY=tag.added
+      - RUST_LOG=info
+      - MAX_TAG_FOLLOWS=200
+    ports:
+      - 9098:8080
+    depends_on:
+      cleanapp_db:
+        condition: service_healthy
+      cleanapp_rabbitmq:
+        condition: service_healthy
 
 COMPOSE
 
@@ -1031,23 +1088,49 @@ fi
 
 # Start docker containers.
 if [ -n "${SSH_KEYFILE}" ]; then
-  ssh -i ${SSH_KEYFILE} deployer@${CLEANAPP_HOST} "./up1.sh"
+  ssh -i ${SSH_KEYFILE} deployer@${CLEANAPP_HOST} "docker compose pull cleanapp_report_tags_service || true; ./up1.sh"
 else
   ssh deployer@${CLEANAPP_HOST} "./up1.sh"
 fi
 
-# Deploy nginx v4 config and reload
+# Deploy nginx configs and reload
 LEAVECLEANAPP_V4_CONF="cleanapp_back_end_v2/conf/nginx/${OPT}/conf.d/livecleanapp-v4.conf"
 RENDERER_CONF="cleanapp_back_end_v2/conf/nginx/${OPT}/conf.d/fastrenderercleanapp.conf"
+TAGS_CONF="cleanapp_back_end_v2/conf/nginx/${OPT}/conf.d/tagcleanapp.conf"
+
+NGINX_COPIES=""
 if [ -f "${LEAVECLEANAPP_V4_CONF}" ]; then
   if [ -n "${SSH_KEYFILE}" ]; then
     scp -i ${SSH_KEYFILE} ${LEAVECLEANAPP_V4_CONF} deployer@${CLEANAPP_HOST}:~/livecleanapp-v4.conf
-    scp -i ${SSH_KEYFILE} ${RENDERER_CONF} deployer@${CLEANAPP_HOST}:~/fastrenderercleanapp.conf
-    ssh -i ${SSH_KEYFILE} deployer@${CLEANAPP_HOST} "sudo cp ~/livecleanapp-v4.conf /etc/nginx/conf.d/livecleanapp-v4.conf && sudo cp ~/fastrenderercleanapp.conf /etc/nginx/conf.d/fastrenderercleanapp.conf && sudo nginx -t && sudo systemctl reload nginx"
   else
     scp ${LEAVECLEANAPP_V4_CONF} deployer@${CLEANAPP_HOST}:~/livecleanapp-v4.conf
+  fi
+  NGINX_COPIES="${NGINX_COPIES}sudo cp ~/livecleanapp-v4.conf /etc/nginx/conf.d/livecleanapp-v4.conf && "
+fi
+
+if [ -f "${RENDERER_CONF}" ]; then
+  if [ -n "${SSH_KEYFILE}" ]; then
+    scp -i ${SSH_KEYFILE} ${RENDERER_CONF} deployer@${CLEANAPP_HOST}:~/fastrenderercleanapp.conf
+  else
     scp ${RENDERER_CONF} deployer@${CLEANAPP_HOST}:~/fastrenderercleanapp.conf
-    ssh deployer@${CLEANAPP_HOST} "sudo cp ~/livecleanapp-v4.conf /etc/nginx/conf.d/livecleanapp-v4.conf && sudo cp ~/fastrenderercleanapp.conf /etc/nginx/conf.d/fastrenderercleanapp.conf && sudo nginx -t && sudo systemctl reload nginx"
+  fi
+  NGINX_COPIES="${NGINX_COPIES}sudo cp ~/fastrenderercleanapp.conf /etc/nginx/conf.d/fastrenderercleanapp.conf && "
+fi
+
+if [ -f "${TAGS_CONF}" ]; then
+  if [ -n "${SSH_KEYFILE}" ]; then
+    scp -i ${SSH_KEYFILE} ${TAGS_CONF} deployer@${CLEANAPP_HOST}:~/tagcleanapp.conf
+  else
+    scp ${TAGS_CONF} deployer@${CLEANAPP_HOST}:~/tagcleanapp.conf
+  fi
+  NGINX_COPIES="${NGINX_COPIES}sudo cp ~/tagcleanapp.conf /etc/nginx/conf.d/tagcleanapp.conf && "
+fi
+
+if [ -n "${NGINX_COPIES}" ]; then
+  if [ -n "${SSH_KEYFILE}" ]; then
+    ssh -i ${SSH_KEYFILE} deployer@${CLEANAPP_HOST} "${NGINX_COPIES}sudo nginx -t && sudo systemctl reload nginx"
+  else
+    ssh deployer@${CLEANAPP_HOST} "${NGINX_COPIES}sudo nginx -t && sudo systemctl reload nginx"
   fi
 fi
 if [[ "${CLEANAPP_HOST}" != "${FACE_DETECTOR_HOST}" ]]; then

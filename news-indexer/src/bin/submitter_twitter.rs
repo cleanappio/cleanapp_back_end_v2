@@ -2,9 +2,10 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use log::{info, warn};
 use mysql_async::prelude::*;
-use mysql_async::Pool;
+use mysql_async::{Pool, Row};
 use serde::Deserialize;
 use serde_json::json;
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use std::time::Duration as StdDuration;
 use tokio::time::sleep;
 
@@ -108,25 +109,36 @@ async fn main() -> Result<()> {
         let after_tweet_id = if saved_created.is_some() { saved_tweet_id } else { None };
 
         // Fetch batch of candidates
-        let rows: Vec<(i64, String, String, String, String, f64, f64, f64, f64, String, String, Option<Vec<u8>>)> = if let Some(ref since) = since_created {
+        let rows: Vec<Row> = if let Some(ref since) = since_created {
             if let Some(aid) = after_tweet_id {
                 info!("selecting tweets with (created_at, tweet_id) > ({}, {}) batch_size={} totals: ins={} upd={} err={}", since, aid, effective_batch_size, total_inserted, total_updated, total_errors);
-                conn.exec(
-                    r#"SELECT t.tweet_id,
+                        conn.exec(
+                            r#"SELECT t.tweet_id,
                                COALESCE(t.username,''),
                                COALESCE(t.lang,''),
                                COALESCE(t.text,''),
-                               COALESCE(t.url,''),
-                               a.severity_level,
-                               a.relevance,
-                               a.litter_probability,
-                               a.hazard_probability,
-                               a.classification,
+                               COALESCE(a.severity_level, 0.0),
+                               COALESCE(a.relevance, 0.0),
+                               COALESCE(a.litter_probability, 0.0),
+                               COALESCE(a.hazard_probability, 0.0),
+                               COALESCE(a.classification, 'unknown'),
                                DATE_FORMAT(t.created_at, '%Y-%m-%dT%H:%i:%sZ'),
-                               (SELECT data FROM indexer_media_blob b WHERE b.sha256 = (SELECT m.sha256 FROM indexer_twitter_media m WHERE m.tweet_id=t.tweet_id AND m.type='photo' ORDER BY position ASC LIMIT 1) LIMIT 1)
+                               COALESCE(
+                                 (SELECT data FROM indexer_media_blob b WHERE b.sha256 = (SELECT m.sha256 FROM indexer_twitter_media m WHERE m.tweet_id=t.tweet_id AND m.type='photo' ORDER BY position ASC LIMIT 1) LIMIT 1),
+                                 (SELECT data FROM indexer_media_blob b WHERE b.sha256 = (SELECT m.sha256 FROM indexer_twitter_media m WHERE m.tweet_id=t.anchor_tweet_id AND m.type='photo' ORDER BY position ASC LIMIT 1) LIMIT 1)
+                               ),
+                               COALESCE(a.summary, ''),
+                               a.latitude,
+                               a.longitude,
+                               COALESCE(a.report_title, ''),
+                               COALESCE(a.report_description, '')
                         FROM indexer_twitter_tweet t
                         JOIN indexer_twitter_analysis a ON a.tweet_id = t.tweet_id
+                        LEFT JOIN external_ingest_index ei 
+                          ON ei.source COLLATE utf8mb4_general_ci = 'twitter' COLLATE utf8mb4_general_ci
+                         AND ei.external_id COLLATE utf8mb4_general_ci = CAST(t.tweet_id AS CHAR) COLLATE utf8mb4_general_ci
                         WHERE a.is_relevant = TRUE
+                          AND ei.seq IS NULL
                           AND (t.created_at > ? OR (t.created_at = ? AND t.tweet_id > ?))
                         ORDER BY t.created_at ASC, t.tweet_id ASC
                         LIMIT ?"#,
@@ -140,17 +152,28 @@ async fn main() -> Result<()> {
                                COALESCE(t.username,''),
                                COALESCE(t.lang,''),
                                COALESCE(t.text,''),
-                               COALESCE(t.url,''),
-                               a.severity_level,
-                               a.relevance,
-                               a.litter_probability,
-                               a.hazard_probability,
-                               a.classification,
+                               COALESCE(a.severity_level, 0.0),
+                               COALESCE(a.relevance, 0.0),
+                               COALESCE(a.litter_probability, 0.0),
+                               COALESCE(a.hazard_probability, 0.0),
+                               COALESCE(a.classification, 'unknown'),
                                DATE_FORMAT(t.created_at, '%Y-%m-%dT%H:%i:%sZ'),
-                               (SELECT data FROM indexer_media_blob b WHERE b.sha256 = (SELECT m.sha256 FROM indexer_twitter_media m WHERE m.tweet_id=t.tweet_id AND m.type='photo' ORDER BY position ASC LIMIT 1) LIMIT 1)
+                           COALESCE(
+                             (SELECT data FROM indexer_media_blob b WHERE b.sha256 = (SELECT m.sha256 FROM indexer_twitter_media m WHERE m.tweet_id=t.tweet_id AND m.type='photo' ORDER BY position ASC LIMIT 1) LIMIT 1),
+                             (SELECT data FROM indexer_media_blob b WHERE b.sha256 = (SELECT m.sha256 FROM indexer_twitter_media m WHERE m.tweet_id=t.anchor_tweet_id AND m.type='photo' ORDER BY position ASC LIMIT 1) LIMIT 1)
+                           ),
+                               COALESCE(a.summary, ''),
+                               a.latitude,
+                               a.longitude,
+                               COALESCE(a.report_title, ''),
+                               COALESCE(a.report_description, '')
                         FROM indexer_twitter_tweet t
                         JOIN indexer_twitter_analysis a ON a.tweet_id = t.tweet_id
+                        LEFT JOIN external_ingest_index ei 
+                          ON ei.source COLLATE utf8mb4_general_ci = 'twitter' COLLATE utf8mb4_general_ci
+                         AND ei.external_id COLLATE utf8mb4_general_ci = CAST(t.tweet_id AS CHAR) COLLATE utf8mb4_general_ci
                         WHERE a.is_relevant = TRUE
+                          AND ei.seq IS NULL
                           AND t.created_at >= ?
                         ORDER BY t.created_at ASC, t.tweet_id ASC
                         LIMIT ?"#,
@@ -165,17 +188,28 @@ async fn main() -> Result<()> {
                            COALESCE(t.username,''),
                            COALESCE(t.lang,''),
                            COALESCE(t.text,''),
-                           COALESCE(t.url,''),
-                           a.severity_level,
-                           a.relevance,
-                           a.litter_probability,
-                           a.hazard_probability,
-                           a.classification,
+                           COALESCE(a.severity_level, 0.0),
+                           COALESCE(a.relevance, 0.0),
+                           COALESCE(a.litter_probability, 0.0),
+                           COALESCE(a.hazard_probability, 0.0),
+                           COALESCE(a.classification, 'unknown'),
                            DATE_FORMAT(t.created_at, '%Y-%m-%dT%H:%i:%sZ'),
-                           (SELECT data FROM indexer_media_blob b WHERE b.sha256 = (SELECT m.sha256 FROM indexer_twitter_media m WHERE m.tweet_id=t.tweet_id AND m.type='photo' ORDER BY position ASC LIMIT 1) LIMIT 1)
+                           COALESCE(
+                             (SELECT data FROM indexer_media_blob b WHERE b.sha256 = (SELECT m.sha256 FROM indexer_twitter_media m WHERE m.tweet_id=t.tweet_id AND m.type='photo' ORDER BY position ASC LIMIT 1) LIMIT 1),
+                             (SELECT data FROM indexer_media_blob b WHERE b.sha256 = (SELECT m.sha256 FROM indexer_twitter_media m WHERE m.tweet_id=t.anchor_tweet_id AND m.type='photo' ORDER BY position ASC LIMIT 1) LIMIT 1)
+                           ),
+                           COALESCE(a.summary, ''),
+                           a.latitude,
+                           a.longitude,
+                           COALESCE(a.report_title, ''),
+                           COALESCE(a.report_description, '')
                     FROM indexer_twitter_tweet t
                     JOIN indexer_twitter_analysis a ON a.tweet_id = t.tweet_id
+                    LEFT JOIN external_ingest_index ei 
+                      ON ei.source COLLATE utf8mb4_general_ci = 'twitter' COLLATE utf8mb4_general_ci
+                     AND ei.external_id COLLATE utf8mb4_general_ci = CAST(t.tweet_id AS CHAR) COLLATE utf8mb4_general_ci
                     WHERE a.is_relevant = TRUE
+                      AND ei.seq IS NULL
                     ORDER BY t.created_at ASC, t.tweet_id ASC
                     LIMIT ?"#,
                 (effective_batch_size as u64,),
@@ -188,45 +222,58 @@ async fn main() -> Result<()> {
         // Build payload
         let items: Vec<_> = rows
             .iter()
-            .map(
-                |(
-                    tweet_id,
-                    username,
-                    lang,
-                    text,
-                    url,
-                    severity,
-                    relevance,
-                    litter,
-                    hazard,
-                    classification,
-                    created_iso,
-                    img_opt,
-                )| {
-                    let title = truncate_chars(text, 120);
-                    let score = normalize_score(*severity, *relevance);
-                    let image_base64 = img_opt.as_ref().map(|b| base64::encode(b));
-                    json!({
-                        "external_id": tweet_id.to_string(),
-                        "title": title,
-                        "content": truncate_chars(text, 4000),
-                        "url": url,
-                        "created_at": created_iso,
-                        "updated_at": created_iso,
-                        "score": score,
-                        "metadata": {
-                            "author_username": username,
-                            "lang": lang,
-                            "classification": classification,
-                            "litter_probability": litter,
-                            "hazard_probability": hazard,
-                            "relevance": relevance,
-                        },
-                        "skip_ai": true,
-                        "image_base64": image_base64
-                    })
-                },
-            )
+            .map(|row| {
+                let tweet_id: i64 = row.get::<i64, _>(0).unwrap_or(0);
+                let username: String = row.get::<String, _>(1).unwrap_or_default();
+                let lang: String = row.get::<String, _>(2).unwrap_or_default();
+                let text: String = row.get::<String, _>(3).unwrap_or_default();
+                let severity: f64 = row.get::<Option<f64>, _>(4).unwrap_or(None).unwrap_or(0.0);
+                let relevance: f64 = row.get::<Option<f64>, _>(5).unwrap_or(None).unwrap_or(0.0);
+                let litter: f64 = row.get::<Option<f64>, _>(6).unwrap_or(None).unwrap_or(0.0);
+                let hazard: f64 = row.get::<Option<f64>, _>(7).unwrap_or(None).unwrap_or(0.0);
+                let classification: String = row.get::<Option<String>, _>(8).unwrap_or(None).unwrap_or_else(|| "unknown".to_string());
+                let created_iso: String = row.get::<Option<String>, _>(9).unwrap_or(None).unwrap_or_default();
+                let img_opt: Option<Vec<u8>> = row.get::<Option<Vec<u8>>, _>(10).unwrap_or(None);
+                let summary: String = row.get::<Option<String>, _>(11).unwrap_or(None).unwrap_or_default();
+                let latitude_opt: Option<f64> = row.get::<Option<f64>, _>(12).unwrap_or(None);
+                let longitude_opt: Option<f64> = row.get::<Option<f64>, _>(13).unwrap_or(None);
+                let report_title: String = row.get::<Option<String>, _>(14).unwrap_or(None).unwrap_or_default();
+                let report_description: String = row.get::<Option<String>, _>(15).unwrap_or(None).unwrap_or_default();
+
+                let title_source = if !report_title.is_empty() { report_title.clone() } else { text.clone() };
+                let title = truncate_chars(&title_source, 120);
+                let score = normalize_score(severity, relevance);
+                let image_base64 = img_opt.as_ref().map(|b| STANDARD.encode(b));
+                let url = format!("https://twitter.com/{}/status/{}", username, tweet_id);
+                let mut content = if !report_description.is_empty() { report_description } else { text.clone() };
+                // append link to description
+                if !url.is_empty() {
+                    content = format!("{} : {}", content, url);
+                }
+                json!({
+                    "external_id": tweet_id.to_string(),
+                    "title": title,
+                    "content": truncate_chars(&content, 4000),
+                    "url": url,
+                    "created_at": created_iso,
+                    "updated_at": created_iso,
+                    "score": score,
+                    "metadata": {
+                        "author_username": username,
+                        "lang": lang,
+                        "classification": classification,
+                        "litter_probability": litter,
+                        "hazard_probability": hazard,
+                        "relevance": relevance,
+                        "severity_level": severity,
+                        "summary": summary,
+                        "latitude": latitude_opt,
+                        "longitude": longitude_opt
+                    },
+                    "skip_ai": true,
+                    "image_base64": image_base64
+                })
+            })
             .collect();
 
         let payload = json!({
@@ -307,7 +354,9 @@ async fn main() -> Result<()> {
         // Update state to last row
         let (last_tweet_id, last_created_iso) = {
             let last = rows.last().unwrap();
-            (last.0, last.10.clone())
+            let tid: i64 = last.get::<i64, _>(0).unwrap_or(0);
+            let created_iso: String = last.get::<String, _>(9).unwrap_or_default();
+            (tid, created_iso)
         };
         let last_created_db = last_created_iso
             .replace('T', " ")

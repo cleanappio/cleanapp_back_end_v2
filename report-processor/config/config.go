@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"time"
@@ -31,6 +32,17 @@ type Config struct {
 	// Reports submission configuration
 	ReportsSubmissionURL string
 
+	// Tag service configuration
+	TagServiceURL string
+
+	// RabbitMQ configuration
+	AMQPHost                  string
+	AMQPPort                  string
+	AMQPUser                  string
+	AMQPPassword              string
+	RabbitMQExchange          string
+	RabbitMQRawReportRoutingKey string
+
 	// Logging
 	LogLevel string
 }
@@ -60,6 +72,17 @@ func Load() *Config {
 
 		// Reports submission defaults
 		ReportsSubmissionURL: getEnv("REPORTS_SUBMISSION_URL", ""),
+
+		// Tag service defaults
+		TagServiceURL: getEnv("TAG_SERVICE_URL", "http://localhost:8083"),
+
+		// RabbitMQ defaults
+		AMQPHost:                  getEnv("AMQP_HOST", "localhost"),
+		AMQPPort:                  getEnv("AMQP_PORT", "5672"),
+		AMQPUser:                  getEnv("AMQP_USER", "guest"),
+		AMQPPassword:              getEnv("AMQP_PASSWORD", "guest"),
+		RabbitMQExchange:          getEnv("RABBITMQ_EXCHANGE", "cleanapp"),
+		RabbitMQRawReportRoutingKey: getEnv("RABBITMQ_RAW_REPORT_ROUTING_KEY", "report.raw"),
 
 		// Logging defaults
 		LogLevel: getEnv("LOG_LEVEL", "info"),
@@ -104,4 +127,9 @@ func getFloatEnv(key string, defaultValue float64) float64 {
 		}
 	}
 	return defaultValue
+}
+
+// GetAMQPURL constructs the AMQP connection URL from configuration
+func (c *Config) GetAMQPURL() string {
+	return fmt.Sprintf("amqp://%s:%s@%s:%s/", c.AMQPUser, c.AMQPPassword, c.AMQPHost, c.AMQPPort)
 }

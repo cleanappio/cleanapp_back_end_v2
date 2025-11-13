@@ -13,6 +13,7 @@ import (
 
 	"report-listener/database"
 	"report-listener/models"
+	"report-listener/rabbitmq"
 	brandutil "report-listener/utils"
 	ws "report-listener/websocket"
 
@@ -27,15 +28,17 @@ const (
 
 // Handlers contains all HTTP handlers
 type Handlers struct {
-	hub *ws.Hub
-	db  *database.Database
+	hub               *ws.Hub
+	db                *database.Database
+	rabbitmqPublisher *rabbitmq.Publisher
 }
 
 // NewHandlers creates a new handlers instance
-func NewHandlers(hub *ws.Hub, db *database.Database) *Handlers {
+func NewHandlers(hub *ws.Hub, db *database.Database, pub *rabbitmq.Publisher) *Handlers {
 	return &Handlers{
-		hub: hub,
-		db:  db,
+		hub:               hub,
+		db:                db,
+		rabbitmqPublisher: pub,
 	}
 }
 
@@ -138,9 +141,23 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 			// Insert report
 			// randomize team between 1 and 2
 			team := 1 + rand.Intn(2)
+			// Optional coordinates from metadata
+			lat := 0.0
+			if it.Metadata != nil {
+				if v, ok := it.Metadata["latitude"].(float64); ok {
+					lat = v
+				}
+			}
+			lon := 0.0
+			if it.Metadata != nil {
+				if v, ok := it.Metadata["longitude"].(float64); ok {
+					lon = v
+				}
+			}
+
 			res, err := tx.ExecContext(c.Request.Context(),
 				`INSERT INTO reports (id, team, action_id, latitude, longitude, x, y, image, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-				reporterID, team, "", 0.0, 0.0, 0.0, 0.0, imgBytes, truncateRunes(stripNonBMP(it.Title), 255),
+				reporterID, team, "", lat, lon, 0.0, 0.0, imgBytes, truncateRunes(stripNonBMP(it.Title), 255),
 			)
 			if err != nil {
 				tx.Rollback()
@@ -158,11 +175,26 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 			// Prepare analysis fields per spec
 			title := truncateRunes(stripNonBMP(it.Title), 500)
 			description := truncateRunes(stripNonBMP(it.Content), 16000)
-			brandDisplay := extractBrandDisplay(it.Title, it.Metadata)
+			// Brand fields:
+			// - For twitter: keep empty unless explicitly provided in metadata
+			// - For github_issue: derive brand from owner/repo
+			// - Otherwise: derive using generic extractor
+			var brandDisplay string
 			var brandName string
-			if strings.EqualFold(req.Source, "github_issue") {
+			if strings.EqualFold(req.Source, "twitter") {
+				if it.Metadata != nil {
+					if v, ok := it.Metadata["brand_display_name"].(string); ok && strings.TrimSpace(v) != "" {
+						brandDisplay = v
+					}
+					if v, ok := it.Metadata["brand_name"].(string); ok && strings.TrimSpace(v) != "" {
+						brandName = v
+					}
+				}
+			} else if strings.EqualFold(req.Source, "github_issue") {
+				brandDisplay = extractBrandDisplay(it.Title, it.Metadata)
 				brandName = normalizeGithubBrandName(brandDisplay)
 			} else {
+				brandDisplay = extractBrandDisplay(it.Title, it.Metadata)
 				brandName = brandutil.NormalizeBrandName(brandDisplay)
 			}
 			severity := clampSeverity(it.Score)
@@ -170,13 +202,61 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 			// Compose trimmed description for summary
 			trimmedDesc := trimmedDescriptionForSummary(description)
 			// Insert analysis (truncate to avoid oversized multi-byte issues)
+			// Extract optional analysis fields from metadata if provided by submitter
+			lp := 0.0
+			if v, ok := it.Metadata["litter_probability"].(float64); ok {
+				lp = v
+			}
+			hp := 0.0
+			if v, ok := it.Metadata["hazard_probability"].(float64); ok {
+				hp = v
+			}
+			dbp := 1.0
+			if v, ok := it.Metadata["digital_bug_probability"].(float64); ok {
+				dbp = v
+			} else if v, ok := it.Metadata["classification"].(string); ok && v == "physical" {
+				dbp = 0.0
+			}
+			// severity from Score (already clamped), but allow override via metadata.severity_level
+			if v, ok := it.Metadata["severity_level"].(float64); ok {
+				severity = clampSeverity(v)
+			}
+			// classification override (normalize to allowed enum values)
+			classification := "digital"
+			if v, ok := it.Metadata["classification"].(string); ok && v != "" {
+				vv := strings.ToLower(strings.TrimSpace(v))
+				if vv == "physical" || vv == "digital" {
+					classification = vv
+				}
+			}
+			// language optional
+			lang := "en"
+			if v, ok := it.Metadata["language"].(string); ok && v != "" {
+				lang = v
+			}
+			// summary: prefer metadata.summary, fall back to composed summary
+			metaSummary, _ := it.Metadata["summary"].(string)
+			if metaSummary == "" {
+				metaSummary = title + " : " + trimmedDesc + " : " + safeURL(it.URL)
+			} else {
+				metaSummary = truncate(trimmedDesc, 0) // noop to keep truncate function referenced
+				metaSummary = ""                       // reset; maintain below explicit string build
+			}
+			effectiveSummary := it.Metadata["summary"]
+			if s, ok := effectiveSummary.(string); ok && s != "" {
+				// indexer summary + tweet URL
+				metaSummary = s + " : " + safeURL(it.URL)
+			} else {
+				metaSummary = title + " : " + trimmedDesc + " : " + safeURL(it.URL)
+			}
+
 			_, err = tx.ExecContext(c.Request.Context(), `
                 INSERT INTO report_analysis (
                     seq, source, analysis_text, analysis_image, title, description,
                     brand_name, brand_display_name, litter_probability, hazard_probability,
                     digital_bug_probability, severity_level, summary, language, is_valid, classification
-                ) VALUES (?, ?, '', NULL, ?, ?, ?, ?, 0.0, 0.0, 1.0, ?, CONCAT(?, ' : ', ?, ' : ', ?), 'en', TRUE, 'digital')
-            `, seq, req.Source, title, description, brandName, brandDisplay, severity, title, trimmedDesc, safeURL(it.URL))
+                ) VALUES (?, ?, '', NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, ?)
+            `, seq, req.Source, title, description, brandName, brandDisplay, lp, hp, dbp, severity, truncate(metaSummary, 8192), lang, classification)
 			if err != nil {
 				tx.Rollback()
 				resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: truncate(fmt.Sprintf("insert analysis failed: %v", err), 256)})
@@ -211,15 +291,32 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 				continue
 			}
 			resp.Inserted++
+
+			// Publish to RabbitMQ for fast renderer
+			if h.rabbitmqPublisher != nil {
+				publishForRenderer(c, h, seq)
+			}
 		} else {
 			// Optional update of analysis if changed
 			title := truncateRunes(stripNonBMP(it.Title), 500)
 			description := truncateRunes(stripNonBMP(it.Content), 16000)
-			brandDisplay := extractBrandDisplay(it.Title, it.Metadata)
+			// Brand fields (same policy as insert)
+			var brandDisplay string
 			var brandName string
-			if strings.EqualFold(req.Source, "github_issue") {
+			if strings.EqualFold(req.Source, "twitter") {
+				if it.Metadata != nil {
+					if v, ok := it.Metadata["brand_display_name"].(string); ok && strings.TrimSpace(v) != "" {
+						brandDisplay = v
+					}
+					if v, ok := it.Metadata["brand_name"].(string); ok && strings.TrimSpace(v) != "" {
+						brandName = v
+					}
+				}
+			} else if strings.EqualFold(req.Source, "github_issue") {
+				brandDisplay = extractBrandDisplay(it.Title, it.Metadata)
 				brandName = normalizeGithubBrandName(brandDisplay)
 			} else {
+				brandDisplay = extractBrandDisplay(it.Title, it.Metadata)
 				brandName = brandutil.NormalizeBrandName(brandDisplay)
 			}
 			severity := clampSeverity(it.Score)
@@ -227,11 +324,59 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 
 			// Compose trimmed description for summary
 			trimmedDesc := trimmedDescriptionForSummary(description)
+			// Extract optional analysis fields from metadata for update
+			lp := 0.0
+			if v, ok := it.Metadata["litter_probability"].(float64); ok {
+				lp = v
+			}
+			hp := 0.0
+			if v, ok := it.Metadata["hazard_probability"].(float64); ok {
+				hp = v
+			}
+			dbp := 1.0
+			if v, ok := it.Metadata["digital_bug_probability"].(float64); ok {
+				dbp = v
+			} else if v, ok := it.Metadata["classification"].(string); ok && v == "physical" {
+				dbp = 0.0
+			}
+			if v, ok := it.Metadata["severity_level"].(float64); ok {
+				severity = clampSeverity(v)
+			}
+			classification := ""
+			if v, ok := it.Metadata["classification"].(string); ok {
+				vv := strings.ToLower(strings.TrimSpace(v))
+				if vv == "physical" || vv == "digital" {
+					classification = vv
+				} else {
+					classification = ""
+				}
+			}
+			lang := ""
+			if v, ok := it.Metadata["language"].(string); ok {
+				lang = v
+			}
+			effSummary := title + " : " + trimmedDesc + " : " + safeURL(it.URL)
+			if s, ok := it.Metadata["summary"].(string); ok && s != "" {
+				effSummary = s + " : " + safeURL(it.URL)
+			}
+
+			// Update analysis fields
 			_, err = h.db.DB().ExecContext(c.Request.Context(), `
                 UPDATE report_analysis SET title = ?, description = ?, brand_name = ?, brand_display_name = ?,
-                    severity_level = ?, summary = CONCAT(?, ' : ', ?, ' : ', ?), updated_at = NOW()
+                    litter_probability = IFNULL(?, litter_probability),
+                    hazard_probability = IFNULL(?, hazard_probability),
+                    digital_bug_probability = IFNULL(?, digital_bug_probability),
+                    severity_level = ?, summary = ?, 
+                    classification = COALESCE(NULLIF(?, ''), classification),
+                    language = COALESCE(NULLIF(?, ''), language),
+                    updated_at = NOW()
                 WHERE seq = ?
-            `, title, description, brandName, brandDisplay, severity, title, trimmedDesc, safeURL(it.URL), seq)
+            `, title, description, brandName, brandDisplay, lp, hp, dbp, severity, truncate(effSummary, 8192),
+				// classification conditional (empty string => keep existing)
+				classification,
+				// language conditional (empty string => keep existing)
+				lang,
+				seq)
 			if err != nil {
 				resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: truncate(fmt.Sprintf("update analysis failed: %v", err), 256)})
 				continue
@@ -256,10 +401,35 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 				continue
 			}
 			resp.Updated++
+
+			// Publish to RabbitMQ for fast renderer on update as well
+			if h.rabbitmqPublisher != nil {
+				publishForRenderer(c, h, seq)
+			}
 		}
 	}
 
 	c.JSON(http.StatusOK, resp)
+}
+
+// publishForRenderer publishes a sanitized ReportWithAnalysis to RabbitMQ for the fast renderer
+func publishForRenderer(c *gin.Context, h *Handlers, seq int) {
+	if h.rabbitmqPublisher == nil {
+		return
+	}
+	rwa, err := h.db.GetReportBySeq(c.Request.Context(), seq)
+	if err != nil {
+		log.Printf("warn: cannot fetch report %d for rabbitmq publish: %v", seq, err)
+		return
+	}
+	// Strip images from the event to match renderer expectations
+	rwa.Report.Image = nil
+	for i := range rwa.Analysis {
+		rwa.Analysis[i].AnalysisImage = nil
+	}
+	if err := h.rabbitmqPublisher.Publish(rwa); err != nil {
+		log.Printf("warn: rabbitmq publish failed for seq=%d: %v", seq, err)
+	}
 }
 
 func truncate(s string, max int) string {

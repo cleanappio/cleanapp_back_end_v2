@@ -184,7 +184,7 @@ func (d *Database) GetReportsSince(ctx context.Context, sinceSeq int) ([]models.
 	// First, get all reports since the given sequence that are not resolved
 	// and are not privately owned
 	reportsQuery := `
-		SELECT DISTINCT r.seq, r.ts, r.id, r.latitude, r.longitude
+		SELECT DISTINCT r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.action_id, r.description
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		LEFT JOIN report_status rs ON r.seq = rs.seq
@@ -210,8 +210,13 @@ func (d *Database) GetReportsSince(ctx context.Context, sinceSeq int) ([]models.
 			&report.Seq,
 			&report.Timestamp,
 			&report.ID,
+			&report.Team,
 			&report.Latitude,
 			&report.Longitude,
+			&report.X,
+			&report.Y,
+			&report.ActionID,
+			&report.Description,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan report: %w", err)
@@ -374,7 +379,7 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int, class
 	// First, get the last N reports that have analysis and are not resolved
 	// and are not privately owned
 	reportsQuery := `
-		SELECT DISTINCT r.seq, r.ts, r.id, r.latitude, r.longitude
+		SELECT DISTINCT r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.action_id, r.description
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		LEFT JOIN report_status rs ON r.seq = rs.seq
@@ -401,8 +406,13 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int, class
 			&report.Seq,
 			&report.Timestamp,
 			&report.ID,
+			&report.Team,
 			&report.Latitude,
 			&report.Longitude,
+			&report.X,
+			&report.Y,
+			&report.ActionID,
+			&report.Description,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan report: %w", err)
@@ -760,7 +770,7 @@ func (d *Database) SearchReports(ctx context.Context, searchQuery string, classi
 func (d *Database) GetReportBySeq(ctx context.Context, seq int) (*models.ReportWithAnalysis, error) {
 	// First, get the report if it's not resolved and not privately owned
 	reportQuery := `
-		SELECT r.seq, r.ts, r.id, r.latitude, r.longitude, r.image
+		SELECT r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.image, r.action_id, r.description
 		FROM reports r
 		LEFT JOIN report_status rs ON r.seq = rs.seq
 		LEFT JOIN reports_owners ro ON r.seq = ro.seq
@@ -774,9 +784,14 @@ func (d *Database) GetReportBySeq(ctx context.Context, seq int) (*models.ReportW
 		&report.Seq,
 		&report.Timestamp,
 		&report.ID,
+		&report.Team,
 		&report.Latitude,
 		&report.Longitude,
+		&report.X,
+		&report.Y,
 		&report.Image,
+		&report.ActionID,
+		&report.Description,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -791,7 +806,8 @@ func (d *Database) GetReportBySeq(ctx context.Context, seq int) (*models.ReportW
 			ra.seq, ra.source, ra.analysis_text, ra.analysis_image,
 			ra.title, ra.description, ra.brand_name, ra.brand_display_name,
 			ra.litter_probability, ra.hazard_probability, ra.digital_bug_probability,
-			ra.severity_level, ra.summary, ra.language, ra.classification, ra.created_at
+			ra.severity_level, ra.summary, ra.language, ra.classification,
+			COALESCE(ra.inferred_contact_emails, ''), ra.created_at
 		FROM report_analysis ra
 		WHERE ra.seq = ?
 		ORDER BY ra.language ASC
@@ -822,6 +838,7 @@ func (d *Database) GetReportBySeq(ctx context.Context, seq int) (*models.ReportW
 			&analysis.Summary,
 			&analysis.Language,
 			&analysis.Classification,
+			&analysis.InferredContactEmails,
 			&analysis.CreatedAt,
 		)
 		if err != nil {
@@ -848,7 +865,7 @@ func (d *Database) GetReportBySeq(ctx context.Context, seq int) (*models.ReportW
 // Returns all reports for the given ID without filtering.
 func (d *Database) GetLastNReportsByID(ctx context.Context, reportID string) ([]models.ReportWithAnalysis, error) {
 	reportsQuery := `
-		SELECT DISTINCT r.seq, r.ts, r.id, r.latitude, r.longitude
+		SELECT DISTINCT r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.action_id, r.description
 		FROM reports r
 		WHERE r.id = ?
 		ORDER BY r.seq DESC
@@ -869,8 +886,13 @@ func (d *Database) GetLastNReportsByID(ctx context.Context, reportID string) ([]
 			&report.Seq,
 			&report.Timestamp,
 			&report.ID,
+			&report.Team,
 			&report.Latitude,
 			&report.Longitude,
+			&report.X,
+			&report.Y,
+			&report.ActionID,
+			&report.Description,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan report: %w", err)

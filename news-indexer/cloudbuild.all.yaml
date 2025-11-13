@@ -1,0 +1,20 @@
+steps:
+  # Build indexer image from multi-target Dockerfile (compilation cached for subsequent steps)
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-f', 'Dockerfile.twitter_all', '--target', 'indexer', '-t', '${_TAG_INDEXER}', '.']
+
+  # Build analyzer image (rehydrates from cached builder layer)
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-f', 'Dockerfile.twitter_all', '--target', 'analyzer', '-t', '${_TAG_ANALYZER}', '.']
+
+  # Build submitter image (rehydrates from cached builder layer)
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-f', 'Dockerfile.twitter_all', '--target', 'submitter', '-t', '${_TAG_SUBMITTER}', '.']
+
+images:
+  - '${_TAG_INDEXER}'
+  - '${_TAG_ANALYZER}'
+  - '${_TAG_SUBMITTER}'
+
+options:
+  machineType: 'E2_HIGHCPU_32'
