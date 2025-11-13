@@ -543,6 +543,217 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int, class
 	return result, nil
 }
 
+// SearchReports searches reports using FULLTEXT search
+// If full_data is true, returns reports with analysis. If false, returns only reports.
+// Only returns reports that are not resolved and are not privately owned
+// If classification is empty, returns both physical and digital reports
+func (d *Database) SearchReports(ctx context.Context, searchQuery string, classification string, full_data bool) (interface{}, error) {
+	// Build the WHERE clause with FULLTEXT search
+	var whereClause string
+	var args []interface{}
+
+	// Build base conditions
+	baseConditions := `(rs.status IS NULL OR rs.status = 'active')
+		AND ra.is_valid = TRUE
+		AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE)`
+
+	// Add classification filter only if provided
+	if classification != "" {
+		baseConditions += ` AND ra.classification = ?`
+	}
+
+	if searchQuery != "" {
+		whereClause = fmt.Sprintf(`WHERE %s
+		AND MATCH(ra.title, ra.description, ra.brand_name, ra.brand_display_name, ra.summary) AGAINST (? IN BOOLEAN MODE)`, baseConditions)
+		if classification != "" {
+			args = []interface{}{classification, searchQuery}
+		} else {
+			args = []interface{}{searchQuery}
+		}
+	} else {
+		whereClause = fmt.Sprintf(`WHERE %s`, baseConditions)
+		if classification != "" {
+			args = []interface{}{classification}
+		} else {
+			args = []interface{}{}
+		}
+	}
+
+	// First, get reports that match the search criteria
+	reportsQuery := fmt.Sprintf(`
+		SELECT DISTINCT r.seq, r.ts, r.id, r.latitude, r.longitude
+		FROM reports r
+		INNER JOIN report_analysis ra ON r.seq = ra.seq
+		LEFT JOIN report_status rs ON r.seq = rs.seq
+		LEFT JOIN reports_owners ro ON r.seq = ro.seq
+		%s
+		ORDER BY r.seq DESC
+	`, whereClause)
+
+	reportRows, err := d.db.QueryContext(ctx, reportsQuery, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query search reports: %w", err)
+	}
+	defer reportRows.Close()
+
+	// Collect all report sequences
+	var reports []models.Report
+	for reportRows.Next() {
+		var report models.Report
+		err := reportRows.Scan(
+			&report.Seq,
+			&report.Timestamp,
+			&report.ID,
+			&report.Latitude,
+			&report.Longitude,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan report: %w", err)
+		}
+		reports = append(reports, report)
+	}
+
+	if err = reportRows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating search reports: %w", err)
+	}
+
+	if len(reports) == 0 {
+		if !full_data {
+			return []models.ReportWithMinimalAnalysis{}, nil
+		}
+		return []models.ReportWithAnalysis{}, nil
+	}
+
+	// Build placeholders for the IN clause
+	placeholders := make([]string, len(reports))
+	seqArgs := make([]interface{}, len(reports))
+	for i, report := range reports {
+		placeholders[i] = "?"
+		seqArgs[i] = report.Seq
+	}
+
+	// If full_data is false, return reports with minimal analysis
+	if !full_data {
+		// Get minimal analysis data (severity, classification, language, title)
+		minimalAnalysesQuery := fmt.Sprintf(`
+			SELECT 
+				ra.seq, ra.severity_level, ra.classification, ra.language, ra.title
+			FROM report_analysis ra
+			WHERE ra.seq IN (%s)
+			ORDER BY ra.seq DESC, ra.language ASC
+		`, strings.Join(placeholders, ","))
+
+		minimalAnalysisRows, err := d.db.QueryContext(ctx, minimalAnalysesQuery, seqArgs...)
+		if err != nil {
+			return nil, fmt.Errorf("failed to query minimal analyses: %w", err)
+		}
+		defer minimalAnalysisRows.Close()
+
+		// Group minimal analyses by report sequence
+		minimalAnalysesBySeq := make(map[int][]models.MinimalAnalysis)
+		for minimalAnalysisRows.Next() {
+			var seq int
+			var analysis models.MinimalAnalysis
+			err := minimalAnalysisRows.Scan(
+				&seq,
+				&analysis.SeverityLevel,
+				&analysis.Classification,
+				&analysis.Language,
+				&analysis.Title,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("failed to scan minimal analysis: %w", err)
+			}
+			minimalAnalysesBySeq[seq] = append(minimalAnalysesBySeq[seq], analysis)
+		}
+
+		if err = minimalAnalysisRows.Err(); err != nil {
+			return nil, fmt.Errorf("error iterating minimal analyses: %w", err)
+		}
+
+		// Combine reports with their minimal analyses
+		var result []models.ReportWithMinimalAnalysis
+		for _, report := range reports {
+			analysis, exists := minimalAnalysesBySeq[report.Seq]
+			if !exists {
+				continue
+			}
+
+			result = append(result, models.ReportWithMinimalAnalysis{
+				Report:   report,
+				Analysis: analysis,
+			})
+		}
+
+		return result, nil
+	}
+
+	// Get full analyses for these reports
+	analysesQuery := fmt.Sprintf(`
+		SELECT 
+			ra.seq, ra.source, ra.analysis_text,
+			ra.title, ra.description, ra.brand_name, ra.brand_display_name,
+			ra.litter_probability, ra.hazard_probability, ra.digital_bug_probability,
+			ra.severity_level, ra.summary, ra.language, ra.classification, ra.created_at
+		FROM report_analysis ra
+		WHERE ra.seq IN (%s)
+		ORDER BY ra.seq DESC, ra.language ASC
+	`, strings.Join(placeholders, ","))
+
+	analysisRows, err := d.db.QueryContext(ctx, analysesQuery, seqArgs...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query analyses: %w", err)
+	}
+	defer analysisRows.Close()
+
+	// Group analyses by report sequence
+	analysesBySeq := make(map[int][]models.ReportAnalysis)
+	for analysisRows.Next() {
+		var analysis models.ReportAnalysis
+		err := analysisRows.Scan(
+			&analysis.Seq,
+			&analysis.Source,
+			&analysis.AnalysisText,
+			&analysis.Title,
+			&analysis.Description,
+			&analysis.BrandName,
+			&analysis.BrandDisplayName,
+			&analysis.LitterProbability,
+			&analysis.HazardProbability,
+			&analysis.DigitalBugProbability,
+			&analysis.SeverityLevel,
+			&analysis.Summary,
+			&analysis.Language,
+			&analysis.Classification,
+			&analysis.CreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan analysis: %w", err)
+		}
+		analysesBySeq[analysis.Seq] = append(analysesBySeq[analysis.Seq], analysis)
+	}
+
+	if err = analysisRows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating analyses: %w", err)
+	}
+
+	// Combine reports with their analyses
+	var result []models.ReportWithAnalysis
+	for _, report := range reports {
+		analyses := analysesBySeq[report.Seq]
+		if len(analyses) == 0 {
+			continue
+		}
+
+		result = append(result, models.ReportWithAnalysis{
+			Report:   report,
+			Analysis: analyses,
+		})
+	}
+
+	return result, nil
+}
+
 // GetReportBySeq retrieves a single report with analysis by sequence ID
 // Only returns reports that are not resolved (either no status or status = 'active')
 // and are not privately owned (either no owner or is_public = true)

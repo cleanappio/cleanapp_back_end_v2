@@ -536,6 +536,105 @@ func (h *Handlers) GetLastNAnalyzedReports(c *gin.Context) {
 	}
 }
 
+// GetSearchReports searches reports using FULLTEXT search
+func (h *Handlers) GetSearchReports(c *gin.Context) {
+	// Get the search query parameter (required)
+	searchQuery := c.Query("q")
+	if strings.TrimSpace(searchQuery) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing or empty 'q' parameter. Search query is required."})
+		return
+	}
+
+	// Get the classification parameter (optional - empty string if not provided)
+	classification := c.Query("classification")
+
+	// Get the full_data parameter from query string, default to true if not provided
+	fullDataStr := c.DefaultQuery("full_data", "true")
+	fullData := true // default value
+	if parsedFullData, err := strconv.ParseBool(fullDataStr); err == nil {
+		fullData = parsedFullData
+	} else {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'full_data' parameter. Must be 'true' or 'false'."})
+		return
+	}
+
+	// Transform search query: add "+" before each word for boolean mode
+	words := strings.Fields(strings.TrimSpace(searchQuery))
+	transformedWords := make([]string, 0, len(words))
+	for _, word := range words {
+		if word != "" {
+			transformedWords = append(transformedWords, "+"+word)
+		}
+	}
+	transformedQuery := strings.Join(transformedWords, " ")
+
+	// Ensure we have a valid transformed query
+	if transformedQuery == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'q' parameter. Search query must contain at least one non-empty word."})
+		return
+	}
+
+	// Get the reports from the database
+	reportsInterface, err := h.db.SearchReports(c.Request.Context(), transformedQuery, classification, fullData)
+	if err != nil {
+		log.Printf("Failed to search reports: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve reports"})
+		return
+	}
+
+	// Handle different return types based on full_data parameter
+	if fullData {
+		// Type assertion to get the reports with analysis
+		reportsWithAnalysis, ok := reportsInterface.([]models.ReportWithAnalysis)
+		if !ok {
+			log.Printf("Failed to type assert reports to []models.ReportWithAnalysis")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve reports"})
+			return
+		}
+
+		// Create the response in the same format as WebSocket broadcasts
+		response := models.ReportBatch{
+			Reports: reportsWithAnalysis,
+			Count:   len(reportsWithAnalysis),
+			FromSeq: 0,
+			ToSeq:   0,
+		}
+
+		// Set FromSeq and ToSeq if there are reports
+		if len(reportsWithAnalysis) > 0 {
+			response.FromSeq = reportsWithAnalysis[0].Report.Seq
+			response.ToSeq = reportsWithAnalysis[len(reportsWithAnalysis)-1].Report.Seq
+		}
+
+		c.JSON(http.StatusOK, response)
+	} else {
+		// Type assertion to get reports with minimal analysis
+		reportsWithMinimalAnalysis, ok := reportsInterface.([]models.ReportWithMinimalAnalysis)
+		if !ok {
+			log.Printf("Failed to type assert reports to []models.ReportWithMinimalAnalysis")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve reports"})
+			return
+		}
+
+		// Create a custom response structure for minimal analysis to maintain consistency
+		// but with the minimal data structure
+		response := gin.H{
+			"reports":  reportsWithMinimalAnalysis,
+			"count":    len(reportsWithMinimalAnalysis),
+			"from_seq": 0,
+			"to_seq":   0,
+		}
+
+		// Set FromSeq and ToSeq if there are reports
+		if len(reportsWithMinimalAnalysis) > 0 {
+			response["from_seq"] = reportsWithMinimalAnalysis[0].Report.Seq
+			response["to_seq"] = reportsWithMinimalAnalysis[len(reportsWithMinimalAnalysis)-1].Report.Seq
+		}
+
+		c.JSON(http.StatusOK, response)
+	}
+}
+
 // GetReportBySeq returns a specific report by sequence ID
 func (h *Handlers) GetReportBySeq(c *gin.Context) {
 	// Get the seq parameter from query string

@@ -145,6 +145,9 @@ func setupRouter(svc *service.Service) *gin.Engine {
 		// Get reports by brand name endpoint
 		api.GET("/reports/by-brand", h.GetReportsByBrand)
 
+		// Search reports endpoint
+		api.GET("/reports/search", h.GetSearchReports)
+
 		// Get image by sequence number endpoint
 		api.GET("/reports/image", h.GetImageBySeq)
 

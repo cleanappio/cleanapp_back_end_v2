@@ -115,7 +115,8 @@ func (d *Database) CreateReportAnalysisTable() error {
 		INDEX idx_report_analysis_brand_display_name (brand_display_name),
 		INDEX idx_report_analysis_language (language),
 		INDEX idx_report_analysis_is_valid (is_valid),
-		INDEX idx_report_analysis_classification (classification)
+		INDEX idx_report_analysis_classification (classification),
+		FULLTEXT INDEX ft_report (title, description, brand_name, brand_display_name, summary)
 	)`
 
 	_, err := d.db.Exec(query)
@@ -257,6 +258,25 @@ func (d *Database) MigrateReportAnalysisTable() error {
 			log.Printf("%s index already exists in report_analysis table, skipping migration", indexName)
 		}
 	}
+
+	// Check and add FULLTEXT index
+	exists, err = d.indexExists("report_analysis", "ft_report")
+	if err != nil {
+		return fmt.Errorf("failed to check if ft_report index exists: %w", err)
+	}
+
+	if !exists {
+		log.Printf("Adding ft_report FULLTEXT index to report_analysis table...")
+		query := "ALTER TABLE report_analysis ADD FULLTEXT INDEX ft_report (title, description, brand_name, brand_display_name, summary)"
+		_, err = d.db.Exec(query)
+		if err != nil {
+			return fmt.Errorf("failed to add ft_report FULLTEXT index: %w", err)
+		}
+		log.Printf("Successfully added ft_report FULLTEXT index to report_analysis table")
+	} else {
+		log.Printf("ft_report FULLTEXT index already exists in report_analysis table, skipping migration")
+	}
+
 	return nil
 }
 
