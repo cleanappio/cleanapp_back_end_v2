@@ -728,12 +728,20 @@ func (h *Handlers) GetSearchReports(c *gin.Context) {
 		return
 	}
 
-	// Transform search query: add "+" before each word for boolean mode
+	// Transform search query: replace "-" with "+" and add "+" before each word for boolean mode
+	// First, replace any minus signs with plus signs
+	searchQuery = strings.ReplaceAll(searchQuery, "-", "+")
+
 	words := strings.Fields(strings.TrimSpace(searchQuery))
 	transformedWords := make([]string, 0, len(words))
 	for _, word := range words {
 		if word != "" {
-			transformedWords = append(transformedWords, "+"+word)
+			// Add "+" prefix if the word doesn't already start with "+"
+			if !strings.HasPrefix(word, "+") {
+				transformedWords = append(transformedWords, "+"+word)
+			} else {
+				transformedWords = append(transformedWords, word)
+			}
 		}
 	}
 	transformedQuery := strings.Join(transformedWords, " ")

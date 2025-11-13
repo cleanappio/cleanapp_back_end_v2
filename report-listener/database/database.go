@@ -80,6 +80,23 @@ func (d *Database) DB() *sql.DB {
 	return d.db
 }
 
+// IndexExists checks if an index exists on a table
+func (d *Database) IndexExists(ctx context.Context, tableName, indexName string) (bool, error) {
+	var count int
+	err := d.db.QueryRowContext(ctx, `
+		SELECT COUNT(*) 
+		FROM INFORMATION_SCHEMA.STATISTICS 
+		WHERE TABLE_SCHEMA = DATABASE() 
+		AND TABLE_NAME = ? 
+		AND INDEX_NAME = ?`,
+		tableName, indexName,
+	).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("failed to check if index exists: %w", err)
+	}
+	return count > 0, nil
+}
+
 // EnsureFetcherTables creates tables needed for fetcher auth and idempotency
 func (d *Database) EnsureFetcherTables(ctx context.Context) error {
 	stmts := []string{
@@ -599,6 +616,9 @@ func (d *Database) SearchReports(ctx context.Context, searchQuery string, classi
 		%s
 		ORDER BY r.seq DESC
 	`, whereClause)
+
+	log.Printf("INFO: Reports query: %s", reportsQuery)
+	log.Printf("INFO: Args: %v", args)
 
 	reportRows, err := d.db.QueryContext(ctx, reportsQuery, args...)
 	if err != nil {

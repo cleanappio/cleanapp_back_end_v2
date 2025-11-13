@@ -91,12 +91,24 @@ func (s *Service) Start() error {
 	func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		_, err := s.db.DB().ExecContext(ctx, `
-			ALTER TABLE report_analysis 
-			ADD INDEX IF NOT EXISTS idx_report_analysis_class_valid_seq (classification, is_valid, seq);
-		`)
+
+		indexName := "idx_report_analysis_class_valid_seq"
+		exists, err := s.db.IndexExists(ctx, "report_analysis", indexName)
 		if err != nil {
-			log.Printf("warn: unable to ensure idx_report_analysis_class_valid_seq: %v", err)
+			log.Printf("warn: unable to check if %s exists: %v", indexName, err)
+			return
+		}
+
+		if !exists {
+			_, err := s.db.DB().ExecContext(ctx, `
+				ALTER TABLE report_analysis 
+				ADD INDEX idx_report_analysis_class_valid_seq (classification, is_valid, seq)
+			`)
+			if err != nil {
+				log.Printf("warn: unable to create %s: %v", indexName, err)
+			} else {
+				log.Printf("Created index %s", indexName)
+			}
 		}
 	}()
 
