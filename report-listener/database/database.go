@@ -617,9 +617,6 @@ func (d *Database) SearchReports(ctx context.Context, searchQuery string, classi
 		ORDER BY r.seq DESC
 	`, whereClause)
 
-	log.Printf("INFO: Reports query: %s", reportsQuery)
-	log.Printf("INFO: Args: %v", args)
-
 	reportRows, err := d.db.QueryContext(ctx, reportsQuery, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query search reports: %w", err)
