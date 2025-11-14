@@ -66,36 +66,54 @@ func (h *AreasHandler) GetAreas(c *gin.Context) {
 	lonMaxStr, hasLonMax := c.GetQuery("ne_lon")
 	typeFilter, hasTypeFilter := c.GetQuery("type")
 
+	// Validate that all viewport parameters are present
+	var missingParams []string
+	if !hasLatMin {
+		missingParams = append(missingParams, "sw_lat")
+	}
+	if !hasLonMin {
+		missingParams = append(missingParams, "sw_lon")
+	}
+	if !hasLatMax {
+		missingParams = append(missingParams, "ne_lat")
+	}
+	if !hasLonMax {
+		missingParams = append(missingParams, "ne_lon")
+	}
+	if len(missingParams) > 0 {
+		log.Errorf("Missing required viewport parameters: %v", missingParams)
+		c.String(http.StatusBadRequest, fmt.Sprintf("Missing required parameters: %v", missingParams))
+		return
+	}
+
+	// Parse all viewport parameters
 	var latMin, lonMin, latMax, lonMax float64
 	var err error
-	var vp *models.ViewPort
-	if hasLatMin && hasLatMax && hasLonMin && hasLonMax {
-		if latMin, err = strconv.ParseFloat(latMinStr, 64); err != nil {
-			log.Errorf("Error in parsing sw_lat param: %w", err)
-			c.String(http.StatusBadRequest, fmt.Sprintf("Parsing sw_lat: %v", err))
-			return
-		}
-		if lonMin, err = strconv.ParseFloat(lonMinStr, 64); err != nil {
-			log.Errorf("Error in parsing sw_lon param: %w", err)
-			c.String(http.StatusBadRequest, fmt.Sprintf("Parsing sw_lon: %v", err))
-			return
-		}
-		if latMax, err = strconv.ParseFloat(latMaxStr, 64); err != nil {
-			log.Errorf("Error in parsing ne_lat param: %w", err)
-			c.String(http.StatusBadRequest, fmt.Sprintf("Parsing ne_lat: %v", err))
-			return
-		}
-		if lonMax, err = strconv.ParseFloat(lonMaxStr, 64); err != nil {
-			log.Errorf("Error in parsing ne_lon param: %w", err)
-			c.String(http.StatusBadRequest, fmt.Sprintf("Parsing ne_lon: %v", err))
-			return
-		}
-		vp = &models.ViewPort{
-			LatMin: latMin,
-			LonMin: lonMin,
-			LatMax: latMax,
-			LonMax: lonMax,
-		}
+	if latMin, err = strconv.ParseFloat(latMinStr, 64); err != nil {
+		log.Errorf("Error in parsing sw_lat param: %w", err)
+		c.String(http.StatusBadRequest, fmt.Sprintf("Parsing sw_lat: %v", err))
+		return
+	}
+	if lonMin, err = strconv.ParseFloat(lonMinStr, 64); err != nil {
+		log.Errorf("Error in parsing sw_lon param: %w", err)
+		c.String(http.StatusBadRequest, fmt.Sprintf("Parsing sw_lon: %v", err))
+		return
+	}
+	if latMax, err = strconv.ParseFloat(latMaxStr, 64); err != nil {
+		log.Errorf("Error in parsing ne_lat param: %w", err)
+		c.String(http.StatusBadRequest, fmt.Sprintf("Parsing ne_lat: %v", err))
+		return
+	}
+	if lonMax, err = strconv.ParseFloat(lonMaxStr, 64); err != nil {
+		log.Errorf("Error in parsing ne_lon param: %w", err)
+		c.String(http.StatusBadRequest, fmt.Sprintf("Parsing ne_lon: %v", err))
+		return
+	}
+	vp := &models.ViewPort{
+		LatMin: latMin,
+		LonMin: lonMin,
+		LatMax: latMax,
+		LonMax: lonMax,
 	}
 
 	// Use unified GetAreas method that handles all parameters
