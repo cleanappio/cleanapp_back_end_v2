@@ -161,6 +161,28 @@ pub async fn ensure_twitter_tables(pool: &Pool) -> anyhow::Result<()> {
     "#).await?;
     conn.query_drop("INSERT IGNORE INTO indexer_twitter_submit_state (id) VALUES (1)").await?;
 
+    // Tag tables for twitter indexer
+    conn.query_drop(r#"
+        CREATE TABLE IF NOT EXISTS indexer_twitter_tags (
+            id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            canonical_name VARCHAR(255) NOT NULL UNIQUE,
+            display_name VARCHAR(255) NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_canonical_name (canonical_name)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    "#).await?;
+
+    conn.query_drop(r#"
+        CREATE TABLE IF NOT EXISTS indexer_twitter_tweets_tags (
+            tweet_id BIGINT NOT NULL,
+            tag_id INT UNSIGNED NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (tweet_id, tag_id),
+            INDEX idx_tag_id (tag_id),
+            INDEX idx_tweet_id (tweet_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    "#).await?;
+
     Ok(())
 }
 

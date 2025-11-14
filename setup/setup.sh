@@ -109,6 +109,7 @@ case ${OPT} in
       TWITTER_INTERVAL_SECS="0"
       ANALYZER_INTERVAL_SECS="0"
       TWITTER_INCLUDE_REPLIES_QUOTES="true"
+      TAGS_BLACKLIST="#cleanapp"
       ;;
   "prod")
       echo "Using prod environment"
@@ -163,6 +164,7 @@ case ${OPT} in
       TWITTER_INTERVAL_SECS="300"
       ANALYZER_INTERVAL_SECS="300"
       TWITTER_INCLUDE_REPLIES_QUOTES="true"
+      TAGS_BLACKLIST="#cleanapp"
       ;;
   "quit")
       exit
@@ -924,6 +926,7 @@ services:
       - TWITTER_INTERVAL_SECS=${TWITTER_INTERVAL_SECS}
       - TWITTER_PAGES_PER_RUN=3
       - TWITTER_INCLUDE_REPLIES_QUOTES=${TWITTER_INCLUDE_REPLIES_QUOTES}
+      - TAGS_BLACKLIST=${TAGS_BLACKLIST}
     depends_on:
       cleanapp_db:
         condition: service_healthy

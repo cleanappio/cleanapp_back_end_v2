@@ -225,66 +225,97 @@ async fn main() -> Result<()> {
 
         if rows.is_empty() { info!("no more rows to submit"); break 'outer; }
 
-        // Build payload
-        let items: Vec<_> = rows
-            .iter()
-            .map(|row| {
-                let tweet_id: i64 = row.get::<i64, _>(0).unwrap_or(0);
-                let username: String = row.get::<String, _>(1).unwrap_or_default();
-                let lang: String = row.get::<String, _>(2).unwrap_or_default();
-                let text: String = row.get::<String, _>(3).unwrap_or_default();
-                let severity: f64 = row.get::<Option<f64>, _>(4).unwrap_or(None).unwrap_or(0.0);
-                let relevance: f64 = row.get::<Option<f64>, _>(5).unwrap_or(None).unwrap_or(0.0);
-                let litter: f64 = row.get::<Option<f64>, _>(6).unwrap_or(None).unwrap_or(0.0);
-                let hazard: f64 = row.get::<Option<f64>, _>(7).unwrap_or(None).unwrap_or(0.0);
-                let classification: String = row.get::<Option<String>, _>(8).unwrap_or(None).unwrap_or_else(|| "unknown".to_string());
-                let created_iso: String = row.get::<Option<String>, _>(9).unwrap_or(None).unwrap_or_default();
-                let img_opt: Option<Vec<u8>> = row.get::<Option<Vec<u8>>, _>(10).unwrap_or(None);
-                let summary: String = row.get::<Option<String>, _>(11).unwrap_or(None).unwrap_or_default();
-                let latitude_opt: Option<f64> = row.get::<Option<f64>, _>(12).unwrap_or(None);
-                let longitude_opt: Option<f64> = row.get::<Option<f64>, _>(13).unwrap_or(None);
-                let report_title: String = row.get::<Option<String>, _>(14).unwrap_or(None).unwrap_or_default();
-                let report_description: String = row.get::<Option<String>, _>(15).unwrap_or(None).unwrap_or_default();
-                let brand_display_name: String = row.get::<Option<String>, _>(16).unwrap_or(None).unwrap_or_default();
-                let brand_name: String = row.get::<Option<String>, _>(17).unwrap_or(None).unwrap_or_default();
+        // Build payload (fetch per-tweet tags)
+        let mut items: Vec<serde_json::Value> = Vec::with_capacity(rows.len());
+        for row in rows.iter() {
+            let tweet_id: i64 = row.get::<i64, _>(0).unwrap_or(0);
+            let username: String = row.get::<String, _>(1).unwrap_or_default();
+            let lang: String = row.get::<String, _>(2).unwrap_or_default();
+            let text: String = row.get::<String, _>(3).unwrap_or_default();
+            let severity: f64 = row.get::<Option<f64>, _>(4).unwrap_or(None).unwrap_or(0.0);
+            let relevance: f64 = row.get::<Option<f64>, _>(5).unwrap_or(None).unwrap_or(0.0);
+            let litter: f64 = row.get::<Option<f64>, _>(6).unwrap_or(None).unwrap_or(0.0);
+            let hazard: f64 = row.get::<Option<f64>, _>(7).unwrap_or(None).unwrap_or(0.0);
+            let classification: String = row.get::<Option<String>, _>(8).unwrap_or(None).unwrap_or_else(|| "unknown".to_string());
+            let created_iso: String = row.get::<Option<String>, _>(9).unwrap_or(None).unwrap_or_default();
+            let img_opt: Option<Vec<u8>> = row.get::<Option<Vec<u8>>, _>(10).unwrap_or(None);
+            let summary: String = row.get::<Option<String>, _>(11).unwrap_or(None).unwrap_or_default();
+            let latitude_opt: Option<f64> = row.get::<Option<f64>, _>(12).unwrap_or(None);
+            let longitude_opt: Option<f64> = row.get::<Option<f64>, _>(13).unwrap_or(None);
+            let report_title: String = row.get::<Option<String>, _>(14).unwrap_or(None).unwrap_or_default();
+            let report_description: String = row.get::<Option<String>, _>(15).unwrap_or(None).unwrap_or_default();
+            let brand_display_name: String = row.get::<Option<String>, _>(16).unwrap_or(None).unwrap_or_default();
+            let brand_name: String = row.get::<Option<String>, _>(17).unwrap_or(None).unwrap_or_default();
 
-                let title_source = if !report_title.is_empty() { report_title.clone() } else { text.clone() };
-                let title = truncate_chars(&title_source, 120);
-                let score = normalize_score(severity, relevance);
-                let image_base64 = img_opt.as_ref().map(|b| STANDARD.encode(b));
-                let url = format!("https://twitter.com/{}/status/{}", username, tweet_id);
-                let mut content = if !report_description.is_empty() { report_description } else { text.clone() };
-                // append link to description
-                if !url.is_empty() {
-                    content = format!("{} : {}", content, url);
-                }
-                json!({
-                    "external_id": tweet_id.to_string(),
-                    "title": title,
-                    "content": truncate_chars(&content, 4000),
-                    "url": url,
-                    "created_at": created_iso,
-                    "updated_at": created_iso,
-                    "score": score,
-                    "metadata": {
-                        "author_username": username,
-                        "lang": lang,
-                        "classification": classification,
-                        "litter_probability": litter,
-                        "hazard_probability": hazard,
-                        "relevance": relevance,
-                        "severity_level": severity,
-                        "summary": summary,
-                        "latitude": latitude_opt,
-                        "longitude": longitude_opt,
-                        "brand_display_name": brand_display_name,
-                        "brand_name": brand_name
-                    },
-                    "skip_ai": true,
-                    "image_base64": image_base64
-                })
-            })
-            .collect();
+            // Fetch display tag names for this tweet, union with anchor tweet tags if present
+            let anchor_opt: Option<i64> = conn
+                .exec_first::<(Option<i64>,), _, _>(
+                    "SELECT anchor_tweet_id FROM indexer_twitter_tweet WHERE tweet_id = ?",
+                    (tweet_id,),
+                )
+                .await
+                .ok()
+                .flatten()
+                .and_then(|t| t.0);
+            let tags: Vec<String> = if let Some(anchor_id) = anchor_opt {
+                let tag_rows: Vec<(String,)> = conn.exec(
+                    r#"SELECT DISTINCT t.display_name
+                       FROM indexer_twitter_tweets_tags tt
+                       JOIN indexer_twitter_tags t ON t.id = tt.tag_id
+                       WHERE tt.tweet_id IN (?, ?)
+                       ORDER BY t.display_name ASC"#,
+                    (tweet_id, anchor_id),
+                ).await.unwrap_or_default();
+                tag_rows.into_iter().map(|(name,)| name).collect()
+            } else {
+                let tag_rows: Vec<(String,)> = conn.exec(
+                    r#"SELECT t.display_name
+                       FROM indexer_twitter_tweets_tags tt
+                       JOIN indexer_twitter_tags t ON t.id = tt.tag_id
+                       WHERE tt.tweet_id = ?
+                       ORDER BY t.display_name ASC"#,
+                    (tweet_id,),
+                ).await.unwrap_or_default();
+                tag_rows.into_iter().map(|(name,)| name).collect()
+            };
+
+            let title_source = if !report_title.is_empty() { report_title.clone() } else { text.clone() };
+            let title = truncate_chars(&title_source, 120);
+            let score = normalize_score(severity, relevance);
+            let image_base64 = img_opt.as_ref().map(|b| STANDARD.encode(b));
+            let url = format!("https://twitter.com/{}/status/{}", username, tweet_id);
+            let mut content = if !report_description.is_empty() { report_description } else { text.clone() };
+            if !url.is_empty() {
+                content = format!("{} : {}", content, url);
+            }
+            let item = json!({
+                "external_id": tweet_id.to_string(),
+                "title": title,
+                "content": truncate_chars(&content, 4000),
+                "url": url,
+                "created_at": created_iso,
+                "updated_at": created_iso,
+                "score": score,
+                "metadata": {
+                    "author_username": username,
+                    "lang": lang,
+                    "classification": classification,
+                    "litter_probability": litter,
+                    "hazard_probability": hazard,
+                    "relevance": relevance,
+                    "severity_level": severity,
+                    "summary": summary,
+                    "latitude": latitude_opt,
+                    "longitude": longitude_opt,
+                    "brand_display_name": brand_display_name,
+                    "brand_name": brand_name
+                },
+                "tags": tags,
+                "skip_ai": true,
+                "image_base64": image_base64
+            });
+            items.push(item);
+        }
 
         let payload = json!({
             "source": "twitter",

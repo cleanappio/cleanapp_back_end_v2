@@ -58,6 +58,7 @@ type BulkIngestRequest struct {
 		CreatedAt   string                 `json:"created_at"`
 		UpdatedAt   string                 `json:"updated_at"`
 		Score       float64                `json:"score"`
+		Tags        []string               `json:"tags"`
 		Metadata    map[string]interface{} `json:"metadata"`
 		SkipAI      *bool                  `json:"skip_ai"`
 		ImageBase64 string                 `json:"image_base64,omitempty"`
@@ -175,6 +176,42 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 			// Prepare analysis fields per spec
 			title := truncateRunes(stripNonBMP(it.Title), 500)
 			description := truncateRunes(stripNonBMP(it.Content), 16000)
+			// Optional tags processing: insert into tags/report_tags
+			if len(it.Tags) > 0 {
+				for _, raw := range it.Tags {
+					tagDisp := strings.TrimSpace(strings.TrimPrefix(raw, "#"))
+					if tagDisp == "" {
+						continue
+					}
+					tagCanon := strings.ToLower(tagDisp)
+					// Upsert tag and get id
+					resTag, err := tx.ExecContext(c.Request.Context(),
+						`INSERT INTO tags (canonical_name, display_name, usage_count) VALUES (?, ?, 0)
+                         ON DUPLICATE KEY UPDATE display_name=VALUES(display_name), id=LAST_INSERT_ID(id)`,
+						tagCanon, tagDisp,
+					)
+					if err != nil {
+						log.Printf("tag upsert failed: %v", err)
+						continue
+					}
+					tagID, _ := resTag.LastInsertId()
+					if tagID == 0 {
+						// Fallback: read id by canonical
+						row := tx.QueryRowContext(c.Request.Context(), `SELECT id FROM tags WHERE canonical_name = ?`, tagCanon)
+						_ = row.Scan(&tagID)
+					}
+					if tagID > 0 {
+						_, _ = tx.ExecContext(c.Request.Context(),
+							`INSERT IGNORE INTO report_tags (report_seq, tag_id) VALUES (?, ?)`,
+							seq, tagID,
+						)
+						_, _ = tx.ExecContext(c.Request.Context(),
+							`UPDATE tags SET usage_count = usage_count + 1, last_used_at = NOW() WHERE id = ?`,
+							tagID,
+						)
+					}
+				}
+			}
 			// Brand fields:
 			// - For twitter: keep empty unless explicitly provided in metadata
 			// - For github_issue: derive brand from owner/repo
@@ -300,6 +337,39 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 			// Optional update of analysis if changed
 			title := truncateRunes(stripNonBMP(it.Title), 500)
 			description := truncateRunes(stripNonBMP(it.Content), 16000)
+			// Optional tags processing on update
+			if len(it.Tags) > 0 {
+				for _, raw := range it.Tags {
+					tagDisp := strings.TrimSpace(strings.TrimPrefix(raw, "#"))
+					if tagDisp == "" {
+						continue
+					}
+					tagCanon := strings.ToLower(tagDisp)
+					// Upsert tag and get id
+					resTag, err := h.db.DB().ExecContext(c.Request.Context(),
+						`INSERT INTO tags (canonical_name, display_name, usage_count) VALUES (?, ?, 0)
+                         ON DUPLICATE KEY UPDATE display_name=VALUES(display_name), id=LAST_INSERT_ID(id)`,
+						tagCanon, tagDisp,
+					)
+					if err == nil {
+						tagID, _ := resTag.LastInsertId()
+						if tagID == 0 {
+							row := h.db.DB().QueryRowContext(c.Request.Context(), `SELECT id FROM tags WHERE canonical_name = ?`, tagCanon)
+							_ = row.Scan(&tagID)
+						}
+						if tagID > 0 {
+							_, _ = h.db.DB().ExecContext(c.Request.Context(),
+								`INSERT IGNORE INTO report_tags (report_seq, tag_id) VALUES (?, ?)`,
+								seq, tagID,
+							)
+							_, _ = h.db.DB().ExecContext(c.Request.Context(),
+								`UPDATE tags SET usage_count = usage_count + 1, last_used_at = NOW() WHERE id = ?`,
+								tagID,
+							)
+						}
+					}
+				}
+			}
 			// Brand fields (same policy as insert)
 			var brandDisplay string
 			var brandName string

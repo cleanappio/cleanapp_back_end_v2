@@ -24,6 +24,8 @@ struct Args {
     #[arg(long, env = "TWITTER_PAGES_PER_RUN", default_value_t = 3)] pages_per_run: usize,
     #[arg(long, env = "TWITTER_INCLUDE_REPLIES_QUOTES", default_value_t = false)]
     include_replies_quotes: bool,
+    #[arg(long, env = "TAGS_BLACKLIST", default_value = "")]
+    tags_blacklist: String,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -81,6 +83,13 @@ async fn main() -> Result<()> {
 async fn run_once(pool: &Pool, client: &reqwest::Client, bearer: &str, args: &Args) -> Result<()> {
     let mut conn = pool.get_conn().await?;
     let tag_key = canonical_tag_key(&args.tags, &args.mentions);
+    // Build blacklist set (normalized)
+    let blacklist: HashSet<String> = args
+        .tags_blacklist
+        .split(',')
+        .map(|s| s.trim().trim_start_matches('#').to_lowercase())
+        .filter(|s| !s.is_empty())
+        .collect();
     // Load since_id
     let since_id: Option<i64> = conn
         .exec_first(
@@ -191,6 +200,9 @@ async fn run_once(pool: &Pool, client: &reqwest::Client, bearer: &str, args: &Ar
                                 }
                                 "retweeted" => {
                                     relation = "retweet".to_string();
+                                    if anchor_tweet_id.is_none() {
+                                        anchor_tweet_id = Some(rid);
+                                    }
                                 }
                                 _ => {}
                             }
@@ -224,6 +236,36 @@ async fn run_once(pool: &Pool, client: &reqwest::Client, bearer: &str, args: &Ar
                     ]),
                 )
                 .await?;
+
+                // Extract and store hashtags for this tweet
+                if let Some(tag_objs) = entities.get("hashtags").and_then(|x| x.as_array()) {
+                    let mut seen: HashSet<String> = HashSet::new();
+                    for tobj in tag_objs {
+                        if let Some(raw) = tobj.get("tag").and_then(|x| x.as_str()) {
+                            let display = raw.trim();
+                            let canonical = display.trim_start_matches('#').to_lowercase();
+                            if canonical.is_empty() { continue; }
+                            if blacklist.contains(&canonical) { continue; }
+                            if !seen.insert(canonical.clone()) { continue; }
+                            // Ensure tag exists
+                            conn.exec_drop(
+                                r#"INSERT IGNORE INTO indexer_twitter_tags (canonical_name, display_name) VALUES (?, ?)"#,
+                                (canonical.clone(), display),
+                            ).await.ok();
+                            // Load tag id
+                            if let Ok(Some(tag_id)) = conn.exec_first::<u32, _, _>(
+                                "SELECT id FROM indexer_twitter_tags WHERE canonical_name = ?",
+                                (canonical.clone(),),
+                            ).await {
+                                // Link tweet <-> tag
+                                conn.exec_drop(
+                                    "INSERT IGNORE INTO indexer_twitter_tweets_tags (tweet_id, tag_id) VALUES (?, ?)",
+                                    (tid, tag_id),
+                                ).await.ok();
+                            }
+                        }
+                    }
+                }
 
                 // Media handling: photos only; download and store blob deduped
                 if !media_keys.is_empty() {
@@ -356,6 +398,9 @@ async fn run_once(pool: &Pool, client: &reqwest::Client, bearer: &str, args: &Ar
                                         }
                                         "retweeted" => {
                                             relation2 = "retweet".to_string();
+                                            if anchor_tweet_id2.is_none() {
+                                                anchor_tweet_id2 = Some(rid2);
+                                            }
                                         }
                                         _ => {}
                                     }
@@ -385,6 +430,32 @@ async fn run_once(pool: &Pool, client: &reqwest::Client, bearer: &str, args: &Ar
                                 serde_json::to_string(&tw2).unwrap_or("null".into()).into(),
                             ]),
                         ).await?;
+                        // Extract and store hashtags for looked-up tweet
+                        if let Some(tag_objs2) = ent2.get("hashtags").and_then(|x| x.as_array()) {
+                            let mut seen2: HashSet<String> = HashSet::new();
+                            for tobj2 in tag_objs2 {
+                                if let Some(raw2) = tobj2.get("tag").and_then(|x| x.as_str()) {
+                                    let display2 = raw2.trim();
+                                    let canonical2 = display2.trim_start_matches('#').to_lowercase();
+                                    if canonical2.is_empty() { continue; }
+                                    if blacklist.contains(&canonical2) { continue; }
+                                    if !seen2.insert(canonical2.clone()) { continue; }
+                                    conn.exec_drop(
+                                        r#"INSERT IGNORE INTO indexer_twitter_tags (canonical_name, display_name) VALUES (?, ?)"#,
+                                        (canonical2.clone(), display2),
+                                    ).await.ok();
+                                    if let Ok(Some(tag_id2)) = conn.exec_first::<u32, _, _>(
+                                        "SELECT id FROM indexer_twitter_tags WHERE canonical_name = ?",
+                                        (canonical2.clone(),),
+                                    ).await {
+                                        conn.exec_drop(
+                                            "INSERT IGNORE INTO indexer_twitter_tweets_tags (tweet_id, tag_id) VALUES (?, ?)",
+                                            (tid2, tag_id2),
+                                        ).await.ok();
+                                    }
+                                }
+                            }
+                        }
                         // Save media for looked-up tweet
                         if !media_keys2.is_empty() {
                             let mut used_hashes2: HashSet<Vec<u8>> = HashSet::new();
