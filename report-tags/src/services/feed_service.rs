@@ -1,6 +1,6 @@
 use sqlx::{MySql, Pool, Row};
 use anyhow::Result;
-use crate::models::ReportWithTags;
+use crate::models::{ReportWithTags, ReportWithAnalysis};
 
 pub async fn get_location_feed(
     pool: &Pool<MySql>,
@@ -90,8 +90,8 @@ pub async fn get_location_feed(
             });
         }
         
-        // Get analysis for this report
-        let analysis_row = sqlx::query(
+        // Get all analyses for this report
+        let analysis_rows = sqlx::query(
             "SELECT seq, source, analysis_text, title, description, brand_name, brand_display_name,
                     litter_probability, hazard_probability, digital_bug_probability, severity_level,
                     summary, language, classification, is_valid, created_at, updated_at
@@ -99,11 +99,12 @@ pub async fn get_location_feed(
              WHERE seq = ?"
         )
         .bind(seq)
-        .fetch_optional(pool)
+        .fetch_all(pool)
         .await?;
         
-        let analysis = if let Some(row) = analysis_row {
-            Some(crate::models::ReportAnalysis {
+        let mut analyses = Vec::new();
+        for row in analysis_rows {
+            analyses.push(crate::models::ReportAnalysis {
                 seq: row.get("seq"),
                 source: row.get("source"),
                 analysis_text: row.get("analysis_text"),
@@ -121,10 +122,8 @@ pub async fn get_location_feed(
                 is_valid: row.get("is_valid"),
                 created_at: row.get("created_at"),
                 updated_at: row.get("updated_at"),
-            })
-        } else {
-            None
-        };
+            });
+        }
         
         reports_with_tags.push(ReportWithTags {
             seq,
@@ -134,7 +133,7 @@ pub async fn get_location_feed(
             longitude,
             ts,
             tags,
-            analysis,
+            analysis: analyses,
         });
     }
     
@@ -186,7 +185,7 @@ pub async fn get_tag_feed(
     pool: &Pool<MySql>,
     tag_names: Vec<String>,
     limit: u64,
-) -> Result<Vec<ReportWithTags>> {
+) -> Result<Vec<ReportWithAnalysis>> {
     if tag_names.is_empty() {
         return Ok(vec![]);
     }
@@ -214,7 +213,7 @@ pub async fn get_tag_feed(
     // 2. Query reports with any of the tag IDs
     let tag_placeholders = tag_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
     let query = format!(
-        "SELECT DISTINCT r.seq, r.latitude, r.longitude, r.ts, r.id, r.team 
+        "SELECT DISTINCT r.seq, r.latitude, r.longitude, r.ts, r.id, r.team, r.x, r.y, r.action_id 
          FROM reports r
          INNER JOIN report_tags rt ON r.seq = rt.report_seq
          WHERE rt.tag_id IN ({})
@@ -237,8 +236,8 @@ pub async fn get_tag_feed(
         return Ok(vec![]);
     }
     
-    // 3. Get tags and analysis for each report (reusing logic from get_location_feed)
-    let mut reports_with_tags = Vec::new();
+    // 3. Get analysis for each report and build response
+    let mut reports_with_analysis = Vec::new();
     
     for report in reports {
         let seq: i32 = report.get("seq");
@@ -247,32 +246,12 @@ pub async fn get_tag_feed(
         let latitude: f64 = report.get("latitude");
         let longitude: f64 = report.get("longitude");
         let ts: chrono::DateTime<chrono::Utc> = report.get("ts");
+        let x: Option<f64> = report.get("x");
+        let y: Option<f64> = report.get("y");
+        let action_id: Option<String> = report.get("action_id");
         
-        // Get tags for this report
-        let tag_rows = sqlx::query(
-            "SELECT t.id, t.canonical_name, t.display_name, t.usage_count, t.last_used_at, t.created_at
-             FROM tags t
-             INNER JOIN report_tags rt ON t.id = rt.tag_id
-             WHERE rt.report_seq = ?"
-        )
-        .bind(seq)
-        .fetch_all(pool)
-        .await?;
-        
-        let mut tags = Vec::new();
-        for tag_row in tag_rows {
-            tags.push(crate::models::Tag {
-                id: tag_row.get("id"),
-                canonical_name: tag_row.get("canonical_name"),
-                display_name: tag_row.get("display_name"),
-                usage_count: tag_row.get("usage_count"),
-                last_used_at: tag_row.get("last_used_at"),
-                created_at: tag_row.get("created_at"),
-            });
-        }
-        
-        // Get analysis for this report
-        let analysis_row = sqlx::query(
+        // Get all analyses for this report
+        let analysis_rows = sqlx::query(
             "SELECT seq, source, analysis_text, title, description, brand_name, brand_display_name,
                     litter_probability, hazard_probability, digital_bug_probability, severity_level,
                     summary, language, classification, is_valid, created_at, updated_at
@@ -280,11 +259,12 @@ pub async fn get_tag_feed(
              WHERE seq = ?"
         )
         .bind(seq)
-        .fetch_optional(pool)
+        .fetch_all(pool)
         .await?;
         
-        let analysis = if let Some(row) = analysis_row {
-            Some(crate::models::ReportAnalysis {
+        let mut analyses = Vec::new();
+        for row in analysis_rows {
+            analyses.push(crate::models::ReportAnalysis {
                 seq: row.get("seq"),
                 source: row.get("source"),
                 analysis_text: row.get("analysis_text"),
@@ -302,22 +282,24 @@ pub async fn get_tag_feed(
                 is_valid: row.get("is_valid"),
                 created_at: row.get("created_at"),
                 updated_at: row.get("updated_at"),
-            })
-        } else {
-            None
-        };
+            });
+        }
         
-        reports_with_tags.push(ReportWithTags {
-            seq,
-            id,
-            team,
-            latitude,
-            longitude,
-            ts,
-            tags,
-            analysis,
+        reports_with_analysis.push(ReportWithAnalysis {
+            report: crate::models::Report {
+                seq,
+                ts,
+                id,
+                team,
+                latitude,
+                longitude,
+                x,
+                y,
+                action_id,
+            },
+            analysis: analyses,
         });
     }
     
-    Ok(reports_with_tags)
+    Ok(reports_with_analysis)
 }

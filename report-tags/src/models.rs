@@ -43,7 +43,7 @@ pub struct ReportWithTags {
     pub longitude: f64,
     pub ts: DateTime<Utc>,
     pub tags: Vec<Tag>,
-    pub analysis: Option<ReportAnalysis>,
+    pub analysis: Vec<ReportAnalysis>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -144,7 +144,28 @@ pub struct HealthResponse {
     pub service: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Report {
+    pub seq: i32,
+    #[serde(rename = "timestamp")]
+    pub ts: DateTime<Utc>,
+    pub id: String,
+    pub team: i32,
+    pub latitude: f64,
+    pub longitude: f64,
+    pub x: Option<f64>,
+    pub y: Option<f64>,
+    pub action_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReportWithAnalysis {
+    pub report: Report,
+    pub analysis: Vec<ReportAnalysis>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct TagFeedResponse {
-    pub reports: Vec<ReportWithTags>,
+    pub reports: Vec<ReportWithAnalysis>,
+    pub count: u64,
 }

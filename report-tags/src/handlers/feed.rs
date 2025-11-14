@@ -120,8 +120,11 @@ pub async fn get_tag_feed(
         }
     };
     
+    let count = reports.len() as u64;
+    
     let response = TagFeedResponse {
         reports,
+        count,
     };
     
     Ok(Json(response))
