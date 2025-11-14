@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Query, State},
+    extract::{Query, State, Request},
     response::Json,
     http::StatusCode,
 };
@@ -65,27 +65,52 @@ pub async fn get_location_feed(
 
 #[derive(Debug, Deserialize)]
 pub struct TagFeedQuery {
-    pub tags: Vec<String>,
     pub limit: Option<u64>,
 }
 
 pub async fn get_tag_feed(
     State(state): State<AppState>,
-    Query(params): Query<TagFeedQuery>,
+    request: Request,
 ) -> Result<Json<TagFeedResponse>, (StatusCode, String)> {
-    if params.tags.is_empty() {
+    // Extract query string manually to handle repeated 'tags' parameters
+    let query_string = request.uri().query().unwrap_or("");
+    
+    // Parse query string manually - handles both ?tags=a&tags=b and ?tags=a,b
+    let mut tags = Vec::new();
+    let mut limit = None;
+    
+    for pair in query_string.split('&') {
+        if let Some((key, value)) = pair.split_once('=') {
+            // Simple URL decoding - replace %20 with space, %2C with comma, etc.
+            let decoded_key = key.replace("%20", " ").replace("+", " ");
+            let decoded_value = value.replace("%20", " ").replace("+", " ").replace("%2C", ",");
+            
+            if decoded_key == "tags" {
+                // Handle comma-separated values in a single tags parameter
+                for tag in decoded_value.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                    tags.push(tag.to_string());
+                }
+            } else if decoded_key == "limit" {
+                if let Ok(parsed_limit) = decoded_value.parse::<u64>() {
+                    limit = Some(parsed_limit);
+                }
+            }
+        }
+    }
+    
+    let limit = limit.unwrap_or(20).min(100);
+    
+    if tags.is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
             "At least one tag is required".to_string(),
         ));
     }
     
-    let limit = params.limit.unwrap_or(20).min(100); // Cap at 100
-    
     // Get reports
     let reports = match feed_service::get_tag_feed(
         &state.pool,
-        params.tags,
+        tags,
         limit,
     ).await {
         Ok(reports) => reports,
