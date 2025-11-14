@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ReportWithTagsMessage {
     pub seq: i32,
-    pub tags: Vec<String>,
+    #[serde(default)]
+    pub tags: Option<Vec<String>>,
 }
 
 pub struct ReportTagsSubscriber {
@@ -65,25 +66,41 @@ struct ReportTagsCallback {
 
 impl Callback for ReportTagsCallback {
     fn on_message(&self, message: &Message) -> Result<(), Box<dyn std::error::Error>> {
-        // Deserialize the message
+        // Try to deserialize the message - handle both formats:
+        // 1. Messages with tags field (explicit tags)
+        // 2. Messages without tags field (raw reports - skip tag processing)
         let report_msg: ReportWithTagsMessage = match message.unmarshal_to() {
             Ok(msg) => msg,
             Err(e) => {
-                log::error!("Failed to deserialize report message: {}", e);
-                return Err(Box::new(e));
+                // Log the error but don't fail - some messages might not have tags
+                // This happens when report.raw messages don't include a tags field
+                log::debug!("Failed to deserialize report message (may not have tags field): {}. Skipping tag processing.", e);
+                // Return Ok to acknowledge the message even though we can't process it
+                return Ok(());
+            }
+        };
+
+        // Skip processing if no tags provided
+        let tags = match report_msg.tags {
+            Some(tags) if !tags.is_empty() => tags,
+            _ => {
+                log::debug!(
+                    "Report {} has no tags, skipping tag processing",
+                    report_msg.seq
+                );
+                return Ok(());
             }
         };
 
         log::info!(
-            "Received report message: seq={}, tags={:?}",
+            "Received report message with tags: seq={}, tags={:?}",
             report_msg.seq,
-            report_msg.tags
+            tags
         );
 
         // Process tags asynchronously
         let pool = Arc::clone(&self.pool);
         let report_seq = report_msg.seq;
-        let tags = report_msg.tags.clone();
 
         tokio::spawn(async move {
             match tag_service::add_tags_to_report(&pool, report_seq, tags).await {
