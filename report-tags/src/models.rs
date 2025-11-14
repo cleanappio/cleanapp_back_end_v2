@@ -143,3 +143,8 @@ pub struct HealthResponse {
     pub status: String,
     pub service: String,
 }
+
+#[derive(Debug, Serialize)]
+pub struct TagFeedResponse {
+    pub reports: Vec<ReportWithTags>,
+}
