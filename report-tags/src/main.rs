@@ -201,6 +201,7 @@ fn create_router(state: AppState) -> Router {
         .route("/api/v3/users/:user_id/tags/follow/:tag_id", delete(handlers::follows::unfollow_tag))
         .route("/api/v3/users/:user_id/tags/follows", get(handlers::follows::get_user_follows))
         .route("/api/v3/feed", get(handlers::feed::get_location_feed))
+        .route("/api/v3/feed/tags", get(handlers::feed::get_tag_feed))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state)

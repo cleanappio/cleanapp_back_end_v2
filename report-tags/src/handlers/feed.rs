@@ -5,7 +5,7 @@ use axum::{
 };
 use serde::Deserialize;
 use crate::app_state::AppState;
-use crate::models::FeedResponse;
+use crate::models::{FeedResponse, TagFeedResponse};
 use crate::services::feed_service;
 use log;
 
@@ -58,6 +58,45 @@ pub async fn get_location_feed(
         total,
         limit,
         offset,
+    };
+    
+    Ok(Json(response))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TagFeedQuery {
+    pub tags: Vec<String>,
+    pub limit: Option<u64>,
+}
+
+pub async fn get_tag_feed(
+    State(state): State<AppState>,
+    Query(params): Query<TagFeedQuery>,
+) -> Result<Json<TagFeedResponse>, (StatusCode, String)> {
+    if params.tags.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "At least one tag is required".to_string(),
+        ));
+    }
+    
+    let limit = params.limit.unwrap_or(20).min(100); // Cap at 100
+    
+    // Get reports
+    let reports = match feed_service::get_tag_feed(
+        &state.pool,
+        params.tags,
+        limit,
+    ).await {
+        Ok(reports) => reports,
+        Err(e) => {
+            log::error!("Failed to get tag feed: {}", e);
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()));
+        }
+    };
+    
+    let response = TagFeedResponse {
+        reports,
     };
     
     Ok(Json(response))
