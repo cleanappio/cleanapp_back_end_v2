@@ -31,14 +31,16 @@ type Handlers struct {
 	hub               *ws.Hub
 	db                *database.Database
 	rabbitmqPublisher *rabbitmq.Publisher
+	rabbitmqReplier   *rabbitmq.Publisher
 }
 
 // NewHandlers creates a new handlers instance
-func NewHandlers(hub *ws.Hub, db *database.Database, pub *rabbitmq.Publisher) *Handlers {
+func NewHandlers(hub *ws.Hub, db *database.Database, pub *rabbitmq.Publisher, replyPub *rabbitmq.Publisher) *Handlers {
 	return &Handlers{
 		hub:               hub,
 		db:                db,
 		rabbitmqPublisher: pub,
+		rabbitmqReplier:   replyPub,
 	}
 }
 
@@ -71,6 +73,13 @@ type BulkIngestResponse struct {
 	Updated  int         `json:"updated"`
 	Skipped  int         `json:"skipped"`
 	Errors   []BulkError `json:"errors"`
+}
+
+// TwitterReplyEvent is sent to RabbitMQ to trigger X reply for twitter-sourced reports
+type TwitterReplyEvent struct {
+	Seq            int    `json:"seq"`
+	TweetID        string `json:"tweet_id"`
+	Classification string `json:"classification"`
 }
 
 type BulkError struct {
@@ -328,6 +337,37 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 				continue
 			}
 			resp.Inserted++
+
+			// Publish event for twitter replier on new twitter-sourced reports
+			if h.rabbitmqReplier != nil && strings.EqualFold(req.Source, "twitter") {
+				tweetID := it.ExternalID
+				if tweetID != "" {
+					classStr := ""
+					if it.Metadata != nil {
+						if v, ok := it.Metadata["classification"]; ok {
+							if s, ok2 := v.(string); ok2 {
+								classStr = strings.ToLower(s)
+							}
+						}
+					}
+					if classStr == "" {
+						for _, t := range it.Tags {
+							ts := strings.ToLower(t)
+							if ts == "physical" || ts == "digital" {
+								classStr = ts
+								break
+							}
+						}
+					}
+					if classStr == "physical" || classStr == "digital" {
+						_ = h.rabbitmqReplier.Publish(TwitterReplyEvent{
+							Seq:            int(seq),
+							TweetID:        tweetID,
+							Classification: classStr,
+						})
+					}
+				}
+			}
 
 			// Publish to RabbitMQ for fast renderer
 			if h.rabbitmqPublisher != nil {

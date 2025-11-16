@@ -30,7 +30,8 @@ type Service struct {
 	wg       sync.WaitGroup
 
 	// RabbitMQ
-	publisher *rabbitmq.Publisher
+	publisher             *rabbitmq.Publisher
+	twitterReplyPublisher *rabbitmq.Publisher
 }
 
 // NewService creates a new report listener service
@@ -52,16 +53,25 @@ func NewService(cfg *config.Config) (*Service, error) {
 		pub = p
 	}
 
+	// Initialize RabbitMQ publisher for Twitter replier (best-effort)
+	var replyPub *rabbitmq.Publisher
+	if p2, err := rabbitmq.NewPublisher(cfg.AMQPURL(), cfg.RabbitExchange, cfg.RabbitTwitterReplyRoutingKey); err != nil {
+		log.Printf("warn: unable to init RabbitMQ twitter reply publisher: %v", err)
+	} else {
+		replyPub = p2
+	}
+
 	// Initialize handlers
-	handlers := handlers.NewHandlers(hub, db, pub)
+	handlers := handlers.NewHandlers(hub, db, pub, replyPub)
 
 	service := &Service{
-		config:    cfg,
-		db:        db,
-		hub:       hub,
-		handlers:  handlers,
-		publisher: pub,
-		stopChan:  make(chan struct{}),
+		config:                cfg,
+		db:                    db,
+		hub:                   hub,
+		handlers:              handlers,
+		publisher:             pub,
+		twitterReplyPublisher: replyPub,
+		stopChan:              make(chan struct{}),
 	}
 
 	return service, nil
@@ -147,6 +157,11 @@ func (s *Service) Stop() error {
 	if s.publisher != nil {
 		if err := s.publisher.Close(); err != nil {
 			log.Printf("Error closing rabbitmq publisher: %v", err)
+		}
+	}
+	if s.twitterReplyPublisher != nil {
+		if err := s.twitterReplyPublisher.Close(); err != nil {
+			log.Printf("Error closing rabbitmq twitter reply publisher: %v", err)
 		}
 	}
 

@@ -31,6 +31,7 @@ type Config struct {
 	AMQPPassword                   string
 	RabbitExchange                 string
 	RabbitAnalysedReportRoutingKey string
+	RabbitTwitterReplyRoutingKey   string
 }
 
 // Load loads configuration from environment variables
@@ -59,6 +60,7 @@ func Load() *Config {
 		AMQPPassword:                   getEnv("AMQP_PASSWORD", "guest"),
 		RabbitExchange:                 getEnv("RABBITMQ_EXCHANGE", "cleanapp"),
 		RabbitAnalysedReportRoutingKey: getEnv("RABBITMQ_ANALYSED_REPORT_ROUTING_KEY", "report.analysed"),
+		RabbitTwitterReplyRoutingKey:   getEnv("RABBITMQ_TWITTER_REPLY_ROUTING_KEY", "twitter.reply"),
 	}
 
 	return config

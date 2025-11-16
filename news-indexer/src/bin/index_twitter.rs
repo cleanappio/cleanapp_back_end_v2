@@ -26,6 +26,8 @@ struct Args {
     include_replies_quotes: bool,
     #[arg(long, env = "TAGS_BLACKLIST", default_value = "")]
     tags_blacklist: String,
+    #[arg(long, env = "TAGS_EXCLUDED", default_value = "#cleanapped")]
+    tags_excluded: String,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -526,7 +528,7 @@ fn canonical_tag_key(tags: &str, mentions: &str) -> String {
 
 fn build_recent_url(args: &Args, since_id: Option<String>, next_token: Option<&String>) -> String {
     // mentions: operator is not available on our plan; match literal @username instead
-    let query = if args.include_replies_quotes {
+    let base = if args.include_replies_quotes {
         format!(
             "(#{tag} OR \"{tag}\" OR @{mention}) -is:retweet",
             tag = args.tags,
@@ -539,6 +541,15 @@ fn build_recent_url(args: &Args, since_id: Option<String>, next_token: Option<&S
             mention = args.mentions
         )
     };
+    // Append excluded tags to avoid loops (e.g., our own reply tag)
+    let mut exclude_clause = String::new();
+    for raw in args.tags_excluded.split(',') {
+        let canon = raw.trim().trim_start_matches('#');
+        if !canon.is_empty() {
+            exclude_clause.push_str(&format!(" -#{}", canon));
+        }
+    }
+    let query = format!("{}{}", base, exclude_clause);
     let mut url = format!(
         "https://api.twitter.com/2/tweets/search/recent?query={}&max_results=100&tweet.fields=created_at,lang,public_metrics,entities,attachments,author_id,possibly_sensitive,conversation_id,referenced_tweets&expansions=attachments.media_keys,author_id,referenced_tweets.id,referenced_tweets.id.author_id&user.fields=username,verified&media.fields=url,preview_image_url,alt_text,width,height,type",
         urlencoding::encode(&query)
