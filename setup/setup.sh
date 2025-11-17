@@ -110,6 +110,9 @@ case ${OPT} in
       ANALYZER_INTERVAL_SECS="0"
       TWITTER_INCLUDE_REPLIES_QUOTES="true"
       TAGS_BLACKLIST="#cleanapp"
+      # Replier-twitter
+      CLEANAPP_BASE_URL="https://dev.cleanapp.io"
+      REPLIER_TWITTER_SERVICE_DISABLED="false"
       ;;
   "prod")
       echo "Using prod environment"
@@ -165,6 +168,9 @@ case ${OPT} in
       ANALYZER_INTERVAL_SECS="300"
       TWITTER_INCLUDE_REPLIES_QUOTES="true"
       TAGS_BLACKLIST="#cleanapp"
+      # Replier-twitter
+      CLEANAPP_BASE_URL="https://cleanapp.io"
+      REPLIER_TWITTER_SERVICE_DISABLED="true"
       ;;
   "quit")
       exit
@@ -183,9 +189,11 @@ RABBITMQ_REPORT_ANALYSIS_QUEUE="report-analysis-queue"
 RABBITMQ_REPORT_OWNERSHIP_QUEUE="report-ownership-queue"
 RABBITMQ_REPORT_RENDERER_QUEUE="report-renderer-queue"
 RABBITMQ_REPORT_TAGS_QUEUE="report-tags-queue"
+RABBITMQ_TWITTER_REPLY_QUEUE="twitter-reply-queue"
 RABBITMQ_RAW_REPORT_ROUTING_KEY="report.raw"
 RABBITMQ_ANALYSED_REPORT_ROUTING_KEY="report.analysed"
 RABBITMQ_USER_ROUTING_KEY="user.add"
+RABBITMQ_TWITTER_REPLY_ROUTING_KEY="twitter.reply"
 
 SECRET_SUFFIX=$(echo ${OPT} | tr '[a-z]' '[A-Z]')
 
@@ -225,6 +233,7 @@ REPORT_LISTENER_V4_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-report-listener-v4-im
 NEWS_INDEXER_TWITTER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-news-indexer-twitter-image:${OPT}"
 NEWS_ANALYZER_TWITTER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-news-analyzer-twitter-image:${OPT}"
 NEWS_SUBMITTER_TWITTER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-news-submitter-twitter-image:${OPT}"
+REPLIER_TWITTER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-news-replier-twitter-image:${OPT}"
 
 OPENAI_ASSISTANT_ID="asst_kBtuzDRWNorZgw9o2OJTGOn0"
 
@@ -276,6 +285,7 @@ docker pull ${REPORT_LISTENER_V4_DOCKER_IMAGE}
 docker pull ${NEWS_INDEXER_TWITTER_DOCKER_IMAGE}
 docker pull ${NEWS_ANALYZER_TWITTER_DOCKER_IMAGE}
 docker pull ${NEWS_SUBMITTER_TWITTER_DOCKER_IMAGE}
+docker pull ${REPLIER_TWITTER_DOCKER_IMAGE}
 
 # Secrets
 cat >.env << ENV
@@ -530,6 +540,7 @@ services:
       - AMQP_PASSWORD=${AMQP_PASSWORD}
       - RABBITMQ_EXCHANGE=${RABBITMQ_EXCHANGE}
       - RABBITMQ_ANALYSED_REPORT_ROUTING_KEY=${RABBITMQ_ANALYSED_REPORT_ROUTING_KEY}
+      - RABBITMQ_TWITTER_REPLY_ROUTING_KEY=${RABBITMQ_TWITTER_REPLY_ROUTING_KEY}
     ports:
       - 9081:8080
     depends_on:
@@ -959,6 +970,27 @@ services:
         condition: service_healthy
       cleanapp_report_listener:
         condition: service_started
+  
+  cleanapp_replier_twitter:
+    container_name: cleanapp_replier_twitter
+    image: ${REPLIER_TWITTER_DOCKER_IMAGE}
+    environment:
+      - DB_URL=mysql://server:\${MYSQL_APP_PASSWORD}@cleanapp_db:3306/cleanapp
+      - AMQP_HOST=${AMQP_HOST}
+      - AMQP_PORT=${AMQP_PORT}
+      - AMQP_USER=${AMQP_USER}
+      - AMQP_PASSWORD=${AMQP_PASSWORD}
+      - RABBITMQ_EXCHANGE=${RABBITMQ_EXCHANGE}
+      - RABBITMQ_TWITTER_REPLY_QUEUE=${RABBITMQ_TWITTER_REPLY_QUEUE}
+      - RABBITMQ_TWITTER_REPLY_ROUTING_KEY=${RABBITMQ_TWITTER_REPLY_ROUTING_KEY}
+      - CLEANAPP_BASE_URL=${CLEANAPP_BASE_URL}
+      - TWITTER_USER_BEARER_TOKEN=\${TWITTER_BEARER_TOKEN}
+      - REPLIER_TWITTER_SERVICE_DISABLED=${REPLIER_TWITTER_SERVICE_DISABLED}
+    depends_on:
+      cleanapp_db:
+        condition: service_healthy
+      cleanapp_rabbitmq:
+        condition: service_healthy
 
   cleanapp_report_tags_service:
     container_name: cleanapp_report_tags_service
