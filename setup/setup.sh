@@ -112,7 +112,7 @@ case ${OPT} in
       TAGS_BLACKLIST="#cleanapp"
       # Replier-twitter
       CLEANAPP_BASE_URL="https://dev.cleanapp.io"
-      REPLIER_TWITTER_SERVICE_DISABLED="false"
+      REPLIER_TWITTER_SERVICE_DISABLED="true"
       ;;
   "prod")
       echo "Using prod environment"
@@ -170,7 +170,7 @@ case ${OPT} in
       TAGS_BLACKLIST="#cleanapp"
       # Replier-twitter
       CLEANAPP_BASE_URL="https://cleanapp.io"
-      REPLIER_TWITTER_SERVICE_DISABLED="true"
+      REPLIER_TWITTER_SERVICE_DISABLED="false"
       ;;
   "quit")
       exit
@@ -307,6 +307,11 @@ BLOCKSCAN_CHAT_API_KEY=\$(gcloud secrets versions access latest --secret="BLOCKS
 TWITTER_BEARER_TOKEN=$(gcloud secrets versions access latest --secret="TWITTER_BEARER_TOKEN_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
 GEMINI_API_KEY=$(gcloud secrets versions access latest --secret="GEMINI_API_KEY_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
 CLEANAPP_TWITTER_FETCHER_TOKEN=$(gcloud secrets versions access latest --secret="CLEANAPP_TWITTER_FETCHER_TOKEN_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
+# OAuth 1.0a user-context for replier-twitter
+TWITTER_API_KEY=$(gcloud secrets versions access latest --secret="TWITTER_API_KEY_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
+TWITTER_API_SECRET=$(gcloud secrets versions access latest --secret="TWITTER_API_SECRET_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
+TWITTER_OAUTH1_ACCESS_TOKEN=$(gcloud secrets versions access latest --secret="TWITTER_OAUTH1_ACCESS_TOKEN_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
+TWITTER_OAUTH1_ACCESS_SECRET=$(gcloud secrets versions access latest --secret="TWITTER_OAUTH1_ACCESS_SECRET_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
 
 ENV
 
@@ -984,7 +989,10 @@ services:
       - RABBITMQ_TWITTER_REPLY_QUEUE=${RABBITMQ_TWITTER_REPLY_QUEUE}
       - RABBITMQ_TWITTER_REPLY_ROUTING_KEY=${RABBITMQ_TWITTER_REPLY_ROUTING_KEY}
       - CLEANAPP_BASE_URL=${CLEANAPP_BASE_URL}
-      - TWITTER_USER_BEARER_TOKEN=\${TWITTER_BEARER_TOKEN}
+      - TWITTER_API_KEY=\${TWITTER_API_KEY}
+      - TWITTER_API_SECRET=\${TWITTER_API_SECRET}
+      - TWITTER_OAUTH1_ACCESS_TOKEN=\${TWITTER_OAUTH1_ACCESS_TOKEN}
+      - TWITTER_OAUTH1_ACCESS_SECRET=\${TWITTER_OAUTH1_ACCESS_SECRET}
       - REPLIER_TWITTER_SERVICE_DISABLED=${REPLIER_TWITTER_SERVICE_DISABLED}
     depends_on:
       cleanapp_db:

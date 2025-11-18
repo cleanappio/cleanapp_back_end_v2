@@ -10,6 +10,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 use tokio::sync::Mutex;
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine as _;
 
 #[derive(Parser, Debug, Clone)]
 struct Args {
@@ -26,12 +28,12 @@ struct Args {
 	#[arg(long, env = "RABBITMQ_TWITTER_REPLY_ROUTING_KEY", default_value = "twitter.reply")] routing_key: String,
 
 	// Twitter API
-	#[arg(long, env = "TWITTER_USER_BEARER_TOKEN")] twitter_user_bearer_token: String,
-	// OAuth 1.0a user-context (optional)
-	#[arg(long, env = "TWITTER_CONSUMER_KEY")] twitter_consumer_key: Option<String>,
-	#[arg(long, env = "TWITTER_CONSUMER_SECRET")] twitter_consumer_secret: Option<String>,
-	#[arg(long, env = "TWITTER_ACCESS_TOKEN")] twitter_access_token: Option<String>,
-	#[arg(long, env = "TWITTER_ACCESS_TOKEN_SECRET")] twitter_access_token_secret: Option<String>,
+	#[arg(long, env = "TWITTER_USER_BEARER_TOKEN")] twitter_user_bearer_token: Option<String>,
+	// OAuth 1.0a user-context (preferred env names)
+	#[arg(long, env = "TWITTER_API_KEY")] twitter_api_key: Option<String>,
+	#[arg(long, env = "TWITTER_API_SECRET")] twitter_api_secret: Option<String>,
+	#[arg(long, env = "TWITTER_OAUTH1_ACCESS_TOKEN")] twitter_oauth1_access_token: Option<String>,
+	#[arg(long, env = "TWITTER_OAUTH1_ACCESS_SECRET")] twitter_oauth1_access_secret: Option<String>,
 
 	// CleanApp URL and reply text
 	#[arg(long, env = "CLEANAPP_BASE_URL", default_value = "https://cleanapp.io")] cleanapp_base_url: String,
@@ -117,7 +119,7 @@ fn oauth1_auth_header(creds: &OAuth1Creds, method: &str, url: &str) -> String {
 	let mut mac = HmacSha1::new_from_slice(signing_key.as_bytes()).unwrap();
 	mac.update(base_str.as_bytes());
 	let signature_bytes = mac.finalize().into_bytes();
-	let signature = base64::encode(signature_bytes);
+	let signature = STANDARD.encode(signature_bytes);
 	let header = format!(
 		"OAuth oauth_consumer_key=\"{}\", oauth_nonce=\"{}\", oauth_signature=\"{}\", oauth_signature_method=\"HMAC-SHA1\", oauth_timestamp=\"{}\", oauth_token=\"{}\", oauth_version=\"1.0\"",
 		oauth_percent_encode(&creds.consumer_key),
@@ -208,8 +210,10 @@ impl ReplyCallback {
 		let request_builder = if let Some(ref creds) = self.oauth1 {
 			let auth = oauth1_auth_header(creds, "POST", url);
 			request_builder.header("Authorization", auth)
-		} else {
+		} else if !self.token.is_empty() {
 			request_builder.bearer_auth(&self.token)
+		} else {
+			anyhow::bail!("twitter auth not configured: provide OAuth1 creds or TWITTER_USER_BEARER_TOKEN");
 		};
 		let resp = request_builder.send().await?;
 		if resp.status() == StatusCode::TOO_MANY_REQUESTS {
@@ -287,6 +291,7 @@ impl ReplyCallback {
 			base_url: self.base_url.clone(),
 			template: self.template.clone(),
 			limiter: self.limiter.clone(),
+			oauth1: self.oauth1.clone(),
 		}
 	}
 }
@@ -323,11 +328,11 @@ async fn main() -> Result<()> {
 	let callback = Arc::new(ReplyCallback {
 		pool: pool.clone(),
 		http,
-		token: args.twitter_user_bearer_token.clone(),
+		token: args.twitter_user_bearer_token.clone().unwrap_or_default(),
 		base_url: args.cleanapp_base_url.clone(),
 		template: args.reply_template.clone(),
 		limiter: Arc::new(Mutex::new(())),
-		oauth1: match (&args.twitter_consumer_key, &args.twitter_consumer_secret, &args.twitter_access_token, &args.twitter_access_token_secret) {
+		oauth1: match (&args.twitter_api_key, &args.twitter_api_secret, &args.twitter_oauth1_access_token, &args.twitter_oauth1_access_secret) {
 			(Some(ck), Some(cs), Some(at), Some(as_)) if !ck.is_empty() && !cs.is_empty() && !at.is_empty() && !as_.is_empty() => {
 				Some(OAuth1Creds {
 					consumer_key: ck.clone(),
@@ -336,7 +341,7 @@ async fn main() -> Result<()> {
 					access_secret: as_.clone(),
 				})
 			}
-			_ => None,
+			_ => None
 		},
 	});
 
