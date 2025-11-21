@@ -705,6 +705,9 @@ services:
       - GIN_MODE=${GIN_MODE}
     ports:
       - 9086:8080
+    depends_on:
+      cleanapp_db:
+        condition: service_healthy
 
   cleanapp_report_processor:
     container_name: cleanapp_report_processor
