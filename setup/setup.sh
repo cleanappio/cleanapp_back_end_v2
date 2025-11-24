@@ -113,6 +113,9 @@ case ${OPT} in
       # Replier-twitter
       CLEANAPP_BASE_URL="https://dev.cleanapp.io"
       REPLIER_TWITTER_SERVICE_DISABLED="true"
+      # LLM provider defaults (dev = Gemini)
+      ANALYZER_LLM_PROVIDER="gemini"
+      GEMINI_MODEL="gemini-flash-latest"
       ;;
   "prod")
       echo "Using prod environment"
@@ -171,6 +174,9 @@ case ${OPT} in
       # Replier-twitter
       CLEANAPP_BASE_URL="https://cleanapp.io"
       REPLIER_TWITTER_SERVICE_DISABLED="false"
+      # LLM provider defaults (prod = OpenAI)
+      ANALYZER_LLM_PROVIDER="gemini"
+      GEMINI_MODEL="gemini-flash-latest"
       ;;
   "quit")
       exit
@@ -561,9 +567,12 @@ services:
       - DB_USER=server
       - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
       - DB_NAME=cleanapp
+      - ANALYZER_LLM_PROVIDER=${ANALYZER_LLM_PROVIDER}
       - OPENAI_API_KEY=\${OPENAI_API_KEY}
       - OPENAI_ASSISTANT_ID=${OPENAI_ASSISTANT_ID}
       - OPENAI_MODEL=gpt-4o
+      - GEMINI_API_KEY=\${GEMINI_API_KEY}
+      - GEMINI_MODEL=${GEMINI_MODEL}
       - ANALYSIS_INTERVAL=500ms
       - MAX_RETRIES=3
       - ANALYSIS_PROMPT=${ANALYSIS_PROMPT}

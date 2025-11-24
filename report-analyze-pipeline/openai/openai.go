@@ -205,6 +205,11 @@ func NewClient(apiKey, model string) *Client {
 	}
 }
 
+// SourceName identifies this provider in saved analyses
+func (c *Client) SourceName() string {
+	return "ChatGPT"
+}
+
 // encodeImageToBase64 converts image bytes to base64 data URL
 func encodeImageToBase64(imageData []byte) string {
 	base64Data := base64.StdEncoding.EncodeToString(imageData)

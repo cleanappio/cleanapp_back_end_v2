@@ -1,11 +1,11 @@
 # Report Analyze Pipeline
 
-A microservice that analyzes reports from the CleanApp database using OpenAI's vision API to detect litter and hazards in images, with automatic translation to multiple languages.
+A microservice that analyzes reports from the CleanApp database using OpenAI or Google Gemini vision models to detect litter and hazards in images, with automatic translation to multiple languages.
 
 ## Features
 
 - Monitors the `reports` table for new reports
-- Analyzes images using OpenAI GPT-4 Vision API
+- Analyzes images using OpenAI GPT-4o or Google Gemini (configurable)
 - **Automatically translates analysis results to multiple languages**
 - **Normalizes brand names for consistent storage and querying**
 - Stores analysis results in the `report_analysis` table with language-specific records
@@ -57,8 +57,11 @@ Environment variables:
 - `DB_PASSWORD` - Database password (default: secret_app)
 - `DB_NAME` - Database name (default: cleanapp)
 - `PORT` - HTTP server port (default: 8080)
-- `OPENAI_API_KEY` - OpenAI API key (required)
+- `ANALYZER_LLM_PROVIDER` - Model provider: `openai` (default) or `gemini`
+- `OPENAI_API_KEY` - OpenAI API key (required when `ANALYZER_LLM_PROVIDER=openai`)
 - `OPENAI_MODEL` - OpenAI model to use (default: gpt-4o)
+- `GEMINI_API_KEY` - Google Gemini API key (required when `ANALYZER_LLM_PROVIDER=gemini`)
+- `GEMINI_MODEL` - Gemini model to use (default: gemini-flash-latest)
 - `ANALYSIS_INTERVAL` - Interval between analysis runs (default: 30s)
 - `MAX_RETRIES` - Maximum retry attempts (default: 3)
 - `ANALYSIS_PROMPT` - Custom prompt for image analysis (default: "What kind of litter or hazard can you see on this image? Please describe the litter or hazard in detail. Also, give a probability that there is a litter or hazard on a photo and a severity level from 0.0 to 1.0.")
@@ -112,7 +115,10 @@ make env-create
 cp .env.template .env
 
 # Edit .env file with your actual values
-# (especially OPENAI_API_KEY and DB_PASSWORD)
+# Required keys depend on provider:
+#   - ANALYZER_LLM_PROVIDER=openai → OPENAI_API_KEY
+#   - ANALYZER_LLM_PROVIDER=gemini → GEMINI_API_KEY
+# Also set DB_PASSWORD
 ```
 
 2. Run the service:
@@ -125,10 +131,21 @@ make run
 If you prefer to set environment variables directly:
 
 ```bash
+export ANALYZER_LLM_PROVIDER=openai
 export OPENAI_API_KEY=your_openai_api_key
 export DB_HOST=localhost
 export DB_PASSWORD=your_db_password
 export TRANSLATION_LANGUAGES=en,me,es,fr
+make run
+```
+
+Gemini example:
+
+```bash
+export ANALYZER_LLM_PROVIDER=gemini
+export GEMINI_API_KEY=your_gemini_api_key
+export GEMINI_MODEL=gemini-flash-latest
+export DB_PASSWORD=your_db_password
 make run
 ```
 

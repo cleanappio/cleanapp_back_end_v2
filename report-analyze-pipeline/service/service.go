@@ -6,12 +6,14 @@ import (
 	"sync"
 	"time"
 
-	"report-analyze-pipeline/rabbitmq"
 	"report-analyze-pipeline/config"
 	"report-analyze-pipeline/database"
+	"report-analyze-pipeline/gemini"
+	"report-analyze-pipeline/llm"
 	"report-analyze-pipeline/models"
 	"report-analyze-pipeline/openai"
 	"report-analyze-pipeline/parser"
+	"report-analyze-pipeline/rabbitmq"
 	"report-analyze-pipeline/services"
 )
 
@@ -19,7 +21,7 @@ import (
 type Service struct {
 	config       *config.Config
 	db           *database.Database
-	openai       *openai.Client
+	llmClient    llm.Client
 	brandService *services.BrandService
 	publisher    *rabbitmq.Publisher
 	stopChan     chan bool
@@ -27,8 +29,21 @@ type Service struct {
 
 // NewService creates a new report analysis service
 func NewService(cfg *config.Config, db *database.Database) *Service {
-	client := openai.NewClient(cfg.OpenAIAPIKey, cfg.OpenAIModel)
+	var client llm.Client
+	if cfg.LLMProvider == "gemini" {
+		client = gemini.NewClient(cfg.GeminiAPIKey, cfg.GeminiModel)
+	} else {
+		client = openai.NewClient(cfg.OpenAIAPIKey, cfg.OpenAIModel)
+	}
 	brandService := services.NewBrandService()
+	// Log selected provider and model
+	selectedModel := ""
+	if cfg.LLMProvider == "gemini" {
+		selectedModel = cfg.GeminiModel
+	} else {
+		selectedModel = cfg.OpenAIModel
+	}
+	log.Printf("Analyzer LLM provider=%s model=%s", client.SourceName(), selectedModel)
 
 	// Initialize RabbitMQ publisher
 	publisher, err := rabbitmq.NewPublisher(
@@ -45,7 +60,7 @@ func NewService(cfg *config.Config, db *database.Database) *Service {
 	return &Service{
 		config:       cfg,
 		db:           db,
-		openai:       client,
+		llmClient:    client,
 		brandService: brandService,
 		publisher:    publisher,
 		stopChan:     make(chan bool),
@@ -174,13 +189,13 @@ func (s *Service) AnalyzeReport(report *database.Report) {
 	log.Printf("Analyzing report %d with image size: %d bytes", report.Seq, len(imageData))
 
 	// Call OpenAI API with assistant for initial analysis in English
-	response, err := s.openai.AnalyzeImage(imageData, report.Description)
+	response, err := s.llmClient.AnalyzeImage(imageData, report.Description)
 	if err != nil {
 		log.Printf("Failed to analyze report %d: %v", report.Seq, err)
 		// Save error report
 		errorAnalysis := &database.ReportAnalysis{
 			Seq:            report.Seq,
-			Source:         "ChatGPT",
+			Source:         s.llmClient.SourceName(),
 			IsValid:        false,
 			Classification: "physical",
 		}
@@ -202,7 +217,7 @@ func (s *Service) AnalyzeReport(report *database.Report) {
 		// Save error report
 		errorAnalysis := &database.ReportAnalysis{
 			Seq:            report.Seq,
-			Source:         "ChatGPT",
+			Source:         s.llmClient.SourceName(),
 			IsValid:        false,
 			Classification: "physical",
 		}
@@ -227,7 +242,7 @@ func (s *Service) AnalyzeReport(report *database.Report) {
 	// Create the English analysis result
 	analysisResult := &database.ReportAnalysis{
 		Seq:                   report.Seq,
-		Source:                "ChatGPT",
+		Source:                s.llmClient.SourceName(),
 		AnalysisText:          response,
 		AnalysisImage:         nil, // OpenAI doesn't return images in this context
 		Title:                 analysis.Title,
@@ -271,7 +286,7 @@ func (s *Service) AnalyzeReport(report *database.Report) {
 		go func() {
 			defer transWg.Done()
 			// Translate the analysis text using the full language name
-			translatedText, err := s.openai.TranslateAnalysis(string(response), langName)
+			translatedText, err := s.llmClient.TranslateAnalysis(string(response), langName)
 			if err != nil {
 				log.Printf("Failed to translate analysis for report %d to %s: %v", report.Seq, langName, err)
 				return
@@ -293,7 +308,7 @@ func (s *Service) AnalyzeReport(report *database.Report) {
 			// Create the translated analysis result
 			translatedResult := &database.ReportAnalysis{
 				Seq:                   report.Seq,
-				Source:                "ChatGPT",
+				Source:                s.llmClient.SourceName(),
 				AnalysisText:          translatedText,
 				AnalysisImage:         nil,
 				Title:                 translatedAnalysis.Title,

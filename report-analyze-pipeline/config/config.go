@@ -31,6 +31,11 @@ type Config struct {
 	OpenAIAPIKey      string
 	OpenAIAssistantID string
 	OpenAIModel       string
+	// Gemini configuration
+	GeminiAPIKey string
+	GeminiModel  string
+	// Provider selection
+	LLMProvider string
 
 	// Analysis configuration
 	AnalysisInterval time.Duration
@@ -84,6 +89,11 @@ func Load() *Config {
 		OpenAIAPIKey:      getEnv("OPENAI_API_KEY", ""),
 		OpenAIAssistantID: getEnv("OPENAI_ASSISTANT_ID", ""),
 		OpenAIModel:       getEnv("OPENAI_MODEL", "gpt-4o"),
+		// Gemini defaults (aligned with analyzer_twitter.rs)
+		GeminiAPIKey: getEnv("GEMINI_API_KEY", ""),
+		GeminiModel:  getEnv("GEMINI_MODEL", "gemini-flash-latest"),
+		// Provider selection default
+		LLMProvider: getEnv("ANALYZER_LLM_PROVIDER", "openai"),
 
 		// Analysis defaults (30 seconds)
 		AnalysisInterval: getDurationEnv("ANALYSIS_INTERVAL", 30*time.Second),

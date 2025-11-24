@@ -10,10 +10,10 @@ import (
 	"syscall"
 	"time"
 
-	"report-analyze-pipeline/rabbitmq"
 	"report-analyze-pipeline/config"
 	"report-analyze-pipeline/database"
 	"report-analyze-pipeline/handlers"
+	"report-analyze-pipeline/rabbitmq
 	"report-analyze-pipeline/service"
 
 	"github.com/gin-gonic/gin"
@@ -87,8 +87,15 @@ func main() {
 	cfg := config.Load()
 
 	// Validate required configuration
-	if cfg.OpenAIAPIKey == "" {
-		log.Fatal("OPENAI_API_KEY environment variable is required")
+	switch cfg.LLMProvider {
+	case "gemini":
+		if cfg.GeminiAPIKey == "" {
+			log.Fatal("GEMINI_API_KEY environment variable is required when ANALYZER_LLM_PROVIDER=gemini")
+		}
+	default: // openai
+		if cfg.OpenAIAPIKey == "" {
+			log.Fatal("OPENAI_API_KEY environment variable is required when ANALYZER_LLM_PROVIDER=openai")
+		}
 	}
 
 	// Validate start point is set
