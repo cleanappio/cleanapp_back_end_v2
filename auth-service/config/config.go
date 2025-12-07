@@ -86,7 +86,7 @@ func Load() *Config {
 	cfg.SendGridFromEmail = getEnv("SENDGRID_FROM_EMAIL", "info@cleanapp.io")
 
 	// Frontend URL for password reset links
-	cfg.FrontendURL = getEnv("FRONTEND_URL", "http://localhost:3000")
+	cfg.FrontendURL = getEnv("FRONTEND_URL", "https://cleanapp.io")
 
 	return cfg
 }
