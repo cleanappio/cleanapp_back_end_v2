@@ -32,6 +32,14 @@ type Config struct {
 	AppleTeamID        string
 	AppleKeyID         string
 	ApplePrivateKey    string
+
+	// Email Configuration (SendGrid)
+	SendGridAPIKey    string
+	SendGridFromName  string
+	SendGridFromEmail string
+
+	// Frontend URL for password reset links
+	FrontendURL string
 }
 
 func Load() *Config {
@@ -71,6 +79,14 @@ func Load() *Config {
 			cfg.TrustedProxies[i] = strings.TrimSpace(proxy)
 		}
 	}
+
+	// Email configuration (SendGrid)
+	cfg.SendGridAPIKey = getEnv("SENDGRID_API_KEY", "")
+	cfg.SendGridFromName = getEnv("SENDGRID_FROM_NAME", "CleanApp")
+	cfg.SendGridFromEmail = getEnv("SENDGRID_FROM_EMAIL", "info@cleanapp.io")
+
+	// Frontend URL for password reset links
+	cfg.FrontendURL = getEnv("FRONTEND_URL", "http://localhost:3000")
 
 	return cfg
 }

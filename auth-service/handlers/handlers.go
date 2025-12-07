@@ -1,24 +1,30 @@
 package handlers
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 
 	"auth-service/database"
 	"auth-service/models"
+	"auth-service/utils/email"
 
 	"github.com/gin-gonic/gin"
 )
 
 // Handlers handles HTTP requests for the authentication service
 type Handlers struct {
-	service *database.AuthService
+	service     *database.AuthService
+	emailSender *email.Sender
+	frontendURL string
 }
 
 // NewHandlers creates a new handlers instance
-func NewHandlers(service *database.AuthService) *Handlers {
+func NewHandlers(service *database.AuthService, emailSender *email.Sender, frontendURL string) *Handlers {
 	return &Handlers{
-		service: service,
+		service:     service,
+		emailSender: emailSender,
+		frontendURL: frontendURL,
 	}
 }
 
@@ -291,3 +297,73 @@ func (h *Handlers) RootHealthCheck(c *gin.Context) {
 		"version": "1.0.0",
 	})
 }
+
+// ForgotPassword handles password reset requests
+func (h *Handlers) ForgotPassword(c *gin.Context) {
+	var req models.ForgotPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Printf("ERROR: Invalid JSON in ForgotPassword request from %s: %v", c.ClientIP(), err)
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "Invalid email address"})
+		return
+	}
+
+	// Create password reset token
+	token, err := h.service.CreatePasswordResetToken(c.Request.Context(), req.Email)
+	if err != nil {
+		log.Printf("ERROR: Failed to create password reset token: %v", err)
+		// Still return success to not leak user existence
+		c.JSON(http.StatusOK, models.MessageResponse{Message: "If an account exists with this email, you will receive a password reset link shortly."})
+		return
+	}
+
+	// If token is empty, user doesn't exist, but we still return success
+	if token == "" {
+		c.JSON(http.StatusOK, models.MessageResponse{Message: "If an account exists with this email, you will receive a password reset link shortly."})
+		return
+	}
+
+	// Build reset URL
+	resetURL := fmt.Sprintf("%s/reset-password?token=%s", h.frontendURL, token)
+
+	// Send reset email
+	if h.emailSender != nil {
+		if err := h.emailSender.SendPasswordResetEmail(req.Email, resetURL); err != nil {
+			log.Printf("ERROR: Failed to send password reset email to %s: %v", req.Email, err)
+			// Still return success to not leak information
+			c.JSON(http.StatusOK, models.MessageResponse{Message: "If an account exists with this email, you will receive a password reset link shortly."})
+			return
+		}
+		log.Printf("INFO: Password reset email sent to %s", req.Email)
+	} else {
+		log.Printf("WARNING: Email sender not configured, password reset token: %s", token)
+	}
+
+	c.JSON(http.StatusOK, models.MessageResponse{Message: "If an account exists with this email, you will receive a password reset link shortly."})
+}
+
+// ResetPassword handles password reset completion
+func (h *Handlers) ResetPassword(c *gin.Context) {
+	var req models.ResetPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Printf("ERROR: Invalid JSON in ResetPassword request from %s: %v", c.ClientIP(), err)
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "Invalid request"})
+		return
+	}
+
+	// Validate password length
+	if len(req.NewPassword) < 8 {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "Password must be at least 8 characters"})
+		return
+	}
+
+	// Reset the password
+	if err := h.service.ResetPassword(c.Request.Context(), req.Token, req.NewPassword); err != nil {
+		log.Printf("WARNING: Password reset failed from %s: %v", c.ClientIP(), err)
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	log.Printf("INFO: Password reset successful from %s", c.ClientIP())
+	c.JSON(http.StatusOK, models.MessageResponse{Message: "Password has been reset successfully. You can now log in with your new password."})
+}
+

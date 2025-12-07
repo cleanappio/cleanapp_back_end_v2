@@ -2,7 +2,10 @@ package database
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
@@ -634,10 +637,189 @@ func generateUserID() string {
 }
 
 func hashToken(token string) string {
-	// Simple hash for token storage - in production, use a proper hash function
-	return fmt.Sprintf("%x", len(token))
+	// Use SHA256 for secure token hashing
+	hash := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(hash[:])
 }
 
 func isValidEmail(email string) bool {
 	return strings.Contains(email, "@") && strings.Contains(email, ".")
 }
+
+// generateSecureToken generates a cryptographically secure random token
+func generateSecureToken() (string, error) {
+	bytes := make([]byte, 32)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(bytes), nil
+}
+
+// GetUserByEmail retrieves a user by their email address
+func (s *AuthService) GetUserByEmail(ctx context.Context, email string) (*models.ClientAuth, error) {
+	// Fetch all users and decrypt emails to find a match
+	rows, err := s.db.QueryContext(ctx, "SELECT id, name, email_encrypted, created_at, updated_at FROM client_auth")
+	if err != nil {
+		return nil, fmt.Errorf("failed to query users: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id, name, emailEncrypted string
+		var createdAt, updatedAt time.Time
+		if err := rows.Scan(&id, &name, &emailEncrypted, &createdAt, &updatedAt); err != nil {
+			continue
+		}
+
+		decryptedEmail, err := s.encryptor.Decrypt(emailEncrypted)
+		if err != nil {
+			continue
+		}
+
+		if decryptedEmail == email {
+			return &models.ClientAuth{
+				ID:        id,
+				Name:      name,
+				Email:     decryptedEmail,
+				CreatedAt: createdAt,
+				UpdatedAt: updatedAt,
+			}, nil
+		}
+	}
+
+	return nil, errors.New("user not found")
+}
+
+// CreatePasswordResetToken creates a password reset token for the given email
+// Returns the raw token (to be sent in email) and any error
+func (s *AuthService) CreatePasswordResetToken(ctx context.Context, email string) (string, error) {
+	// Find user by email
+	user, err := s.GetUserByEmail(ctx, email)
+	if err != nil {
+		// Don't reveal if user exists or not
+		log.Printf("INFO: Password reset requested for non-existent email: %s", email)
+		return "", nil // Return nil error to not leak user existence
+	}
+
+	// Generate secure token
+	token, err := generateSecureToken()
+	if err != nil {
+		log.Printf("ERROR: Failed to generate password reset token: %v", err)
+		return "", fmt.Errorf("failed to generate token: %w", err)
+	}
+
+	// Hash token for storage
+	tokenHash := hashToken(token)
+
+	// Set expiration (1 hour from now)
+	expiresAt := time.Now().Add(1 * time.Hour)
+
+	// Delete any existing tokens for this user
+	_, err = s.db.ExecContext(ctx,
+		"DELETE FROM password_reset_tokens WHERE user_id = ?",
+		user.ID)
+	if err != nil {
+		log.Printf("ERROR: Failed to delete existing password reset tokens: %v", err)
+		// Continue anyway
+	}
+
+	// Store the hashed token
+	_, err = s.db.ExecContext(ctx,
+		"INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)",
+		user.ID, tokenHash, expiresAt)
+	if err != nil {
+		log.Printf("ERROR: Failed to store password reset token: %v", err)
+		return "", fmt.Errorf("failed to store token: %w", err)
+	}
+
+	log.Printf("INFO: Password reset token created for user %s", user.ID)
+	return token, nil
+}
+
+// ValidatePasswordResetToken validates a password reset token and returns the user ID
+func (s *AuthService) ValidatePasswordResetToken(ctx context.Context, token string) (string, error) {
+	tokenHash := hashToken(token)
+
+	var userID string
+	var expiresAt time.Time
+	var usedAt sql.NullTime
+
+	err := s.db.QueryRowContext(ctx,
+		"SELECT user_id, expires_at, used_at FROM password_reset_tokens WHERE token_hash = ?",
+		tokenHash).Scan(&userID, &expiresAt, &usedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", errors.New("invalid or expired token")
+		}
+		return "", fmt.Errorf("failed to query token: %w", err)
+	}
+
+	// Check if token has been used
+	if usedAt.Valid {
+		return "", errors.New("token has already been used")
+	}
+
+	// Check if token has expired
+	if time.Now().After(expiresAt) {
+		return "", errors.New("token has expired")
+	}
+
+	return userID, nil
+}
+
+// ResetPassword resets the user's password using a valid reset token
+func (s *AuthService) ResetPassword(ctx context.Context, token, newPassword string) error {
+	// Validate token and get user ID
+	userID, err := s.ValidatePasswordResetToken(ctx, token)
+	if err != nil {
+		return err
+	}
+
+	// Hash the new password
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		log.Printf("ERROR: Failed to hash new password: %v", err)
+		return fmt.Errorf("failed to process password: %w", err)
+	}
+
+	// Start transaction
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Update the password in login_methods
+	result, err := tx.ExecContext(ctx,
+		"UPDATE login_methods SET password_hash = ? WHERE user_id = ? AND method_type = 'email'",
+		string(passwordHash), userID)
+	if err != nil {
+		log.Printf("ERROR: Failed to update password: %v", err)
+		return fmt.Errorf("failed to update password: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil || rowsAffected == 0 {
+		return errors.New("failed to update password")
+	}
+
+	// Mark token as used
+	tokenHash := hashToken(token)
+	_, err = tx.ExecContext(ctx,
+		"UPDATE password_reset_tokens SET used_at = CURRENT_TIMESTAMP WHERE token_hash = ?",
+		tokenHash)
+	if err != nil {
+		log.Printf("ERROR: Failed to mark token as used: %v", err)
+		// Don't fail the operation, password has been updated
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		log.Printf("ERROR: Failed to commit password reset transaction: %v", err)
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	log.Printf("INFO: Password reset successful for user %s", userID)
+	return nil
+}
+

@@ -46,6 +46,17 @@ CREATE TABLE IF NOT EXISTS auth_tokens (
     INDEX idx_user_token_type (user_id, token_type),
 	CONSTRAINT auth_tokens_ibfk_1 FOREIGN KEY (user_id) REFERENCES client_auth(id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id VARCHAR(256) NOT NULL,
+    token_hash VARCHAR(256) NOT NULL,
+    expires_at TIMESTAMP NOT NULL,
+    used_at TIMESTAMP NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_token_hash (token_hash),
+    CONSTRAINT password_reset_tokens_ibfk_1 FOREIGN KEY (user_id) REFERENCES client_auth(id) ON DELETE CASCADE
+);
 `
 
 // InitializeSchema creates the database schema and runs migrations

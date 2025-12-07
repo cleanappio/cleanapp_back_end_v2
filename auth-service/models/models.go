@@ -123,3 +123,14 @@ type ReportAuthorization struct {
 type ReportAuthorizationResponse struct {
 	Authorizations []ReportAuthorization `json:"authorizations"`
 }
+
+// ForgotPasswordRequest represents a password reset request
+type ForgotPasswordRequest struct {
+	Email string `json:"email" binding:"required,email"`
+}
+
+// ResetPasswordRequest represents the password reset completion
+type ResetPasswordRequest struct {
+	Token       string `json:"token" binding:"required"`
+	NewPassword string `json:"new_password" binding:"required,min=8"`
+}

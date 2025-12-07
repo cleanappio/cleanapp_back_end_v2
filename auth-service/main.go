@@ -10,6 +10,7 @@ import (
 	"auth-service/database"
 	"auth-service/handlers"
 	"auth-service/middleware"
+	"auth-service/utils/email"
 	"auth-service/utils/encryption"
 
 	"github.com/gin-gonic/gin"
@@ -87,8 +88,17 @@ func setupRouter(service *database.AuthService, cfg *config.Config) *gin.Engine 
 	router.Use(middleware.SecurityHeaders())
 	router.Use(middleware.RateLimitMiddleware())
 
+	// Initialize email sender (if SendGrid is configured)
+	var emailSender *email.Sender
+	if cfg.SendGridAPIKey != "" {
+		emailSender = email.NewSender(cfg.SendGridAPIKey, cfg.SendGridFromName, cfg.SendGridFromEmail)
+		log.Println("Email sender initialized with SendGrid")
+	} else {
+		log.Println("WARNING: SendGrid API key not configured, password reset emails will not be sent")
+	}
+
 	// Initialize handlers
-	h := handlers.NewHandlers(service)
+	h := handlers.NewHandlers(service, emailSender, cfg.FrontendURL)
 
 	// Root level health check (not under /api/v3)
 	router.GET("/health", h.RootHealthCheck)
@@ -102,6 +112,8 @@ func setupRouter(service *database.AuthService, cfg *config.Config) *gin.Engine 
 			auth.POST("/login", h.Login)
 			auth.POST("/refresh", h.RefreshToken)
 			auth.POST("/register", h.CreateUser)
+			auth.POST("/forgot-password", h.ForgotPassword)
+			auth.POST("/reset-password", h.ResetPassword)
 		}
 
 		// User existence check
