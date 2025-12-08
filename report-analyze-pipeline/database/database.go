@@ -463,3 +463,25 @@ func (d *Database) GetLastProcessedSeq() (int, error) {
 func (d *Database) GetDB() *sql.DB {
 	return d.db
 }
+
+// UpdateInferredContactEmails updates the inferred_contact_emails field for a report's English analysis
+func (d *Database) UpdateInferredContactEmails(seq int, emails string) error {
+	query := `
+	UPDATE report_analysis 
+	SET inferred_contact_emails = ?, updated_at = NOW()
+	WHERE seq = ? AND language = 'en'`
+
+	result, err := d.db.Exec(query, emails, seq)
+	if err != nil {
+		return fmt.Errorf("failed to update inferred_contact_emails for seq %d: %w", seq, err)
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return fmt.Errorf("no English analysis found for seq %d", seq)
+	}
+
+	log.Printf("Updated inferred_contact_emails for seq %d (%d rows)", seq, rows)
+	return nil
+}
+

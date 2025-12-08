@@ -12,6 +12,7 @@ import (
 	"report-analyze-pipeline/llm"
 	"report-analyze-pipeline/models"
 	"report-analyze-pipeline/openai"
+	"report-analyze-pipeline/osm"
 	"report-analyze-pipeline/parser"
 	"report-analyze-pipeline/rabbitmq"
 	"report-analyze-pipeline/services"
@@ -23,6 +24,7 @@ type Service struct {
 	db           *database.Database
 	llmClient    llm.Client
 	brandService *services.BrandService
+	osmService   *osm.CachedLocationService
 	publisher    *rabbitmq.Publisher
 	stopChan     chan bool
 }
@@ -57,11 +59,15 @@ func NewService(cfg *config.Config, db *database.Database) *Service {
 		publisher = nil
 	}
 
+	// Initialize OSM location service for physical report email inference
+	osmService := osm.NewCachedLocationService(db.GetDB())
+
 	return &Service{
 		config:       cfg,
 		db:           db,
 		llmClient:    client,
 		brandService: brandService,
+		osmService:   osmService,
 		publisher:    publisher,
 		stopChan:     make(chan bool),
 	}
@@ -81,6 +87,12 @@ func (s *Service) Start() {
 	if err := s.db.MigrateReportAnalysisTable(); err != nil {
 		log.Printf("Failed to migrate report_analysis table: %v", err)
 		return
+	}
+
+	// Create OSM location cache table
+	if err := s.osmService.CreateCacheTable(); err != nil {
+		log.Printf("Failed to create osm_location_cache table: %v", err)
+		// Continue - OSM is optional
 	}
 }
 
@@ -345,4 +357,115 @@ func (s *Service) AnalyzeReport(report *database.Report) {
 
 	// Publish the analyzed report to RabbitMQ
 	s.publishAnalyzedReport(report, allAnalyses)
+
+	// Background enrichment for physical reports: fetch OSM context and enrich contact emails
+	// This runs after the initial analysis is complete, so it doesn't add latency
+	if analysisResult.Classification == "physical" {
+		go s.enrichPhysicalReportEmails(report, analysisResult)
+	}
 }
+
+// enrichPhysicalReportEmails fetches OSM location context and enriches contact emails for physical reports
+// This runs in a goroutine to avoid blocking the main analysis flow
+func (s *Service) enrichPhysicalReportEmails(report *database.Report, analysis *database.ReportAnalysis) {
+	// Skip if we already have good inferred emails (from image analysis)
+	if analysis.InferredContactEmails != "" && len(strings.Split(analysis.InferredContactEmails, ",")) >= 3 {
+		log.Printf("Report %d: Already has %d inferred emails, skipping OSM enrichment",
+			report.Seq, len(strings.Split(analysis.InferredContactEmails, ",")))
+		return
+	}
+
+	// Check if we have cached emails for this location
+	cachedEmails, err := s.osmService.GetCachedInferredEmails(report.Latitude, report.Longitude)
+	if err == nil && cachedEmails != "" {
+		log.Printf("Report %d: Using cached inferred emails for location (%.4f, %.4f)",
+			report.Seq, report.Latitude, report.Longitude)
+		if err := s.db.UpdateInferredContactEmails(report.Seq, cachedEmails); err != nil {
+			log.Printf("Report %d: Failed to update with cached emails: %v", report.Seq, err)
+		}
+		return
+	}
+
+	// Fetch OSM location context
+	locCtx, err := s.osmService.GetLocationContext(report.Latitude, report.Longitude)
+	if err != nil {
+		log.Printf("Report %d: Failed to get OSM location context: %v", report.Seq, err)
+		return
+	}
+
+	// Check if we have useful data
+	if locCtx == nil || !locCtx.HasUsefulData() {
+		log.Printf("Report %d: No useful OSM data for location (%.4f, %.4f), skipping enrichment",
+			report.Seq, report.Latitude, report.Longitude)
+		return
+	}
+
+	log.Printf("Report %d: OSM returned: primary=%q, parent=%q, domain=%q, type=%q",
+		report.Seq, locCtx.PrimaryName, locCtx.ParentOrg, locCtx.Domain, locCtx.LocationType)
+
+	// If OSM already has a contact email, use it
+	if locCtx.ContactEmail != "" {
+		enrichedEmails := locCtx.ContactEmail
+		if analysis.InferredContactEmails != "" {
+			enrichedEmails = locCtx.ContactEmail + ", " + analysis.InferredContactEmails
+		}
+		if err := s.db.UpdateInferredContactEmails(report.Seq, enrichedEmails); err != nil {
+			log.Printf("Report %d: Failed to update with OSM contact email: %v", report.Seq, err)
+		}
+		// Cache the enriched emails
+		s.osmService.SaveInferredEmails(report.Latitude, report.Longitude, enrichedEmails)
+		return
+	}
+
+	// Use Gemini to infer better emails with location context
+	// Only do this if we're using Gemini (has the AnalyzeImageWithLocation method)
+	if geminiClient, ok := s.llmClient.(*gemini.Client); ok {
+		// Get the image again for re-analysis with location context
+		imageData, err := s.db.GetReportImage(report.Seq)
+		if err != nil {
+			log.Printf("Report %d: Failed to fetch image for enrichment: %v", report.Seq, err)
+			return
+		}
+
+		// Build location context for Gemini
+		geminiLocCtx := &gemini.LocationContext{
+			PrimaryName:  locCtx.PrimaryName,
+			ParentOrg:    locCtx.ParentOrg,
+			Operator:     locCtx.Operator,
+			Domain:       locCtx.Domain,
+			ContactEmail: locCtx.ContactEmail,
+			LocationType: locCtx.LocationType,
+			City:         locCtx.Address.City,
+			State:        locCtx.Address.State,
+			Country:      locCtx.Address.Country,
+		}
+
+		// Re-analyze with location context
+		response, err := geminiClient.AnalyzeImageWithLocation(imageData, report.Description, geminiLocCtx)
+		if err != nil {
+			log.Printf("Report %d: Failed to re-analyze with location context: %v", report.Seq, err)
+			return
+		}
+
+		// Parse the enriched response
+		enrichedAnalysis, err := parser.ParseAnalysis(response)
+		if err != nil {
+			log.Printf("Report %d: Failed to parse enriched analysis: %v", report.Seq, err)
+			return
+		}
+
+		// Update with enriched emails
+		enrichedEmails := strings.Join(enrichedAnalysis.InferredContactEmails, ", ")
+		if enrichedEmails != "" {
+			if err := s.db.UpdateInferredContactEmails(report.Seq, enrichedEmails); err != nil {
+				log.Printf("Report %d: Failed to update with enriched emails: %v", report.Seq, err)
+			} else {
+				log.Printf("Report %d: Enriched with %d OSM-based emails",
+					report.Seq, len(enrichedAnalysis.InferredContactEmails))
+				// Cache the enriched emails
+				s.osmService.SaveInferredEmails(report.Latitude, report.Longitude, enrichedEmails)
+			}
+		}
+	}
+}
+
