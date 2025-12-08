@@ -13,7 +13,7 @@ import (
 	"report-analyze-pipeline/config"
 	"report-analyze-pipeline/database"
 	"report-analyze-pipeline/handlers"
-	"report-analyze-pipeline/rabbitmq
+	"report-analyze-pipeline/rabbitmq"
 	"report-analyze-pipeline/service"
 
 	"github.com/gin-gonic/gin"
