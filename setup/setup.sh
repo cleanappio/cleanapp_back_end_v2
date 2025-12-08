@@ -304,7 +304,7 @@ MYSQL_APP_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_APP_PASSW
 MYSQL_READER_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_READER_PASSWORD_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
 KITN_PRIVATE_KEY_MAIN=\$(gcloud secrets versions access 1 --secret="KITN_PRIVATE_KEY_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
 KITN_PRIVATE_KEY_SHADOW=\$(gcloud secrets versions access 1 --secret="KITN_PRIVATE_KEY_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
-SENDGRID_API_KEY=\$(gcloud secrets versions access 1 --secret="SENDGRID_API_KEY_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
+SENDGRID_API_KEY=\$(gcloud secrets versions access latest --secret="SENDGRID_API_KEY_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
 CLEANAPP_IO_ENCRYPTION_KEY=\$(gcloud secrets versions access 1 --secret="CLEANAPP_IO_ENCRYPTION_KEY_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
 CLEANAPP_IO_JWT_SECRET=\$(gcloud secrets versions access 1 --secret="CLEANAPP_IO_JWT_SECRET_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
 STRIPE_SECRET_KEY=\$(gcloud secrets versions access 1 --secret="STRIPE_SECRET_KEY_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
