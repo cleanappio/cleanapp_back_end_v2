@@ -279,7 +279,18 @@ func (e *EmailSender) getEmailHtml(recipient string, hasReport, hasMap bool) str
 
 // getEmailTextWithAnalysis returns the plain text content for emails with analysis data
 func (e *EmailSender) getEmailTextWithAnalysis(recipient string, analysis *models.ReportAnalysis, hasReport, hasMap bool) string {
-	var content string
+	// Get the dashboard URL
+	ctaURL := e.getDashboardURL(analysis)
+
+	// Get the AI-generated cost estimate or provide a default
+	costEstimate := analysis.LegalRiskEstimate
+	if costEstimate == "" {
+		if analysis.Classification == "digital" {
+			costEstimate = "Potential impact on user experience and brand reputation"
+		} else {
+			costEstimate = "Risk assessment pending - please review the report details"
+		}
+	}
 
 	attachments := ""
 	if hasReport || hasMap {
@@ -290,59 +301,49 @@ func (e *EmailSender) getEmailTextWithAnalysis(recipient string, analysis *model
 		if hasMap {
 			attachments += "- A map showing the location\n"
 		}
-		attachments += "- AI analysis results\n"
 	}
-	if analysis.Classification == "digital" {
-		content = fmt.Sprintf(`Hello,
 
-You have received a new CleanApp digital issue report with analysis.
+	legalRiskPercent := analysis.HazardProbability * 100
 
-REPORT ANALYSIS:
+	content := fmt.Sprintf(`Hello,
+
+A new issue has been flagged that may impact safety, brand, or compliance.
+
+REPORT DETAILS:
 Title: %s
 Description: %s
-Type: Digital Issue
+Type: %s Issue
+
+LEGAL RISK FACTOR: %.1f%%
+
+ESTIMATED LIABILITY:
 %s
-Note: This is a digital issue report. Physical metrics (litter/hazard probability) are not applicable.
+%s
+To see full reports, visit: %s
+
+It takes just 30 seconds to review reports, confirm the risks, and get a fix.
+
+---
+
+Trash is cash,
+
+Boris Mamlyuk
+Founder, CleanApp.io
+https://www.linkedin.com/in/borismamlyuk/
+
+---
 
 To unsubscribe from these emails, please visit: %s?email=%s
-You can also reply to this email with "UNSUBSCRIBE" in the subject line.
-
-Best regards,
-The CleanApp Team`,
-			analysis.Title,
-			analysis.Description,
-			attachments,
-			e.config.OptOutURL,
-			recipient)
-	} else {
-		content = fmt.Sprintf(`Hello,
-
-You have received a new CleanApp report with analysis.
-
-REPORT ANALYSIS:
-Title: %s
-Description: %s
-Type: Physical Issue
-
-PROBABILITY SCORES:
-- Litter Probability: %.1f%%
-- Hazard Probability: %.1f%%
-- Severity Level: %.1f
-%s
-To unsubscribe from these emails, please visit: %s?email=%s
-You can also reply to this email with "UNSUBSCRIBE" in the subject line.
-
-Best regards,
-The CleanApp Team`,
-			analysis.Title,
-			analysis.Description,
-			analysis.LitterProbability*100,
-			analysis.HazardProbability*100,
-			analysis.SeverityLevel,
-			attachments,
-			e.config.OptOutURL,
-			recipient)
-	}
+You can also reply to this email with "UNSUBSCRIBE" in the subject line.`,
+		analysis.Title,
+		analysis.Description,
+		analysis.Classification,
+		legalRiskPercent,
+		costEstimate,
+		attachments,
+		ctaURL,
+		e.config.OptOutURL,
+		recipient)
 
 	return content
 }
@@ -416,9 +417,14 @@ func (e *EmailSender) getEmailHtmlWithAnalysis(recipient string, analysis *model
     <div class="images">%s
     </div>
     
-    <p><em>Best regards,<br>The CleanApp Team</em></p>
+    <div style="margin-top: 30px; padding: 20px 0; border-top: 1px solid #eee;">
+        <p style="margin: 0; font-style: italic; color: #28a745;">Trash is cash,</p>
+        <p style="margin: 10px 0 0 0; font-weight: bold; color: #333;">Boris Mamlyuk (<a href="https://www.linkedin.com/in/borismamlyuk/" style="color: #0077b5; text-decoration: none;">LinkedIn</a>)</p>
+        <p style="margin: 0; color: #666;">Founder, <a href="https://cleanapp.io" style="color: #0077b5; text-decoration: none;">CleanApp.io</a></p>
+        <p style="margin: 15px 0 0 0;"><img src="https://cleanapp.io/cleanapp-logo.png" alt="CleanApp" style="max-width: 150px; height: auto;"></p>
+    </div>
     
-    <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; font-size: 0.9em; color: #666;">
+    <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #eee; font-size: 0.85em; color: #999;">
         <p>To unsubscribe from these emails, please <a href="%s?email=%s" style="color: #007bff; text-decoration: none;">click here</a></p>
     </div>
 </body>
@@ -433,46 +439,71 @@ func (e *EmailSender) getEmailHtmlWithAnalysis(recipient string, analysis *model
 		recipient)
 }
 
-// getMetricsSection returns the appropriate metrics section based on report type
+// getMetricsSection returns the Legal Risk Factor section with AI cost estimate
 func (e *EmailSender) getMetricsSection(analysis *models.ReportAnalysis, isDigital bool, litterColor, hazardColor, severityColor string) string {
-	if isDigital {
-		// For digital reports, show a notice instead of metrics
-		return ""
+	// Get the Legal Risk Factor gauge (based on hazard probability)
+	legalRiskColor := hazardColor
+	legalRiskValue := analysis.HazardProbability * 100
+	legalRiskLabel := e.getGaugeLabel(analysis.HazardProbability)
+
+	// Get the AI-generated cost estimate or provide a default
+	costEstimate := analysis.LegalRiskEstimate
+	if costEstimate == "" {
+		if isDigital {
+			costEstimate = "Potential impact on user experience and brand reputation"
+		} else {
+			costEstimate = "Risk assessment pending - please review the report details"
+		}
 	}
 
-	// For physical reports, show the metrics gauge
+	// Generate CTA button URL based on report type
+	ctaURL := e.getDashboardURL(analysis)
+	ctaText := "See Full Reports"
+
 	return fmt.Sprintf(`
-    <div class="gauge-grid">
-        <div class="gauge-item">
-            <div class="gauge-title">Litter Probability</div>
-            <div class="gauge-container">
-                <div class="gauge-fill %s" style="width: %.1f%%;"></div>
+    <div style="margin: 20px 0;">
+        <div style="background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+            <div style="font-size: 0.9em; font-weight: bold; margin-bottom: 10px; color: #555;">Legal Risk Factor</div>
+            <div style="position: relative; width: 100%%; height: 40px; background: #f0f0f0; border-radius: 20px; overflow: hidden; margin: 10px 0;">
+                <div class="%s" style="height: 100%%; width: %.1f%%; border-radius: 20px;"></div>
             </div>
-            <div class="gauge-value">%.1f%%</div>
-            <div class="gauge-label">%s</div>
-        </div>
-        
-        <div class="gauge-item">
-            <div class="gauge-title">Hazard Probability</div>
-            <div class="gauge-container">
-                <div class="gauge-fill %s" style="width: %.1f%%;"></div>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="font-size: 1.5em; font-weight: bold;">%.1f%%</div>
+                <div style="font-size: 0.9em; color: #666;">%s</div>
             </div>
-            <div class="gauge-value">%.1f%%</div>
-            <div class="gauge-label">%s</div>
         </div>
-        
-        <div class="gauge-item">
-            <div class="gauge-title">Severity Level</div>
-            <div class="gauge-container">
-                <div class="gauge-fill %s" style="width: %.1f%%;"></div>
-            </div>
-            <div class="gauge-value">%.1f</div>
-            <div class="gauge-label">%s</div>
-        </div>
+    </div>
+
+    <div style="background-color: #fff3cd; padding: 15px; border-radius: 5px; margin: 15px 0; border-left: 4px solid #ffc107;">
+        <p style="margin: 0; font-weight: bold; color: #856404;">💰 Estimated Liability</p>
+        <p style="margin: 5px 0 0 0; color: #856404;">%s</p>
+    </div>
+
+    <div style="text-align: center; margin: 25px 0;">
+        <a href="%s" style="display: inline-block; background-color: #28a745; color: white; padding: 15px 40px; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 1.1em;">%s</a>
+        <p style="font-size: 0.85em; color: #666; margin-top: 10px;">It takes just 30 seconds to review reports, confirm the risks, and get a fix.</p>
     </div>`,
-		litterColor, analysis.LitterProbability*100, analysis.LitterProbability*100, e.getGaugeLabel(analysis.LitterProbability),
-		hazardColor, analysis.HazardProbability*100, analysis.HazardProbability*100, e.getGaugeLabel(analysis.HazardProbability),
-		severityColor, analysis.SeverityLevel*10, analysis.SeverityLevel*10, e.getSeverityGaugeLabel(analysis.SeverityLevel))
+		legalRiskColor, legalRiskValue, legalRiskValue, legalRiskLabel,
+		costEstimate,
+		ctaURL, ctaText)
+}
+
+// getDashboardURL generates the appropriate dashboard URL based on report type
+func (e *EmailSender) getDashboardURL(analysis *models.ReportAnalysis) string {
+	baseURL := "https://cleanapp.io"
+
+	if analysis.Classification == "digital" {
+		// For digital reports, link to brand-specific dashboard
+		brandSlug := analysis.BrandName
+		if brandSlug == "" {
+			brandSlug = "reports"
+		}
+		return fmt.Sprintf("%s/digital/%s", baseURL, brandSlug)
+	}
+
+	// For physical reports, link to the general reports dashboard
+	// The location-based filtering would be handled by the dashboard itself
+	return fmt.Sprintf("%s/reports", baseURL)
 }
 
 // getGaugeColor returns the CSS class for gauge color based on value

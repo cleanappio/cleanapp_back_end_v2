@@ -48,6 +48,40 @@ func (s *EmailService) isEmailOptedOut(ctx context.Context, email string) (bool,
 	return count > 0, nil
 }
 
+// isFirstTimeRecipient checks if this is the first email being sent to this recipient
+func (s *EmailService) isFirstTimeRecipient(ctx context.Context, email string) (bool, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*) 
+		FROM email_recipient_history 
+		WHERE email = ?
+	`, email).Scan(&count)
+
+	if err != nil {
+		return false, fmt.Errorf("failed to check email history for %s: %w", email, err)
+	}
+
+	return count == 0, nil
+}
+
+// recordEmailSent records that an email was sent to a recipient
+func (s *EmailService) recordEmailSent(ctx context.Context, email string) error {
+	// Use INSERT ... ON DUPLICATE KEY UPDATE to handle both new and existing recipients
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO email_recipient_history (email, first_email_sent_at, last_email_sent_at, email_count) 
+		VALUES (?, NOW(), NOW(), 1)
+		ON DUPLICATE KEY UPDATE 
+			last_email_sent_at = NOW(),
+			email_count = email_count + 1
+	`, email)
+
+	if err != nil {
+		return fmt.Errorf("failed to record email sent to %s: %w", email, err)
+	}
+
+	return nil
+}
+
 // NewEmailService creates a new email service
 func NewEmailService(cfg *config.Config) (*EmailService, error) {
 	// Connect to database
@@ -396,7 +430,20 @@ func (s *EmailService) sendEmailsToInferredContacts(ctx context.Context, report 
 	}
 
 	// Send emails with analysis data and map image
-	return s.email.SendEmailsWithAnalysis(validEmails, report.Image, mapImg, analysis)
+	err = s.email.SendEmailsWithAnalysis(validEmails, report.Image, mapImg, analysis)
+	if err != nil {
+		return err
+	}
+
+	// Record that emails were sent to these recipients
+	for _, emailAddr := range validEmails {
+		if recordErr := s.recordEmailSent(ctx, emailAddr); recordErr != nil {
+			log.Warnf("Failed to record email sent to %s: %v", emailAddr, recordErr)
+			// Continue - don't fail the whole operation for history tracking
+		}
+	}
+
+	return nil
 }
 
 // sendEmailsForArea sends emails for a specific area
@@ -436,32 +483,53 @@ func (s *EmailService) sendEmailsForArea(ctx context.Context, report models.Repo
 	}
 
 	// Send emails with analysis data
-	return s.email.SendEmailsWithAnalysis(validEmails, report.Image, polyImg, analysis)
+	err = s.email.SendEmailsWithAnalysis(validEmails, report.Image, polyImg, analysis)
+	if err != nil {
+		return err
+	}
+
+	// Record that emails were sent to these recipients
+	for _, emailAddr := range validEmails {
+		if recordErr := s.recordEmailSent(ctx, emailAddr); recordErr != nil {
+			log.Warnf("Failed to record email sent to %s: %v", emailAddr, recordErr)
+			// Continue - don't fail the whole operation for history tracking
+		}
+	}
+
+	return nil
 }
 
 // getReportAnalysis gets the analysis data for a specific report
 func (s *EmailService) getReportAnalysis(ctx context.Context, seq int64) (*models.ReportAnalysis, error) {
 	qStart := time.Now()
 	query := `
-		SELECT seq, source, title, description, litter_probability, hazard_probability,
-		severity_level, inferred_contact_emails, classification
+		SELECT seq, source, title, description, 
+		brand_name, brand_display_name,
+		litter_probability, hazard_probability,
+		severity_level, inferred_contact_emails, classification, legal_risk_estimate
 		FROM report_analysis
 		WHERE seq = ? AND language = 'en'
 		LIMIT 1
 	`
 
 	var contact_emails sql.NullString
+	var brandName sql.NullString
+	var brandDisplayName sql.NullString
+	var legalRiskEstimate sql.NullString
 	var analysis models.ReportAnalysis
 	err := s.db.QueryRowContext(ctx, query, seq).Scan(
 		&analysis.Seq,
 		&analysis.Source,
 		&analysis.Title,
 		&analysis.Description,
+		&brandName,
+		&brandDisplayName,
 		&analysis.LitterProbability,
 		&analysis.HazardProbability,
 		&analysis.SeverityLevel,
 		&contact_emails,
 		&analysis.Classification,
+		&legalRiskEstimate,
 	)
 	if err != nil {
 		log.Errorf("getReportAnalysis error for seq %d (in %s): %v", seq, time.Since(qStart), err)
@@ -469,6 +537,9 @@ func (s *EmailService) getReportAnalysis(ctx context.Context, seq int64) (*model
 	}
 
 	analysis.InferredContactEmails = contact_emails.String
+	analysis.BrandName = brandName.String
+	analysis.BrandDisplayName = brandDisplayName.String
+	analysis.LegalRiskEstimate = legalRiskEstimate.String
 
 	log.Infof("getReportAnalysis loaded seq %d (in %s)", seq, time.Since(qStart))
 	return &analysis, nil
@@ -581,6 +652,46 @@ func verifyAndCreateTables(db *sql.DB) error {
 		log.Info("opted_out_emails table created successfully")
 	} else {
 		log.Info("opted_out_emails table already exists")
+	}
+
+	// Check if email_recipient_history table exists
+	var recipientHistoryTableExists int
+	err = db.QueryRowContext(ctx, `
+		SELECT COUNT(*) 
+		FROM information_schema.tables 
+		WHERE table_schema = DATABASE() 
+		AND table_name = 'email_recipient_history'
+	`).Scan(&recipientHistoryTableExists)
+
+	if err != nil {
+		return fmt.Errorf("failed to check if email_recipient_history table exists: %w", err)
+	}
+
+	if recipientHistoryTableExists == 0 {
+		log.Info("Creating email_recipient_history table...")
+
+		// Create the email_recipient_history table for tracking first-time vs returning recipients
+		createRecipientHistoryTableSQL := `
+			CREATE TABLE email_recipient_history (
+				id INT AUTO_INCREMENT PRIMARY KEY,
+				email VARCHAR(255) NOT NULL UNIQUE,
+				first_email_sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				last_email_sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+				email_count INT DEFAULT 1,
+				INDEX idx_email_history_email (email),
+				INDEX idx_email_history_first_sent (first_email_sent_at),
+				INDEX idx_email_history_last_sent (last_email_sent_at)
+			) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+		`
+
+		_, err = db.ExecContext(ctx, createRecipientHistoryTableSQL)
+		if err != nil {
+			return fmt.Errorf("failed to create email_recipient_history table: %w", err)
+		}
+
+		log.Info("email_recipient_history table created successfully")
+	} else {
+		log.Info("email_recipient_history table already exists")
 	}
 
 	// Verify that required tables exist

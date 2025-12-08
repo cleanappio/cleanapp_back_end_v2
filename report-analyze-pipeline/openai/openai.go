@@ -62,6 +62,7 @@ Step 5: ========: Output a **single, valid JSON object** and nothing else.
   "hazard_probability": <0.0-1.0>,
   "digital_bug_probabilty": <0.0-1.0>,
   "severity_level": <0.0-1.0>,
+  "legal_risk_estimate": "<A brief statement of potential legal/financial liability, e.g. 'Slip & fall hazard: minimum 7-figure liability' or 'Data breach exposure: $150-$200 per affected record'>",
   "is_valid": <true | false>
   "responsible_party":      "<vendor/brand + specific team>",
   "inferred_contact_emails":["<vendor-domain email 1>", "<email 2>", "<email 3>"],
@@ -88,9 +89,21 @@ Data-visualisation bug → “<Brand> Ads Insights Engineering & Data QA Team”
 
 Form submit error → “<Brand> Web Growth Engineering”
 
-Physical litter → “<Municipality> Public Works”
+Physical litter → "<Municipality> Public Works"
 
 Percentage or sum anomalies — Always state the exact numbers in the summary.
+
+Legal risk estimate guidelines —
+Physical hazards:
+  - Slip & fall at entryway/high traffic → "minimum 7-figure liability (slip & fall settlements average $30K-$50K, serious injuries exceed $1M)"
+  - Sharp objects, broken glass → "injury liability: $10K-$500K depending on severity"
+  - Blocked emergency exit → "fire code violation: $10K-$100K fines plus liability"
+  - Unsanitary conditions → "health code violation: $1K-$25K per incident"
+Digital bugs:
+  - Data breach/leak exposure → "$150-$200 per affected record (GDPR/CCPA penalties)"
+  - Form submission errors → "lost leads valued at $50-$500 per conversion"
+  - Payment processing bugs → "cart abandonment: 1-3% revenue impact"
+  - Analytics/reporting errors → "decision-making risk: unquantifiable strategic cost"
 
 ########################################
 

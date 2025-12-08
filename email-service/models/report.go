@@ -20,10 +20,13 @@ type ReportAnalysis struct {
 	Source                string  `json:"source"`
 	Title                 string  `json:"title"`
 	Description           string  `json:"description"`
+	BrandName             string  `json:"brand_name"`
+	BrandDisplayName      string  `json:"brand_display_name"`
 	LitterProbability     float64 `json:"litter_probability"`
 	HazardProbability     float64 `json:"hazard_probability"`
 	SeverityLevel         float64 `json:"severity_level"`
 	Summary               string  `json:"summary"`
 	InferredContactEmails string  `json:"inferred_contact_emails"`
 	Classification        string  `json:"classification"`
+	LegalRiskEstimate     string  `json:"legal_risk_estimate"`
 }

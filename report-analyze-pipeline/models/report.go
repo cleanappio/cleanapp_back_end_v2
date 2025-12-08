@@ -38,6 +38,7 @@ type ReportAnalysis struct {
 	Classification        string    `json:"classification"`
 	IsValid               bool      `json:"is_valid"`
 	InferredContactEmails string    `json:"inferred_contact_emails"`
+	LegalRiskEstimate     string    `json:"legal_risk_estimate"`
 	CreatedAt             time.Time `json:"created_at"`
 	UpdatedAt             time.Time `json:"updated_at"`
 }

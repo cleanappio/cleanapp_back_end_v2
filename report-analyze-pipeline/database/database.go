@@ -50,6 +50,7 @@ type ReportAnalysis struct {
 	IsValid               bool
 	Classification        string
 	InferredContactEmails string
+	LegalRiskEstimate     string
 }
 
 // NewDatabase creates a new database connection
@@ -107,6 +108,7 @@ func (d *Database) CreateReportAnalysisTable() error {
 		is_valid BOOLEAN DEFAULT TRUE,
 		classification ENUM('physical', 'digital') DEFAULT 'physical',
 		inferred_contact_emails TEXT,
+		legal_risk_estimate TEXT,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 		INDEX seq_index (seq),
@@ -235,6 +237,24 @@ func (d *Database) MigrateReportAnalysisTable() error {
 		log.Printf("Successfully added inferred_contact_emails column to report_analysis table")
 	} else {
 		log.Printf("inferred_contact_emails column already exists in report_analysis table, skipping migration")
+	}
+
+	// Check and add legal_risk_estimate column
+	exists, err = d.columnExists("report_analysis", "legal_risk_estimate")
+	if err != nil {
+		return fmt.Errorf("failed to check if legal_risk_estimate column exists: %w", err)
+	}
+
+	if !exists {
+		log.Printf("Adding legal_risk_estimate column to report_analysis table...")
+		query := "ALTER TABLE report_analysis ADD COLUMN legal_risk_estimate TEXT"
+		_, err = d.db.Exec(query)
+		if err != nil {
+			return fmt.Errorf("failed to add legal_risk_estimate column: %w", err)
+		}
+		log.Printf("Successfully added legal_risk_estimate column to report_analysis table")
+	} else {
+		log.Printf("legal_risk_estimate column already exists in report_analysis table, skipping migration")
 	}
 
 	// Add indexes
@@ -388,9 +408,10 @@ func (d *Database) SaveAnalysis(analysis *ReportAnalysis) error {
 		seq, source, analysis_text, analysis_image, 
 		title, description, brand_name, brand_display_name,
 		litter_probability, hazard_probability, digital_bug_probability,
-		severity_level, summary, language, is_valid, classification, inferred_contact_emails
+		severity_level, summary, language, is_valid, classification, 
+		inferred_contact_emails, legal_risk_estimate
 	)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err := d.db.Exec(query,
 		analysis.Seq,
@@ -410,6 +431,7 @@ func (d *Database) SaveAnalysis(analysis *ReportAnalysis) error {
 		analysis.IsValid,
 		analysis.Classification,
 		analysis.InferredContactEmails,
+		analysis.LegalRiskEstimate,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to save analysis: %w", err)

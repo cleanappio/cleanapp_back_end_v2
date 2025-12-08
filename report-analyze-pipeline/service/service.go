@@ -138,6 +138,7 @@ func (s *Service) publishAnalyzedReport(report *database.Report, analyses []*dat
 			Classification:        analysis.Classification,
 			IsValid:               analysis.IsValid,
 			InferredContactEmails: analysis.InferredContactEmails,
+			LegalRiskEstimate:     analysis.LegalRiskEstimate,
 			CreatedAt:             time.Now(), // We don't have this in database model, use current time
 			UpdatedAt:             time.Now(),
 		}
@@ -258,6 +259,7 @@ func (s *Service) AnalyzeReport(report *database.Report) {
 		IsValid:               analysis.IsValid,
 		Classification:        analysis.Classification.String(),
 		InferredContactEmails: inferredContactEmails,
+		LegalRiskEstimate:     analysis.LegalRiskEstimate,
 	}
 
 	// Save the English analysis to the database
@@ -324,6 +326,7 @@ func (s *Service) AnalyzeReport(report *database.Report) {
 				IsValid:               translatedAnalysis.IsValid,
 				Classification:        translatedAnalysis.Classification.String(),
 				InferredContactEmails: inferredTranslatedContactEmails,
+				LegalRiskEstimate:     translatedAnalysis.LegalRiskEstimate,
 			}
 
 			// Save the translated analysis to the database

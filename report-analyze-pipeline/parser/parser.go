@@ -55,6 +55,7 @@ type AnalysisResult struct {
 	HazardProbability     float64        `json:"hazard_probability"`
 	DigitalBugProbability float64        `json:"digital_bug_probabilty"`
 	SeverityLevel         float64        `json:"severity_level"`
+	LegalRiskEstimate     string         `json:"legal_risk_estimate"`
 	IsValid               bool           `json:"is_valid"`
 }
 
