@@ -113,6 +113,8 @@ case ${OPT} in
       # Replier-twitter
       CLEANAPP_BASE_URL="https://dev.cleanapp.io"
       REPLIER_TWITTER_SERVICE_DISABLED="true"
+      # Frontend URL for password reset links
+      FRONTEND_URL="https://dev.cleanapp.io"
       # LLM provider defaults (dev = Gemini)
       ANALYZER_LLM_PROVIDER="gemini"
       GEMINI_MODEL="gemini-flash-latest"
@@ -174,6 +176,8 @@ case ${OPT} in
       # Replier-twitter
       CLEANAPP_BASE_URL="https://cleanapp.io"
       REPLIER_TWITTER_SERVICE_DISABLED="false"
+      # Frontend URL for password reset links
+      FRONTEND_URL="https://cleanapp.io"
       # LLM provider defaults (prod = OpenAI)
       ANALYZER_LLM_PROVIDER="gemini"
       GEMINI_MODEL="gemini-flash-latest"
@@ -695,6 +699,10 @@ services:
       - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
       - DB_NAME=cleanapp
       - GIN_MODE=${GIN_MODE}
+      - SENDGRID_API_KEY=\${SENDGRID_API_KEY}
+      - SENDGRID_FROM_NAME=${SENDGRID_FROM_NAME}
+      - SENDGRID_FROM_EMAIL=${SENDGRID_FROM_EMAIL}
+      - FRONTEND_URL=${FRONTEND_URL}
     ports:
       - 9084:8080
     depends_on:
