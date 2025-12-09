@@ -289,17 +289,21 @@ func (s *Service) AnalyzeReport(report *database.Report) {
 		LegalRiskEstimate:     analysis.LegalRiskEstimate,
 	}
 
-	// Save the English analysis to the database
+	// For digital reports: Extract user-provided contacts BEFORE saving to DB
+	// This ensures email-service sees enriched emails on first poll (no race condition)
+	if analysisResult.Classification == "digital" {
+		enrichedEmails := s.extractAndEnrichDigitalContacts(report, analysisResult)
+		if enrichedEmails != "" {
+			analysisResult.InferredContactEmails = enrichedEmails
+		}
+	}
+
+	// Save the English analysis to the database (now includes enriched emails)
 	if err := s.db.SaveAnalysis(analysisResult); err != nil {
 		log.Printf("Failed to save English analysis for report %d: %v", report.Seq, err)
 		return
 	} else {
 		log.Printf("Successfully saved English analysis for report %d", report.Seq)
-	}
-
-	// Enrich digital reports SYNCHRONOUSLY before publishing to ensure notifications have contact data
-	if analysisResult.Classification == "digital" {
-		s.enrichDigitalReportEmails(report, analysisResult)
 	}
 
 	// Add English analysis to collection
@@ -644,4 +648,78 @@ func (s *Service) enrichDigitalReportEmails(report *database.Report, analysis *d
 	if len(allSocials) > 0 {
 		log.Printf("Report %d: Brand %q social handles: %v", report.Seq, brandName, allSocials)
 	}
+}
+
+// extractAndEnrichDigitalContacts extracts user-provided contacts from report description
+// and returns enriched email string for use BEFORE SaveAnalysis (eliminates race condition)
+func (s *Service) extractAndEnrichDigitalContacts(report *database.Report, analysis *database.ReportAnalysis) string {
+	brandName := strings.ToLower(strings.TrimSpace(analysis.BrandName))
+	if brandName == "" {
+		log.Printf("Report %d: No brand name for digital report, skipping pre-save contact extraction", report.Seq)
+		return ""
+	}
+
+	log.Printf("Report %d: Pre-save contact extraction for brand %q", report.Seq, brandName)
+	log.Printf("Report %d: User annotation/description: %q (len=%d)", report.Seq, report.Description, len(report.Description))
+
+	// Process user-provided contacts from report description and save to brand_contacts
+	if err := s.contactService.ProcessReportDescription(brandName, report.Description); err != nil {
+		log.Printf("Report %d: Failed to process description contacts: %v", report.Seq, err)
+	}
+
+	// Get existing emails from LLM analysis
+	existingEmails := strings.Split(analysis.InferredContactEmails, ",")
+	for i := range existingEmails {
+		existingEmails[i] = strings.TrimSpace(existingEmails[i])
+	}
+
+	// Look up all contacts for this brand (including just-saved user-provided ones)
+	brandContacts, err := s.contactService.GetContactsForBrand(brandName)
+	if err != nil {
+		log.Printf("Report %d: Failed to get contacts for brand %q: %v", report.Seq, brandName, err)
+		return ""
+	}
+
+	if len(brandContacts) == 0 {
+		log.Printf("Report %d: No contacts found for brand %q", report.Seq, brandName)
+		return ""
+	}
+
+	log.Printf("Report %d: Found %d contacts for brand %q", report.Seq, len(brandContacts), brandName)
+
+	// Collect all emails
+	var allEmails []string
+	seen := make(map[string]bool)
+
+	// Add existing emails first
+	for _, email := range existingEmails {
+		if email != "" && !seen[strings.ToLower(email)] {
+			allEmails = append(allEmails, email)
+			seen[strings.ToLower(email)] = true
+		}
+	}
+
+	// Add emails from brand contacts (already ordered by priority - user-reported first)
+	for _, c := range brandContacts {
+		if c.Email != "" && !seen[strings.ToLower(c.Email)] {
+			allEmails = append(allEmails, c.Email)
+			seen[strings.ToLower(c.Email)] = true
+		}
+	}
+
+	// Validate emails
+	validEmails := osm.ValidateAndFilterEmails(allEmails)
+
+	// Limit to top 5 emails
+	if len(validEmails) > 5 {
+		validEmails = validEmails[:5]
+	}
+
+	if len(validEmails) > 0 {
+		enrichedEmails := strings.Join(validEmails, ", ")
+		log.Printf("Report %d: Pre-save enriched with %d contact emails: %s", report.Seq, len(validEmails), enrichedEmails)
+		return enrichedEmails
+	}
+
+	return ""
 }
