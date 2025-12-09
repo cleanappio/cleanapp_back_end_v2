@@ -13,7 +13,7 @@ const (
 	// CacheGridSize is the grid size in meters for coordinate rounding (100m)
 	CacheGridSize = 100.0
 	// CacheTTL is how long cached results are valid
-	CacheTTL = 30 * 24 * time.Hour // 30 days
+	CacheTTL = 365 * 24 * time.Hour // 1 year
 )
 
 // CachedLocationService wraps the OSM client with database caching
