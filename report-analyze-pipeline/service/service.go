@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"report-analyze-pipeline/config"
+	"report-analyze-pipeline/contacts"
 	"report-analyze-pipeline/database"
 	"report-analyze-pipeline/gemini"
 	"report-analyze-pipeline/llm"
@@ -20,13 +21,14 @@ import (
 
 // Service represents the report analysis service
 type Service struct {
-	config       *config.Config
-	db           *database.Database
-	llmClient    llm.Client
-	brandService *services.BrandService
-	osmService   *osm.CachedLocationService
-	publisher    *rabbitmq.Publisher
-	stopChan     chan bool
+	config          *config.Config
+	db              *database.Database
+	llmClient       llm.Client
+	brandService    *services.BrandService
+	osmService      *osm.CachedLocationService
+	contactService  *contacts.ContactService
+	publisher       *rabbitmq.Publisher
+	stopChan        chan bool
 }
 
 // NewService creates a new report analysis service
@@ -62,14 +64,18 @@ func NewService(cfg *config.Config, db *database.Database) *Service {
 	// Initialize OSM location service for physical report email inference
 	osmService := osm.NewCachedLocationService(db.GetDB())
 
+	// Initialize contact service for digital report email enrichment
+	contactService := contacts.NewContactService(db.GetDB())
+
 	return &Service{
-		config:       cfg,
-		db:           db,
-		llmClient:    client,
-		brandService: brandService,
-		osmService:   osmService,
-		publisher:    publisher,
-		stopChan:     make(chan bool),
+		config:          cfg,
+		db:              db,
+		llmClient:       client,
+		brandService:    brandService,
+		osmService:      osmService,
+		contactService:  contactService,
+		publisher:       publisher,
+		stopChan:        make(chan bool),
 	}
 }
 
@@ -93,6 +99,15 @@ func (s *Service) Start() {
 	if err := s.osmService.CreateCacheTable(); err != nil {
 		log.Printf("Failed to create osm_location_cache table: %v", err)
 		// Continue - OSM is optional
+	}
+
+	// Create brand_contacts table and seed known contacts
+	if err := s.contactService.CreateBrandContactsTable(); err != nil {
+		log.Printf("Failed to create brand_contacts table: %v", err)
+	} else {
+		if err := s.contactService.SeedKnownContacts(); err != nil {
+			log.Printf("Failed to seed known contacts: %v", err)
+		}
 	}
 }
 
@@ -362,6 +377,8 @@ func (s *Service) AnalyzeReport(report *database.Report) {
 	// This runs after the initial analysis is complete, so it doesn't add latency
 	if analysisResult.Classification == "physical" {
 		go s.enrichPhysicalReportEmails(report, analysisResult)
+	} else if analysisResult.Classification == "digital" {
+		go s.enrichDigitalReportEmails(report, analysisResult)
 	}
 }
 
@@ -524,3 +541,81 @@ func (s *Service) enrichPhysicalReportEmails(report *database.Report, analysis *
 	}
 }
 
+// enrichDigitalReportEmails enriches digital reports with contacts from brand_contacts table
+// This runs in a goroutine to avoid blocking the main analysis flow
+func (s *Service) enrichDigitalReportEmails(report *database.Report, analysis *database.ReportAnalysis) {
+	brandName := strings.ToLower(strings.TrimSpace(analysis.BrandName))
+	if brandName == "" {
+		log.Printf("Report %d: No brand name for digital report, skipping contact enrichment", report.Seq)
+		return
+	}
+
+	log.Printf("Report %d: Enriching digital report for brand %q", report.Seq, brandName)
+
+	// Get existing emails from analysis
+	existingEmails := strings.Split(analysis.InferredContactEmails, ",")
+	for i := range existingEmails {
+		existingEmails[i] = strings.TrimSpace(existingEmails[i])
+	}
+
+	// Look up contacts for this brand
+	brandContacts, err := s.contactService.GetContactsForBrand(brandName)
+	if err != nil {
+		log.Printf("Report %d: Failed to get contacts for brand %q: %v", report.Seq, brandName, err)
+		return
+	}
+
+	if len(brandContacts) == 0 {
+		log.Printf("Report %d: No contacts found for brand %q in database", report.Seq, brandName)
+		return
+	}
+
+	log.Printf("Report %d: Found %d contacts for brand %q", report.Seq, len(brandContacts), brandName)
+
+	// Collect all emails and social handles
+	var allEmails []string
+	var allSocials []string
+	seen := make(map[string]bool)
+
+	// Add existing emails first
+	for _, email := range existingEmails {
+		if email != "" && !seen[strings.ToLower(email)] {
+			allEmails = append(allEmails, email)
+			seen[strings.ToLower(email)] = true
+		}
+	}
+
+	// Add emails from brand contacts (already ordered by seniority)
+	for _, c := range brandContacts {
+		if c.Email != "" && !seen[strings.ToLower(c.Email)] {
+			allEmails = append(allEmails, c.Email)
+			seen[strings.ToLower(c.Email)] = true
+		}
+		if c.TwitterHandle != "" {
+			allSocials = append(allSocials, c.TwitterHandle)
+		}
+	}
+
+	// Validate emails
+	validEmails := osm.ValidateAndFilterEmails(allEmails)
+
+	// Limit to top 5 emails
+	if len(validEmails) > 5 {
+		validEmails = validEmails[:5]
+	}
+
+	if len(validEmails) > 0 {
+		enrichedEmails := strings.Join(validEmails, ", ")
+		if err := s.db.UpdateInferredContactEmails(report.Seq, enrichedEmails); err != nil {
+			log.Printf("Report %d: Failed to update with brand contact emails: %v", report.Seq, err)
+		} else {
+			log.Printf("Report %d: Enriched with %d brand contact emails: %s",
+				report.Seq, len(validEmails), enrichedEmails)
+		}
+	}
+
+	// Log social handles for reference (could be stored separately in future)
+	if len(allSocials) > 0 {
+		log.Printf("Report %d: Brand %q social handles: %v", report.Seq, brandName, allSocials)
+	}
+}
