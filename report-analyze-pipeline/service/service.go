@@ -369,9 +369,13 @@ func (s *Service) AnalyzeReport(report *database.Report) {
 // This runs in a goroutine to avoid blocking the main analysis flow
 func (s *Service) enrichPhysicalReportEmails(report *database.Report, analysis *database.ReportAnalysis) {
 	// Skip if we already have good inferred emails (from image analysis)
-	if analysis.InferredContactEmails != "" && len(strings.Split(analysis.InferredContactEmails, ",")) >= 3 {
-		log.Printf("Report %d: Already has %d inferred emails, skipping OSM enrichment",
-			report.Seq, len(strings.Split(analysis.InferredContactEmails, ",")))
+	existingEmails := strings.Split(analysis.InferredContactEmails, ",")
+	for i := range existingEmails {
+		existingEmails[i] = strings.TrimSpace(existingEmails[i])
+	}
+	if len(osm.ValidateAndFilterEmails(existingEmails)) >= 3 {
+		log.Printf("Report %d: Already has %d valid inferred emails, skipping OSM enrichment",
+			report.Seq, len(existingEmails))
 		return
 	}
 
@@ -386,84 +390,135 @@ func (s *Service) enrichPhysicalReportEmails(report *database.Report, analysis *
 		return
 	}
 
-	// Fetch OSM location context
+	// Collect all discovered emails with provenance
+	var allEmails []string
+	
+	// Step 1: Reverse geocode with Nominatim
 	locCtx, err := s.osmService.GetLocationContext(report.Latitude, report.Longitude)
 	if err != nil {
 		log.Printf("Report %d: Failed to get OSM location context: %v", report.Seq, err)
-		return
 	}
-
-	// Check if we have useful data
-	if locCtx == nil || !locCtx.HasUsefulData() {
-		log.Printf("Report %d: No useful OSM data for location (%.4f, %.4f), skipping enrichment",
-			report.Seq, report.Latitude, report.Longitude)
-		return
-	}
-
-	log.Printf("Report %d: OSM returned: primary=%q, parent=%q, domain=%q, type=%q",
-		report.Seq, locCtx.PrimaryName, locCtx.ParentOrg, locCtx.Domain, locCtx.LocationType)
-
-	// If OSM already has a contact email, use it
-	if locCtx.ContactEmail != "" {
-		enrichedEmails := locCtx.ContactEmail
-		if analysis.InferredContactEmails != "" {
-			enrichedEmails = locCtx.ContactEmail + ", " + analysis.InferredContactEmails
+	
+	if locCtx != nil && locCtx.HasUsefulData() {
+		log.Printf("Report %d: Nominatim returned: primary=%q, parent=%q, domain=%q, type=%q",
+			report.Seq, locCtx.PrimaryName, locCtx.ParentOrg, locCtx.Domain, locCtx.LocationType)
+		
+		// Direct email from OSM tags (highest priority)
+		if locCtx.ContactEmail != "" {
+			allEmails = append(allEmails, locCtx.ContactEmail)
 		}
+		
+		// Step 2: Generate hierarchy-based emails
+		hierarchy := s.osmService.Client().GetLocationHierarchy(locCtx)
+		hierarchyEmails := osm.GenerateHierarchyEmails(hierarchy)
+		allEmails = append(allEmails, hierarchyEmails...)
+		log.Printf("Report %d: Generated %d hierarchy emails from %d levels",
+			report.Seq, len(hierarchyEmails), len(hierarchy))
+		
+		// Step 3: Scrape website for mailto links
+		if locCtx.Domain != "" {
+			websiteURL := "https://" + locCtx.Domain
+			scrapedEmails, err := s.osmService.Client().ScrapeEmailsFromWebsite(websiteURL)
+			if err != nil {
+				log.Printf("Report %d: Website scrape failed: %v", report.Seq, err)
+			} else if len(scrapedEmails) > 0 {
+				allEmails = append(allEmails, scrapedEmails...)
+				log.Printf("Report %d: Scraped %d emails from %s", report.Seq, len(scrapedEmails), websiteURL)
+			}
+		}
+	}
+	
+	// Step 4: Query Overpass for nearby POIs (may find additional buildings/orgs)
+	pois, err := s.osmService.Client().QueryNearbyPOIs(report.Latitude, report.Longitude, 200)
+	if err != nil {
+		log.Printf("Report %d: Overpass query failed: %v", report.Seq, err)
+	} else if len(pois) > 0 {
+		log.Printf("Report %d: Overpass found %d nearby POIs", report.Seq, len(pois))
+		
+		for _, poi := range pois {
+			// Direct contact email from POI
+			if poi.ContactEmail != "" {
+				allEmails = append(allEmails, poi.ContactEmail)
+			}
+			
+			// Try scraping POI website
+			if poi.Website != "" && len(allEmails) < 10 { // Limit scraping
+				scrapedEmails, err := s.osmService.Client().ScrapeEmailsFromWebsite(poi.Website)
+				if err == nil && len(scrapedEmails) > 0 {
+					allEmails = append(allEmails, scrapedEmails...)
+					log.Printf("Report %d: Scraped %d emails from POI %q website",
+						report.Seq, len(scrapedEmails), poi.Name)
+				}
+			}
+		}
+	}
+	
+	// Step 5: Validate and deduplicate all collected emails
+	validEmails := osm.ValidateAndFilterEmails(allEmails)
+	log.Printf("Report %d: %d valid emails after filtering (from %d total)",
+		report.Seq, len(validEmails), len(allEmails))
+	
+	// Step 6: If we found enough emails, save them
+	if len(validEmails) >= 2 {
+		// Limit to top 5
+		if len(validEmails) > 5 {
+			validEmails = validEmails[:5]
+		}
+		enrichedEmails := strings.Join(validEmails, ", ")
 		if err := s.db.UpdateInferredContactEmails(report.Seq, enrichedEmails); err != nil {
-			log.Printf("Report %d: Failed to update with OSM contact email: %v", report.Seq, err)
+			log.Printf("Report %d: Failed to update with enriched emails: %v", report.Seq, err)
+		} else {
+			log.Printf("Report %d: Enriched with %d OSM-based emails: %s",
+				report.Seq, len(validEmails), enrichedEmails)
+			s.osmService.SaveInferredEmails(report.Latitude, report.Longitude, enrichedEmails)
 		}
-		// Cache the enriched emails
-		s.osmService.SaveInferredEmails(report.Latitude, report.Longitude, enrichedEmails)
 		return
 	}
+	
+	// Step 7: Fall back to LLM re-analysis with location context if we didn't find enough
+	if locCtx != nil && locCtx.HasUsefulData() {
+		if geminiClient, ok := s.llmClient.(*gemini.Client); ok {
+			imageData, err := s.db.GetReportImage(report.Seq)
+			if err != nil {
+				log.Printf("Report %d: Failed to fetch image for LLM enrichment: %v", report.Seq, err)
+				return
+			}
 
-	// Use Gemini to infer better emails with location context
-	// Only do this if we're using Gemini (has the AnalyzeImageWithLocation method)
-	if geminiClient, ok := s.llmClient.(*gemini.Client); ok {
-		// Get the image again for re-analysis with location context
-		imageData, err := s.db.GetReportImage(report.Seq)
-		if err != nil {
-			log.Printf("Report %d: Failed to fetch image for enrichment: %v", report.Seq, err)
-			return
-		}
+			geminiLocCtx := &gemini.LocationContext{
+				PrimaryName:  locCtx.PrimaryName,
+				ParentOrg:    locCtx.ParentOrg,
+				Operator:     locCtx.Operator,
+				Domain:       locCtx.Domain,
+				ContactEmail: locCtx.ContactEmail,
+				LocationType: locCtx.LocationType,
+				City:         locCtx.Address.City,
+				State:        locCtx.Address.State,
+				Country:      locCtx.Address.Country,
+			}
 
-		// Build location context for Gemini
-		geminiLocCtx := &gemini.LocationContext{
-			PrimaryName:  locCtx.PrimaryName,
-			ParentOrg:    locCtx.ParentOrg,
-			Operator:     locCtx.Operator,
-			Domain:       locCtx.Domain,
-			ContactEmail: locCtx.ContactEmail,
-			LocationType: locCtx.LocationType,
-			City:         locCtx.Address.City,
-			State:        locCtx.Address.State,
-			Country:      locCtx.Address.Country,
-		}
+			response, err := geminiClient.AnalyzeImageWithLocation(imageData, report.Description, geminiLocCtx)
+			if err != nil {
+				log.Printf("Report %d: Failed to re-analyze with location context: %v", report.Seq, err)
+				return
+			}
 
-		// Re-analyze with location context
-		response, err := geminiClient.AnalyzeImageWithLocation(imageData, report.Description, geminiLocCtx)
-		if err != nil {
-			log.Printf("Report %d: Failed to re-analyze with location context: %v", report.Seq, err)
-			return
-		}
+			enrichedAnalysis, err := parser.ParseAnalysis(response)
+			if err != nil {
+				log.Printf("Report %d: Failed to parse enriched analysis: %v", report.Seq, err)
+				return
+			}
 
-		// Parse the enriched response
-		enrichedAnalysis, err := parser.ParseAnalysis(response)
-		if err != nil {
-			log.Printf("Report %d: Failed to parse enriched analysis: %v", report.Seq, err)
-			return
-		}
-
-		// Update with enriched emails
-		enrichedEmails := strings.Join(enrichedAnalysis.InferredContactEmails, ", ")
-		if enrichedEmails != "" {
-			if err := s.db.UpdateInferredContactEmails(report.Seq, enrichedEmails); err != nil {
-				log.Printf("Report %d: Failed to update with enriched emails: %v", report.Seq, err)
-			} else {
-				log.Printf("Report %d: Enriched with %d OSM-based emails",
-					report.Seq, len(enrichedAnalysis.InferredContactEmails))
-				// Cache the enriched emails
-				s.osmService.SaveInferredEmails(report.Latitude, report.Longitude, enrichedEmails)
+			// Validate LLM-generated emails
+			llmEmails := osm.ValidateAndFilterEmails(enrichedAnalysis.InferredContactEmails)
+			if len(llmEmails) > 0 {
+				enrichedEmails := strings.Join(llmEmails, ", ")
+				if err := s.db.UpdateInferredContactEmails(report.Seq, enrichedEmails); err != nil {
+					log.Printf("Report %d: Failed to update with LLM emails: %v", report.Seq, err)
+				} else {
+					log.Printf("Report %d: Enriched with %d LLM-inferred emails",
+						report.Seq, len(llmEmails))
+					s.osmService.SaveInferredEmails(report.Latitude, report.Longitude, enrichedEmails)
+				}
 			}
 		}
 	}

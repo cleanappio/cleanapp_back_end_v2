@@ -30,6 +30,11 @@ func NewCachedLocationService(db *sql.DB) *CachedLocationService {
 	}
 }
 
+// Client returns the underlying OSM client for direct access
+func (s *CachedLocationService) Client() *Client {
+	return s.client
+}
+
 // CreateCacheTable creates the OSM location cache table if it doesn't exist
 func (s *CachedLocationService) CreateCacheTable() error {
 	query := `
