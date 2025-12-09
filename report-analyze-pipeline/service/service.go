@@ -552,6 +552,11 @@ func (s *Service) enrichDigitalReportEmails(report *database.Report, analysis *d
 
 	log.Printf("Report %d: Enriching digital report for brand %q", report.Seq, brandName)
 
+	// Process user-provided contacts from report description
+	if err := s.contactService.ProcessReportDescription(brandName, report.Description); err != nil {
+		log.Printf("Report %d: Failed to process description contacts: %v", report.Seq, err)
+	}
+
 	// Get existing emails from analysis
 	existingEmails := strings.Split(analysis.InferredContactEmails, ",")
 	for i := range existingEmails {

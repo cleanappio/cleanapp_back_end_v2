@@ -83,7 +83,7 @@ func (s *ContactService) GetContactsForBrand(brandName string) ([]Contact, error
 	       email, email_verified, twitter_handle, linkedin_url, github_handle, source, created_at
 	FROM brand_contacts
 	WHERE brand_name = ?
-	ORDER BY FIELD(contact_level, 'founder', 'c_suite', 'vp', 'director', 'manager', 'ic')
+	ORDER BY CASE WHEN contact_title = 'Reported via App' THEN 0 ELSE 1 END, FIELD(contact_level, 'founder', 'c_suite', 'vp', 'director', 'manager', 'ic')
 	`
 	
 	rows, err := s.db.Query(query, brandName)
@@ -125,7 +125,7 @@ func (s *ContactService) GetContactsForBrandProduct(brandName, productName strin
 	       email, email_verified, twitter_handle, linkedin_url, github_handle, source, created_at
 	FROM brand_contacts
 	WHERE brand_name = ? AND (product_name = ? OR product_name IS NULL OR product_name = '')
-	ORDER BY FIELD(contact_level, 'founder', 'c_suite', 'vp', 'director', 'manager', 'ic')
+	ORDER BY CASE WHEN contact_title = 'Reported via App' THEN 0 ELSE 1 END, FIELD(contact_level, 'founder', 'c_suite', 'vp', 'director', 'manager', 'ic')
 	`
 	
 	rows, err := s.db.Query(query, brandName, productName)
