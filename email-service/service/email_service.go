@@ -436,7 +436,7 @@ func (s *EmailService) sendEmailsToInferredContacts(ctx context.Context, report 
 	}
 
 	// Send emails with analysis data and map image
-	err = s.email.SendEmailsWithAnalysis(validEmails, report.Image, mapImg, analysis)
+	err := s.email.SendEmailsWithAnalysis(validEmails, report.Image, mapImg, analysis)
 	if err != nil {
 		return err
 	}
