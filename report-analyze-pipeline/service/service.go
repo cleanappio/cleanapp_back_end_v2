@@ -565,10 +565,26 @@ func (s *Service) enrichDigitalReportEmails(report *database.Report, analysis *d
 		return
 	}
 
+	// If no contacts found, try Phase 2 discovery
 	if len(brandContacts) == 0 {
-		log.Printf("Report %d: No contacts found for brand %q in database", report.Seq, brandName)
-		return
+		log.Printf("Report %d: No contacts in DB for brand %q, attempting discovery...", report.Seq, brandName)
+		
+		// Infer domain from brand name (simple heuristic)
+		domain := brandName + ".com"
+		
+		// Run discovery (LinkedIn, Twitter, GitHub)
+		if err := s.contactService.DiscoverAndSaveContactsForBrand(brandName, domain); err != nil {
+			log.Printf("Report %d: Discovery failed for brand %q: %v", report.Seq, brandName, err)
+		}
+		
+		// Re-fetch contacts after discovery
+		brandContacts, err = s.contactService.GetContactsForBrand(brandName)
+		if err != nil || len(brandContacts) == 0 {
+			log.Printf("Report %d: Still no contacts for brand %q after discovery", report.Seq, brandName)
+			return
+		}
 	}
+
 
 	log.Printf("Report %d: Found %d contacts for brand %q", report.Seq, len(brandContacts), brandName)
 
