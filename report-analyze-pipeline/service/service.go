@@ -553,6 +553,7 @@ func (s *Service) enrichDigitalReportEmails(report *database.Report, analysis *d
 	}
 
 	log.Printf("Report %d: Enriching digital report for brand %q", report.Seq, brandName)
+	log.Printf("Report %d: Description field: %q (len=%d)", report.Seq, report.Description, len(report.Description))
 
 	// Process user-provided contacts from report description
 	if err := s.contactService.ProcessReportDescription(brandName, report.Description); err != nil {

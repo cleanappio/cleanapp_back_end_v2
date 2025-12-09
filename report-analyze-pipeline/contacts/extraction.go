@@ -61,13 +61,16 @@ func ExtractContactsFromText(text string) (emails []string, handles []string) {
 
 // ProcessReportDescription extracts and saves contacts from report description
 func (s *ContactService) ProcessReportDescription(brandName string, description string) error {
+	log.Printf("ProcessReportDescription called for brand %q with description: %q", brandName, description)
+	
 	emails, handles := ExtractContactsFromText(description)
 	
 	if len(emails) == 0 && len(handles) == 0 {
+		log.Printf("ProcessReportDescription: No emails or handles extracted from description")
 		return nil
 	}
 	
-	log.Printf("Extracted from description for %s: %d emails, %d handles", brandName, len(emails), len(handles))
+	log.Printf("Extracted from description for %s: %d emails (%v), %d handles (%v)", brandName, len(emails), emails, len(handles), handles)
 
 	// Check existing contacts to prevent overwrites or duplicates
 	existingContacts, err := s.GetContactsForBrand(brandName)
