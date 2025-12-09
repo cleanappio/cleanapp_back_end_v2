@@ -422,11 +422,17 @@ func (s *EmailService) sendEmailsToInferredContacts(ctx context.Context, report 
 
 	log.Infof("Sending emails to %d valid inferred contacts for report %d (filtered from %d total)", len(validEmails), report.Seq, len(emails))
 
-	// Generate map image for inferred contacts (1km map centered on report coordinates)
-	mapImg, err := email.GeneratePolygonImg(nil, report.Latitude, report.Longitude)
-	if err != nil {
-		log.Warnf("Failed to generate map image for report %d: %v, sending email without map", report.Seq, err)
-		// Continue without map image
+	// Generate map image only for physical reports (digital reports don't need location context)
+	var mapImg []byte
+	if analysis.Classification != "digital" {
+		var err error
+		mapImg, err = email.GeneratePolygonImg(nil, report.Latitude, report.Longitude)
+		if err != nil {
+			log.Warnf("Failed to generate map image for report %d: %v, sending email without map", report.Seq, err)
+			// Continue without map image
+		}
+	} else {
+		log.Infof("Report %d is digital, skipping map generation", report.Seq)
 	}
 
 	// Send emails with analysis data and map image
