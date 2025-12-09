@@ -297,6 +297,11 @@ func (s *Service) AnalyzeReport(report *database.Report) {
 		log.Printf("Successfully saved English analysis for report %d", report.Seq)
 	}
 
+	// Enrich digital reports SYNCHRONOUSLY before publishing to ensure notifications have contact data
+	if analysisResult.Classification == "digital" {
+		s.enrichDigitalReportEmails(report, analysisResult)
+	}
+
 	// Add English analysis to collection
 	allAnalyses = append(allAnalyses, analysisResult)
 
@@ -373,12 +378,9 @@ func (s *Service) AnalyzeReport(report *database.Report) {
 	// Publish the analyzed report to RabbitMQ
 	s.publishAnalyzedReport(report, allAnalyses)
 
-	// Background enrichment for physical reports: fetch OSM context and enrich contact emails
-	// This runs after the initial analysis is complete, so it doesn't add latency
+	// Background enrichment for physical reports only (digital handled synchronously above)
 	if analysisResult.Classification == "physical" {
 		go s.enrichPhysicalReportEmails(report, analysisResult)
-	} else if analysisResult.Classification == "digital" {
-		go s.enrichDigitalReportEmails(report, analysisResult)
 	}
 }
 
@@ -632,6 +634,8 @@ func (s *Service) enrichDigitalReportEmails(report *database.Report, analysis *d
 		} else {
 			log.Printf("Report %d: Enriched with %d brand contact emails: %s",
 				report.Seq, len(validEmails), enrichedEmails)
+			// Update the analysis struct so RabbitMQ publish has the data
+			analysis.InferredContactEmails = enrichedEmails
 		}
 	}
 
