@@ -152,11 +152,22 @@ func (e *EmailSender) sendOneEmail(recipient string, reportImage, mapImage []byt
 func (e *EmailSender) sendOneEmailWithAnalysis(recipient string, reportImage, mapImage []byte, analysis *models.ReportAnalysis) error {
 	from := mail.NewEmail(e.config.SendGridFromName, e.config.SendGridFromEmail)
 
-	// Create subject with analysis title
-	subject := "CleanApp Report"
-	if analysis.Title != "" {
-		subject = fmt.Sprintf("CleanApp Report: %s", analysis.Title)
+	// Create data-driven subject line: "Brand issue #N: Title"
+	brandDisplay := analysis.BrandDisplayName
+	if brandDisplay == "" {
+		brandDisplay = analysis.BrandName
 	}
+	if brandDisplay == "" {
+		brandDisplay = "Unknown"
+	}
+	
+	// Truncate title to ~50 chars for subject line
+	shortTitle := analysis.Title
+	if len(shortTitle) > 50 {
+		shortTitle = shortTitle[:47] + "..."
+	}
+	
+	subject := fmt.Sprintf("%s issue #%d: %s", brandDisplay, analysis.BrandReportCount, shortTitle)
 
 	to := mail.NewEmail(recipient, recipient)
 
@@ -279,8 +290,23 @@ func (e *EmailSender) getEmailHtml(recipient string, hasReport, hasMap bool) str
 
 // getEmailTextWithAnalysis returns the plain text content for emails with analysis data
 func (e *EmailSender) getEmailTextWithAnalysis(recipient string, analysis *models.ReportAnalysis, hasReport, hasMap bool) string {
+	// Get brand display name
+	brandDisplay := analysis.BrandDisplayName
+	if brandDisplay == "" {
+		brandDisplay = analysis.BrandName
+	}
+	if brandDisplay == "" {
+		brandDisplay = "this product"
+	}
+
 	// Get the dashboard URL
 	ctaURL := e.getDashboardURL(analysis)
+
+	// Dynamic CTA text
+	ctaText := fmt.Sprintf("View all %d reports about %s", analysis.BrandReportCount, brandDisplay)
+	if analysis.BrandReportCount <= 1 {
+		ctaText = fmt.Sprintf("View report about %s", brandDisplay)
+	}
 
 	// Get the AI-generated cost estimate or provide a default
 	costEstimate := analysis.LegalRiskEstimate
@@ -305,9 +331,7 @@ func (e *EmailSender) getEmailTextWithAnalysis(recipient string, analysis *model
 
 	legalRiskPercent := analysis.HazardProbability * 100
 
-	content := fmt.Sprintf(`Hello,
-
-A new issue has been flagged that may impact safety, brand, or compliance.
+	content := fmt.Sprintf(`This is the #%d report CleanApp users have submitted about %s. Here's what they're seeing:
 
 REPORT DETAILS:
 Title: %s
@@ -319,7 +343,7 @@ LEGAL RISK FACTOR: %.1f%%
 ESTIMATED LIABILITY:
 %s
 %s
-To see full reports, visit: %s
+%s: %s
 
 It takes just 30 seconds to review reports, confirm the risks, and get a fix.
 
@@ -335,12 +359,15 @@ https://www.linkedin.com/in/borismamlyuk/
 
 To unsubscribe from these emails, please visit: %s?email=%s
 You can also reply to this email with "UNSUBSCRIBE" in the subject line.`,
+		analysis.BrandReportCount,
+		brandDisplay,
 		analysis.Title,
 		analysis.Description,
 		analysis.Classification,
 		legalRiskPercent,
 		costEstimate,
 		attachments,
+		ctaText,
 		ctaURL,
 		e.config.OptOutURL,
 		recipient)
@@ -357,6 +384,15 @@ func (e *EmailSender) getEmailHtmlWithAnalysis(recipient string, analysis *model
 
 	// Determine if this is a digital report
 	isDigital := analysis.Classification == "digital"
+
+	// Get brand display name
+	brandDisplay := analysis.BrandDisplayName
+	if brandDisplay == "" {
+		brandDisplay = analysis.BrandName
+	}
+	if brandDisplay == "" {
+		brandDisplay = "this product"
+	}
 
 	imagesSection := ""
 	if hasReport {
@@ -378,10 +414,14 @@ func (e *EmailSender) getEmailHtmlWithAnalysis(recipient string, analysis *model
 <html>
 <head>
     <meta charset="utf-8">
-    <title>CleanApp Report: %s</title>
+    <title>%s issue #%d</title>
     <style>
         body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
         .header { background-color: #f8f9fa; padding: 20px; border-radius: 5px; margin-bottom: 20px; }
+        .header h2 { margin: 0 0 10px 0; color: #333; }
+        .header p { margin: 0; color: #555; font-size: 1.1em; }
+        .report-count { font-weight: bold; color: #dc3545; }
+        .brand-name { font-weight: bold; }
         .analysis-section { background-color: #e9ecef; padding: 15px; border-radius: 5px; margin: 15px 0; }
         .gauge-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin: 20px 0; }
         .gauge-item { background-color: #fff; padding: 15px; border-radius: 8px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
@@ -401,8 +441,8 @@ func (e *EmailSender) getEmailHtmlWithAnalysis(recipient string, analysis *model
 </head>
 <body>
     <div class="header">
-        <h2>CleanApp Report Analysis</h2>
-        <p>A new report has been analyzed and requires your attention.</p>
+        <h2>New Issue Reported</h2>
+        <p>This is the <span class="report-count">#%d</span> report CleanApp users have submitted about <span class="brand-name">%s</span>. Here's what they're seeing:</p>
     </div>
     
     <div class="analysis-section">
@@ -429,18 +469,21 @@ func (e *EmailSender) getEmailHtmlWithAnalysis(recipient string, analysis *model
     </div>
 </body>
 </html>`,
-		analysis.Title,
+		brandDisplay,
+		analysis.BrandReportCount,
+		analysis.BrandReportCount,
+		brandDisplay,
 		analysis.Title,
 		analysis.Description,
 		analysis.Classification,
-		e.getMetricsSection(analysis, isDigital, litterColor, hazardColor, severityColor),
+		e.getMetricsSection(analysis, isDigital, brandDisplay, litterColor, hazardColor, severityColor),
 		imagesSection,
 		e.config.OptOutURL,
 		recipient)
 }
 
 // getMetricsSection returns the Legal Risk Factor section with AI cost estimate
-func (e *EmailSender) getMetricsSection(analysis *models.ReportAnalysis, isDigital bool, litterColor, hazardColor, severityColor string) string {
+func (e *EmailSender) getMetricsSection(analysis *models.ReportAnalysis, isDigital bool, brandDisplay, litterColor, hazardColor, severityColor string) string {
 	// Get the Legal Risk Factor gauge (based on hazard probability)
 	legalRiskColor := hazardColor
 	legalRiskValue := analysis.HazardProbability * 100
@@ -458,7 +501,12 @@ func (e *EmailSender) getMetricsSection(analysis *models.ReportAnalysis, isDigit
 
 	// Generate CTA button URL based on report type
 	ctaURL := e.getDashboardURL(analysis)
-	ctaText := "See Full Reports"
+	
+	// Dynamic CTA text: "View all N reports about Brand"
+	ctaText := fmt.Sprintf("View all %d reports about %s", analysis.BrandReportCount, brandDisplay)
+	if analysis.BrandReportCount <= 1 {
+		ctaText = fmt.Sprintf("View report about %s", brandDisplay)
+	}
 
 	return fmt.Sprintf(`
     <div style="margin: 20px 0;">

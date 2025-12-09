@@ -554,6 +554,23 @@ func (s *EmailService) getReportAnalysis(ctx context.Context, seq int64) (*model
 	analysis.BrandDisplayName = brandDisplayName.String
 	analysis.LegalRiskEstimate = legalRiskEstimate.String
 
+	// Count total reports for this brand (for personalized email messaging)
+	if analysis.BrandName != "" {
+		countQuery := `
+			SELECT COUNT(DISTINCT seq) 
+			FROM report_analysis 
+			WHERE brand_name = ? AND language = 'en'
+		`
+		var count int
+		if err := s.db.QueryRowContext(ctx, countQuery, analysis.BrandName).Scan(&count); err != nil {
+			log.Warnf("Failed to count reports for brand %s: %v", analysis.BrandName, err)
+			// Continue without count - not critical
+		} else {
+			analysis.BrandReportCount = count
+			log.Infof("Brand %s has %d total reports", analysis.BrandName, count)
+		}
+	}
+
 	log.Infof("getReportAnalysis loaded seq %d (in %s)", seq, time.Since(qStart))
 	return &analysis, nil
 }

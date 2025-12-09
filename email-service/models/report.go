@@ -29,4 +29,6 @@ type ReportAnalysis struct {
 	InferredContactEmails string  `json:"inferred_contact_emails"`
 	Classification        string  `json:"classification"`
 	LegalRiskEstimate     string  `json:"legal_risk_estimate"`
+	BrandReportCount      int     `json:"brand_report_count"` // Total reports for this brand
 }
+
