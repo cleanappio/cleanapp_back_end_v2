@@ -482,14 +482,21 @@ func (s *EmailService) sendEmailsForArea(ctx context.Context, report models.Repo
 
 	log.Infof("Sending emails to %d valid contacts for area (filtered from %d total)", len(validEmails), len(emails))
 
-	// Generate polygon image
-	polyImg, err := email.GeneratePolygonImg(feature, report.Latitude, report.Longitude)
-	if err != nil {
-		return fmt.Errorf("failed to generate polygon image: %w", err)
+	// Generate polygon image only for physical reports (digital reports don't need location)
+	var polyImg []byte
+	if analysis.Classification != "digital" {
+		var err error
+		polyImg, err = email.GeneratePolygonImg(feature, report.Latitude, report.Longitude)
+		if err != nil {
+			log.Warnf("Failed to generate polygon image: %v, sending email without map", err)
+			// Continue without map image
+		}
+	} else {
+		log.Infof("Report %d is digital, skipping polygon image generation", report.Seq)
 	}
 
 	// Send emails with analysis data
-	err = s.email.SendEmailsWithAnalysis(validEmails, report.Image, polyImg, analysis)
+	err := s.email.SendEmailsWithAnalysis(validEmails, report.Image, polyImg, analysis)
 	if err != nil {
 		return err
 	}
