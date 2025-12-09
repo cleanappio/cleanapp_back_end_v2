@@ -687,23 +687,24 @@ func (s *Service) extractAndEnrichDigitalContacts(report *database.Report, analy
 
 	log.Printf("Report %d: Found %d contacts for brand %q", report.Seq, len(brandContacts), brandName)
 
-	// Collect all emails
+	// Collect all emails - prioritize stored brand contacts over LLM-inferred emails
 	var allEmails []string
 	seen := make(map[string]bool)
 
-	// Add existing emails first
-	for _, email := range existingEmails {
-		if email != "" && !seen[strings.ToLower(email)] {
-			allEmails = append(allEmails, email)
-			seen[strings.ToLower(email)] = true
-		}
-	}
-
-	// Add emails from brand contacts (already ordered by priority - user-reported first)
+	// Add emails from brand contacts FIRST (user-provided contacts get priority)
+	// These are already ordered by priority in GetContactsForBrand - user-reported first
 	for _, c := range brandContacts {
 		if c.Email != "" && !seen[strings.ToLower(c.Email)] {
 			allEmails = append(allEmails, c.Email)
 			seen[strings.ToLower(c.Email)] = true
+		}
+	}
+
+	// Add LLM-inferred emails second (fallback if brand contacts don't fill the limit)
+	for _, email := range existingEmails {
+		if email != "" && !seen[strings.ToLower(email)] {
+			allEmails = append(allEmails, email)
+			seen[strings.ToLower(email)] = true
 		}
 	}
 
