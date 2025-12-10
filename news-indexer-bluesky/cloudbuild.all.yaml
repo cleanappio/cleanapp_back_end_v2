@@ -1,0 +1,20 @@
+steps:
+  # Build indexer image from multi-target Dockerfile
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-f', 'Dockerfile.bluesky_all', '--target', 'indexer', '-t', '${_TAG_INDEXER}', '.']
+
+  # Build analyzer image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-f', 'Dockerfile.bluesky_all', '--target', 'analyzer', '-t', '${_TAG_ANALYZER}', '.']
+
+  # Build submitter image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-f', 'Dockerfile.bluesky_all', '--target', 'submitter', '-t', '${_TAG_SUBMITTER}', '.']
+
+images:
+  - '${_TAG_INDEXER}'
+  - '${_TAG_ANALYZER}'
+  - '${_TAG_SUBMITTER}'
+
+options:
+  machineType: 'E2_HIGHCPU_32'

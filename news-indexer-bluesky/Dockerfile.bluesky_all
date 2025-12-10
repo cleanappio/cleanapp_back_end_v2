@@ -1,0 +1,31 @@
+FROM rust:1.83-bullseye AS builder
+
+WORKDIR /app
+
+COPY Cargo.toml Cargo.lock* ./
+COPY src ./src
+
+# Build all binaries
+RUN cargo build --release --bins
+
+# Common runtime base
+FROM debian:bullseye-slim AS runtime-base
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+WORKDIR /srv
+ENV RUST_LOG=info
+ENV RUST_BACKTRACE=1
+
+# Indexer image
+FROM runtime-base AS indexer
+COPY --from=builder /app/target/release/index_bluesky /usr/local/bin/index_bluesky
+ENTRYPOINT ["/usr/local/bin/index_bluesky"]
+
+# Analyzer image
+FROM runtime-base AS analyzer
+COPY --from=builder /app/target/release/analyzer_bluesky /usr/local/bin/analyzer_bluesky
+ENTRYPOINT ["/usr/local/bin/analyzer_bluesky"]
+
+# Submitter image
+FROM runtime-base AS submitter
+COPY --from=builder /app/target/release/submitter_bluesky /usr/local/bin/submitter_bluesky
+ENTRYPOINT ["/usr/local/bin/submitter_bluesky"]

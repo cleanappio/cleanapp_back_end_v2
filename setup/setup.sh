@@ -245,6 +245,11 @@ NEWS_ANALYZER_TWITTER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-news-analyzer-twit
 NEWS_SUBMITTER_TWITTER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-news-submitter-twitter-image:${OPT}"
 REPLIER_TWITTER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-news-replier-twitter-image:${OPT}"
 
+# News indexer Bluesky flow images
+BLUESKY_INDEXER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-bluesky-indexer-image:${OPT}"
+BLUESKY_ANALYZER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-bluesky-analyzer-image:${OPT}"
+BLUESKY_SUBMITTER_DOCKER_IMAGE="${DOCKER_PREFIX}/cleanapp-bluesky-submitter-image:${OPT}"
+
 OPENAI_ASSISTANT_ID="asst_kBtuzDRWNorZgw9o2OJTGOn0"
 
 RED_BULL_BRAND_NAMES="Red Bull"
@@ -297,6 +302,11 @@ docker pull ${NEWS_ANALYZER_TWITTER_DOCKER_IMAGE}
 docker pull ${NEWS_SUBMITTER_TWITTER_DOCKER_IMAGE}
 docker pull ${REPLIER_TWITTER_DOCKER_IMAGE}
 
+# Pull news indexer Bluesky flow images
+docker pull ${BLUESKY_INDEXER_DOCKER_IMAGE}
+docker pull ${BLUESKY_ANALYZER_DOCKER_IMAGE}
+docker pull ${BLUESKY_SUBMITTER_DOCKER_IMAGE}
+
 # Secrets
 cat >.env << ENV
 MYSQL_ROOT_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_ROOT_PASSWORD_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
@@ -322,6 +332,9 @@ TWITTER_API_KEY=$(gcloud secrets versions access latest --secret="TWITTER_API_KE
 TWITTER_API_SECRET=$(gcloud secrets versions access latest --secret="TWITTER_API_SECRET_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
 TWITTER_OAUTH1_ACCESS_TOKEN=$(gcloud secrets versions access latest --secret="TWITTER_OAUTH1_ACCESS_TOKEN_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
 TWITTER_OAUTH1_ACCESS_SECRET=$(gcloud secrets versions access latest --secret="TWITTER_OAUTH1_ACCESS_SECRET_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
+
+# News indexer Bluesky flow secrets
+BSKY_APP_PASSWORD=$(gcloud secrets versions access latest --secret="BSKY_APP_PASSWORD" | tr -d '\r' | sed -e 's/[$]/$$/g')
 
 ENV
 
@@ -1047,6 +1060,48 @@ services:
         condition: service_healthy
       cleanapp_rabbitmq:
         condition: service_healthy
+
+  cleanapp_bluesky_indexer:
+    container_name: cleanapp_bluesky_indexer
+    image: ${BLUESKY_INDEXER_DOCKER_IMAGE}
+    environment:
+      - DB_URL=mysql://server:\${MYSQL_APP_PASSWORD}@cleanapp_db:3306/cleanapp
+      - BSKY_IDENTIFIER=trashcash.bsky.social
+      - BSKY_APP_PASSWORD=\${BSKY_APP_PASSWORD}
+      - BSKY_INTERVAL_SECS=900
+      - BSKY_PAGES_PER_RUN=3
+      - BSKY_SEARCH_QUERIES=fatal bug,app crash,horrible UX,broken feature,keeps crashing,feature request,missing dark mode,battery drain,laggy,freezes,login broken,sync fails,unusable,showstopper bug
+    depends_on:
+      cleanapp_db:
+        condition: service_healthy
+
+  cleanapp_bluesky_analyzer:
+    container_name: cleanapp_bluesky_analyzer
+    image: ${BLUESKY_ANALYZER_DOCKER_IMAGE}
+    environment:
+      - DB_URL=mysql://server:\${MYSQL_APP_PASSWORD}@cleanapp_db:3306/cleanapp
+      - GEMINI_API_KEY=\${GEMINI_API_KEY}
+      - GEMINI_MODEL=gemini-flash-latest
+      - ANALYZER_BATCH_SIZE=50
+      - ANALYZER_INTERVAL_SECS=300
+    depends_on:
+      cleanapp_db:
+        condition: service_healthy
+
+  cleanapp_bluesky_submitter:
+    container_name: cleanapp_bluesky_submitter
+    image: ${BLUESKY_SUBMITTER_DOCKER_IMAGE}
+    environment:
+      - DB_URL=mysql://server:\${MYSQL_APP_PASSWORD}@cleanapp_db:3306/cleanapp
+      - SUBMIT_ENDPOINT_URL=http://cleanapp_report_listener:8080
+      - SUBMIT_TOKEN=\${CLEANAPP_TWITTER_FETCHER_TOKEN}
+      - SUBMIT_BATCH_SIZE=60
+      - SUBMIT_INTERVAL_SECS=60
+    depends_on:
+      cleanapp_db:
+        condition: service_healthy
+      cleanapp_report_listener:
+        condition: service_started
 
 COMPOSE
 
