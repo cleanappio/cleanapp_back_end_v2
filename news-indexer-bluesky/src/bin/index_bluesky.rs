@@ -232,7 +232,7 @@ async fn run_once(
                     r#"INSERT INTO indexer_bluesky_post
                        (uri, cid, author_did, author_handle, text, created_at, lang, raw)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                       ON DUPLICATE KEY UPDATE updated_at = NOW()"#,
+                       ON DUPLICATE KEY UPDATE indexed_at = NOW()"#,
                     (
                         post.uri.clone(),
                         post.cid.clone(),
