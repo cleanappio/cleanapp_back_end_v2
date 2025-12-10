@@ -724,3 +724,81 @@ func (s *Service) extractAndEnrichDigitalContacts(report *database.Report, analy
 
 	return ""
 }
+
+// EnrichExternalDigitalReports enriches external digital reports (Twitter, Bluesky, etc.)
+// with contact emails from the brand_contacts table. This runs periodically to handle
+// reports that came in via bulk_ingest and bypassed the normal analysis flow.
+func (s *Service) EnrichExternalDigitalReports() {
+	reports, err := s.db.GetDigitalReportsNeedingEnrichment(50)
+	if err != nil {
+		log.Printf("EnrichExternalDigitalReports: failed to get reports: %v", err)
+		return
+	}
+
+	if len(reports) == 0 {
+		return // Nothing to enrich
+	}
+
+	log.Printf("EnrichExternalDigitalReports: processing %d reports", len(reports))
+
+	enriched := 0
+	for _, r := range reports {
+		brandName := strings.ToLower(strings.TrimSpace(r.BrandName))
+		if brandName == "" {
+			continue
+		}
+
+		// Look up contacts for this brand
+		brandContacts, err := s.contactService.GetContactsForBrand(brandName)
+		if err != nil {
+			log.Printf("EnrichExternalDigitalReports: failed to get contacts for %q: %v", brandName, err)
+			continue
+		}
+
+		if len(brandContacts) == 0 {
+			// Try discovery (simple domain-based heuristic)
+			domain := brandName + ".com"
+			if err := s.contactService.DiscoverAndSaveContactsForBrand(brandName, domain); err != nil {
+				log.Printf("EnrichExternalDigitalReports: discovery failed for %q: %v", brandName, err)
+			}
+			// Re-fetch after discovery
+			brandContacts, _ = s.contactService.GetContactsForBrand(brandName)
+		}
+
+		if len(brandContacts) == 0 {
+			continue // Still no contacts
+		}
+
+		// Collect emails
+		var emails []string
+		seen := make(map[string]bool)
+		for _, c := range brandContacts {
+			if c.Email != "" && !seen[strings.ToLower(c.Email)] {
+				emails = append(emails, c.Email)
+				seen[strings.ToLower(c.Email)] = true
+			}
+		}
+
+		// Validate and limit
+		validEmails := osm.ValidateAndFilterEmails(emails)
+		if len(validEmails) > 5 {
+			validEmails = validEmails[:5]
+		}
+
+		if len(validEmails) > 0 {
+			enrichedEmails := strings.Join(validEmails, ", ")
+			if err := s.db.UpdateInferredContactEmails(r.Seq, enrichedEmails); err != nil {
+				log.Printf("EnrichExternalDigitalReports: failed to update seq %d: %v", r.Seq, err)
+			} else {
+				log.Printf("EnrichExternalDigitalReports: enriched seq %d (brand=%s) with %d emails",
+					r.Seq, brandName, len(validEmails))
+				enriched++
+			}
+		}
+	}
+
+	if enriched > 0 {
+		log.Printf("EnrichExternalDigitalReports: enriched %d/%d reports", enriched, len(reports))
+	}
+}
+

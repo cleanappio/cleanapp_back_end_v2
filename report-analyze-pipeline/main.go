@@ -154,11 +154,31 @@ func main() {
 		}
 	}()
 
+	// Start background enrichment job for external digital reports
+	enrichmentTicker := time.NewTicker(60 * time.Second)
+	enrichmentDone := make(chan bool)
+	go func() {
+		// Run once immediately on startup
+		analysisService.EnrichExternalDigitalReports()
+		for {
+			select {
+			case <-enrichmentTicker.C:
+				analysisService.EnrichExternalDigitalReports()
+			case <-enrichmentDone:
+				return
+			}
+		}
+	}()
+
 	// Wait for interrupt signal to gracefully shutdown the server
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 	log.Println("Shutting down server...")
+
+	// Stop the enrichment ticker
+	enrichmentTicker.Stop()
+	close(enrichmentDone)
 
 	// Stop the analysis service
 	analysisService.Stop()

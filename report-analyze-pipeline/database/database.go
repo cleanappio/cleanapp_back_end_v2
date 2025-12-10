@@ -485,3 +485,39 @@ func (d *Database) UpdateInferredContactEmails(seq int, emails string) error {
 	return nil
 }
 
+// DigitalReportForEnrichment represents a digital report that needs contact enrichment
+type DigitalReportForEnrichment struct {
+	Seq       int
+	BrandName string
+}
+
+// GetDigitalReportsNeedingEnrichment returns digital reports missing inferred_contact_emails
+func (d *Database) GetDigitalReportsNeedingEnrichment(limit int) ([]DigitalReportForEnrichment, error) {
+	query := `
+	SELECT seq, brand_name 
+	FROM report_analysis 
+	WHERE classification = 'digital' 
+	  AND language = 'en'
+	  AND brand_name IS NOT NULL AND brand_name != ''
+	  AND (inferred_contact_emails IS NULL OR inferred_contact_emails = '')
+	ORDER BY seq DESC
+	LIMIT ?`
+
+	rows, err := d.db.Query(query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query digital reports needing enrichment: %w", err)
+	}
+	defer rows.Close()
+
+	var reports []DigitalReportForEnrichment
+	for rows.Next() {
+		var r DigitalReportForEnrichment
+		if err := rows.Scan(&r.Seq, &r.BrandName); err != nil {
+			return nil, fmt.Errorf("failed to scan report: %w", err)
+		}
+		reports = append(reports, r)
+	}
+
+	return reports, nil
+}
+
