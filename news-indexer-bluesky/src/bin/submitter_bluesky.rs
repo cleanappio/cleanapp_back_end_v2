@@ -131,7 +131,7 @@ async fn run_once(
                    FROM indexer_bluesky_post p
                    JOIN indexer_bluesky_analysis a ON a.uri = p.uri
                    LEFT JOIN external_ingest_index ei 
-                     ON ei.source = 'bluesky' AND ei.external_id = p.uri
+                     ON ei.source = 'bluesky' AND ei.external_id COLLATE utf8mb4_unicode_ci = p.uri
                    WHERE a.is_relevant = TRUE
                      AND ei.seq IS NULL
                      AND (p.created_at > ? OR (p.created_at = ? AND p.uri > ?))
@@ -154,7 +154,7 @@ async fn run_once(
                    FROM indexer_bluesky_post p
                    JOIN indexer_bluesky_analysis a ON a.uri = p.uri
                    LEFT JOIN external_ingest_index ei 
-                     ON ei.source = 'bluesky' AND ei.external_id = p.uri
+                     ON ei.source = 'bluesky' AND ei.external_id COLLATE utf8mb4_unicode_ci = p.uri
                    WHERE a.is_relevant = TRUE
                      AND ei.seq IS NULL
                      AND p.created_at >= ?
@@ -178,7 +178,7 @@ async fn run_once(
                FROM indexer_bluesky_post p
                JOIN indexer_bluesky_analysis a ON a.uri = p.uri
                LEFT JOIN external_ingest_index ei 
-                 ON ei.source = 'bluesky' AND ei.external_id = p.uri
+                 ON ei.source = 'bluesky' AND ei.external_id COLLATE utf8mb4_unicode_ci = p.uri
                WHERE a.is_relevant = TRUE
                  AND ei.seq IS NULL
                ORDER BY p.created_at ASC, p.uri ASC

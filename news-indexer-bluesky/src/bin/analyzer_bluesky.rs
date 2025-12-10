@@ -234,7 +234,8 @@ async fn run_once(
                                 report_title = obj.get("report_title").and_then(|x| x.as_str()).unwrap_or("").to_string();
                                 report_description = obj.get("report_description").and_then(|x| x.as_str()).unwrap_or("").to_string();
                                 if let Some(l) = obj.get("language").and_then(|x| x.as_str()) {
-                                    language = l.to_string();
+                                    // Truncate to 10 chars to fit VARCHAR(10)
+                                    language = l.chars().take(10).collect();
                                 }
                                 err_text = None;
                             }
