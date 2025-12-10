@@ -227,7 +227,7 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 			// - Otherwise: derive using generic extractor
 			var brandDisplay string
 			var brandName string
-			if strings.EqualFold(req.Source, "twitter") {
+			if strings.EqualFold(req.Source, "twitter") || strings.EqualFold(req.Source, "bluesky") {
 				if it.Metadata != nil {
 					if v, ok := it.Metadata["brand_display_name"].(string); ok && strings.TrimSpace(v) != "" {
 						brandDisplay = v
@@ -413,7 +413,7 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 			// Brand fields (same policy as insert)
 			var brandDisplay string
 			var brandName string
-			if strings.EqualFold(req.Source, "twitter") {
+			if strings.EqualFold(req.Source, "twitter") || strings.EqualFold(req.Source, "bluesky") {
 				if it.Metadata != nil {
 					if v, ok := it.Metadata["brand_display_name"].(string); ok && strings.TrimSpace(v) != "" {
 						brandDisplay = v
