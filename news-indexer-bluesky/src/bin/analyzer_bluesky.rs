@@ -198,6 +198,7 @@ async fn run_once(
         let mut report_description = String::new();
         let mut language = if lang.is_empty() { "en".to_string() } else { lang.clone() };
         let mut raw_llm: JsonValue = JsonValue::Null;
+        let mut inferred_contact_emails = JsonValue::Array(vec![]);
         let mut err_text: Option<String> = None;
 
         for ep in endpoints.iter() {
@@ -237,6 +238,9 @@ async fn run_once(
                                     // Truncate to 10 chars to fit VARCHAR(10)
                                     language = l.chars().take(10).collect();
                                 }
+                                if let Some(emails) = obj.get("inferred_contact_emails").cloned() {
+                                    inferred_contact_emails = emails;
+                                }
                                 err_text = None;
                             }
                             Err(e) => {
@@ -257,21 +261,21 @@ async fn run_once(
             }
         }
 
-        // Insert analysis
         conn.exec_drop(
             r#"INSERT INTO indexer_bluesky_analysis (
                     uri, is_relevant, relevance, classification,
                     digital_bug_probability, severity_level,
                     report_title, report_description, brand_name, brand_display_name,
-                    summary, language, raw_llm, error
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    summary, language, inferred_contact_emails, raw_llm, error
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON DUPLICATE KEY UPDATE
                     is_relevant=VALUES(is_relevant), relevance=VALUES(relevance),
                     classification=VALUES(classification), digital_bug_probability=VALUES(digital_bug_probability),
                     severity_level=VALUES(severity_level), report_title=VALUES(report_title),
                     report_description=VALUES(report_description), brand_name=VALUES(brand_name),
                     brand_display_name=VALUES(brand_display_name), summary=VALUES(summary),
-                    language=VALUES(language), raw_llm=VALUES(raw_llm), error=VALUES(error)"#,
+                    language=VALUES(language), inferred_contact_emails=VALUES(inferred_contact_emails),
+                    raw_llm=VALUES(raw_llm), error=VALUES(error)"#,
             mysql_async::params::Params::Positional(vec![
                 uri.into(),
                 is_relevant.into(),
@@ -285,6 +289,7 @@ async fn run_once(
                 brand_display_name.into(),
                 summary.into(),
                 language.into(),
+                serde_json::to_string(&inferred_contact_emails).unwrap_or("[]".into()).into(),
                 serde_json::to_string(&raw_llm).unwrap_or("null".into()).into(),
                 err_text.into(),
             ]),

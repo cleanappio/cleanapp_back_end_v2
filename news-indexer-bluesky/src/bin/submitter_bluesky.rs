@@ -127,7 +127,7 @@ async fn run_once(
                            (SELECT m.sha256 FROM indexer_bluesky_media m WHERE m.post_uri=p.uri ORDER BY position ASC LIMIT 1) LIMIT 1),
                           COALESCE(a.summary, ''), COALESCE(a.report_title, ''),
                           COALESCE(a.report_description, ''), COALESCE(a.brand_display_name, ''),
-                          COALESCE(a.brand_name, '')
+                          COALESCE(a.brand_name, ''), COALESCE(a.inferred_contact_emails, '[]')
                    FROM indexer_bluesky_post p
                    JOIN indexer_bluesky_analysis a ON a.uri = p.uri
                    LEFT JOIN external_ingest_index ei 
@@ -150,7 +150,7 @@ async fn run_once(
                            (SELECT m.sha256 FROM indexer_bluesky_media m WHERE m.post_uri=p.uri ORDER BY position ASC LIMIT 1) LIMIT 1),
                           COALESCE(a.summary, ''), COALESCE(a.report_title, ''),
                           COALESCE(a.report_description, ''), COALESCE(a.brand_display_name, ''),
-                          COALESCE(a.brand_name, '')
+                          COALESCE(a.brand_name, ''), COALESCE(a.inferred_contact_emails, '[]')
                    FROM indexer_bluesky_post p
                    JOIN indexer_bluesky_analysis a ON a.uri = p.uri
                    LEFT JOIN external_ingest_index ei 
@@ -174,7 +174,7 @@ async fn run_once(
                        (SELECT m.sha256 FROM indexer_bluesky_media m WHERE m.post_uri=p.uri ORDER BY position ASC LIMIT 1) LIMIT 1),
                       COALESCE(a.summary, ''), COALESCE(a.report_title, ''),
                       COALESCE(a.report_description, ''), COALESCE(a.brand_display_name, ''),
-                      COALESCE(a.brand_name, '')
+                      COALESCE(a.brand_name, ''), COALESCE(a.inferred_contact_emails, '[]')
                FROM indexer_bluesky_post p
                JOIN indexer_bluesky_analysis a ON a.uri = p.uri
                LEFT JOIN external_ingest_index ei 
@@ -211,6 +211,7 @@ async fn run_once(
         let report_description: String = row.get::<Option<String>, _>(10).unwrap_or(None).unwrap_or_default();
         let brand_display_name: String = row.get::<Option<String>, _>(11).unwrap_or(None).unwrap_or_default();
         let brand_name: String = row.get::<Option<String>, _>(12).unwrap_or(None).unwrap_or_default();
+        let inferred_contact_emails: String = row.get::<Option<String>, _>(13).unwrap_or(None).unwrap_or_else(|| "[]".to_string());
 
         // Build web URL from AT URI
         // at://did:plc:xxx/app.bsky.feed.post/yyy -> https://bsky.app/profile/handle/post/yyy
@@ -248,7 +249,8 @@ async fn run_once(
                 "severity_level": severity,
                 "summary": summary,
                 "brand_display_name": brand_display_name,
-                "brand_name": brand_name
+                "brand_name": brand_name,
+                "inferred_contact_emails": serde_json::from_str::<serde_json::Value>(&inferred_contact_emails).unwrap_or(json!([]))
             },
             "tags": ["bluesky"],
             "skip_ai": true,

@@ -296,13 +296,34 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 				metaSummary = title + " : " + trimmedDesc + " : " + safeURL(it.URL)
 			}
 
+			// Extract inferred_contact_emails from metadata if provided
+			var inferredContactEmails string
+			if it.Metadata != nil {
+				if emails, ok := it.Metadata["inferred_contact_emails"]; ok {
+					switch v := emails.(type) {
+					case []interface{}:
+						var emailStrs []string
+						for _, e := range v {
+							if s, ok := e.(string); ok {
+								emailStrs = append(emailStrs, s)
+							}
+						}
+						if len(emailStrs) > 0 {
+							inferredContactEmails = strings.Join(emailStrs, ",")
+						}
+					case string:
+						inferredContactEmails = v
+					}
+				}
+			}
+
 			_, err = tx.ExecContext(c.Request.Context(), `
                 INSERT INTO report_analysis (
                     seq, source, analysis_text, analysis_image, title, description,
                     brand_name, brand_display_name, litter_probability, hazard_probability,
-                    digital_bug_probability, severity_level, summary, language, is_valid, classification
-                ) VALUES (?, ?, '', NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, ?)
-            `, seq, req.Source, title, description, brandName, brandDisplay, lp, hp, dbp, severity, truncate(metaSummary, 8192), lang, classification)
+                    digital_bug_probability, severity_level, summary, language, is_valid, classification, inferred_contact_emails
+                ) VALUES (?, ?, '', NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, ?, ?)
+            `, seq, req.Source, title, description, brandName, brandDisplay, lp, hp, dbp, severity, truncate(metaSummary, 8192), lang, classification, nullable(inferredContactEmails))
 			if err != nil {
 				tx.Rollback()
 				resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: truncate(fmt.Sprintf("insert analysis failed: %v", err), 256)})
@@ -470,6 +491,27 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 				effSummary = s + " : " + safeURL(it.URL)
 			}
 
+			// Extract inferred_contact_emails from metadata if provided
+			var inferredContactEmails string
+			if it.Metadata != nil {
+				if emails, ok := it.Metadata["inferred_contact_emails"]; ok {
+					switch v := emails.(type) {
+					case []interface{}:
+						var emailStrs []string
+						for _, e := range v {
+							if s, ok := e.(string); ok {
+								emailStrs = append(emailStrs, s)
+							}
+						}
+						if len(emailStrs) > 0 {
+							inferredContactEmails = strings.Join(emailStrs, ",")
+						}
+					case string:
+						inferredContactEmails = v
+					}
+				}
+			}
+
 			// Update analysis fields
 			_, err = h.db.DB().ExecContext(c.Request.Context(), `
                 UPDATE report_analysis SET title = ?, description = ?, brand_name = ?, brand_display_name = ?,
@@ -479,6 +521,7 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
                     severity_level = ?, summary = ?, 
                     classification = COALESCE(NULLIF(?, ''), classification),
                     language = COALESCE(NULLIF(?, ''), language),
+                    inferred_contact_emails = COALESCE(NULLIF(?, ''), inferred_contact_emails),
                     updated_at = NOW()
                 WHERE seq = ?
             `, title, description, brandName, brandDisplay, lp, hp, dbp, severity, truncate(effSummary, 8192),
@@ -486,6 +529,8 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 				classification,
 				// language conditional (empty string => keep existing)
 				lang,
+				// inferred_contact_emails conditional (empty string => keep existing)
+				inferredContactEmails,
 				seq)
 			if err != nil {
 				resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: truncate(fmt.Sprintf("update analysis failed: %v", err), 256)})
