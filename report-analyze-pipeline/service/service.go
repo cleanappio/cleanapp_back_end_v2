@@ -730,7 +730,7 @@ func (s *Service) extractAndEnrichDigitalContacts(report *database.Report, analy
 // reports that came in via bulk_ingest and bypassed the normal analysis flow.
 func (s *Service) EnrichExternalDigitalReports() {
 	log.Println("EnrichExternalDigitalReports: starting job")
-	reports, err := s.db.GetDigitalReportsNeedingEnrichment(50)
+	reports, err := s.db.GetDigitalReportsNeedingEnrichment(500)
 	if err != nil {
 		log.Printf("EnrichExternalDigitalReports: failed to get reports: %v", err)
 		return

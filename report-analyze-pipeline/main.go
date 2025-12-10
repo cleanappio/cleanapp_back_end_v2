@@ -155,7 +155,7 @@ func main() {
 	}()
 
 	// Start background enrichment job for external digital reports
-	enrichmentTicker := time.NewTicker(60 * time.Second)
+	enrichmentTicker := time.NewTicker(10 * time.Second)
 	enrichmentDone := make(chan bool)
 	go func() {
 		// Run once immediately on startup
