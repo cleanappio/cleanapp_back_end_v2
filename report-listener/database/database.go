@@ -787,7 +787,8 @@ func (d *Database) SearchReports(ctx context.Context, searchQuery string, classi
 func (d *Database) GetReportBySeq(ctx context.Context, seq int) (*models.ReportWithAnalysis, error) {
 	// First, get the report if it's not resolved and not privately owned
 	reportQuery := `
-		SELECT r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.image, r.action_id, r.description
+		SELECT r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.image, r.action_id, r.description,
+			   (SELECT MAX(created_at) FROM sent_reports_emails WHERE seq = r.seq) as last_email_sent_at
 		FROM reports r
 		LEFT JOIN report_status rs ON r.seq = rs.seq
 		LEFT JOIN reports_owners ro ON r.seq = ro.seq
@@ -809,6 +810,7 @@ func (d *Database) GetReportBySeq(ctx context.Context, seq int) (*models.ReportW
 		&report.Image,
 		&report.ActionID,
 		&report.Description,
+		&report.LastEmailSentAt,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -1305,7 +1307,8 @@ func (d *Database) GetReportsByBrandName(ctx context.Context, brandName string, 
 	// First, get all reports for the given brand that are not resolved
 	// and are not privately owned
 	reportsQuery := `
-		SELECT DISTINCT r.seq, r.ts, r.id, r.latitude, r.longitude, r.image
+		SELECT DISTINCT r.seq, r.ts, r.id, r.latitude, r.longitude, r.image,
+						(SELECT MAX(created_at) FROM sent_reports_emails WHERE seq = r.seq) as last_email_sent_at
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		LEFT JOIN report_status rs ON r.seq = rs.seq
@@ -1336,6 +1339,7 @@ func (d *Database) GetReportsByBrandName(ctx context.Context, brandName string, 
 			&report.Latitude,
 			&report.Longitude,
 			&report.Image,
+			&report.LastEmailSentAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan report: %w", err)

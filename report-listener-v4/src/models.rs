@@ -16,6 +16,8 @@ pub struct Report {
     pub longitude: f64,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub image: Vec<u8>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub last_email_sent_at: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema, Clone)]
