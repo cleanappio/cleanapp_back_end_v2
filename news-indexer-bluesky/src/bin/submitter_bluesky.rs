@@ -104,89 +104,31 @@ async fn run_once(
 ) -> Result<()> {
     let mut conn = pool.get_conn().await?;
 
-    // Get state
-    let (saved_created, saved_uri): (Option<String>, Option<String>) = {
-        let row: Option<(Option<String>, Option<String>)> = conn
-            .exec_first(
-                "SELECT DATE_FORMAT(last_submitted_created_at, '%Y-%m-%d %H:%i:%s'), last_submitted_uri FROM indexer_bluesky_submit_state WHERE id=1",
-                (),
-            )
-            .await?;
-        row.unwrap_or((None, None))
-    };
 
     // Fetch analyzed posts not yet submitted
-    let rows: Vec<Row> = if let Some(ref since) = saved_created {
-        if let Some(ref after_uri) = saved_uri {
-            conn.exec(
-                r#"SELECT p.uri, COALESCE(p.author_handle,''), COALESCE(p.text,''),
-                          COALESCE(a.severity_level, 0.0), COALESCE(a.relevance, 0.0),
-                          COALESCE(a.classification, 'digital'),
-                          DATE_FORMAT(p.created_at, '%Y-%m-%dT%H:%i:%sZ'),
-                          (SELECT data FROM indexer_media_blob b WHERE b.sha256 = 
-                           (SELECT m.sha256 FROM indexer_bluesky_media m WHERE m.post_uri=p.uri ORDER BY position ASC LIMIT 1) LIMIT 1),
-                          COALESCE(a.summary, ''), COALESCE(a.report_title, ''),
-                          COALESCE(a.report_description, ''), COALESCE(a.brand_display_name, ''),
-                          COALESCE(a.brand_name, ''), COALESCE(a.inferred_contact_emails, '[]')
-                   FROM indexer_bluesky_post p
-                   JOIN indexer_bluesky_analysis a ON a.uri = p.uri
-                   LEFT JOIN external_ingest_index ei 
-                     ON ei.source = 'bluesky' AND ei.external_id COLLATE utf8mb4_unicode_ci = p.uri
-                   WHERE a.is_relevant = TRUE
-                     AND ei.seq IS NULL
-                     AND (p.created_at > ? OR (p.created_at = ? AND p.uri > ?))
-                   ORDER BY p.created_at ASC, p.uri ASC
-                   LIMIT ?"#,
-                (since.clone(), since.clone(), after_uri.clone(), batch_size as u64),
-            )
-            .await?
-        } else {
-            conn.exec(
-                r#"SELECT p.uri, COALESCE(p.author_handle,''), COALESCE(p.text,''),
-                          COALESCE(a.severity_level, 0.0), COALESCE(a.relevance, 0.0),
-                          COALESCE(a.classification, 'digital'),
-                          DATE_FORMAT(p.created_at, '%Y-%m-%dT%H:%i:%sZ'),
-                          (SELECT data FROM indexer_media_blob b WHERE b.sha256 = 
-                           (SELECT m.sha256 FROM indexer_bluesky_media m WHERE m.post_uri=p.uri ORDER BY position ASC LIMIT 1) LIMIT 1),
-                          COALESCE(a.summary, ''), COALESCE(a.report_title, ''),
-                          COALESCE(a.report_description, ''), COALESCE(a.brand_display_name, ''),
-                          COALESCE(a.brand_name, ''), COALESCE(a.inferred_contact_emails, '[]')
-                   FROM indexer_bluesky_post p
-                   JOIN indexer_bluesky_analysis a ON a.uri = p.uri
-                   LEFT JOIN external_ingest_index ei 
-                     ON ei.source = 'bluesky' AND ei.external_id COLLATE utf8mb4_unicode_ci = p.uri
-                   WHERE a.is_relevant = TRUE
-                     AND ei.seq IS NULL
-                     AND p.created_at >= ?
-                   ORDER BY p.created_at ASC, p.uri ASC
-                   LIMIT ?"#,
-                (since.clone(), batch_size as u64),
-            )
-            .await?
-        }
-    } else {
-        conn.exec(
-            r#"SELECT p.uri, COALESCE(p.author_handle,''), COALESCE(p.text,''),
-                      COALESCE(a.severity_level, 0.0), COALESCE(a.relevance, 0.0),
-                      COALESCE(a.classification, 'digital'),
-                      DATE_FORMAT(p.created_at, '%Y-%m-%dT%H:%i:%sZ'),
-                      (SELECT data FROM indexer_media_blob b WHERE b.sha256 = 
-                       (SELECT m.sha256 FROM indexer_bluesky_media m WHERE m.post_uri=p.uri ORDER BY position ASC LIMIT 1) LIMIT 1),
-                      COALESCE(a.summary, ''), COALESCE(a.report_title, ''),
-                      COALESCE(a.report_description, ''), COALESCE(a.brand_display_name, ''),
-                      COALESCE(a.brand_name, ''), COALESCE(a.inferred_contact_emails, '[]')
-               FROM indexer_bluesky_post p
-               JOIN indexer_bluesky_analysis a ON a.uri = p.uri
-               LEFT JOIN external_ingest_index ei 
-                 ON ei.source = 'bluesky' AND ei.external_id COLLATE utf8mb4_unicode_ci = p.uri
-               WHERE a.is_relevant = TRUE
-                 AND ei.seq IS NULL
-               ORDER BY p.created_at ASC, p.uri ASC
-               LIMIT ?"#,
-            (batch_size as u64,),
-        )
-        .await?
-    };
+    // Uses external_ingest_index exclusion only (not date-based state tracking)
+    // to properly handle backlog where posts are analyzed out of order
+    let rows: Vec<Row> = conn.exec(
+        r#"SELECT p.uri, COALESCE(p.author_handle,''), COALESCE(p.text,''),
+                  COALESCE(a.severity_level, 0.0), COALESCE(a.relevance, 0.0),
+                  COALESCE(a.classification, 'digital'),
+                  DATE_FORMAT(p.created_at, '%Y-%m-%dT%H:%i:%sZ'),
+                  (SELECT data FROM indexer_media_blob b WHERE b.sha256 = 
+                   (SELECT m.sha256 FROM indexer_bluesky_media m WHERE m.post_uri=p.uri ORDER BY position ASC LIMIT 1) LIMIT 1),
+                  COALESCE(a.summary, ''), COALESCE(a.report_title, ''),
+                  COALESCE(a.report_description, ''), COALESCE(a.brand_display_name, ''),
+                  COALESCE(a.brand_name, ''), COALESCE(a.inferred_contact_emails, '[]')
+           FROM indexer_bluesky_post p
+           JOIN indexer_bluesky_analysis a ON a.uri = p.uri
+           LEFT JOIN external_ingest_index ei 
+             ON ei.source = 'bluesky' AND ei.external_id COLLATE utf8mb4_unicode_ci = p.uri
+           WHERE a.is_relevant = TRUE
+             AND ei.seq IS NULL
+           ORDER BY p.created_at ASC, p.uri ASC
+           LIMIT ?"#,
+        (batch_size as u64,),
+    )
+    .await?;
 
     if rows.is_empty() {
         info!("submitter: no posts to submit");
@@ -291,18 +233,7 @@ async fn run_once(
         }
     }
 
-    // Update state
-    if let Some(last) = rows.last() {
-        let last_uri: String = last.get::<String, _>(0).unwrap_or_default();
-        let last_created_iso: String = last.get::<Option<String>, _>(6).unwrap_or(None).unwrap_or_default();
-        let last_created_db = last_created_iso.replace('T', " ").trim_end_matches('Z').to_string();
 
-        conn.exec_drop(
-            "UPDATE indexer_bluesky_submit_state SET last_submitted_created_at = ?, last_submitted_uri = ?, updated_at = NOW() WHERE id = 1",
-            (last_created_db, last_uri),
-        )
-        .await?;
-    }
 
     Ok(())
 }
