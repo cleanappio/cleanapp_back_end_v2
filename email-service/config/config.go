@@ -24,6 +24,9 @@ type Config struct {
 	OptOutURL    string
 	PollInterval string
 	HTTPPort     string
+
+	// Email throttling configuration
+	ThrottleDays int // Days to throttle emails per brand+email pair (default: 7)
 }
 
 // Load loads configuration from environment variables and flags
@@ -46,6 +49,13 @@ func Load() *Config {
 	cfg.OptOutURL = getEnv("OPT_OUT_URL", "http://localhost:8080/opt-out")
 	cfg.PollInterval = getEnv("POLL_INTERVAL", "10s")
 	cfg.HTTPPort = getEnv("HTTP_PORT", "8080")
+
+	// Email throttling configuration
+	throttleDays, err := strconv.Atoi(getEnv("EMAIL_THROTTLE_DAYS", "7"))
+	if err != nil || throttleDays <= 0 {
+		throttleDays = 7 // Default to 7 days
+	}
+	cfg.ThrottleDays = throttleDays
 
 	return cfg
 }

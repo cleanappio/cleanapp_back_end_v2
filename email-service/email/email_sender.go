@@ -83,6 +83,191 @@ func (e *EmailSender) SendEmailsWithAnalysis(recipients []string, reportImage, m
 	return nil
 }
 
+// SendAggregateEmail sends an aggregate notification email for a brand
+func (e *EmailSender) SendAggregateEmail(recipients []string, summary *models.BrandReportSummary, optOutURL string) error {
+	log.Infof("Sending aggregate email for brand %s to %d recipients", summary.BrandName, len(recipients))
+
+	var firstErr error
+	failed := 0
+	for _, recipient := range recipients {
+		if err := e.sendOneAggregateEmail(recipient, summary, optOutURL); err != nil {
+			failed++
+			if firstErr == nil {
+				firstErr = err
+			}
+			log.Warnf("Error sending aggregate email to %s: %v", recipient, err)
+		}
+	}
+
+	if failed > 0 {
+		return fmt.Errorf("%d/%d aggregate emails failed: %v", failed, len(recipients), firstErr)
+	}
+	return nil
+}
+
+// sendOneAggregateEmail sends an aggregate notification to a single recipient
+func (e *EmailSender) sendOneAggregateEmail(recipient string, summary *models.BrandReportSummary, optOutURL string) error {
+	from := mail.NewEmail(e.config.SendGridFromName, e.config.SendGridFromEmail)
+
+	// Get brand display name
+	brandDisplay := summary.BrandDisplayName
+	if brandDisplay == "" {
+		brandDisplay = summary.BrandName
+	}
+
+	// Subject: "5 new reports about Brand (142 total)"
+	subject := fmt.Sprintf("%d new report", summary.NewReportCount)
+	if summary.NewReportCount != 1 {
+		subject += "s"
+	}
+	subject += fmt.Sprintf(" about %s (%d total)", brandDisplay, summary.TotalReportCount)
+
+	to := mail.NewEmail(recipient, recipient)
+
+	// Create message
+	message := mail.NewV3Mail()
+	message.SetFrom(from)
+	message.Subject = subject
+
+	p := mail.NewPersonalization()
+	p.AddTos(to)
+	message.AddPersonalizations(p)
+
+	message.AddContent(mail.NewContent("text/plain", e.getAggregateEmailText(recipient, summary, optOutURL)))
+	message.AddContent(mail.NewContent("text/html", e.getAggregateEmailHTML(recipient, summary, optOutURL)))
+
+	// Send email
+	start := time.Now()
+	response, err := e.client.Send(message)
+	if err != nil {
+		return err
+	}
+
+	duration := time.Since(start)
+	if response.StatusCode >= 200 && response.StatusCode < 300 {
+		msgID := response.Headers["X-Message-Id"]
+		log.Infof("Aggregate email accepted by SendGrid for %s (status=%d, id=%s, in %s)", recipient, response.StatusCode, msgID, duration)
+		return nil
+	}
+
+	body := response.Body
+	if len(body) > 512 {
+		body = body[:512] + "..."
+	}
+	return fmt.Errorf("sendgrid returned status %d for %s (in %s): %s", response.StatusCode, recipient, duration, body)
+}
+
+// getAggregateEmailText returns the plain text content for aggregate emails
+func (e *EmailSender) getAggregateEmailText(recipient string, summary *models.BrandReportSummary, optOutURL string) string {
+	brandDisplay := summary.BrandDisplayName
+	if brandDisplay == "" {
+		brandDisplay = summary.BrandName
+	}
+
+	dashboardURL := e.getAggregateDashboardURL(summary)
+
+	return fmt.Sprintf(`%d new issue(s) were reported about %s, bringing the total to %d.
+
+View your dashboard: %s
+
+It takes just 30 seconds to review reports, confirm the risks, and get a fix.
+
+---
+
+Trash is cash,
+
+Boris Mamlyuk
+Founder, CleanApp.io
+https://www.linkedin.com/in/borismamlyuk/
+
+---
+
+To unsubscribe from these emails, please visit: %s?email=%s`,
+		summary.NewReportCount,
+		brandDisplay,
+		summary.TotalReportCount,
+		dashboardURL,
+		optOutURL,
+		recipient)
+}
+
+// getAggregateEmailHTML returns the HTML content for aggregate emails
+func (e *EmailSender) getAggregateEmailHTML(recipient string, summary *models.BrandReportSummary, optOutURL string) string {
+	brandDisplay := summary.BrandDisplayName
+	if brandDisplay == "" {
+		brandDisplay = summary.BrandName
+	}
+
+	dashboardURL := e.getAggregateDashboardURL(summary)
+
+	newReportText := "issue was"
+	if summary.NewReportCount != 1 {
+		newReportText = "issues were"
+	}
+
+	return fmt.Sprintf(`<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>%d new report(s) about %s</title>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: linear-gradient(135deg, #28a745 0%%, #20c997 100%%); padding: 30px; border-radius: 10px; margin-bottom: 20px; color: white; text-align: center; }
+        .header h1 { margin: 0 0 10px 0; font-size: 2em; }
+        .header p { margin: 0; font-size: 1.1em; opacity: 0.9; }
+        .count-badge { display: inline-block; background: white; color: #28a745; padding: 5px 15px; border-radius: 20px; font-weight: bold; margin-top: 10px; }
+        .cta-section { text-align: center; margin: 30px 0; }
+        .cta-button { display: inline-block; background-color: #28a745; color: white; padding: 15px 40px; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 1.1em; }
+        .cta-hint { font-size: 0.85em; color: #666; margin-top: 10px; }
+        .signature { margin-top: 30px; padding: 20px 0; border-top: 1px solid #eee; }
+        .signature p { margin: 5px 0; }
+        .footer { margin-top: 20px; padding-top: 15px; border-top: 1px solid #eee; font-size: 0.85em; color: #999; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>%d new %s reported</h1>
+        <p>about <strong>%s</strong></p>
+        <div class="count-badge">%d total reports</div>
+    </div>
+
+    <div class="cta-section">
+        <a href="%s" class="cta-button">View Your Dashboard</a>
+        <p class="cta-hint">It takes just 30 seconds to review reports, confirm the risks, and get a fix.</p>
+    </div>
+
+    <div class="signature">
+        <p style="font-style: italic; color: #28a745;">Trash is cash,</p>
+        <p style="font-weight: bold;">Boris Mamlyuk (<a href="https://www.linkedin.com/in/borismamlyuk/" style="color: #0077b5; text-decoration: none;">LinkedIn</a>)</p>
+        <p style="color: #666;">Founder, <a href="https://cleanapp.io" style="color: #0077b5; text-decoration: none;">CleanApp.io</a></p>
+    </div>
+
+    <div class="footer">
+        <p>To unsubscribe from these emails, please <a href="%s?email=%s" style="color: #007bff; text-decoration: none;">click here</a></p>
+    </div>
+</body>
+</html>`,
+		summary.NewReportCount, brandDisplay,
+		summary.NewReportCount, newReportText, brandDisplay, summary.TotalReportCount,
+		dashboardURL,
+		optOutURL, recipient)
+}
+
+// getAggregateDashboardURL generates the dashboard URL for aggregate notifications
+func (e *EmailSender) getAggregateDashboardURL(summary *models.BrandReportSummary) string {
+	baseURL := "https://cleanapp.io"
+
+	if summary.Classification == "digital" {
+		brandSlug := summary.BrandName
+		if brandSlug == "" {
+			brandSlug = "reports"
+		}
+		return fmt.Sprintf("%s/digital/%s", baseURL, brandSlug)
+	}
+
+	return fmt.Sprintf("%s/reports", baseURL)
+}
+
 // sendOneEmail sends an email to a single recipient
 func (e *EmailSender) sendOneEmail(recipient string, reportImage, mapImage []byte) error {
 	from := mail.NewEmail(e.config.SendGridFromName, e.config.SendGridFromEmail)

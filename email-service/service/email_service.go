@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -79,6 +80,52 @@ func (s *EmailService) recordEmailSent(ctx context.Context, email string) error 
 		return fmt.Errorf("failed to record email sent to %s: %w", email, err)
 	}
 
+	return nil
+}
+
+// shouldThrottleEmail checks if we should throttle sending email to this brand+email pair
+// Returns true if we've already sent an email to this pair within the throttle period
+func (s *EmailService) shouldThrottleEmail(ctx context.Context, brandName, email string) (bool, error) {
+	throttleDays := s.config.ThrottleDays
+	if throttleDays <= 0 {
+		throttleDays = 7 // Default fallback
+	}
+
+	var lastSentAt sql.NullTime
+	err := s.db.QueryRowContext(ctx, `
+		SELECT last_sent_at FROM brand_email_throttle 
+		WHERE brand_name = ? AND email = ?
+	`, brandName, email).Scan(&lastSentAt)
+
+	if err == sql.ErrNoRows {
+		return false, nil // Never sent to this pair, don't throttle
+	}
+	if err != nil {
+		return false, fmt.Errorf("failed to check throttle for brand %s, email %s: %w", brandName, email, err)
+	}
+
+	if lastSentAt.Valid {
+		throttlePeriod := time.Duration(throttleDays) * 24 * time.Hour
+		if time.Since(lastSentAt.Time) < throttlePeriod {
+			return true, nil // Recently sent, throttle this email
+		}
+	}
+	return false, nil
+}
+
+// recordBrandEmailSent records that an email was sent for a specific brand
+func (s *EmailService) recordBrandEmailSent(ctx context.Context, brandName, email string) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO brand_email_throttle (brand_name, email, last_sent_at, email_count)
+		VALUES (?, ?, NOW(), 1)
+		ON DUPLICATE KEY UPDATE 
+			last_sent_at = NOW(),
+			email_count = email_count + 1
+	`, brandName, email)
+
+	if err != nil {
+		return fmt.Errorf("failed to record brand email sent for %s to %s: %w", brandName, email, err)
+	}
 	return nil
 }
 
@@ -181,6 +228,176 @@ func (s *EmailService) getUnprocessedReports(ctx context.Context) ([]models.Repo
 
 	log.Infof("getUnprocessedReports returned %d rows (in %s)", len(reports), time.Since(qStart))
 	return reports, nil
+}
+
+// getUnprocessedReportsByBrand gets unprocessed reports grouped by brand for aggregate notifications
+func (s *EmailService) getUnprocessedReportsByBrand(ctx context.Context) ([]models.BrandReportSummary, error) {
+	qStart := time.Now()
+
+	// Query to get brand summaries with new report counts and seqs
+	query := `
+		SELECT 
+			ra.brand_name,
+			COALESCE(ra.brand_display_name, ra.brand_name) as brand_display_name,
+			COUNT(*) as new_count,
+			(SELECT COUNT(*) FROM report_analysis ra2 WHERE ra2.brand_name = ra.brand_name AND ra2.language = 'en') as total_count,
+			GROUP_CONCAT(r.seq ORDER BY r.seq DESC) as seqs,
+			MAX(r.seq) as latest_seq,
+			MAX(ra.classification) as classification,
+			MAX(ra.inferred_contact_emails) as inferred_contact_emails
+		FROM reports r
+		INNER JOIN report_analysis ra ON r.seq = ra.seq
+		LEFT JOIN sent_reports_emails sre ON r.seq = sre.seq
+		WHERE sre.seq IS NULL
+		  AND ra.brand_name != ''
+		  AND ra.language = 'en'
+		GROUP BY ra.brand_name, ra.brand_display_name
+		ORDER BY new_count DESC
+		LIMIT 100
+	`
+
+	rows, err := s.db.QueryContext(ctx, query)
+	if err != nil {
+		log.Errorf("getUnprocessedReportsByBrand query error (in %s): %v", time.Since(qStart), err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	var summaries []models.BrandReportSummary
+	for rows.Next() {
+		var summary models.BrandReportSummary
+		var seqsStr string
+		var inferredEmails sql.NullString
+
+		if err := rows.Scan(
+			&summary.BrandName,
+			&summary.BrandDisplayName,
+			&summary.NewReportCount,
+			&summary.TotalReportCount,
+			&seqsStr,
+			&summary.LatestReportSeq,
+			&summary.Classification,
+			&inferredEmails,
+		); err != nil {
+			return nil, err
+		}
+
+		// Parse the comma-separated seqs
+		if seqsStr != "" {
+			seqParts := strings.Split(seqsStr, ",")
+			for _, seqPart := range seqParts {
+				if seq, err := strconv.ParseInt(strings.TrimSpace(seqPart), 10, 64); err == nil {
+					summary.ReportSeqs = append(summary.ReportSeqs, seq)
+				}
+			}
+		}
+
+		summary.InferredContactEmails = inferredEmails.String
+		summaries = append(summaries, summary)
+	}
+
+	log.Infof("getUnprocessedReportsByBrand returned %d brands (in %s)", len(summaries), time.Since(qStart))
+	return summaries, nil
+}
+
+// ProcessBrandNotifications processes reports grouped by brand, sending ONE aggregate email per brand
+func (s *EmailService) ProcessBrandNotifications() error {
+	ctx := context.Background()
+	start := time.Now()
+	log.Info("Aggregate notification cycle started: fetching brands with new reports")
+
+	// Get brands with unprocessed reports
+	brandSummaries, err := s.getUnprocessedReportsByBrand(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get brand summaries: %w", err)
+	}
+
+	log.Infof("Found %d brands with new reports (in %s)", len(brandSummaries), time.Since(start))
+
+	var processedBrands, skippedBrands, emailsSent int
+
+	for _, summary := range brandSummaries {
+		// Get contact emails for this brand
+		emails := strings.Split(strings.TrimSpace(summary.InferredContactEmails), ",")
+		var cleanEmails []string
+		for _, email := range emails {
+			cleanEmail := strings.TrimSpace(email)
+			if cleanEmail != "" && s.isValidEmail(cleanEmail) {
+				// Check opt-out
+				optedOut, err := s.isEmailOptedOut(ctx, cleanEmail)
+				if err != nil {
+					log.Warnf("Failed to check opt-out for %s: %v", cleanEmail, err)
+					continue
+				}
+				if optedOut {
+					log.Infof("Skipping opted-out email: %s", cleanEmail)
+					continue
+				}
+
+				// Check per-brand throttle
+				throttled, err := s.shouldThrottleEmail(ctx, summary.BrandName, cleanEmail)
+				if err != nil {
+					log.Warnf("Failed to check throttle for %s/%s: %v, proceeding anyway", summary.BrandName, cleanEmail, err)
+				} else if throttled {
+					log.Infof("Throttling email to %s for brand %s (already sent recently)", cleanEmail, summary.BrandName)
+					continue
+				}
+
+				cleanEmails = append(cleanEmails, cleanEmail)
+			}
+		}
+
+		if len(cleanEmails) == 0 {
+			log.Infof("Brand %s: no valid/non-throttled emails, marking %d reports as processed", summary.BrandName, len(summary.ReportSeqs))
+			// Still mark reports as processed so we don't keep retrying
+			for _, seq := range summary.ReportSeqs {
+				if err := s.markReportAsProcessed(ctx, seq); err != nil {
+					log.Warnf("Failed to mark report %d as processed: %v", seq, err)
+				}
+			}
+			skippedBrands++
+			continue
+		}
+
+		// Send ONE aggregate notification for this brand
+		log.Infof("Brand %s: sending aggregate notification (%d new, %d total) to %d recipients",
+			summary.BrandName, summary.NewReportCount, summary.TotalReportCount, len(cleanEmails))
+
+		if err := s.sendAggregateNotification(ctx, &summary, cleanEmails); err != nil {
+			log.Errorf("Failed to send aggregate notification for brand %s: %v", summary.BrandName, err)
+			continue
+		}
+
+		// Mark ALL reports for this brand as processed
+		for _, seq := range summary.ReportSeqs {
+			if err := s.markReportAsProcessed(ctx, seq); err != nil {
+				log.Warnf("Failed to mark report %d as processed: %v", seq, err)
+			}
+		}
+
+		// Record brand+email throttle entries
+		for _, emailAddr := range cleanEmails {
+			if err := s.recordBrandEmailSent(ctx, summary.BrandName, emailAddr); err != nil {
+				log.Warnf("Failed to record brand email sent for %s to %s: %v", summary.BrandName, emailAddr, err)
+			}
+			if err := s.recordEmailSent(ctx, emailAddr); err != nil {
+				log.Warnf("Failed to record email sent to %s: %v", emailAddr, err)
+			}
+		}
+
+		processedBrands++
+		emailsSent += len(cleanEmails)
+	}
+
+	log.Infof("Aggregate notification cycle complete: %d brands processed, %d skipped, %d emails sent (took %s)",
+		processedBrands, skippedBrands, emailsSent, time.Since(start))
+	return nil
+}
+
+// sendAggregateNotification sends one aggregate email for a brand
+func (s *EmailService) sendAggregateNotification(ctx context.Context, summary *models.BrandReportSummary, emails []string) error {
+	// Build aggregate notification and send via email sender
+	return s.email.SendAggregateEmail(emails, summary, s.config.OptOutURL)
 }
 
 // processReport processes a single report and sends emails if needed
@@ -392,9 +609,16 @@ func (s *EmailService) sendEmailsToInferredContacts(ctx context.Context, report 
 		return nil
 	}
 
-	// Filter out opted-out emails
+	brandName := analysis.BrandName
+	if brandName == "" {
+		brandName = "unknown"
+	}
+
+	// Filter out opted-out emails AND throttled emails
 	var validEmails []string
+	var throttledCount int
 	for _, email := range emails {
+		// Check opt-out first
 		optedOut, err := s.isEmailOptedOut(ctx, email)
 		if err != nil {
 			log.Warnf("Failed to check if email %s is opted out: %v, skipping", email, err)
@@ -406,15 +630,30 @@ func (s *EmailService) sendEmailsToInferredContacts(ctx context.Context, report 
 			continue
 		}
 
+		// Check per-brand throttle
+		throttled, err := s.shouldThrottleEmail(ctx, brandName, email)
+		if err != nil {
+			log.Warnf("Failed to check throttle for brand %s, email %s: %v, proceeding anyway", brandName, email, err)
+			// On error, proceed with sending (fail-open for throttle)
+		} else if throttled {
+			log.Infof("Throttling email to %s for brand %s (already sent recently)", email, brandName)
+			throttledCount++
+			continue
+		}
+
 		validEmails = append(validEmails, email)
 	}
 
 	if len(validEmails) == 0 {
-		log.Infof("All emails for report %d are opted out, no emails sent", report.Seq)
+		if throttledCount > 0 {
+			log.Infof("All %d emails for report %d (brand: %s) are throttled or opted out, no emails sent", len(emails), report.Seq, brandName)
+		} else {
+			log.Infof("All emails for report %d are opted out, no emails sent", report.Seq)
+		}
 		return nil
 	}
 
-	log.Infof("Sending emails to %d valid inferred contacts for report %d (filtered from %d total)", len(validEmails), report.Seq, len(emails))
+	log.Infof("Sending emails to %d valid inferred contacts for report %d (filtered from %d total, %d throttled)", len(validEmails), report.Seq, len(emails), throttledCount)
 
 	// Generate map image only for physical reports (digital reports don't need location context)
 	var mapImg []byte
@@ -435,11 +674,18 @@ func (s *EmailService) sendEmailsToInferredContacts(ctx context.Context, report 
 		return err
 	}
 
-	// Record that emails were sent to these recipients
+	// Record that emails were sent to these recipients (for both general history and brand throttling)
 	for _, emailAddr := range validEmails {
+		// Record general email history
 		if recordErr := s.recordEmailSent(ctx, emailAddr); recordErr != nil {
 			log.Warnf("Failed to record email sent to %s: %v", emailAddr, recordErr)
 			// Continue - don't fail the whole operation for history tracking
+		}
+
+		// Record brand-specific throttle (this is critical for preventing spam)
+		if recordErr := s.recordBrandEmailSent(ctx, brandName, emailAddr); recordErr != nil {
+			log.Warnf("Failed to record brand email sent for %s to %s: %v", brandName, emailAddr, recordErr)
+			// Continue - don't fail the whole operation
 		}
 	}
 
@@ -716,6 +962,46 @@ func verifyAndCreateTables(db *sql.DB) error {
 		log.Info("email_recipient_history table created successfully")
 	} else {
 		log.Info("email_recipient_history table already exists")
+	}
+
+	// Check if brand_email_throttle table exists (for per-brand rate limiting)
+	var throttleTableExists int
+	err = db.QueryRowContext(ctx, `
+		SELECT COUNT(*) 
+		FROM information_schema.tables 
+		WHERE table_schema = DATABASE() 
+		AND table_name = 'brand_email_throttle'
+	`).Scan(&throttleTableExists)
+
+	if err != nil {
+		return fmt.Errorf("failed to check if brand_email_throttle table exists: %w", err)
+	}
+
+	if throttleTableExists == 0 {
+		log.Info("Creating brand_email_throttle table...")
+
+		// Create the brand_email_throttle table for per-brand email rate limiting
+		createThrottleTableSQL := `
+			CREATE TABLE brand_email_throttle (
+				brand_name VARCHAR(255) NOT NULL,
+				email VARCHAR(255) NOT NULL,
+				last_sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				email_count INT DEFAULT 1,
+				PRIMARY KEY (brand_name, email),
+				INDEX idx_throttle_brand (brand_name),
+				INDEX idx_throttle_email (email),
+				INDEX idx_throttle_last_sent (last_sent_at)
+			) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+		`
+
+		_, err = db.ExecContext(ctx, createThrottleTableSQL)
+		if err != nil {
+			return fmt.Errorf("failed to create brand_email_throttle table: %w", err)
+		}
+
+		log.Info("brand_email_throttle table created successfully")
+	} else {
+		log.Info("brand_email_throttle table already exists")
 	}
 
 	// Verify that required tables exist

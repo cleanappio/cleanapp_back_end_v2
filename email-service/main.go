@@ -63,17 +63,17 @@ func main() {
 	}()
 
 	// Start polling for reports in a goroutine
-	// TODO: Replace with the RabbitMQ subscription
+	// Uses aggregate notifications: groups reports by brand and sends one email per brand
 	go func() {
 		pollInterval := cfg.GetPollInterval()
-		log.Printf("Email service started. Polling every %v", pollInterval)
+		log.Printf("Email service started (aggregate mode). Polling every %v", pollInterval)
 		for {
 			iterStart := time.Now()
-			log.Printf("Polling tick started at %s", iterStart.Format(time.RFC3339))
-			if err := emailService.ProcessReports(); err != nil {
-				log.Printf("Error processing reports: %v", err)
+			log.Printf("Aggregate notification tick started at %s", iterStart.Format(time.RFC3339))
+			if err := emailService.ProcessBrandNotifications(); err != nil {
+				log.Printf("Error processing brand notifications: %v", err)
 			}
-			log.Printf("Polling tick finished in %s; sleeping %v", time.Since(iterStart), pollInterval)
+			log.Printf("Aggregate notification tick finished in %s; sleeping %v", time.Since(iterStart), pollInterval)
 			time.Sleep(pollInterval)
 		}
 	}()
