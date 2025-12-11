@@ -4,7 +4,7 @@
 
 ## Overview
 
-CleanApp is a microservices-based platform for crowdsourced environmental reporting. Users submit reports about issues (litter, hazards, digital product complaints), which are analyzed by AI and routed to relevant stakeholders.
+CleanApp is a microservices-based platform for crowdsourced feedback & reporting. Users submit reports about issues (litter, hazards, digital product complaints), which are analyzed by AI, clustered with similar reports, and automatically routed to relevant stakeholders.
 
 ```mermaid
 graph TB
