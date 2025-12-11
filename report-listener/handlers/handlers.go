@@ -342,11 +342,23 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 				continue
 			}
 
-			// Insert mapping
+			// Insert mapping with source timestamp and URL
+			var sourceTimestamp interface{}
+			if it.CreatedAt != "" {
+				if t, err := time.Parse(time.RFC3339, it.CreatedAt); err == nil {
+					sourceTimestamp = t
+				} else if t, err := time.Parse("2006-01-02T15:04:05Z", it.CreatedAt); err == nil {
+					sourceTimestamp = t
+				} else {
+					log.Printf("WARNING: Failed to parse created_at '%s' for external_id=%s: %v", it.CreatedAt, it.ExternalID, err)
+				}
+			} else {
+				log.Printf("DEBUG: created_at is empty for external_id=%s", it.ExternalID)
+			}
 			_, err = tx.ExecContext(c.Request.Context(), `
-                INSERT INTO external_ingest_index (source, external_id, seq) VALUES (?, ?, ?)
-                ON DUPLICATE KEY UPDATE seq = VALUES(seq), updated_at = NOW()`,
-				req.Source, it.ExternalID, seq,
+                INSERT INTO external_ingest_index (source, external_id, seq, source_timestamp, source_url) VALUES (?, ?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE seq = VALUES(seq), source_timestamp = COALESCE(VALUES(source_timestamp), source_timestamp), source_url = COALESCE(VALUES(source_url), source_url), updated_at = NOW()`,
+				req.Source, it.ExternalID, seq, sourceTimestamp, nullable(truncateRunes(stripNonBMP(it.URL), 500)),
 			)
 			if err != nil {
 				tx.Rollback()
