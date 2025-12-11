@@ -1,6 +1,6 @@
 # CleanApp Backend Architecture
 
-> Last updated: December 2024
+> Last updated: December 11, 2025
 
 ## Overview
 
