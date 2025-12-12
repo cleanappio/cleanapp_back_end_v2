@@ -1,6 +1,6 @@
 # CleanApp Backend Architecture
 
-> Last updated: December 11, 2025
+> Last updated: December 12, 2025
 
 ## Overview
 
@@ -11,15 +11,19 @@ graph TB
     subgraph "Data Sources"
         APP[Mobile App]
         WEB[Web Dashboard]
-        TW[Twitter/X]
+        XSRC[X]
         BS[Bluesky]
+        GH[GitHub]
+        WEBSCRAPE[Web Scraper]
         EMAIL[Email Inbox]
     end
     
     subgraph "Ingestion Layer"
         RL[Report Listener]
-        TI[Twitter Indexer]
+        XI[X Indexer]
         BI[Bluesky Indexer]
+        GHI[GitHub Indexer]
+        WSI[Web Scraper Indexer]
         EF[Email Fetcher]
     end
     
@@ -37,7 +41,7 @@ graph TB
     
     subgraph "Notification Layer"
         ES[Email Service]
-        TR[Twitter Replier]
+        XR[X Replier]
     end
     
     subgraph "Frontend Layer"
@@ -47,19 +51,23 @@ graph TB
     
     APP --> RL
     WEB --> RL
-    TW --> TI
+    XSRC --> XI
     BS --> BI
+    GH --> GHI
+    WEBSCRAPE --> WSI
     EMAIL --> EF
     
-    TI --> RAP
+    XI --> RAP
     BI --> RAP
+    GHI --> RAP
+    WSI --> RAP
     EF --> RAP
     RL --> RMQ
     RMQ --> RAP
     
     RAP --> DB
     RAP --> ES
-    RAP --> TR
+    RAP --> XR
     
     DB --> FE
     DB --> EMBED
@@ -90,17 +98,20 @@ graph TB
 | `cleanapp_report_tags_service` | 9098 | Rust | Tag management |
 | `cleanapp_report_ownership_service` | 9090 | Go | Report assignment |
 
-### Social Media Indexing
+### Social Media & Web Indexing
 
 | Service | Language | Pipeline Stage |
 |---------|----------|----------------|
-| `cleanapp_news_indexer_twitter` | Rust | Fetch tweets |
-| `cleanapp_news_analyzer_twitter` | Rust | AI analysis |
-| `cleanapp_news_submitter_twitter` | Rust | Submit as reports |
-| `cleanapp_replier_twitter` | Rust | Auto-reply |
-| `cleanapp_bluesky_indexer` | Rust | Fetch posts |
+| `cleanapp_news_indexer_x` | Rust | Fetch X posts |
+| `cleanapp_news_analyzer_x` | Rust | AI analysis |
+| `cleanapp_news_submitter_x` | Rust | Submit as reports |
+| `cleanapp_replier_x` | Rust | Auto-reply on X |
+| `cleanapp_bluesky_indexer` | Rust | Fetch Bluesky posts |
 | `cleanapp_bluesky_analyzer` | Rust | AI analysis |
 | `cleanapp_bluesky_submitter` | Rust | Submit as reports |
+| `bluesky_now` | Rust | Real-time Bluesky firehose |
+| `cleanapp_github_indexer` | Rust | Fetch GitHub issues |
+| `cleanapp_web_scraper` | Rust | Web complaint scraping |
 
 ### Notifications
 
@@ -148,11 +159,11 @@ Mobile App → Report Listener → RabbitMQ → Analyze Pipeline → DB
                                         Email Service → SendGrid
 ```
 
-### Digital Report (Social Media)
+### Digital Report (Social Media / Web)
 ```
-Twitter/Bluesky → Indexer → Analyzer → Submitter → Report Listener V4 → DB
-                                                           ↓
-                                                     Email Service
+X/Bluesky/GitHub/Web → Indexer → Analyzer → Submitter → Report Listener V4 → DB
+                                                               ↓
+                                                         Email Service
 ```
 
 ### Report Analysis
@@ -204,7 +215,7 @@ New Report → Gemini/OpenAI API → Extract:
 - `MYSQL_ROOT_PASSWORD_*`
 - `SENDGRID_API_KEY_*`
 - `GEMINI_API_KEY_*`
-- `TWITTER_BEARER_TOKEN_*`
+- `X_BEARER_TOKEN_*`
 - `STRIPE_SECRET_KEY_*`
 
 ---
