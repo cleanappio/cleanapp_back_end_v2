@@ -15,10 +15,16 @@ path = "src/bin/analyzer_bluesky.rs"
 name = "submitter_bluesky"
 path = "src/bin/submitter_bluesky.rs"
 
+[[bin]]
+name = "bluesky_now"
+path = "src/bin/bluesky_now.rs"
+
 [dependencies]
 anyhow = "1.0"
 clap = { version = "4.5", features = ["derive", "env"] }
 tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+futures-util = "0.3"
 mysql_async = "0.34"
 reqwest = { version = "0.12", features = ["json"] }
 serde = { version = "1.0", features = ["derive"] }
@@ -30,3 +36,4 @@ env_logger = "0.11"
 sha2 = "0.10"
 base64 = "0.22"
 urlencoding = "2.1"
+

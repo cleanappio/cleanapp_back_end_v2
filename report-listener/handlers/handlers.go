@@ -345,15 +345,32 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 			// Insert mapping with source timestamp and URL
 			var sourceTimestamp interface{}
 			if it.CreatedAt != "" {
-				if t, err := time.Parse(time.RFC3339, it.CreatedAt); err == nil {
-					sourceTimestamp = t
-				} else if t, err := time.Parse("2006-01-02T15:04:05Z", it.CreatedAt); err == nil {
-					sourceTimestamp = t
-				} else {
-					log.Printf("WARNING: Failed to parse created_at '%s' for external_id=%s: %v", it.CreatedAt, it.ExternalID, err)
+				// Debug log to see exactly what we are receiving
+				log.Printf("BulkIngest[%s]: seq=%d external_id=%s created_at='%s'", req.Source, seq, it.ExternalID, it.CreatedAt)
+				
+				formats := []string{
+					time.RFC3339,
+					"2006-01-02T15:04:05Z",
+					"2006-01-02 15:04:05",
+					"2006-01-02T15:04:05",
+					time.RFC1123,
+					time.RFC1123Z,
+				}
+				
+				parsed := false
+				for _, f := range formats {
+					if t, err := time.Parse(f, it.CreatedAt); err == nil {
+						sourceTimestamp = t
+						parsed = true
+						break
+					}
+				}
+				
+				if !parsed {
+					log.Printf("BulkIngest: failed to parse created_at '%s' with any known format", it.CreatedAt)
 				}
 			} else {
-				log.Printf("DEBUG: created_at is empty for external_id=%s", it.ExternalID)
+				log.Printf("BulkIngest[%s]: seq=%d external_id=%s has EMPTY created_at", req.Source, seq, it.ExternalID)
 			}
 			_, err = tx.ExecContext(c.Request.Context(), `
                 INSERT INTO external_ingest_index (source, external_id, seq, source_timestamp, source_url) VALUES (?, ?, ?, ?, ?)

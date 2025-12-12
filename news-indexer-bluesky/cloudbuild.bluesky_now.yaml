@@ -1,0 +1,28 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/cleanapp-docker-repo/bluesky-now:${_VERSION}'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/cleanapp-docker-repo/bluesky-now:latest'
+      - '-f'
+      - 'Dockerfile.bluesky_now'
+      - '.'
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/cleanapp-docker-repo/bluesky-now:${_VERSION}'
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/cleanapp-docker-repo/bluesky-now:latest'
+images:
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/cleanapp-docker-repo/bluesky-now:${_VERSION}'
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/cleanapp-docker-repo/bluesky-now:latest'
+substitutions:
+  _VERSION: 'v1'
+options:
+  logging: CLOUD_LOGGING_ONLY
+timeout: '1200s'
+

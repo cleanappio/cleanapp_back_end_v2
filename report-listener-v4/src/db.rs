@@ -42,11 +42,13 @@ pub fn fetch_reports_by_brand(pool: &my::Pool, brand_name: &str, limit: usize) -
                r.latitude,
                r.longitude,
                COALESCE(r.image, '') AS image,
-               (SELECT DATE_FORMAT(MAX(created_at), '%Y-%m-%d %H:%i:%s') FROM sent_reports_emails WHERE seq = r.seq) as last_email_sent_at
+               (SELECT DATE_FORMAT(MAX(created_at), '%Y-%m-%d %H:%i:%s') FROM sent_reports_emails WHERE seq = r.seq) as last_email_sent_at,
+               DATE_FORMAT(ei.source_timestamp, '%Y-%m-%d %H:%i:%s') as source_timestamp
         FROM reports r
         INNER JOIN report_analysis ra ON r.seq = ra.seq
         LEFT JOIN report_status rs ON r.seq = rs.seq
         LEFT JOIN reports_owners ro ON r.seq = ro.seq
+        LEFT JOIN external_ingest_index ei ON r.seq = ei.seq
         WHERE ra.brand_name = ?
           AND (rs.status IS NULL OR rs.status = 'active')
           AND ra.is_valid = TRUE
@@ -71,7 +73,8 @@ pub fn fetch_reports_by_brand(pool: &my::Pool, brand_name: &str, limit: usize) -
         let lon: f64 = row.take::<Option<f64>, _>(4).unwrap_or(None).unwrap_or(0.0);
         let image: Vec<u8> = row.take::<Option<Vec<u8>>, _>(5).unwrap_or(None).unwrap_or_default();
         let last_email_sent_at: Option<String> = row.take::<Option<String>, _>(6).unwrap_or(None);
-        reports.push(Report { seq, timestamp: ts, id, latitude: lat, longitude: lon, image, last_email_sent_at });
+        let source_timestamp: Option<String> = row.take::<Option<String>, _>(7).unwrap_or(None);
+        reports.push(Report { seq, timestamp: ts, id, latitude: lat, longitude: lon, image, last_email_sent_at, source_timestamp });
         seqs.push(seq);
     }
 
@@ -194,7 +197,7 @@ pub fn fetch_report_points(pool: &my::Pool, classification: &str) -> Result<Vec<
 pub fn fetch_report_by_seq(pool: &my::Pool, seq: i64) -> Result<ReportWithAnalysis> {
     let mut conn = pool.get_conn()?;
     // fetch report
-    let report_row: Option<(i64, String, String, f64, f64, Vec<u8>, Option<String>)> = conn.exec_first(
+    let report_row: Option<(i64, String, String, f64, f64, Vec<u8>, Option<String>, Option<String>)> = conn.exec_first(
         r#"
         SELECT r.seq,
                DATE_FORMAT(r.ts, '%Y-%m-%d %H:%i:%s') AS ts,
@@ -202,10 +205,12 @@ pub fn fetch_report_by_seq(pool: &my::Pool, seq: i64) -> Result<ReportWithAnalys
                r.latitude,
                r.longitude,
                COALESCE(r.image, '') AS image,
-               (SELECT DATE_FORMAT(MAX(created_at), '%Y-%m-%d %H:%i:%s') FROM sent_reports_emails WHERE seq = r.seq) as last_email_sent_at
+               (SELECT DATE_FORMAT(MAX(created_at), '%Y-%m-%d %H:%i:%s') FROM sent_reports_emails WHERE seq = r.seq) as last_email_sent_at,
+               DATE_FORMAT(ei.source_timestamp, '%Y-%m-%d %H:%i:%s') as source_timestamp
         FROM reports r
         LEFT JOIN report_status rs ON r.seq = rs.seq
         LEFT JOIN reports_owners ro ON r.seq = ro.seq
+        LEFT JOIN external_ingest_index ei ON r.seq = ei.seq
         WHERE r.seq = ?
           AND (rs.status IS NULL OR rs.status = 'active')
           AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE)
@@ -213,8 +218,8 @@ pub fn fetch_report_by_seq(pool: &my::Pool, seq: i64) -> Result<ReportWithAnalys
         "#,
         (seq,))?;
 
-    let (seq_v, ts, id, lat, lon, image, last_email_sent_at) = report_row.ok_or_else(|| anyhow::anyhow!("report not found or unavailable"))?;
-    let report = Report { seq: seq_v, timestamp: ts, id, latitude: lat, longitude: lon, image, last_email_sent_at };
+    let (seq_v, ts, id, lat, lon, image, last_email_sent_at, source_timestamp) = report_row.ok_or_else(|| anyhow::anyhow!("report not found or unavailable"))?;
+    let report = Report { seq: seq_v, timestamp: ts, id, latitude: lat, longitude: lon, image, last_email_sent_at, source_timestamp };
 
     // fetch analyses
     let rows: Vec<my::Row> = conn.exec(

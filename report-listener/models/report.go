@@ -18,6 +18,8 @@ type Report struct {
 	ActionID        string     `json:"action_id" db:"action_id"`
 	Description     string     `json:"description" db:"description"`
 	LastEmailSentAt *time.Time `json:"last_email_sent_at" db:"last_email_sent_at"`
+	SourceTimestamp *time.Time `json:"source_timestamp,omitempty" db:"source_timestamp"`
+	SourceURL       *string    `json:"source_url,omitempty" db:"source_url"`
 }
 
 // ReportAnalysis represents an analysis result

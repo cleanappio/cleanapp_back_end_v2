@@ -786,12 +786,15 @@ func (d *Database) SearchReports(ctx context.Context, searchQuery string, classi
 // and are not privately owned (either no owner or is_public = true)
 func (d *Database) GetReportBySeq(ctx context.Context, seq int) (*models.ReportWithAnalysis, error) {
 	// First, get the report if it's not resolved and not privately owned
+	// Include source_timestamp and source_url from external_ingest_index for external sources
 	reportQuery := `
 		SELECT r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.image, r.action_id, r.description,
-			   (SELECT MAX(created_at) FROM sent_reports_emails WHERE seq = r.seq) as last_email_sent_at
+			   (SELECT MAX(created_at) FROM sent_reports_emails WHERE seq = r.seq) as last_email_sent_at,
+			   eii.source_timestamp, eii.source_url
 		FROM reports r
 		LEFT JOIN report_status rs ON r.seq = rs.seq
 		LEFT JOIN reports_owners ro ON r.seq = ro.seq
+		LEFT JOIN external_ingest_index eii ON r.seq = eii.seq
 		WHERE r.seq = ? 
 		AND (rs.status IS NULL OR rs.status = 'active')
 		AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE)
@@ -811,6 +814,8 @@ func (d *Database) GetReportBySeq(ctx context.Context, seq int) (*models.ReportW
 		&report.ActionID,
 		&report.Description,
 		&report.LastEmailSentAt,
+		&report.SourceTimestamp,
+		&report.SourceURL,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {

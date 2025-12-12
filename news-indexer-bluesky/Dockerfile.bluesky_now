@@ -1,0 +1,35 @@
+FROM rust:1.83-slim AS builder
+
+WORKDIR /app
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the entire project
+COPY . .
+
+# Build the bluesky_now binary
+RUN cargo build --release --bin bluesky_now
+
+# Runtime stage
+FROM debian:bookworm-slim
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    libssl3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the built binary
+COPY --from=builder /app/target/release/bluesky_now /usr/local/bin/bluesky_now
+
+# Create config directory  
+RUN mkdir -p /app/config
+
+WORKDIR /app
+
+# Default command
+CMD ["bluesky_now", "--config", "/app/config/config.toml"]
