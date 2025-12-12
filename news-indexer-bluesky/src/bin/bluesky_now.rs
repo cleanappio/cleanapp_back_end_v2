@@ -6,7 +6,6 @@ use mysql_async::prelude::*;
 use mysql_async::Pool;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
-use std::collections::HashSet;
 use std::time::Duration;
 use tokio::time::sleep;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
@@ -281,40 +280,105 @@ const NEGATIVE_KEYWORDS: &[&str] = &[
     "followback",
 ];
 
-// Complaint indicator keywords for pre-filtering
+// Product/Service/Tech complaint keywords - focused but comprehensive
+// These are designed to catch CleanApp-relevant issues about apps, services, products, and brands
 const COMPLAINT_KEYWORDS: &[&str] = &[
-    "broken",
-    "bug",
-    "issue",
-    "problem",
-    "error",
-    "crash",
-    "doesn't work",
-    "not working",
-    "won't load",
-    "charged",
-    "refund",
-    "support",
-    "customer service",
-    "terrible",
-    "awful",
-    "worst",
-    "scam",
-    "fraud",
-    "stolen",
-    "hacked",
-    "suspended",
-    "banned",
-    "locked out",
-    "can't login",
-    "can't log in",
-    "cancelled",
-    "canceled",
-    "disappointed",
-    "frustrated",
-    "angry",
-    "furious",
+    // === App/Software Issues ===
+    "app crash", "app crashed", "app crashes", "app crashing",
+    "keeps crashing", "constantly crashes", "always crashes",
+    "app freeze", "app froze", "app freezes", "app frozen",
+    "app bug", "buggy app", "so buggy", "full of bugs",
+    "glitch", "glitchy", "glitches",
+    "app broken", "broken app", "feature broken",
+    "doesn't work", "doesnt work", "not working", "stopped working",
+    "won't open", "wont open", "won't load", "wont load",
+    "can't open", "cant open", "won't start", "wont start",
+    "app down", "site down", "service down", "server down", "servers down",
+    "outage", "down for", "been down",
+    
+    // === Login/Account Issues ===
+    "can't login", "cant login", "can't log in", "cant log in",
+    "login failed", "login error", "login issue", "login problem",
+    "can't sign in", "cant sign in", "won't let me log",
+    "locked out", "account locked", "got locked out",
+    "account suspended", "account banned", "account disabled",
+    "account hacked", "got hacked", "been hacked", "someone hacked",
+    "password reset", "reset my password", "forgot password",
+    "2fa issue", "verification code", "verification failed",
+    
+    // === Billing/Payment Issues ===
+    "charged me", "double charged", "overcharged", "wrongly charged",
+    "unauthorized charge", "mystery charge", "random charge",
+    "want a refund", "need a refund", "give me a refund", "refund please",
+    "where's my refund", "still waiting for refund", "no refund",
+    "billing issue", "billing problem", "billing error",
+    "subscription", "unsubscribe", "cancel subscription", "cancelled but still",
+    "charged after cancel", "still being charged",
+    "payment failed", "payment declined", "payment error",
+    "won't process", "transaction failed",
+    
+    // === Customer Service ===
+    "customer service", "customer support", "support team",
+    "no response", "no reply", "won't respond", "wont respond",
+    "support ticket", "waiting for support", "support is useless",
+    "help desk", "contact support", "reached out to",
+    "hours on hold", "on hold for", "waiting on hold",
+    "chat support", "email support", "phone support",
+    
+    // === Product/Service Quality ===
+    "terrible service", "awful service", "worst service",
+    "terrible app", "awful app", "worst app",
+    "terrible experience", "awful experience", "worst experience",
+    "horrible ux", "bad ux", "terrible ui", "horrible design",
+    "unusable", "barely usable", "completely unusable",
+    "waste of money", "waste of time", "total waste",
+    "scam", "scammed", "feels like a scam", "such a scam",
+    "ripoff", "rip off", "rip-off",
+    "false advertising", "misleading", "bait and switch",
+    
+    // === Delivery/Shipping Issues ===
+    "never arrived", "didn't arrive", "hasnt arrived", "hasn't arrived",
+    "wrong item", "wrong order", "wrong product",
+    "missing item", "missing order", "order missing",
+    "damaged", "arrived damaged", "came damaged",
+    "late delivery", "delivery late", "still waiting for delivery",
+    "lost package", "package lost", "lost my order",
+    "tracking not working", "tracking shows",
+    
+    // === Booking/Reservation Issues ===
+    "reservation cancelled", "reservation canceled", "booking cancelled",
+    "booking canceled", "cancelled my booking", "canceled my reservation",
+    "double booked", "overbooked", "no record of",
+    "couldn't check in", "check in issue", "check-in problem",
+    "room wasn't", "room wasnt", "not as advertised", "not as described",
+    
+    // === Feature Requests/Missing Functionality ===
+    "feature request", "please add", "wish you had", "would be nice if",
+    "missing feature", "need a feature", "no option to",
+    "can't find", "cant find", "where is the", "how do i",
+    "used to work", "worked before", "stopped working after update",
+    "update broke", "after update", "since the update", "latest update",
+    "bring back", "removed feature", "why did you remove",
+    
+    // === Safety/Trust Issues ===
+    "data breach", "privacy concern", "privacy issue",
+    "leaked my", "exposed my", "shared my data",
+    "unsafe", "security issue", "security concern", "security flaw",
+    "vulnerability", "not secure",
+    "spam", "getting spam", "spam emails", "spam calls",
+    "phishing", "fake email", "suspicious email",
+    
+    // === Driver/Rider/Host Issues (Rideshare/Delivery/Hospitality) ===
+    "driver was", "driver didn't", "driver didnt", "driver never",
+    "rider was", "passenger was",
+    "host was", "host didn't", "host didnt", "host never",
+    "rude driver", "rude host", "unprofessional",
+    "unsafe driver", "dangerous driving", "felt unsafe",
+    "wrong address", "went to wrong", "picked up wrong",
+    "didn't show up", "didnt show up", "no show",
+    "cancelled on me", "canceled on me",
 ];
+
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -338,14 +402,12 @@ async fn main() -> Result<()> {
     ensure_jetstream_cursor_table(&pool).await?;
     info!("Database tables verified");
 
-    // Get brands (from config or use defaults)
-    let brands = config.brands.unwrap_or_else(default_brands);
-    info!("Loaded {} brands for detection", brands.len());
+    info!("BlueskyNow running in COMPREHENSIVE mode - all complaints will be ingested");
 
     if args.once {
-        run_once(&pool, &brands).await?;
+        run_once(&pool).await?;
     } else {
-        run_continuous(&pool, &brands).await?;
+        run_continuous(&pool).await?;
     }
 
     Ok(())
@@ -383,7 +445,7 @@ async fn update_cursor(pool: &Pool, time_us: u64) -> Result<()> {
     Ok(())
 }
 
-async fn run_once(pool: &Pool, brands: &[BrandConfig]) -> Result<()> {
+async fn run_once(pool: &Pool) -> Result<()> {
     info!("Running once for testing...");
     let cursor = get_cursor(pool).await?;
     
@@ -401,7 +463,7 @@ async fn run_once(pool: &Pool, brands: &[BrandConfig]) -> Result<()> {
     while let Some(msg) = read.next().await {
         match msg {
             Ok(Message::Text(text)) => {
-                if let Err(e) = process_message(&text, pool, brands).await {
+                if let Err(e) = process_message(&text, pool).await {
                     warn!("Error processing message: {}", e);
                 }
                 count += 1;
@@ -421,7 +483,7 @@ async fn run_once(pool: &Pool, brands: &[BrandConfig]) -> Result<()> {
     Ok(())
 }
 
-async fn run_continuous(pool: &Pool, brands: &[BrandConfig]) -> Result<()> {
+async fn run_continuous(pool: &Pool) -> Result<()> {
     let mut backoff_secs = 1u64;
     
     loop {
@@ -440,7 +502,7 @@ async fn run_continuous(pool: &Pool, brands: &[BrandConfig]) -> Result<()> {
                 backoff_secs = 1; // Reset backoff on success
                 let (_, mut read) = ws_stream.split();
                 
-                info!("Connected to Jetstream firehose");
+                info!("Connected to Jetstream firehose (COMPREHENSIVE mode)");
                 
                 let mut message_count = 0u64;
                 let mut match_count = 0u64;
@@ -448,7 +510,7 @@ async fn run_continuous(pool: &Pool, brands: &[BrandConfig]) -> Result<()> {
                 while let Some(msg) = read.next().await {
                     match msg {
                         Ok(Message::Text(text)) => {
-                            match process_message(&text, pool, brands).await {
+                            match process_message(&text, pool).await {
                                 Ok(matched) => {
                                     message_count += 1;
                                     if matched {
@@ -456,7 +518,7 @@ async fn run_continuous(pool: &Pool, brands: &[BrandConfig]) -> Result<()> {
                                     }
                                     if message_count % 10000 == 0 {
                                         info!(
-                                            "Processed {} messages, {} matches ({:.2}%)",
+                                            "Processed {} messages, {} complaints stored ({:.2}%)",
                                             message_count,
                                             match_count,
                                             (match_count as f64 / message_count as f64) * 100.0
@@ -468,7 +530,7 @@ async fn run_continuous(pool: &Pool, brands: &[BrandConfig]) -> Result<()> {
                                 }
                             }
                         }
-                        Ok(Message::Ping(data)) => {
+                        Ok(Message::Ping(_)) => {
                             debug!("Received ping");
                             // Pong is handled automatically by tungstenite
                         }
@@ -496,7 +558,7 @@ async fn run_continuous(pool: &Pool, brands: &[BrandConfig]) -> Result<()> {
     }
 }
 
-async fn process_message(raw: &str, pool: &Pool, brands: &[BrandConfig]) -> Result<bool> {
+async fn process_message(raw: &str, pool: &Pool) -> Result<bool> {
     let event: JetstreamEvent = serde_json::from_str(raw)?;
     
     // Update cursor
@@ -533,6 +595,11 @@ async fn process_message(raw: &str, pool: &Pool, brands: &[BrandConfig]) -> Resu
     // Normalize to BlueskyPost
     let post = normalize_post(&event.did, commit, record)?;
 
+    // Skip very short posts (likely not useful)
+    if post.text.len() < 20 {
+        return Ok(false);
+    }
+
     // Check negative keywords (spam filter)
     let text_lower = post.text.to_lowercase();
     for kw in NEGATIVE_KEYWORDS {
@@ -541,28 +608,19 @@ async fn process_message(raw: &str, pool: &Pool, brands: &[BrandConfig]) -> Resu
         }
     }
 
-    // Detect brands
-    let brand_matches = detect_brands(&post, brands);
-    if brand_matches.is_empty() {
-        return Ok(false);
-    }
-
-    // Pre-filter: check for complaint indicators
+    // Check for complaint/issue indicators - this is our main filter
+    // The analyzer will determine the brand later
     let has_complaint_indicator = COMPLAINT_KEYWORDS.iter().any(|kw| text_lower.contains(kw));
     if !has_complaint_indicator {
         return Ok(false);
     }
 
-    // We have a match! Store it
-    let mut post_with_brands = post;
-    post_with_brands.detected_brands = brand_matches;
-
-    store_post(pool, &post_with_brands).await?;
+    // Store the post - analyzer_bluesky will determine brand
+    store_post(pool, &post).await?;
     
     info!(
-        "📢 Brand match: {} | Brands: {:?}",
-        truncate_text(&post_with_brands.text, 80),
-        post_with_brands.detected_brands.iter().map(|b| &b.brand_id).collect::<Vec<_>>()
+        "📥 Complaint found: {}",
+        truncate_text(&post.text, 80)
     );
 
     Ok(true)
@@ -623,55 +681,10 @@ fn normalize_post(did: &str, commit: &JetstreamCommit, record: &JsonValue) -> Re
     })
 }
 
-fn detect_brands(post: &BlueskyPost, brands: &[BrandConfig]) -> Vec<BrandMatch> {
-    let text_lower = post.text.to_lowercase();
-    let mut matches: Vec<BrandMatch> = Vec::new();
-    let mut seen: HashSet<String> = HashSet::new();
 
-    for brand in brands {
-        let mut best_confidence = 0.0f32;
-        let mut match_type = String::new();
-
-        // Check aliases in text
-        for alias in &brand.aliases {
-            if text_lower.contains(&alias.to_lowercase()) {
-                if 0.7 > best_confidence {
-                    best_confidence = 0.7;
-                    match_type = "alias".into();
-                }
-            }
-        }
-
-        // Check domains in links (higher confidence)
-        for link in &post.links {
-            let link_lower = link.to_lowercase();
-            for domain in &brand.domains {
-                if link_lower.contains(&domain.to_lowercase()) {
-                    if 0.9 > best_confidence {
-                        best_confidence = 0.9;
-                        match_type = "domain".into();
-                    }
-                }
-            }
-        }
-
-        if best_confidence > 0.0 && !seen.contains(&brand.id) {
-            seen.insert(brand.id.clone());
-            matches.push(BrandMatch {
-                brand_id: brand.id.clone(),
-                confidence: best_confidence,
-                match_type,
-            });
-        }
-    }
-
-    matches
-}
 
 async fn store_post(pool: &Pool, post: &BlueskyPost) -> Result<()> {
     let mut conn = pool.get_conn().await?;
-
-    let detected_brands_json = serde_json::to_string(&post.detected_brands)?;
     let raw_json = serde_json::to_string(&post.raw)?;
 
     conn.exec_drop(
@@ -695,8 +708,7 @@ async fn store_post(pool: &Pool, post: &BlueskyPost) -> Result<()> {
         )
     ).await?;
 
-    // Store brand detection results (could be separate table or JSON column)
-    debug!("Stored post {} with {} brand matches", post.uri, post.detected_brands.len());
+    debug!("Stored post {}", post.uri);
 
     Ok(())
 }
