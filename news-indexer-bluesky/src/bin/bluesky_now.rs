@@ -268,21 +268,44 @@ fn default_brands() -> Vec<BrandConfig> {
     ]
 }
 
-// Negative keywords to filter noise (same as index_bluesky.rs)
+// Negative keywords to filter noise and spam
 const NEGATIVE_KEYWORDS: &[&str] = &[
-    "giveaway",
-    "promo",
-    "nft",
-    "crypto airdrop",
-    "follow for follow",
-    "f4f",
-    "follow back",
-    "followback",
+    // Spam/Promo
+    "giveaway", "promo", "nft", "crypto airdrop",
+    "follow for follow", "f4f", "follow back", "followback",
+    // YouTube/Video spam (common pattern: "Watch the latest")
+    "watch the latest", "watch latest", "don't miss this",
+    "breaking news:", "latest updates:",
+    "youtu.be", "youtube.com/watch",
+    // Stock/Crypto spam
+    "nse/bse", "stock updates", "shares updates", "trading signal",
+    "buy now", "pump", "to the moon",
+    // Political/News (not product-related)
+    "vote for", "election", "politician",
+    // Other noise
+    "astrology", "horoscope", "zodiac",
+    "subscribe to my", "check out my",
 ];
 
 // Product/Service/Tech complaint keywords - focused but comprehensive
 // These are designed to catch CleanApp-relevant issues about apps, services, products, and brands
 const COMPLAINT_KEYWORDS: &[&str] = &[
+    // === HIGH-SIGNAL SINGLE WORDS (catch more, filter later) ===
+    "crash", "crashed", "crashes", "crashing",
+    "bug", "bugs", "buggy",
+    "broken", "broke",
+    "glitch", "glitchy", "glitches",
+    "sucks", "suck",
+    "terrible", "awful", "horrible", "worst",
+    "scam", "scammed", "scammer",
+    "refund", "refunds",
+    "hacked", "hack",
+    "banned", "suspended",
+    "outage", "down",
+    "unusable",
+    "overcharged", "charged",
+    "unsubscribe",
+    
     // === App/Software Issues ===
     "app crash", "app crashed", "app crashes", "app crashing",
     "keeps crashing", "constantly crashes", "always crashes",
@@ -596,7 +619,7 @@ async fn process_message(raw: &str, pool: &Pool) -> Result<bool> {
     let post = normalize_post(&event.did, commit, record)?;
 
     // Skip very short posts (likely not useful)
-    if post.text.len() < 20 {
+    if post.text.len() < 10 {
         return Ok(false);
     }
 
