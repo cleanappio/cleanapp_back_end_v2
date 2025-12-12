@@ -24,6 +24,9 @@ WORKDIR /root/
 # Copy the binary from builder stage
 COPY --from=builder /app/main .
 
+# Copy templates for opt-out pages
+COPY --from=builder /app/templates ./templates
+
 # Run the application
 EXPOSE 8080
 CMD ["./main"] 

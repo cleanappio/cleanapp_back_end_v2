@@ -27,6 +27,10 @@ type Config struct {
 
 	// Email throttling configuration
 	ThrottleDays int // Days to throttle emails per brand+email pair (default: 7)
+
+	// Spam prevention configuration
+	DryRun                 bool // If true, log emails but don't actually send them
+	MaxDailyEmailsPerBrand int  // Maximum emails to send per brand per day (default: 10)
 }
 
 // Load loads configuration from environment variables and flags
@@ -56,6 +60,14 @@ func Load() *Config {
 		throttleDays = 7 // Default to 7 days
 	}
 	cfg.ThrottleDays = throttleDays
+
+	// Spam prevention configuration
+	cfg.DryRun = getEnv("EMAIL_DRY_RUN", "false") == "true"
+	maxDaily, err := strconv.Atoi(getEnv("MAX_DAILY_EMAILS_PER_BRAND", "10"))
+	if err != nil || maxDaily <= 0 {
+		maxDaily = 10 // Default: max 10 emails per brand per day
+	}
+	cfg.MaxDailyEmailsPerBrand = maxDaily
 
 	return cfg
 }

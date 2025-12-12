@@ -129,6 +129,22 @@ func (s *EmailService) recordBrandEmailSent(ctx context.Context, brandName, emai
 	return nil
 }
 
+// getDailyEmailCount returns the number of emails sent today for a specific brand
+func (s *EmailService) getDailyEmailCount(ctx context.Context, brandName string) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM brand_email_throttle 
+		WHERE brand_name = ? 
+		AND DATE(last_sent_at) = CURDATE()
+	`, brandName).Scan(&count)
+
+	if err != nil {
+		return 0, fmt.Errorf("failed to get daily email count for brand %s: %w", brandName, err)
+	}
+	return count, nil
+}
+
+
 // NewEmailService creates a new email service
 func NewEmailService(cfg *config.Config) (*EmailService, error) {
 	// Connect to database
@@ -304,6 +320,12 @@ func (s *EmailService) getUnprocessedReportsByBrand(ctx context.Context) ([]mode
 func (s *EmailService) ProcessBrandNotifications() error {
 	ctx := context.Background()
 	start := time.Now()
+
+	// Log if dry-run mode is enabled
+	if s.config.DryRun {
+		log.Info("🔒 DRY RUN MODE ENABLED - emails will be logged but not sent")
+	}
+
 	log.Info("Aggregate notification cycle started: fetching brands with new reports")
 
 	// Get brands with unprocessed reports
@@ -314,9 +336,27 @@ func (s *EmailService) ProcessBrandNotifications() error {
 
 	log.Infof("Found %d brands with new reports (in %s)", len(brandSummaries), time.Since(start))
 
-	var processedBrands, skippedBrands, emailsSent int
+	var processedBrands, skippedBrands, emailsSent, dailyLimitHits int
 
 	for _, summary := range brandSummaries {
+		// SAFETY CHECK: Daily email limit per brand
+		dailyCount, err := s.getDailyEmailCount(ctx, summary.BrandName)
+		if err != nil {
+			log.Warnf("Failed to get daily email count for %s: %v", summary.BrandName, err)
+		} else if dailyCount >= s.config.MaxDailyEmailsPerBrand {
+			log.Warnf("⚠️ DAILY LIMIT REACHED for brand %s (%d/%d), skipping", 
+				summary.BrandName, dailyCount, s.config.MaxDailyEmailsPerBrand)
+			// Mark reports as processed so we don't keep retrying tomorrow
+			for _, seq := range summary.ReportSeqs {
+				if err := s.markReportAsProcessed(ctx, seq); err != nil {
+					log.Warnf("Failed to mark report %d as processed: %v", seq, err)
+				}
+			}
+			dailyLimitHits++
+			skippedBrands++
+			continue
+		}
+
 		// Get contact emails for this brand
 		emails := strings.Split(strings.TrimSpace(summary.InferredContactEmails), ",")
 		var cleanEmails []string
@@ -337,8 +377,10 @@ func (s *EmailService) ProcessBrandNotifications() error {
 				// Check per-brand throttle
 				throttled, err := s.shouldThrottleEmail(ctx, summary.BrandName, cleanEmail)
 				if err != nil {
-					log.Warnf("Failed to check throttle for %s/%s: %v, proceeding anyway", summary.BrandName, cleanEmail, err)
-				} else if throttled {
+					log.Warnf("Failed to check throttle for %s/%s: %v, skipping to be safe", summary.BrandName, cleanEmail, err)
+					continue // CHANGED: Skip on error instead of proceeding
+				}
+				if throttled {
 					log.Infof("Throttling email to %s for brand %s (already sent recently)", cleanEmail, summary.BrandName)
 					continue
 				}
@@ -359,23 +401,34 @@ func (s *EmailService) ProcessBrandNotifications() error {
 			continue
 		}
 
-		// Send ONE aggregate notification for this brand
-		log.Infof("Brand %s: sending aggregate notification (%d new, %d total) to %d recipients",
-			summary.BrandName, summary.NewReportCount, summary.TotalReportCount, len(cleanEmails))
-
-		if err := s.sendAggregateNotification(ctx, &summary, cleanEmails); err != nil {
-			log.Errorf("Failed to send aggregate notification for brand %s: %v", summary.BrandName, err)
-			continue
-		}
-
-		// Mark ALL reports for this brand as processed
+		// CRITICAL: Mark ALL reports BEFORE sending (prevents race condition on restart)
 		for _, seq := range summary.ReportSeqs {
 			if err := s.markReportAsProcessed(ctx, seq); err != nil {
 				log.Warnf("Failed to mark report %d as processed: %v", seq, err)
 			}
 		}
 
-		// Record brand+email throttle entries
+		// DRY RUN MODE: Log what would be sent but don't actually send
+		if s.config.DryRun {
+			log.Infof("🔒 DRY RUN: Would send to %d recipients for brand %s (%d new, %d total reports)",
+				len(cleanEmails), summary.BrandName, summary.NewReportCount, summary.TotalReportCount)
+			log.Infof("🔒 DRY RUN: Recipients: %v", cleanEmails)
+			processedBrands++
+			emailsSent += len(cleanEmails)
+			continue
+		}
+
+		// Send ONE aggregate notification for this brand
+		log.Infof("Brand %s: sending aggregate notification (%d new, %d total) to %d recipients",
+			summary.BrandName, summary.NewReportCount, summary.TotalReportCount, len(cleanEmails))
+
+		if err := s.sendAggregateNotification(ctx, &summary, cleanEmails); err != nil {
+			log.Errorf("Failed to send aggregate notification for brand %s: %v", summary.BrandName, err)
+			// Reports already marked as processed, continue to next brand
+			continue
+		}
+
+		// Record brand+email throttle entries (AFTER successful send)
 		for _, emailAddr := range cleanEmails {
 			if err := s.recordBrandEmailSent(ctx, summary.BrandName, emailAddr); err != nil {
 				log.Warnf("Failed to record brand email sent for %s to %s: %v", summary.BrandName, emailAddr, err)
@@ -389,8 +442,8 @@ func (s *EmailService) ProcessBrandNotifications() error {
 		emailsSent += len(cleanEmails)
 	}
 
-	log.Infof("Aggregate notification cycle complete: %d brands processed, %d skipped, %d emails sent (took %s)",
-		processedBrands, skippedBrands, emailsSent, time.Since(start))
+	log.Infof("Aggregate notification cycle complete: %d brands processed, %d skipped (%d daily limit hits), %d emails sent (took %s)",
+		processedBrands, skippedBrands, dailyLimitHits, emailsSent, time.Since(start))
 	return nil
 }
 

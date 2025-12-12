@@ -33,6 +33,9 @@ func main() {
 	// Create Gin router
 	router := gin.Default()
 
+	// Load HTML templates for opt-out pages
+	router.LoadHTMLGlob("templates/*")
+
 	// API v3 routes
 	apiV3 := router.Group("/api/v3")
 	{
