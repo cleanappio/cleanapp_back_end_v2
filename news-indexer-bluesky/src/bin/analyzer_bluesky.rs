@@ -129,7 +129,7 @@ async fn run_once(
                FROM indexer_bluesky_post p
                LEFT JOIN indexer_bluesky_analysis a ON a.uri = p.uri
                WHERE a.uri IS NULL OR a.error IS NOT NULL
-               ORDER BY p.created_at ASC
+               ORDER BY p.created_at DESC
                LIMIT ?"#,
             (args.batch_size as u64,),
         )
