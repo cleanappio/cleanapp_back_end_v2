@@ -34,8 +34,10 @@ Flags:
 - `--max-items` to cap ingestion (helpful for smoke tests).
 - `--batch-size` (default 1000) and `--concurrency` (default 8).
 - `--subreddit-allowlist` and `--keyword-file` provide simple gating.
+- `--gcs-token` supplies a bearer token for private `gs://` inputs (also `GCS_BEARER_TOKEN`).
 - `--dry-run` prints converted items instead of posting.
 
 Environment variables:
 - `CLEANAPP_BACKEND_URL`
 - `CLEANAPP_FETCHER_TOKEN`
+- `GCS_BEARER_TOKEN`

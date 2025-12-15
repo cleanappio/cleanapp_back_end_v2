@@ -17,6 +17,7 @@ use tokio::fs;
 use tokio::io::{self, AsyncBufRead, AsyncBufReadExt, BufReader};
 use tokio::sync::Semaphore;
 use tokio_util::io::StreamReader;
+use urlencoding::encode;
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about = "Stream Reddit dumps into CleanApp bulk_ingest", long_about = None)]
@@ -64,6 +65,10 @@ struct Args {
     /// Dry run - print first N converted items instead of submitting
     #[arg(long = "dry-run")]
     dry_run: bool,
+
+    /// Optional bearer token for accessing private GCS objects
+    #[arg(long = "gcs-token", env = "GCS_BEARER_TOKEN")]
+    gcs_token: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
@@ -204,7 +209,7 @@ async fn process_input(
     backend_url: &str,
     fetcher_token: &str,
 ) -> Result<usize> {
-    let reader = open_reader(input, client).await?;
+    let reader = open_reader(input, client, args.gcs_token.as_deref()).await?;
     let mut lines = reader.lines();
     let mut buffer: Vec<BulkItem> = Vec::with_capacity(batch_size);
     let mut printed = 0usize;
@@ -388,21 +393,65 @@ fn format_timestamp(ts: Option<f64>) -> Result<String> {
     Ok(dt.to_rfc3339())
 }
 
+enum InputSource {
+    Local(String),
+    Remote { url: String, token: Option<String> },
+}
+
+fn resolve_input(input: &str, gcs_token: Option<&str>) -> Result<InputSource> {
+    if let Some(path) = input.strip_prefix("gs://") {
+        let mut parts = path.splitn(2, '/');
+        let bucket = parts
+            .next()
+            .filter(|b| !b.is_empty())
+            .ok_or_else(|| anyhow!("gcs input missing bucket"))?;
+        let object = parts
+            .next()
+            .filter(|o| !o.is_empty())
+            .ok_or_else(|| anyhow!("gcs input missing object path"))?;
+
+        let encoded = encode(object);
+        let url =
+            format!("https://storage.googleapis.com/storage/v1/b/{bucket}/o/{encoded}?alt=media");
+        return Ok(InputSource::Remote {
+            url,
+            token: gcs_token.map(String::from),
+        });
+    }
+
+    if input.starts_with("http://") || input.starts_with("https://") {
+        Ok(InputSource::Remote {
+            url: input.to_string(),
+            token: None,
+        })
+    } else {
+        Ok(InputSource::Local(input.to_string()))
+    }
+}
+
 async fn open_reader(
     input: &str,
     client: &reqwest::Client,
+    gcs_token: Option<&str>,
 ) -> Result<Box<dyn AsyncBufRead + Unpin + Send>> {
-    if input.starts_with("http://") || input.starts_with("https://") {
-        let resp = client.get(input).send().await?.error_for_status()?;
-        let stream = resp
-            .bytes_stream()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e));
-        let reader = StreamReader::new(stream);
-        Ok(wrap_decoder(reader, input))
-    } else {
-        let file = fs::File::open(input).await?;
-        let reader = BufReader::new(file);
-        Ok(wrap_decoder(reader, input))
+    match resolve_input(input, gcs_token)? {
+        InputSource::Remote { url, token } => {
+            let mut request = client.get(url);
+            if let Some(token) = token {
+                request = request.bearer_auth(token);
+            }
+            let resp = request.send().await?.error_for_status()?;
+            let stream = resp
+                .bytes_stream()
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e));
+            let reader = StreamReader::new(stream);
+            Ok(wrap_decoder(reader, input))
+        }
+        InputSource::Local(path) => {
+            let file = fs::File::open(path).await?;
+            let reader = BufReader::new(file);
+            Ok(wrap_decoder(reader, input))
+        }
     }
 }
 
@@ -547,5 +596,21 @@ mod tests {
         assert_eq!(item.title, "Reddit comment");
         assert!(item.url.contains("reddit.com"));
         assert_eq!(item.metadata["kind"], "comment");
+    }
+
+    #[test]
+    fn resolve_gcs_input_to_signed_endpoint() {
+        let source = resolve_input("gs://bucket/path/to/object.zst", Some("token"))
+            .expect("gcs input should parse");
+        match source {
+            InputSource::Remote { url, token } => {
+                assert_eq!(
+                    url,
+                    "https://storage.googleapis.com/storage/v1/b/bucket/o/path%2Fto%2Fobject.zst?alt=media"
+                );
+                assert_eq!(token.as_deref(), Some("token"));
+            }
+            _ => panic!("expected remote gcs source"),
+        }
     }
 }
