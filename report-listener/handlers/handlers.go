@@ -89,6 +89,8 @@ type BulkError struct {
 
 // BulkIngest handles POST /api/v3/reports/bulk_ingest
 func (h *Handlers) BulkIngest(c *gin.Context) {
+	start := time.Now()
+
 	var req BulkIngestRequest
 	if err := c.BindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})
@@ -105,395 +107,150 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 		return
 	}
 
-	// Simple limits
 	if len(req.Items) > 1000 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "items limit 1000"})
 		return
 	}
 
+	fastPath := strings.EqualFold(req.Source, "reddit_dump")
+	for _, it := range req.Items {
+		if it.Metadata != nil {
+			if v, ok := it.Metadata["bulk_mode"].(bool); ok && v {
+				fastPath = true
+				break
+			}
+		}
+	}
+
 	resp := BulkIngestResponse{}
 
+	seenExt := make(map[string]bool)
+	var uniqueExt []string
 	for i, it := range req.Items {
-		if it.ExternalID == "" {
+		if strings.TrimSpace(it.ExternalID) == "" {
 			resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: "missing external_id"})
 			resp.Skipped++
 			continue
 		}
-
-		// Idempotency: check mapping
-		seq, exists, err := h.db.GetSeqByExternal(c.Request.Context(), req.Source, it.ExternalID)
-		if err != nil {
-			resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: "db error"})
+		if seenExt[it.ExternalID] {
+			resp.Skipped++
 			continue
 		}
+		seenExt[it.ExternalID] = true
+		uniqueExt = append(uniqueExt, it.ExternalID)
+	}
 
-		// Decode optional base64 image (best-effort)
+	existing := make(map[string]int)
+	const lookupChunk = 200
+	for i := 0; i < len(uniqueExt); i += lookupChunk {
+		end := i + lookupChunk
+		if end > len(uniqueExt) {
+			end = len(uniqueExt)
+		}
+		chunk := uniqueExt[i:end]
+		placeholders := strings.TrimRight(strings.Repeat("?,", len(chunk)), ",")
+		args := make([]interface{}, 0, len(chunk)+1)
+		args = append(args, req.Source)
+		for _, id := range chunk {
+			args = append(args, id)
+		}
+		rows, err := h.db.DB().QueryContext(c.Request.Context(),
+			fmt.Sprintf("SELECT external_id, seq FROM external_ingest_index WHERE source = ? AND external_id IN (%s)", placeholders),
+			args...,
+		)
+		if err != nil {
+			log.Printf("bulk ingest lookup failed: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+			return
+		}
+		for rows.Next() {
+			var ext string
+			var seq int
+			if err := rows.Scan(&ext, &seq); err == nil {
+				existing[ext] = seq
+			}
+		}
+		rows.Close()
+	}
+
+	type preparedItem struct {
+		idx            int
+		seq            int
+		ext            string
+		team           int
+		lat            float64
+		lon            float64
+		img            []byte
+		title          string
+		description    string
+		url            string
+		brandName      string
+		brandDisplay   string
+		lp             float64
+		hp             float64
+		dbp            float64
+		severity       float64
+		classification string
+		lang           string
+		summary        string
+		inferredEmails interface{}
+	}
+
+	var newItems []preparedItem
+	seenNew := make(map[string]bool)
+	for i, it := range req.Items {
+		if strings.TrimSpace(it.ExternalID) == "" {
+			continue
+		}
+		if _, ok := existing[it.ExternalID]; ok {
+			resp.Skipped++
+			continue
+		}
+		if seenNew[it.ExternalID] {
+			resp.Skipped++
+			continue
+		}
+		seenNew[it.ExternalID] = true
+
 		var imgBytes []byte
 		if strings.TrimSpace(it.ImageBase64) != "" {
 			if b, err := base64.StdEncoding.DecodeString(it.ImageBase64); err == nil {
 				imgBytes = b
-			} else {
-				// ignore invalid image, proceed without image
-				imgBytes = []byte{}
 			}
-		} else {
-			imgBytes = []byte{}
 		}
 
-		if !exists {
-			// Insert report + analysis + mapping in one transaction to avoid orphan rows
-			tx, err := h.db.DB().BeginTx(c.Request.Context(), &sql.TxOptions{Isolation: sql.LevelReadCommitted})
-			if err != nil {
-				resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: "begin tx failed"})
-				continue
+		lat := 0.0
+		lon := 0.0
+		if it.Metadata != nil {
+			if v, ok := it.Metadata["latitude"].(float64); ok {
+				lat = v
 			}
-			reporterID := "fetcher:" + fetcherID
-			// Insert report
-			// randomize team between 1 and 2
-			team := 1 + rand.Intn(2)
-			// Optional coordinates from metadata
-			lat := 0.0
-			if it.Metadata != nil {
-				if v, ok := it.Metadata["latitude"].(float64); ok {
-					lat = v
-				}
+			if v, ok := it.Metadata["longitude"].(float64); ok {
+				lon = v
 			}
-			lon := 0.0
-			if it.Metadata != nil {
-				if v, ok := it.Metadata["longitude"].(float64); ok {
-					lon = v
-				}
-			}
+		}
 
-			res, err := tx.ExecContext(c.Request.Context(),
-				`INSERT INTO reports (id, team, action_id, latitude, longitude, x, y, image, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-				reporterID, team, "", lat, lon, 0.0, 0.0, imgBytes, truncateRunes(stripNonBMP(it.Title), 255),
-			)
-			if err != nil {
-				tx.Rollback()
-				resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: truncate(fmt.Sprintf("insert report failed: %v", err), 256)})
-				continue
-			}
-			lastID, err := res.LastInsertId()
-			if err != nil {
-				tx.Rollback()
-				resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: truncate(fmt.Sprintf("get last insert id failed: %v", err), 256)})
-				continue
-			}
-			seq = int(lastID)
-
-			// Prepare analysis fields per spec
-			title := truncateRunes(stripNonBMP(it.Title), 500)
-			description := truncateRunes(stripNonBMP(it.Content), 16000)
-			// Optional tags processing: insert into tags/report_tags
-			if len(it.Tags) > 0 {
-				for _, raw := range it.Tags {
-					tagDisp := strings.TrimSpace(strings.TrimPrefix(raw, "#"))
-					if tagDisp == "" {
-						continue
-					}
-					tagCanon := strings.ToLower(tagDisp)
-					// Upsert tag and get id
-					resTag, err := tx.ExecContext(c.Request.Context(),
-						`INSERT INTO tags (canonical_name, display_name, usage_count) VALUES (?, ?, 0)
-                         ON DUPLICATE KEY UPDATE display_name=VALUES(display_name), id=LAST_INSERT_ID(id)`,
-						tagCanon, tagDisp,
-					)
-					if err != nil {
-						log.Printf("tag upsert failed: %v", err)
-						continue
-					}
-					tagID, _ := resTag.LastInsertId()
-					if tagID == 0 {
-						// Fallback: read id by canonical
-						row := tx.QueryRowContext(c.Request.Context(), `SELECT id FROM tags WHERE canonical_name = ?`, tagCanon)
-						_ = row.Scan(&tagID)
-					}
-					if tagID > 0 {
-						_, _ = tx.ExecContext(c.Request.Context(),
-							`INSERT IGNORE INTO report_tags (report_seq, tag_id) VALUES (?, ?)`,
-							seq, tagID,
-						)
-						_, _ = tx.ExecContext(c.Request.Context(),
-							`UPDATE tags SET usage_count = usage_count + 1, last_used_at = NOW() WHERE id = ?`,
-							tagID,
-						)
-					}
-				}
-			}
-			// Brand fields:
-			// - For twitter: keep empty unless explicitly provided in metadata
-			// - For github_issue: derive brand from owner/repo
-			// - Otherwise: derive using generic extractor
-			var brandDisplay string
-			var brandName string
-			if strings.EqualFold(req.Source, "twitter") || strings.EqualFold(req.Source, "bluesky") {
-				if it.Metadata != nil {
-					if v, ok := it.Metadata["brand_display_name"].(string); ok && strings.TrimSpace(v) != "" {
-						brandDisplay = v
-					}
-					if v, ok := it.Metadata["brand_name"].(string); ok && strings.TrimSpace(v) != "" {
-						brandName = v
-					}
-				}
-			} else if strings.EqualFold(req.Source, "github_issue") {
-				brandDisplay = extractBrandDisplay(it.Title, it.Metadata)
-				brandName = normalizeGithubBrandName(brandDisplay)
-			} else {
-				brandDisplay = extractBrandDisplay(it.Title, it.Metadata)
-				brandName = brandutil.NormalizeBrandName(brandDisplay)
-			}
-			severity := clampSeverity(it.Score)
-			// summary composed below; no standalone sumSafe needed
-			// Compose trimmed description for summary
-			trimmedDesc := trimmedDescriptionForSummary(description)
-			// Insert analysis (truncate to avoid oversized multi-byte issues)
-			// Extract optional analysis fields from metadata if provided by submitter
-			lp := 0.0
+		team := 1 + rand.Intn(2)
+		title := truncateRunes(stripNonBMP(it.Title), 500)
+		description := truncateRunes(stripNonBMP(it.Content), 16000)
+		trimmedDesc := trimmedDescriptionForSummary(description)
+		url := truncateRunes(stripNonBMP(it.URL), 500)
+		brandDisplay := extractBrandDisplay(it.Title, it.Metadata)
+		brandName := brandutil.NormalizeBrandName(brandDisplay)
+		if strings.EqualFold(req.Source, "github_issue") {
+			brandName = normalizeGithubBrandName(brandDisplay)
+		}
+		severity := clampSeverity(it.Score)
+		lp := 0.0
+		hp := 0.0
+		dbp := 1.0
+		if it.Metadata != nil {
 			if v, ok := it.Metadata["litter_probability"].(float64); ok {
 				lp = v
 			}
-			hp := 0.0
 			if v, ok := it.Metadata["hazard_probability"].(float64); ok {
 				hp = v
 			}
-			dbp := 1.0
-			if v, ok := it.Metadata["digital_bug_probability"].(float64); ok {
-				dbp = v
-			} else if v, ok := it.Metadata["classification"].(string); ok && v == "physical" {
-				dbp = 0.0
-			}
-			// severity from Score (already clamped), but allow override via metadata.severity_level
-			if v, ok := it.Metadata["severity_level"].(float64); ok {
-				severity = clampSeverity(v)
-			}
-			// classification override (normalize to allowed enum values)
-			classification := "digital"
-			if v, ok := it.Metadata["classification"].(string); ok && v != "" {
-				vv := strings.ToLower(strings.TrimSpace(v))
-				if vv == "physical" || vv == "digital" {
-					classification = vv
-				}
-			}
-			// language optional
-			lang := "en"
-			if v, ok := it.Metadata["language"].(string); ok && v != "" {
-				lang = v
-			}
-			// summary: prefer metadata.summary, fall back to composed summary
-			metaSummary, _ := it.Metadata["summary"].(string)
-			if metaSummary == "" {
-				metaSummary = title + " : " + trimmedDesc + " : " + safeURL(it.URL)
-			} else {
-				metaSummary = truncate(trimmedDesc, 0) // noop to keep truncate function referenced
-				metaSummary = ""                       // reset; maintain below explicit string build
-			}
-			effectiveSummary := it.Metadata["summary"]
-			if s, ok := effectiveSummary.(string); ok && s != "" {
-				// indexer summary + tweet URL
-				metaSummary = s + " : " + safeURL(it.URL)
-			} else {
-				metaSummary = title + " : " + trimmedDesc + " : " + safeURL(it.URL)
-			}
-
-			// Extract inferred_contact_emails from metadata if provided
-			var inferredContactEmails string
-			if it.Metadata != nil {
-				if emails, ok := it.Metadata["inferred_contact_emails"]; ok {
-					switch v := emails.(type) {
-					case []interface{}:
-						var emailStrs []string
-						for _, e := range v {
-							if s, ok := e.(string); ok {
-								emailStrs = append(emailStrs, s)
-							}
-						}
-						if len(emailStrs) > 0 {
-							inferredContactEmails = strings.Join(emailStrs, ",")
-						}
-					case string:
-						inferredContactEmails = v
-					}
-				}
-			}
-
-			_, err = tx.ExecContext(c.Request.Context(), `
-                INSERT INTO report_analysis (
-                    seq, source, analysis_text, analysis_image, title, description,
-                    brand_name, brand_display_name, litter_probability, hazard_probability,
-                    digital_bug_probability, severity_level, summary, language, is_valid, classification, inferred_contact_emails
-                ) VALUES (?, ?, '', NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, ?, ?)
-            `, seq, req.Source, title, description, brandName, brandDisplay, lp, hp, dbp, severity, truncate(metaSummary, 8192), lang, classification, nullable(inferredContactEmails))
-			if err != nil {
-				tx.Rollback()
-				resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: truncate(fmt.Sprintf("insert analysis failed: %v", err), 256)})
-				continue
-			}
-
-			// Insert report_details (company_name, product_name, url)
-			company, product := splitOwnerRepo(brandDisplay)
-			_, err = tx.ExecContext(c.Request.Context(), `
-                INSERT INTO report_details (seq, company_name, product_name, url) VALUES (?, ?, ?, ?)
-                ON DUPLICATE KEY UPDATE company_name=VALUES(company_name), product_name=VALUES(product_name), url=VALUES(url)
-            `, seq, nullable(company), nullable(product), truncateRunes(stripNonBMP(it.URL), 500))
-			if err != nil {
-				tx.Rollback()
-				resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: truncate(fmt.Sprintf("insert details failed: %v", err), 256)})
-				continue
-			}
-
-			// Insert mapping with source timestamp and URL
-			var sourceTimestamp interface{}
-			if it.CreatedAt != "" {
-				// Debug log to see exactly what we are receiving
-				log.Printf("BulkIngest[%s]: seq=%d external_id=%s created_at='%s'", req.Source, seq, it.ExternalID, it.CreatedAt)
-				
-				formats := []string{
-					time.RFC3339,
-					"2006-01-02T15:04:05Z",
-					"2006-01-02 15:04:05",
-					"2006-01-02T15:04:05",
-					time.RFC1123,
-					time.RFC1123Z,
-				}
-				
-				parsed := false
-				for _, f := range formats {
-					if t, err := time.Parse(f, it.CreatedAt); err == nil {
-						sourceTimestamp = t
-						parsed = true
-						break
-					}
-				}
-				
-				if !parsed {
-					log.Printf("BulkIngest: failed to parse created_at '%s' with any known format", it.CreatedAt)
-				}
-			} else {
-				log.Printf("BulkIngest[%s]: seq=%d external_id=%s has EMPTY created_at", req.Source, seq, it.ExternalID)
-			}
-			_, err = tx.ExecContext(c.Request.Context(), `
-                INSERT INTO external_ingest_index (source, external_id, seq, source_timestamp, source_url) VALUES (?, ?, ?, ?, ?)
-                ON DUPLICATE KEY UPDATE seq = VALUES(seq), source_timestamp = COALESCE(VALUES(source_timestamp), source_timestamp), source_url = COALESCE(VALUES(source_url), source_url), updated_at = NOW()`,
-				req.Source, it.ExternalID, seq, sourceTimestamp, nullable(truncateRunes(stripNonBMP(it.URL), 500)),
-			)
-			if err != nil {
-				tx.Rollback()
-				resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: truncate(fmt.Sprintf("upsert mapping failed: %v", err), 256)})
-				continue
-			}
-			if err := tx.Commit(); err != nil {
-				resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: truncate(fmt.Sprintf("commit failed: %v", err), 256)})
-				continue
-			}
-			resp.Inserted++
-
-			// Publish event for twitter replier on new twitter-sourced reports
-			if h.rabbitmqReplier != nil && strings.EqualFold(req.Source, "twitter") {
-				tweetID := it.ExternalID
-				if tweetID != "" {
-					classStr := ""
-					if it.Metadata != nil {
-						if v, ok := it.Metadata["classification"]; ok {
-							if s, ok2 := v.(string); ok2 {
-								classStr = strings.ToLower(s)
-							}
-						}
-					}
-					if classStr == "" {
-						for _, t := range it.Tags {
-							ts := strings.ToLower(t)
-							if ts == "physical" || ts == "digital" {
-								classStr = ts
-								break
-							}
-						}
-					}
-					if classStr == "physical" || classStr == "digital" {
-						_ = h.rabbitmqReplier.Publish(TwitterReplyEvent{
-							Seq:            int(seq),
-							TweetID:        tweetID,
-							Classification: classStr,
-						})
-					}
-				}
-			}
-
-			// Publish to RabbitMQ for fast renderer
-			if h.rabbitmqPublisher != nil {
-				publishForRenderer(c, h, seq)
-			}
-		} else {
-			// Optional update of analysis if changed
-			title := truncateRunes(stripNonBMP(it.Title), 500)
-			description := truncateRunes(stripNonBMP(it.Content), 16000)
-			// Optional tags processing on update
-			if len(it.Tags) > 0 {
-				for _, raw := range it.Tags {
-					tagDisp := strings.TrimSpace(strings.TrimPrefix(raw, "#"))
-					if tagDisp == "" {
-						continue
-					}
-					tagCanon := strings.ToLower(tagDisp)
-					// Upsert tag and get id
-					resTag, err := h.db.DB().ExecContext(c.Request.Context(),
-						`INSERT INTO tags (canonical_name, display_name, usage_count) VALUES (?, ?, 0)
-                         ON DUPLICATE KEY UPDATE display_name=VALUES(display_name), id=LAST_INSERT_ID(id)`,
-						tagCanon, tagDisp,
-					)
-					if err == nil {
-						tagID, _ := resTag.LastInsertId()
-						if tagID == 0 {
-							row := h.db.DB().QueryRowContext(c.Request.Context(), `SELECT id FROM tags WHERE canonical_name = ?`, tagCanon)
-							_ = row.Scan(&tagID)
-						}
-						if tagID > 0 {
-							_, _ = h.db.DB().ExecContext(c.Request.Context(),
-								`INSERT IGNORE INTO report_tags (report_seq, tag_id) VALUES (?, ?)`,
-								seq, tagID,
-							)
-							_, _ = h.db.DB().ExecContext(c.Request.Context(),
-								`UPDATE tags SET usage_count = usage_count + 1, last_used_at = NOW() WHERE id = ?`,
-								tagID,
-							)
-						}
-					}
-				}
-			}
-			// Brand fields (same policy as insert)
-			var brandDisplay string
-			var brandName string
-			if strings.EqualFold(req.Source, "twitter") || strings.EqualFold(req.Source, "bluesky") {
-				if it.Metadata != nil {
-					if v, ok := it.Metadata["brand_display_name"].(string); ok && strings.TrimSpace(v) != "" {
-						brandDisplay = v
-					}
-					if v, ok := it.Metadata["brand_name"].(string); ok && strings.TrimSpace(v) != "" {
-						brandName = v
-					}
-				}
-			} else if strings.EqualFold(req.Source, "github_issue") {
-				brandDisplay = extractBrandDisplay(it.Title, it.Metadata)
-				brandName = normalizeGithubBrandName(brandDisplay)
-			} else {
-				brandDisplay = extractBrandDisplay(it.Title, it.Metadata)
-				brandName = brandutil.NormalizeBrandName(brandDisplay)
-			}
-			severity := clampSeverity(it.Score)
-			// summary composed below; no standalone sumSafe needed
-
-			// Compose trimmed description for summary
-			trimmedDesc := trimmedDescriptionForSummary(description)
-			// Extract optional analysis fields from metadata for update
-			lp := 0.0
-			if v, ok := it.Metadata["litter_probability"].(float64); ok {
-				lp = v
-			}
-			hp := 0.0
-			if v, ok := it.Metadata["hazard_probability"].(float64); ok {
-				hp = v
-			}
-			dbp := 1.0
 			if v, ok := it.Metadata["digital_bug_probability"].(float64); ok {
 				dbp = v
 			} else if v, ok := it.Metadata["classification"].(string); ok && v == "physical" {
@@ -502,263 +259,200 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 			if v, ok := it.Metadata["severity_level"].(float64); ok {
 				severity = clampSeverity(v)
 			}
-			classification := ""
-			if v, ok := it.Metadata["classification"].(string); ok {
-				vv := strings.ToLower(strings.TrimSpace(v))
-				if vv == "physical" || vv == "digital" {
-					classification = vv
-				} else {
-					classification = ""
-				}
+		}
+		classification := "digital"
+		if v, ok := it.Metadata["classification"].(string); ok {
+			if vv := strings.ToLower(strings.TrimSpace(v)); vv == "physical" || vv == "digital" {
+				classification = vv
 			}
-			lang := ""
-			if v, ok := it.Metadata["language"].(string); ok {
-				lang = v
-			}
-			effSummary := title + " : " + trimmedDesc + " : " + safeURL(it.URL)
-			if s, ok := it.Metadata["summary"].(string); ok && s != "" {
-				effSummary = s + " : " + safeURL(it.URL)
-			}
+		}
+		lang := "en"
+		if v, ok := it.Metadata["language"].(string); ok && v != "" {
+			lang = v
+		}
+		summary := title + " : " + trimmedDesc + " : " + safeURL(it.URL)
+		if s, ok := it.Metadata["summary"].(string); ok && s != "" {
+			summary = s + " : " + safeURL(it.URL)
+		}
 
-			// Extract inferred_contact_emails from metadata if provided
-			var inferredContactEmails string
-			if it.Metadata != nil {
-				if emails, ok := it.Metadata["inferred_contact_emails"]; ok {
-					switch v := emails.(type) {
-					case []interface{}:
-						var emailStrs []string
-						for _, e := range v {
-							if s, ok := e.(string); ok {
-								emailStrs = append(emailStrs, s)
-							}
+		var inferred interface{}
+		if it.Metadata != nil {
+			if emails, ok := it.Metadata["inferred_contact_emails"]; ok {
+				if arr, ok := emails.([]interface{}); ok {
+					parts := make([]string, 0, len(arr))
+					for _, e := range arr {
+						if s, ok := e.(string); ok {
+							parts = append(parts, s)
 						}
-						if len(emailStrs) > 0 {
-							inferredContactEmails = strings.Join(emailStrs, ",")
-						}
-					case string:
-						inferredContactEmails = v
 					}
+					if len(parts) > 0 {
+						inferred = strings.Join(parts, ",")
+					}
+				} else if s, ok := emails.(string); ok {
+					inferred = s
 				}
 			}
+		}
 
-			// Update analysis fields
-			_, err = h.db.DB().ExecContext(c.Request.Context(), `
-                UPDATE report_analysis SET title = ?, description = ?, brand_name = ?, brand_display_name = ?,
-                    litter_probability = IFNULL(?, litter_probability),
-                    hazard_probability = IFNULL(?, hazard_probability),
-                    digital_bug_probability = IFNULL(?, digital_bug_probability),
-                    severity_level = ?, summary = ?, 
-                    classification = COALESCE(NULLIF(?, ''), classification),
-                    language = COALESCE(NULLIF(?, ''), language),
-                    inferred_contact_emails = COALESCE(NULLIF(?, ''), inferred_contact_emails),
-                    updated_at = NOW()
-                WHERE seq = ?
-            `, title, description, brandName, brandDisplay, lp, hp, dbp, severity, truncate(effSummary, 8192),
-				// classification conditional (empty string => keep existing)
-				classification,
-				// language conditional (empty string => keep existing)
-				lang,
-				// inferred_contact_emails conditional (empty string => keep existing)
-				inferredContactEmails,
-				seq)
-			if err != nil {
-				resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: truncate(fmt.Sprintf("update analysis failed: %v", err), 256)})
-				continue
-			}
+		newItems = append(newItems, preparedItem{
+			idx:            i,
+			ext:            it.ExternalID,
+			team:           team,
+			lat:            lat,
+			lon:            lon,
+			img:            imgBytes,
+			title:          title,
+			description:    description,
+			url:            url,
+			brandName:      brandName,
+			brandDisplay:   brandDisplay,
+			lp:             lp,
+			hp:             hp,
+			dbp:            dbp,
+			severity:       severity,
+			classification: classification,
+			lang:           lang,
+			summary:        truncate(summary, 8192),
+			inferredEmails: inferred,
+		})
+	}
 
-			// Update report image if provided
-			if len(imgBytes) > 0 {
-				if _, err := h.db.DB().ExecContext(c.Request.Context(), `UPDATE reports SET image = ?, ts = ts WHERE seq = ?`, imgBytes, seq); err != nil {
-					resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: truncate(fmt.Sprintf("update image failed: %v", err), 256)})
-					continue
-				}
-			}
+	if len(newItems) == 0 {
+		log.Printf("bulk_ingest source=%s total=%d inserted=0 skipped=%d duration=%s", req.Source, len(req.Items), resp.Skipped, time.Since(start))
+		c.JSON(http.StatusOK, resp)
+		return
+	}
 
-			// Upsert report_details as well on update path
-			company, product := splitOwnerRepo(brandDisplay)
-			_, err = h.db.DB().ExecContext(c.Request.Context(), `
-                INSERT INTO report_details (seq, company_name, product_name, url) VALUES (?, ?, ?, ?)
-                ON DUPLICATE KEY UPDATE company_name=VALUES(company_name), product_name=VALUES(product_name), url=VALUES(url)
-            `, seq, nullable(company), nullable(product), truncateRunes(stripNonBMP(it.URL), 500))
-			if err != nil {
-				resp.Errors = append(resp.Errors, BulkError{Index: i, Reason: truncate(fmt.Sprintf("update details failed: %v", err), 256)})
-				continue
-			}
-			resp.Updated++
+	tx, err := h.db.DB().BeginTx(c.Request.Context(), &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "begin tx failed"})
+		return
+	}
 
-			// Publish to RabbitMQ for fast renderer on update as well
-			if h.rabbitmqPublisher != nil {
-				publishForRenderer(c, h, seq)
-			}
+	const insertChunk = 200
+	reporterID := "fetcher:" + fetcherID
+	for i := 0; i < len(newItems); i += insertChunk {
+		end := i + insertChunk
+		if end > len(newItems) {
+			end = len(newItems)
+		}
+		chunk := newItems[i:end]
+		vals := make([]string, 0, len(chunk))
+		args := make([]interface{}, 0, len(chunk)*9)
+		for _, it := range chunk {
+			vals = append(vals, "(?, ?, ?, ?, ?, ?, ?, ?, ?)")
+			args = append(args,
+				reporterID,
+				it.team,
+				"",
+				it.lat,
+				it.lon,
+				0.0,
+				0.0,
+				it.img,
+				truncateRunes(stripNonBMP(it.title), 255),
+			)
+		}
+		res, err := tx.ExecContext(c.Request.Context(),
+			fmt.Sprintf("INSERT INTO reports (id, team, action_id, latitude, longitude, x, y, image, description) VALUES %s", strings.Join(vals, ",")),
+			args...,
+		)
+		if err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "insert reports failed"})
+			return
+		}
+		firstID, _ := res.LastInsertId()
+		rows, _ := res.RowsAffected()
+		for j := 0; j < int(rows); j++ {
+			newItems[i+j].seq = int(firstID) + j
+		}
+	}
+
+	var analysisVals []string
+	var analysisArgs []interface{}
+	for _, it := range newItems {
+		analysisVals = append(analysisVals, "(?, ?, '', NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, ?, ?)")
+		analysisArgs = append(analysisArgs,
+			it.seq,
+			req.Source,
+			it.title,
+			it.description,
+			it.brandName,
+			it.brandDisplay,
+			it.lp,
+			it.hp,
+			it.dbp,
+			it.severity,
+			it.summary,
+			it.lang,
+			it.classification,
+			nullable(it.inferredEmails),
+		)
+	}
+	if len(analysisVals) > 0 {
+		if _, err := tx.ExecContext(c.Request.Context(),
+			fmt.Sprintf("INSERT INTO report_analysis (seq, source, analysis_text, analysis_image, title, description, brand_name, brand_display_name, litter_probability, hazard_probability, digital_bug_probability, severity_level, summary, language, is_valid, classification, inferred_contact_emails) VALUES %s", strings.Join(analysisVals, ",")),
+			analysisArgs...,
+		); err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "insert analysis failed"})
+			return
+		}
+	}
+
+	var detailVals []string
+	var detailArgs []interface{}
+	for _, it := range newItems {
+		company, product := splitOwnerRepo(it.brandDisplay)
+		detailVals = append(detailVals, "(?, ?, ?, ?)")
+		detailArgs = append(detailArgs, it.seq, nullable(company), nullable(product), it.url)
+	}
+	if len(detailVals) > 0 {
+		if _, err := tx.ExecContext(c.Request.Context(),
+			fmt.Sprintf("INSERT INTO report_details (seq, company_name, product_name, url) VALUES %s ON DUPLICATE KEY UPDATE company_name=VALUES(company_name), product_name=VALUES(product_name), url=VALUES(url)", strings.Join(detailVals, ",")),
+			detailArgs...,
+		); err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "insert details failed"})
+			return
+		}
+	}
+
+	var mapVals []string
+	var mapArgs []interface{}
+	for _, it := range newItems {
+		mapVals = append(mapVals, "(?, ?, ?)")
+		mapArgs = append(mapArgs, req.Source, it.ext, it.seq)
+	}
+	if len(mapVals) > 0 {
+		if _, err := tx.ExecContext(c.Request.Context(),
+			fmt.Sprintf("INSERT INTO external_ingest_index (source, external_id, seq) VALUES %s ON DUPLICATE KEY UPDATE seq = VALUES(seq), updated_at = NOW()", strings.Join(mapVals, ",")),
+			mapArgs...,
+		); err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "upsert index failed"})
+			return
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "commit failed"})
+		return
+	}
+
+	resp.Inserted = len(newItems)
+	log.Printf("bulk_ingest source=%s total=%d inserted=%d skipped=%d duration=%s", req.Source, len(req.Items), resp.Inserted, resp.Skipped, time.Since(start))
+
+	if !fastPath && h.rabbitmqPublisher != nil {
+		for _, it := range newItems {
+			publishForRenderer(c, h, it.seq)
 		}
 	}
 
 	c.JSON(http.StatusOK, resp)
 }
 
-// publishForRenderer publishes a sanitized ReportWithAnalysis to RabbitMQ for the fast renderer
-func publishForRenderer(c *gin.Context, h *Handlers, seq int) {
-	if h.rabbitmqPublisher == nil {
-		return
-	}
-	rwa, err := h.db.GetReportBySeq(c.Request.Context(), seq)
-	if err != nil {
-		log.Printf("warn: cannot fetch report %d for rabbitmq publish: %v", seq, err)
-		return
-	}
-	// Strip images from the event to match renderer expectations
-	rwa.Report.Image = nil
-	for i := range rwa.Analysis {
-		rwa.Analysis[i].AnalysisImage = nil
-	}
-	if err := h.rabbitmqPublisher.Publish(rwa); err != nil {
-		log.Printf("warn: rabbitmq publish failed for seq=%d: %v", seq, err)
-	}
-}
-
-func truncate(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	// naive byte trim; DB columns are VARCHAR/TEXT; keep simple here
-	return s[:max]
-}
-
-// truncateRunes returns a string limited by rune count, preventing mid-rune cuts
-func truncateRunes(s string, max int) string {
-	if max <= 0 {
-		return ""
-	}
-	count := 0
-	for i := range s {
-		if count == max {
-			return s[:i]
-		}
-		count++
-	}
-	return s
-}
-
-// stripNonBMP removes characters outside the Basic Multilingual Plane (e.g., 4-byte emojis)
-// to avoid issues on misconfigured MySQL setups even after utf8mb4 attempts.
-func stripNonBMP(s string) string {
-	var b strings.Builder
-	b.Grow(len(s))
-	for _, r := range s {
-		if r <= 0xFFFF { // keep BMP only
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
-}
-
-func summary(title, desc string) string {
-	if title == "" {
-		return truncate(desc, 256)
-	}
-	if desc == "" {
-		return title
-	}
-	return title + ": " + truncate(desc, 256)
-}
-
-func extractBrandDisplay(title string, metadata map[string]interface{}) string {
-	if metadata != nil {
-		if v, ok := metadata["app_name"].(string); ok && v != "" {
-			return v
-		}
-		if v, ok := metadata["repo_full_name"].(string); ok && v != "" {
-			return v
-		}
-	}
-	return title
-}
-
-// normalizeGithubBrandName replaces owner/repo slash with hyphen and normalizes
-func normalizeGithubBrandName(display string) string {
-	// Preserve a single hyphen between owner and repo by normalizing parts separately
-	parts := strings.Split(display, "/")
-	if len(parts) >= 2 {
-		owner := brandutil.NormalizeBrandName(parts[0])
-		repo := brandutil.NormalizeBrandName(parts[1])
-		if owner != "" && repo != "" {
-			return owner + "-" + repo
-		}
-	}
-	// Fallback: replace slash with hyphen, then normalize; hyphen may be removed by normalizer
-	safe := strings.ReplaceAll(display, "/", "-")
-	return brandutil.NormalizeBrandName(safe)
-}
-
-func clampSeverity(score float64) float64 {
-	// Accept pre-normalized [0.0..1.0], clamp to [0.7..1.0]
-	if score < 0.7 {
-		return 0.7
-	}
-	if score > 1.0 {
-		return 1.0
-	}
-	return score
-}
-
-// splitOwnerRepo extracts owner and repo from a display like "owner/repo"
-func splitOwnerRepo(display string) (string, string) {
-	if strings.Contains(display, "/") {
-		parts := strings.SplitN(display, "/", 2)
-		owner := parts[0]
-		repo := parts[1]
-		return owner, repo
-	}
-	return "", display
-}
-
-// safeURL normalizes and truncates URL for summary/details
-func safeURL(u string) string {
-	u = strings.TrimSpace(u)
-	if len(u) > 500 {
-		u = u[:500]
-	}
-	return u
-}
-
-// nullable returns nil for empty strings to allow DB NULL
-func nullable(s string) interface{} {
-	if strings.TrimSpace(s) == "" {
-		return nil
-	}
-	return s
-}
-
-// trimmedDescriptionForSummary: 1) take first 256 runes; 2) remove newlines; 3) append "..."
-func trimmedDescriptionForSummary(desc string) string {
-	// limit to 256 runes
-	short := truncateRunes(desc, 256)
-	// remove CR/LF
-	single := strings.ReplaceAll(strings.ReplaceAll(short, "\r", " "), "\n", " ")
-	// collapse multiple spaces
-	single = strings.Join(strings.Fields(single), " ")
-	// add ellipsis
-	if single == "" {
-		return "..."
-	}
-	if len(single) > 3 && strings.HasSuffix(single, "...") {
-		return single
-	}
-	return single + "..."
-}
-
-// WebSocket upgrader
-var upgrader = gorilla.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
-		// Allow all origins for now
-		// In production, you should implement proper origin checking
-		return true
-	},
-}
-
-// ListenReports handles WebSocket connections for report listening
 func (h *Handlers) ListenReports(c *gin.Context) {
 	// Upgrade the HTTP connection to a WebSocket connection
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
