@@ -1,4 +1,4 @@
-# Cleanapp Backend version 2+
+# CleanApp Backend version 2+
 
 This repository is for CleanApp (http://cleanapp.io) backend development.
 
@@ -161,4 +161,4 @@ where &lt;env&gt; is `LOCAL`, `DEV` or `PROD`.
 
 ## More
 
-More infro is to be added.
+* (update: December 15, 2025) - need to adjust 10Gb Disk upwards as web scraping needs increase (eg, Bluesky & upcoming RedditReader deployments), see Architecture.md 
