@@ -157,8 +157,19 @@ async fn run_once(
 
         // Build web URL from AT URI
         // at://did:plc:xxx/app.bsky.feed.post/yyy -> https://bsky.app/profile/handle/post/yyy
+        // Note: Bluesky URLs work with either handle or DID
         let post_id = uri.rsplit('/').next().unwrap_or("");
-        let url = format!("https://bsky.app/profile/{}/post/{}", author_handle, post_id);
+        // Use author_handle if available, otherwise extract DID from URI
+        let profile_id = if !author_handle.is_empty() {
+            author_handle.clone()
+        } else {
+            // Extract DID from AT URI: at://did:plc:xxx/app.bsky.feed.post/yyy
+            uri.strip_prefix("at://")
+                .and_then(|s| s.split('/').next())
+                .unwrap_or("")
+                .to_string()
+        };
+        let url = format!("https://bsky.app/profile/{}/post/{}", profile_id, post_id);
 
         let title = if !report_title.is_empty() {
             truncate_chars(&report_title, 120)
