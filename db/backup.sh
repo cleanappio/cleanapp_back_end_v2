@@ -29,7 +29,7 @@ set -euo pipefail
 # -----------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKUP_DIR="/tmp/cleanapp_backup"
-LOCK_FILE="/var/run/cleanapp-backup.lock"
+LOCK_FILE="/tmp/cleanapp-backup.lock"
 LOG_FILE="/var/log/cleanapp-backup.log"
 
 # Validation thresholds
