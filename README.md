@@ -162,3 +162,238 @@ where &lt;env&gt; is `LOCAL`, `DEV` or `PROD`.
 ## More
 
 * (update: December 15, 2025) - need to adjust 10Gb Disk upwards as web scraping needs increase (eg, Bluesky & upcoming RedditReader deployments), see Architecture.md 
+
+---
+
+# Deployment Guide (Updated December 2025)
+
+## Quick Reference: Service Ports
+
+### Core Services
+| Service | Host Port | Container Port | Domain/Proxy |
+|---------|-----------|----------------|--------------|
+| cleanapp_service (main API) | 8080 | 8080 | api.cleanapp.io:8080 |
+| cleanapp_pipelines | 8090 | 8090 | api.cleanapp.io:8090 |
+| cleanapp_web (legacy) | 3000 | 3000 | - |
+| cleanapp_frontend | 3001 | 3000 | cleanapp.io (nginx) |
+| cleanapp_frontend_embedded | 3002 | 3000 | - |
+
+### Report Processing Services
+| Service | Host Port | Container Port | Notes |
+|---------|-----------|----------------|-------|
+| report_listener | 9081 | 8080 | Primary report API (live.cleanapp.io) |
+| report_listener_v4 | 9097 | 8080 | Rust-based v4 API |
+| report_analyze_pipeline | 9082 | 8080 | AI analysis pipeline |
+| report_processor | 9087 | 8080 | Report processing |
+| report_renderer_service | 9093 | 8080 | Image rendering |
+| report_tags_service | 9098 | 8080 | Tag management |
+| report_ownership_service | 9090 | 8080 | Ownership tracking |
+
+### Authentication & Customer Services
+| Service | Host Port | Container Port |
+|---------|-----------|----------------|
+| auth_service | 9084 | 8080 |
+| customer_service | 9080 | 8080 |
+| gdpr_process_service | 9091 | 8080 |
+| voice_assistant_service | 9092 | 8080 |
+
+### Area/Event Dashboards
+| Service | Host Port | Container Port |
+|---------|-----------|----------------|
+| areas_service | 9086 | 8080 |
+| devconnect_2025_areas | 9094 | 8080 |
+| edge_city_areas | 9095 | 8080 |
+| new_york_areas | 9088 | 8080 |
+| montenegro_areas | 9083 | 8080 |
+| red_bull_dashboard | 9085 | 8080 |
+
+### Infrastructure
+| Service | Host Port | Notes |
+|---------|-----------|-------|
+| cleanapp_db (MySQL) | 3306 | Primary database |
+| cleanapp_rabbitmq | 5672, 15672 | Message queue |
+
+### Background Services (No External Ports)
+- `bluesky_indexer` - Indexes Bluesky posts
+- `bluesky_analyzer` - Analyzes posts with Gemini AI
+- `bluesky_submitter` - Submits analyzed posts to report_listener
+- `bluesky_now` - Real-time Bluesky stream
+- `news_indexer_twitter` - Twitter/X indexing
+- `replier_twitter` - Twitter reply bot
+- `email_fetcher` - Email processing
+
+---
+
+## Full Backend Deployment
+
+Deploy all backend services to production:
+
+```bash
+cd setup
+./setup.sh -e prod --ssh-keyfile ~/.ssh/id_ed25519
+```
+
+This will:
+1. Pull all Docker images tagged as `:prod`
+2. Run `docker compose up -d` with all services
+3. Configure Cloud Scheduler jobs
+
+For dev environment:
+```bash
+./setup.sh -e dev --ssh-keyfile ~/.ssh/id_ed25519
+```
+
+---
+
+## Frontend Deployment
+
+### Fast Deploy (Recommended for Frontend-Only Changes)
+Builds and deploys just the frontend without touching other services:
+
+```bash
+cd cleanapp-frontend
+./fastFEdeploy.sh -e prod
+```
+
+Takes ~7 minutes. Suitable for:
+- UI/styling changes
+- Component updates
+- Configuration changes
+
+### Full Frontend Deploy
+Includes embedded frontend:
+
+```bash
+cd cleanapp-frontend
+./build_images.sh -e prod --ssh-keyfile ~/.ssh/id_ed25519
+```
+
+---
+
+## Individual Microservice Deployment
+
+Each microservice can be built and deployed independently. General pattern:
+
+### 1. Build the Image
+```bash
+cd <service-directory>
+./build_image.sh -e dev   # Builds and pushes to registry
+```
+
+### 2. Tag for Production
+```bash
+gcloud artifacts docker tags add \
+  us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/<image-name>:<version> \
+  us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/<image-name>:prod
+```
+
+### 3. Deploy via setup.sh
+```bash
+cd setup && ./setup.sh -e prod --ssh-keyfile ~/.ssh/id_ed25519
+```
+
+### Key Microservices with Build Scripts
+
+| Service | Directory | Notes |
+|---------|-----------|-------|
+| report-listener | `report-listener/` | Main Go API for reports |
+| report-listener-v4 | `report-listener-v4/` | Rust v4 API |
+| auth-service | `auth-service/` | Authentication |
+| report-analyze-pipeline | `report-analyze-pipeline/` | AI analysis |
+| news-indexer-bluesky | `news-indexer-bluesky/` | Bluesky indexer/analyzer/submitter |
+| email-service-v3 | `email-service-v3/` | Email notifications |
+| report-processor | `report-processor/` | Report processing |
+| areas-service | `areas-service/` | Geo-areas API |
+| customer-service | `customer-service/` | Customer management |
+| face-detector | `face-detector/` | Privacy face detection |
+
+---
+
+## Bluesky Services
+
+The Bluesky pipeline consists of 4 services:
+
+```
+bluesky_indexer → bluesky_analyzer → bluesky_submitter → report_listener
+       ↓
+  bluesky_now (real-time stream)
+```
+
+### Deploy Bluesky Services
+```bash
+cd news-indexer-bluesky
+./build_images.sh -e prod
+```
+
+### Check Status
+```bash
+docker ps | grep bluesky
+docker logs cleanapp_bluesky_indexer --tail 20
+docker logs cleanapp_bluesky_analyzer --tail 20
+docker logs cleanapp_bluesky_submitter --tail 20
+```
+
+### Restart Bluesky Services
+```bash
+docker start cleanapp_bluesky_indexer cleanapp_bluesky_analyzer cleanapp_bluesky_submitter
+```
+
+---
+
+## Troubleshooting
+
+### Check Service Health
+```bash
+# All running containers
+docker ps --format "table {{.Names}}\t{{.Status}}"
+
+# Service logs
+docker logs <container_name> --tail 50
+
+# Database connection
+docker exec -it cleanapp_db mysql -u server -p cleanapp
+```
+
+### Restart a Single Service
+```bash
+docker stop <container_name>
+docker rm <container_name>
+docker compose up -d <service_name>
+```
+
+### Full System Restart
+```bash
+cd /home/deployer
+docker compose down
+docker compose up -d
+```
+
+---
+
+## Nginx Reverse Proxy Domains
+
+| Domain | Backend |
+|--------|---------|
+| cleanapp.io | :3001 (frontend) |
+| live.cleanapp.io | :9081 (report_listener) |
+| auth.cleanapp.io | :9084 (auth_service) |
+| processing.cleanapp.io | :9087 (report_processor) |
+| areas.cleanapp.io | :9086 (areas_service) |
+| email.cleanapp.io | email-service |
+| renderer.cleanapp.io | :9093 (report_renderer) |
+
+---
+
+## Version Management
+
+Each service has a `.version` file containing `BUILD_VERSION=x.y.z`.
+
+To bump version before building:
+```bash
+# Check current version
+cat .version
+
+# The build script auto-increments minor version
+./build_image.sh -e dev
+```
+
