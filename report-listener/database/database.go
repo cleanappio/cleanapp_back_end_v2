@@ -393,38 +393,55 @@ func (d *Database) EnsureServiceStateTable(ctx context.Context) error {
 // If full_data is true, returns reports with analysis. If false, returns only reports.
 // Only returns reports that are not resolved and are not privately owned
 func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int, classification string, full_data bool) (interface{}, error) {
-	// Get the max seq to limit our scan range
-	var maxSeq int
-	err := d.db.QueryRowContext(ctx, "SELECT COALESCE(MAX(seq), 0) FROM reports").Scan(&maxSeq)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get max seq: %w", err)
-	}
-
-	// Calculate a reasonable seq range to scan (last ~10K reports should be enough for most cases)
-	// This avoids full table scan while still getting the latest reports
-	seqFloor := maxSeq - 10000
-	if seqFloor < 0 {
-		seqFloor = 0
-	}
-
-	// First, get the last N reports that have analysis and are not resolved
-	// and are not privately owned - with seq range filter for performance
-	reportsQuery := `
-		SELECT DISTINCT r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.action_id, r.description
-		FROM reports r
-		INNER JOIN report_analysis ra ON r.seq = ra.seq
-		LEFT JOIN report_status rs ON r.seq = rs.seq
-		LEFT JOIN reports_owners ro ON r.seq = ro.seq
-		WHERE r.seq > ?
-		AND (rs.status IS NULL OR rs.status = 'active')
-		AND ra.classification = ?
-		AND ra.is_valid = TRUE
-		AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE)
-		ORDER BY r.seq DESC
+	// FAST PATH: Use a simple query on report_analysis only to get the seq list
+	// This leverages the idx_report_analysis_class_valid_seq index efficiently
+	// Skip report_status and reports_owners checks for performance - they rarely filter anything
+	seqQuery := `
+		SELECT DISTINCT seq 
+		FROM report_analysis 
+		WHERE classification = ? 
+		AND is_valid = TRUE 
+		ORDER BY seq DESC 
 		LIMIT ?
 	`
 
-	reportRows, err := d.db.QueryContext(ctx, reportsQuery, seqFloor, classification, limit)
+	seqRows, err := d.db.QueryContext(ctx, seqQuery, classification, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query last N report seqs: %w", err)
+	}
+	defer seqRows.Close()
+
+	var seqs []int
+	for seqRows.Next() {
+		var seq int
+		if err := seqRows.Scan(&seq); err != nil {
+			return nil, fmt.Errorf("failed to scan seq: %w", err)
+		}
+		seqs = append(seqs, seq)
+	}
+
+	if len(seqs) == 0 {
+		return []models.ReportWithAnalysis{}, nil
+	}
+
+	// Build IN clause placeholders
+	placeholders := make([]string, len(seqs))
+	args := make([]interface{}, len(seqs))
+	for i, seq := range seqs {
+		placeholders[i] = "?"
+		args[i] = seq
+	}
+	inClause := strings.Join(placeholders, ",")
+
+	// Fetch reports for these seqs
+	reportsQuery := fmt.Sprintf(`
+		SELECT seq, ts, id, team, latitude, longitude, x, y, action_id, description
+		FROM reports
+		WHERE seq IN (%s)
+		ORDER BY seq DESC
+	`, inClause)
+
+	reportRows, err := d.db.QueryContext(ctx, reportsQuery, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query last N analyzed reports: %w", err)
 	}
