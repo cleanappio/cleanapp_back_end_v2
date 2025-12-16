@@ -202,6 +202,7 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 		title          string
 		description    string
 		url            string
+		createdAt      string
 		brandName      string
 		brandDisplay   string
 		lp             float64
@@ -323,6 +324,7 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 			title:          title,
 			description:    description,
 			url:            url,
+			createdAt:      it.CreatedAt,
 			brandName:      brandName,
 			brandDisplay:   brandDisplay,
 			lp:             lp,
@@ -444,12 +446,12 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 	var mapVals []string
 	var mapArgs []interface{}
 	for _, it := range newItems {
-		mapVals = append(mapVals, "(?, ?, ?)")
-		mapArgs = append(mapArgs, req.Source, it.ext, it.seq)
+		mapVals = append(mapVals, "(?, ?, ?, ?, ?)")
+		mapArgs = append(mapArgs, req.Source, it.ext, it.seq, nullable(it.createdAt), nullable(it.url))
 	}
 	if len(mapVals) > 0 {
 		if _, err := tx.ExecContext(c.Request.Context(),
-			fmt.Sprintf("INSERT INTO external_ingest_index (source, external_id, seq) VALUES %s ON DUPLICATE KEY UPDATE seq = VALUES(seq), updated_at = NOW()", strings.Join(mapVals, ",")),
+			fmt.Sprintf("INSERT INTO external_ingest_index (source, external_id, seq, source_timestamp, source_url) VALUES %s ON DUPLICATE KEY UPDATE seq = VALUES(seq), source_timestamp = VALUES(source_timestamp), source_url = VALUES(source_url), updated_at = NOW()", strings.Join(mapVals, ",")),
 			mapArgs...,
 		); err != nil {
 			tx.Rollback()
