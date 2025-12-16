@@ -69,6 +69,10 @@ struct Args {
     /// Optional bearer token for accessing private GCS objects
     #[arg(long = "gcs-token", env = "GCS_BEARER_TOKEN")]
     gcs_token: Option<String>,
+
+    /// Maximum requests per second (0 = unlimited). Helps prevent overwhelming the backend.
+    #[arg(long = "rps", default_value_t = 10)]
+    requests_per_second: usize,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
@@ -138,6 +142,7 @@ async fn main() -> Result<()> {
     let semaphore = Arc::new(Semaphore::new(args.concurrency.max(1)));
 
     let inputs = args.inputs.clone();
+    let rps = args.requests_per_second;
     let mut tasks = Vec::with_capacity(inputs.len());
     for input in inputs {
         let args = args.clone();
@@ -159,6 +164,7 @@ async fn main() -> Result<()> {
                 batch_size,
                 &backend_url,
                 &fetcher_token,
+                rps,
             )
             .await;
             drop(permit);
@@ -208,12 +214,19 @@ async fn process_input(
     batch_size: usize,
     backend_url: &str,
     fetcher_token: &str,
+    rps: usize,
 ) -> Result<usize> {
     let reader = open_reader(input, client, args.gcs_token.as_deref()).await?;
     let mut lines = reader.lines();
     let mut buffer: Vec<BulkItem> = Vec::with_capacity(batch_size);
     let mut printed = 0usize;
     let mut converted = 0usize;
+    let mut last_submit = Instant::now();
+    let min_interval = if rps > 0 {
+        Duration::from_millis((1000 / rps) as u64)
+    } else {
+        Duration::ZERO
+    };
 
     let endpoint = format!(
         "{}/api/v3/reports/bulk_ingest",
@@ -285,7 +298,15 @@ async fn process_input(
             } else {
                 buffer.push(item);
                 if buffer.len() >= batch_size {
+                    // Rate limiting: ensure minimum interval between requests
+                    if min_interval > Duration::ZERO {
+                        let elapsed = last_submit.elapsed();
+                        if elapsed < min_interval {
+                            tokio::time::sleep(min_interval - elapsed).await;
+                        }
+                    }
                     submit_batch(&endpoint, fetcher_token, &args.source, &buffer, client).await?;
+                    last_submit = Instant::now();
                     buffer.clear();
                 }
             }
@@ -479,17 +500,25 @@ async fn submit_batch(
 ) -> Result<()> {
     let payload = json!({
         "source": source,
-        "items": items.iter().map(|it| json!({
-            "external_id": it.external_id,
-            "title": it.title,
-            "content": it.content,
-            "url": it.url,
-            "created_at": it.created_at,
-            "updated_at": it.created_at,
-            "score": it.score,
-            "tags": [],
-            "metadata": it.metadata,
-        })).collect::<Vec<_>>()
+        "items": items.iter().map(|it| {
+            // Merge our flags with existing metadata
+            let mut meta = it.metadata.clone();
+            if let Some(obj) = meta.as_object_mut() {
+                obj.insert("needs_ai_review".to_string(), json!(true));
+                obj.insert("bulk_mode".to_string(), json!(true));
+            }
+            json!({
+                "external_id": it.external_id,
+                "title": it.title,
+                "content": it.content,
+                "url": it.url,
+                "created_at": it.created_at,
+                "updated_at": it.created_at,
+                "score": it.score,
+                "tags": [],
+                "metadata": meta,
+            })
+        }).collect::<Vec<_>>()
     });
 
     let mut attempt = 0u32;

@@ -112,15 +112,26 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 		return
 	}
 
-	fastPath := strings.EqualFold(req.Source, "reddit_dump")
+	// Determine if we should skip side-effects (RabbitMQ publishing) for throughput
+	// This is opt-in via metadata, not hardcoded by source name
+	fastPath := false
+	skipAIReview := false
 	for _, it := range req.Items {
 		if it.Metadata != nil {
+			if v, ok := it.Metadata["skip_side_effects"].(bool); ok && v {
+				fastPath = true
+			}
 			if v, ok := it.Metadata["bulk_mode"].(bool); ok && v {
 				fastPath = true
-				break
+				skipAIReview = true
+			}
+			if v, ok := it.Metadata["needs_ai_review"].(bool); ok && v {
+				skipAIReview = true
 			}
 		}
 	}
+
+	log.Printf("bulk_ingest: starting source=%s items=%d fastPath=%t skipAIReview=%t", req.Source, len(req.Items), fastPath, skipAIReview)
 
 	resp := BulkIngestResponse{}
 
@@ -194,6 +205,7 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 		lang           string
 		summary        string
 		inferredEmails interface{}
+		needsAIReview  bool
 	}
 
 	var newItems []preparedItem
@@ -314,6 +326,7 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 			lang:           lang,
 			summary:        truncate(summary, 8192),
 			inferredEmails: inferred,
+			needsAIReview:  skipAIReview,
 		})
 	}
 
@@ -372,7 +385,7 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 	var analysisVals []string
 	var analysisArgs []interface{}
 	for _, it := range newItems {
-		analysisVals = append(analysisVals, "(?, ?, '', NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, ?, ?)")
+		analysisVals = append(analysisVals, "(?, ?, '', NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, ?, ?, ?)")
 		analysisArgs = append(analysisArgs,
 			it.seq,
 			req.Source,
@@ -388,11 +401,12 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 			it.lang,
 			it.classification,
 			nullable(it.inferredEmails),
+			it.needsAIReview,
 		)
 	}
 	if len(analysisVals) > 0 {
 		if _, err := tx.ExecContext(c.Request.Context(),
-			fmt.Sprintf("INSERT INTO report_analysis (seq, source, analysis_text, analysis_image, title, description, brand_name, brand_display_name, litter_probability, hazard_probability, digital_bug_probability, severity_level, summary, language, is_valid, classification, inferred_contact_emails) VALUES %s", strings.Join(analysisVals, ",")),
+			fmt.Sprintf("INSERT INTO report_analysis (seq, source, analysis_text, analysis_image, title, description, brand_name, brand_display_name, litter_probability, hazard_probability, digital_bug_probability, severity_level, summary, language, is_valid, classification, inferred_contact_emails, needs_ai_review) VALUES %s", strings.Join(analysisVals, ",")),
 			analysisArgs...,
 		); err != nil {
 			tx.Rollback()
