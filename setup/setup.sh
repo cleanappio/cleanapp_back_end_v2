@@ -1077,26 +1077,26 @@ services:
 
   cleanapp_bluesky_analyzer:
     container_name: cleanapp_bluesky_analyzer
-    image: ${BLUESKY_ANALYZER_DOCKER_IMAGE}
+    image: \${BLUESKY_ANALYZER_DOCKER_IMAGE}
     environment:
       - DB_URL=mysql://server:\${MYSQL_APP_PASSWORD}@cleanapp_db:3306/cleanapp
       - GEMINI_API_KEY=\${GEMINI_API_KEY}
       - GEMINI_MODEL=gemini-flash-latest
-      - ANALYZER_BATCH_SIZE=50
-      - ANALYZER_INTERVAL_SECS=300
+      - ANALYZER_BATCH_SIZE=200
+      - ANALYZER_INTERVAL_SECS=30
     depends_on:
       cleanapp_db:
         condition: service_healthy
 
   cleanapp_bluesky_submitter:
     container_name: cleanapp_bluesky_submitter
-    image: ${BLUESKY_SUBMITTER_DOCKER_IMAGE}
+    image: \${BLUESKY_SUBMITTER_DOCKER_IMAGE}
     environment:
       - DB_URL=mysql://server:\${MYSQL_APP_PASSWORD}@cleanapp_db:3306/cleanapp
       - SUBMIT_ENDPOINT_URL=http://cleanapp_report_listener:8080
       - SUBMIT_TOKEN=\${CLEANAPP_TWITTER_FETCHER_TOKEN}
-      - SUBMIT_BATCH_SIZE=60
-      - SUBMIT_INTERVAL_SECS=60
+      - SUBMIT_BATCH_SIZE=500
+      - SUBMIT_INTERVAL_SECS=30
     depends_on:
       cleanapp_db:
         condition: service_healthy
