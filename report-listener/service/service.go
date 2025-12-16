@@ -122,6 +122,37 @@ func (s *Service) Start() error {
 		}
 	}()
 
+	// Ensure needs_ai_review column exists for bulk-ingested reports awaiting AI processing
+	func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		// Check if column exists
+		var count int
+		err := s.db.DB().QueryRowContext(ctx, `
+			SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
+			WHERE TABLE_SCHEMA = DATABASE() 
+			AND TABLE_NAME = 'report_analysis' 
+			AND COLUMN_NAME = 'needs_ai_review'
+		`).Scan(&count)
+		if err != nil {
+			log.Printf("warn: unable to check for needs_ai_review column: %v", err)
+			return
+		}
+
+		if count == 0 {
+			_, err := s.db.DB().ExecContext(ctx, `
+				ALTER TABLE report_analysis 
+				ADD COLUMN needs_ai_review BOOL NOT NULL DEFAULT FALSE
+			`)
+			if err != nil {
+				log.Printf("warn: unable to add needs_ai_review column: %v", err)
+			} else {
+				log.Printf("Added needs_ai_review column to report_analysis")
+			}
+		}
+	}()
+
 	// Start the WebSocket hub
 	go s.hub.Run()
 
