@@ -119,7 +119,7 @@ func Load() *Config {
 			Queue:                    getEnv("RABBITMQ_QUEUE", "report-analyze"),
 			RawReportRoutingKey:      getEnv("RABBITMQ_RAW_REPORT_ROUTING_KEY", "report.raw"),
 			AnalysedReportRoutingKey: getEnv("RABBITMQ_ANALYSED_REPORT_ROUTING_KEY", "report.analysed"),
-			PrefetchCount:            getIntEnv("RABBITMQ_PREFETCH_COUNT", 5),
+			PrefetchCount:            getIntEnv("RABBITMQ_PREFETCH_COUNT", 5), // Limit concurrency to avoid 429s
 		},
 	}
 
