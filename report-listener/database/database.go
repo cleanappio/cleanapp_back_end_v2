@@ -393,15 +393,30 @@ func (d *Database) EnsureServiceStateTable(ctx context.Context) error {
 // If full_data is true, returns reports with analysis. If false, returns only reports.
 // Only returns reports that are not resolved and are not privately owned
 func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int, classification string, full_data bool) (interface{}, error) {
+	// Get the max seq to limit our scan range
+	var maxSeq int
+	err := d.db.QueryRowContext(ctx, "SELECT COALESCE(MAX(seq), 0) FROM reports").Scan(&maxSeq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get max seq: %w", err)
+	}
+
+	// Calculate a reasonable seq range to scan (last ~10K reports should be enough for most cases)
+	// This avoids full table scan while still getting the latest reports
+	seqFloor := maxSeq - 10000
+	if seqFloor < 0 {
+		seqFloor = 0
+	}
+
 	// First, get the last N reports that have analysis and are not resolved
-	// and are not privately owned
+	// and are not privately owned - with seq range filter for performance
 	reportsQuery := `
 		SELECT DISTINCT r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.action_id, r.description
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		LEFT JOIN report_status rs ON r.seq = rs.seq
 		LEFT JOIN reports_owners ro ON r.seq = ro.seq
-		WHERE (rs.status IS NULL OR rs.status = 'active')
+		WHERE r.seq > ?
+		AND (rs.status IS NULL OR rs.status = 'active')
 		AND ra.classification = ?
 		AND ra.is_valid = TRUE
 		AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE)
@@ -409,7 +424,7 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int, class
 		LIMIT ?
 	`
 
-	reportRows, err := d.db.QueryContext(ctx, reportsQuery, classification, limit)
+	reportRows, err := d.db.QueryContext(ctx, reportsQuery, seqFloor, classification, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query last N analyzed reports: %w", err)
 	}
