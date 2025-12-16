@@ -26,6 +26,13 @@ const (
 	MaxReportsLimit = 100000
 )
 
+// WebSocket upgrader with default configuration
+var upgrader = gorilla.Upgrader{
+	CheckOrigin: func(r *http.Request) bool {
+		return true // Allow all origins for development; tighten in production
+	},
+}
+
 // Handlers contains all HTTP handlers
 type Handlers struct {
 	hub               *ws.Hub
@@ -1182,7 +1189,7 @@ func publishForRenderer(c *gin.Context, h *Handlers, seq int) {
 	}
 	// Best effort publish - don't block on errors
 	go func() {
-		if err := h.rabbitmqPublisher.Publish(c.Request.Context(), seq); err != nil {
+		if err := h.rabbitmqPublisher.Publish(seq); err != nil {
 			log.Printf("warn: failed to publish seq %d for rendering: %v", seq, err)
 		}
 	}()
