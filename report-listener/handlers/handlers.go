@@ -1069,3 +1069,122 @@ func (h *Handlers) GetRawImageBySeq(c *gin.Context) {
 	// Return the raw image data
 	c.Data(http.StatusOK, contentType, imageData)
 }
+
+// Helper functions for bulk_ingest
+
+// truncateRunes truncates a string to a maximum number of runes
+func truncateRunes(s string, maxRunes int) string {
+	runes := []rune(s)
+	if len(runes) > maxRunes {
+		return string(runes[:maxRunes])
+	}
+	return s
+}
+
+// stripNonBMP removes non-BMP (4-byte UTF-8) characters that can cause MySQL issues
+func stripNonBMP(s string) string {
+	var result strings.Builder
+	for _, r := range s {
+		if r <= 0xFFFF {
+			result.WriteRune(r)
+		}
+	}
+	return result.String()
+}
+
+// truncate truncates a string to a maximum number of bytes
+func truncate(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	return s[:maxBytes]
+}
+
+// trimmedDescriptionForSummary returns a shorter version of the description for summary
+func trimmedDescriptionForSummary(desc string) string {
+	const maxLen = 500
+	if len(desc) <= maxLen {
+		return desc
+	}
+	return desc[:maxLen] + "..."
+}
+
+// extractBrandDisplay extracts brand display name from title or metadata
+func extractBrandDisplay(title string, metadata map[string]interface{}) string {
+	if metadata != nil {
+		if brand, ok := metadata["brand"].(string); ok && brand != "" {
+			return brand
+		}
+		if brand, ok := metadata["brand_name"].(string); ok && brand != "" {
+			return brand
+		}
+		if brand, ok := metadata["brand_display_name"].(string); ok && brand != "" {
+			return brand
+		}
+	}
+	// Extract from title (first word or GitHub owner/repo format)
+	parts := strings.Fields(title)
+	if len(parts) > 0 {
+		return parts[0]
+	}
+	return ""
+}
+
+// clampSeverity clamps severity to valid range 0-10
+func clampSeverity(score float64) float64 {
+	if score < 0 {
+		return 0
+	}
+	if score > 10 {
+		return 10
+	}
+	return score
+}
+
+// normalizeGithubBrandName normalizes GitHub owner/repo to brand name
+func normalizeGithubBrandName(brandDisplay string) string {
+	// For GitHub, use owner/repo as brand name directly
+	return strings.ToLower(strings.TrimSpace(brandDisplay))
+}
+
+// safeURL returns the URL or empty string if too long
+func safeURL(url string) string {
+	if len(url) > 500 {
+		return url[:500]
+	}
+	return url
+}
+
+// nullable returns nil for empty strings, otherwise the value
+func nullable(v interface{}) interface{} {
+	if v == nil {
+		return nil
+	}
+	if s, ok := v.(string); ok && s == "" {
+		return nil
+	}
+	return v
+}
+
+// splitOwnerRepo splits a GitHub owner/repo string into company and product
+func splitOwnerRepo(brandDisplay string) (string, string) {
+	parts := strings.SplitN(brandDisplay, "/", 2)
+	if len(parts) == 2 {
+		return parts[0], parts[1]
+	}
+	return brandDisplay, ""
+}
+
+// publishForRenderer publishes a report to RabbitMQ for rendering
+func publishForRenderer(c *gin.Context, h *Handlers, seq int) {
+	if h.rabbitmqPublisher == nil {
+		return
+	}
+	// Best effort publish - don't block on errors
+	go func() {
+		if err := h.rabbitmqPublisher.Publish(c.Request.Context(), seq); err != nil {
+			log.Printf("warn: failed to publish seq %d for rendering: %v", seq, err)
+		}
+	}()
+}
+
