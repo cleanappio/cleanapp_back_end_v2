@@ -447,7 +447,7 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 	var mapArgs []interface{}
 	for _, it := range newItems {
 		mapVals = append(mapVals, "(?, ?, ?, ?, ?)")
-		mapArgs = append(mapArgs, req.Source, it.ext, it.seq, nullable(it.createdAt), nullable(it.url))
+		mapArgs = append(mapArgs, req.Source, it.ext, it.seq, parseISOToMySQL(it.createdAt), nullable(it.url))
 	}
 	if len(mapVals) > 0 {
 		if _, err := tx.ExecContext(c.Request.Context(),
@@ -1174,6 +1174,27 @@ func nullable(v interface{}) interface{} {
 		return nil
 	}
 	return v
+}
+
+// parseISOToMySQL converts ISO 8601 timestamp (e.g., 2025-09-18T03:21:19Z) to MySQL format (2025-09-18 03:21:19)
+func parseISOToMySQL(isoTimestamp string) interface{} {
+	if isoTimestamp == "" {
+		return nil
+	}
+	// Try parsing various ISO formats
+	formats := []string{
+		time.RFC3339,
+		"2006-01-02T15:04:05Z",
+		"2006-01-02T15:04:05",
+		"2006-01-02 15:04:05",
+	}
+	for _, format := range formats {
+		if t, err := time.Parse(format, isoTimestamp); err == nil {
+			return t.Format("2006-01-02 15:04:05")
+		}
+	}
+	// If parsing fails, return as-is and let MySQL try
+	return isoTimestamp
 }
 
 // splitOwnerRepo splits a GitHub owner/repo string into company and product
