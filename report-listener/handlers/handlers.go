@@ -231,7 +231,7 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 		}
 		seenNew[it.ExternalID] = true
 
-		var imgBytes []byte
+		imgBytes := []byte{}
 		if strings.TrimSpace(it.ImageBase64) != "" {
 			if b, err := base64.StdEncoding.DecodeString(it.ImageBase64); err == nil {
 				imgBytes = b
@@ -378,6 +378,7 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 			args...,
 		)
 		if err != nil {
+			log.Printf("ERROR: insert reports failed: %v", err)
 			tx.Rollback()
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "insert reports failed"})
 			return

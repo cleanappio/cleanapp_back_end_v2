@@ -32,7 +32,8 @@ type Subscriber struct {
 }
 
 // NewSubscriber creates a new RabbitMQ subscriber instance
-func NewSubscriber(amqpURL, exchangeName, queueName string) (*Subscriber, error) {
+// NewSubscriber creates a new RabbitMQ subscriber instance
+func NewSubscriber(amqpURL, exchangeName, queueName string, prefetchCount int) (*Subscriber, error) {
 	// Create connection with timeout context
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -48,6 +49,17 @@ func NewSubscriber(amqpURL, exchangeName, queueName string) (*Subscriber, error)
 	if err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("failed to open channel: %w", err)
+	}
+
+	// Set QoS (prefetch count)
+	if err := channel.Qos(
+		prefetchCount, // prefetch count
+		0,             // prefetch size
+		false,         // global
+	); err != nil {
+		channel.Close()
+		conn.Close()
+		return nil, fmt.Errorf("failed to set QoS: %w", err)
 	}
 
 	// Declare exchange with specified parameters (same as publisher)

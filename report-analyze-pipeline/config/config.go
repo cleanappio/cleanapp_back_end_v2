@@ -65,6 +65,7 @@ type RabbitMQConfig struct {
 	Queue                    string
 	RawReportRoutingKey      string
 	AnalysedReportRoutingKey string
+	PrefetchCount            int
 }
 
 // GetAMQPURL constructs the AMQP URL from the RabbitMQ configuration
@@ -118,6 +119,7 @@ func Load() *Config {
 			Queue:                    getEnv("RABBITMQ_QUEUE", "report-analyze"),
 			RawReportRoutingKey:      getEnv("RABBITMQ_RAW_REPORT_ROUTING_KEY", "report.raw"),
 			AnalysedReportRoutingKey: getEnv("RABBITMQ_ANALYSED_REPORT_ROUTING_KEY", "report.analysed"),
+			PrefetchCount:            getIntEnv("RABBITMQ_PREFETCH_COUNT", 5),
 		},
 	}
 

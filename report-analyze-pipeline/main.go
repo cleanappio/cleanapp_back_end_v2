@@ -28,7 +28,7 @@ func initializeReportSubscriber(cfg *config.Config, analysisService *service.Ser
 	rabbitMQConfig := cfg.RabbitMQ
 	amqpURL := rabbitMQConfig.GetAMQPURL()
 
-	subscriber, err := rabbitmq.NewSubscriber(amqpURL, rabbitMQConfig.Exchange, rabbitMQConfig.Queue)
+	subscriber, err := rabbitmq.NewSubscriber(amqpURL, rabbitMQConfig.Exchange, rabbitMQConfig.Queue, rabbitMQConfig.PrefetchCount)
 	if err != nil {
 		return fmt.Errorf("failed to initialize RabbitMQ subscriber: %w", err)
 	}
