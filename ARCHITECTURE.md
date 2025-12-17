@@ -1,6 +1,6 @@
 # CleanApp Backend Architecture
 
-> Last updated: December 12, 2025
+> Last updated: December 17, 2025
 
 ## Overview
 
@@ -14,6 +14,7 @@ graph TB
         XSRC[X]
         BS[Bluesky]
         GH[GitHub]
+        REDDIT[Reddit]
         WEBSCRAPE[Web Scraper]
         EMAIL[Email Inbox]
     end
@@ -110,7 +111,9 @@ graph TB
 | `cleanapp_bluesky_analyzer` | Rust | AI analysis |
 | `cleanapp_bluesky_submitter` | Rust | Submit as reports |
 | `bluesky_now` | Rust | Real-time Bluesky firehose |
+| `cleanapp_report_analyzer` | Rust | AI enrichment for bulk-ingested reports (brand extraction, summaries) |
 | `cleanapp_github_indexer` | Rust | Fetch GitHub issues |
+| `cleanapp_reddit_dump_reader` | Rust | Process Reddit data dumps |
 | `cleanapp_web_scraper` | Rust | Web complaint scraping |
 
 ### Notifications
