@@ -18,6 +18,7 @@ use tokio::io::{self, AsyncBufRead, AsyncBufReadExt, BufReader};
 use tokio::sync::Semaphore;
 use tokio_util::io::StreamReader;
 use urlencoding::encode;
+use futures_util::TryStreamExt;
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about = "Stream Reddit dumps into CleanApp bulk_ingest", long_about = None)]
