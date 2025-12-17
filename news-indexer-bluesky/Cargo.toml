@@ -19,6 +19,10 @@ path = "src/bin/submitter_bluesky.rs"
 name = "bluesky_now"
 path = "src/bin/bluesky_now.rs"
 
+[[bin]]
+name = "analyzer_reports"
+path = "src/bin/analyzer_reports.rs"
+
 [dependencies]
 anyhow = "1.0"
 clap = { version = "4.5", features = ["derive", "env"] }

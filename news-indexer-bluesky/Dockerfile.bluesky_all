@@ -29,3 +29,8 @@ ENTRYPOINT ["/usr/local/bin/analyzer_bluesky"]
 FROM runtime-base AS submitter
 COPY --from=builder /app/target/release/submitter_bluesky /usr/local/bin/submitter_bluesky
 ENTRYPOINT ["/usr/local/bin/submitter_bluesky"]
+
+# Report Analyzer image (processes needs_ai_review reports)
+FROM runtime-base AS report_analyzer
+COPY --from=builder /app/target/release/analyzer_reports /usr/local/bin/analyzer_reports
+ENTRYPOINT ["/usr/local/bin/analyzer_reports"]

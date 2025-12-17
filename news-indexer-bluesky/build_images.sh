@@ -45,6 +45,7 @@ REPO_PATH="${CLOUD_REGION}-docker.pkg.dev/${PROJECT_NAME}/cleanapp-docker-repo"
 TAG_INDEXER="${REPO_PATH}/cleanapp-bluesky-indexer-image:${BUILD_VERSION}"
 TAG_ANALYZER="${REPO_PATH}/cleanapp-bluesky-analyzer-image:${BUILD_VERSION}"
 TAG_SUBMITTER="${REPO_PATH}/cleanapp-bluesky-submitter-image:${BUILD_VERSION}"
+TAG_REPORT_ANALYZER="${REPO_PATH}/cleanapp-report-analyzer-image:${BUILD_VERSION}"
 
 CURRENT_PROJECT=$(gcloud config get project)
 if [ "${PROJECT_NAME}" != "${CURRENT_PROJECT}" ]; then
@@ -56,12 +57,13 @@ echo "Building all bluesky images (version ${BUILD_VERSION})..."
 gcloud builds submit \
   --region=${CLOUD_REGION} \
   --config=cloudbuild.all.yaml \
-  --substitutions=_TAG_INDEXER=${TAG_INDEXER},_TAG_ANALYZER=${TAG_ANALYZER},_TAG_SUBMITTER=${TAG_SUBMITTER} \
+  --substitutions=_TAG_INDEXER=${TAG_INDEXER},_TAG_ANALYZER=${TAG_ANALYZER},_TAG_SUBMITTER=${TAG_SUBMITTER},_TAG_REPORT_ANALYZER=${TAG_REPORT_ANALYZER} \
   .
 
 echo "Tagging images as ${OPT}..."
 gcloud artifacts docker tags add ${TAG_INDEXER} ${REPO_PATH}/cleanapp-bluesky-indexer-image:${OPT}
 gcloud artifacts docker tags add ${TAG_ANALYZER} ${REPO_PATH}/cleanapp-bluesky-analyzer-image:${OPT}
 gcloud artifacts docker tags add ${TAG_SUBMITTER} ${REPO_PATH}/cleanapp-bluesky-submitter-image:${OPT}
+gcloud artifacts docker tags add ${TAG_REPORT_ANALYZER} ${REPO_PATH}/cleanapp-report-analyzer-image:${OPT}
 
 echo "Done."
