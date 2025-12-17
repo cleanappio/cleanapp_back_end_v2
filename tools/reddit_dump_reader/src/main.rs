@@ -151,6 +151,8 @@ async fn main() -> Result<()> {
         let keywords = keywords.clone();
         let remaining = remaining.clone();
         let semaphore = semaphore.clone();
+        let backend_url = backend_url.clone();
+        let fetcher_token = fetcher_token.clone();
 
         tasks.push(tokio::spawn(async move {
             let permit = semaphore.acquire().await.expect("semaphore poisoned");
