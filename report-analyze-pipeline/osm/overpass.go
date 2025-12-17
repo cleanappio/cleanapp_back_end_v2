@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -418,31 +419,42 @@ func extractEmailsFromHTML(html string) []string {
 	return emails
 }
 
-// SearchLocationEmails searches Google for contact emails for a location
+// SearchLocationEmails searches Google Custom Search API for contact emails for a location
 // This is a fallback when OSM/website scraping doesn't find emails
+// Requires GOOGLE_SEARCH_API_KEY and GOOGLE_SEARCH_CX environment variables
 func (c *Client) SearchLocationEmails(locationName, city string) ([]string, error) {
 	if locationName == "" {
 		return nil, nil
 	}
 
+	// Get API credentials from environment
+	apiKey := os.Getenv("GOOGLE_SEARCH_API_KEY")
+	cseID := os.Getenv("GOOGLE_SEARCH_CX")
+	
+	if apiKey == "" || cseID == "" {
+		// Fall back to no search if credentials not configured
+		return nil, nil
+	}
+
 	c.enforceRateLimit()
 
-	// Build search query: "Location Name" "city" contact email
-	query := fmt.Sprintf(`"%s" "%s" contact email`, locationName, city)
+	// Build search query: "Location Name" city contact email
+	query := fmt.Sprintf(`"%s" %s contact email`, locationName, city)
 	if city == "" {
 		query = fmt.Sprintf(`"%s" contact email`, locationName)
 	}
-	searchURL := fmt.Sprintf("https://www.google.com/search?q=%s&num=10", url.QueryEscape(query))
+	
+	// Use Google Custom Search JSON API
+	searchURL := fmt.Sprintf(
+		"https://www.googleapis.com/customsearch/v1?key=%s&cx=%s&q=%s&num=10",
+		apiKey, cseID, url.QueryEscape(query),
+	)
 
 	req, err := http.NewRequest("GET", searchURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create search request: %w", err)
 	}
-	
-	// Use a desktop browser user agent
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-	req.Header.Set("Accept-Language", "en-US,en;q=0.5")
+	req.Header.Set("User-Agent", UserAgent)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -451,30 +463,45 @@ func (c *Client) SearchLocationEmails(locationName, city string) ([]string, erro
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Google returned status %d", resp.StatusCode)
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("Google Custom Search returned status %d: %s", resp.StatusCode, string(body))
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
-	if err != nil {
-		return nil, fmt.Errorf("failed to read search results: %w", err)
+	var searchResp GoogleSearchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
+		return nil, fmt.Errorf("failed to decode search response: %w", err)
 	}
 
-	// Extract emails from search results page
-	emails := extractEmailsFromHTML(string(body))
+	var emails []string
 	
-	// Also try to extract website URLs and scrape those
-	websiteURLs := extractWebsiteURLsFromGoogle(string(body), locationName)
-	for _, url := range websiteURLs {
-		if len(emails) >= 5 {
-			break // Limit to prevent too many requests
-		}
-		scraped, err := c.ScrapeEmailsFromWebsite(url)
-		if err == nil {
-			emails = append(emails, scraped...)
+	// Extract emails from search result snippets
+	for _, item := range searchResp.Items {
+		// Check snippet for emails
+		snippetEmails := extractEmailsFromHTML(item.Snippet)
+		emails = append(emails, snippetEmails...)
+		
+		// Scrape the result URL for emails (limit to first 3)
+		if len(emails) < 5 && item.Link != "" {
+			scraped, err := c.ScrapeEmailsFromWebsite(item.Link)
+			if err == nil {
+				emails = append(emails, scraped...)
+			}
 		}
 	}
 
 	return ValidateAndFilterEmails(emails), nil
+}
+
+// GoogleSearchResponse is the response from Google Custom Search JSON API
+type GoogleSearchResponse struct {
+	Items []GoogleSearchItem `json:"items"`
+}
+
+// GoogleSearchItem represents a single search result
+type GoogleSearchItem struct {
+	Title   string `json:"title"`
+	Link    string `json:"link"`
+	Snippet string `json:"snippet"`
 }
 
 // extractWebsiteURLsFromGoogle extracts relevant website URLs from Google search results
