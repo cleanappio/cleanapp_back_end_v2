@@ -399,15 +399,15 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 		analysisArgs = append(analysisArgs,
 			it.seq,
 			req.Source,
-			it.title,
-			it.description,
+			sanitizeForMySQL(it.title),
+			sanitizeForMySQL(it.description),
 			it.brandName,
 			it.brandDisplay,
 			it.lp,
 			it.hp,
 			it.dbp,
 			it.severity,
-			it.summary,
+			sanitizeForMySQL(it.summary),
 			it.lang,
 			it.classification,
 			nullable(it.inferredEmails),
@@ -419,6 +419,7 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 			fmt.Sprintf("INSERT INTO report_analysis (seq, source, analysis_text, analysis_image, title, description, brand_name, brand_display_name, litter_probability, hazard_probability, digital_bug_probability, severity_level, summary, language, is_valid, classification, inferred_contact_emails, needs_ai_review) VALUES %s", strings.Join(analysisVals, ",")),
 			analysisArgs...,
 		); err != nil {
+			log.Printf("bulk_ingest: insert analysis failed: %v", err)
 			tx.Rollback()
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "insert analysis failed"})
 			return
@@ -1219,3 +1220,16 @@ func publishForRenderer(c *gin.Context, h *Handlers, seq int) {
 	}()
 }
 
+// sanitizeForMySQL strips non-BMP characters (4-byte UTF-8 sequences like emojis)
+// and control characters that may cause MySQL Error 1366 on certain columns
+func sanitizeForMySQL(s string) string {
+	var result strings.Builder
+	result.Grow(len(s))
+	for _, r := range s {
+		// Keep only BMP characters (U+0000 to U+FFFF) and skip control characters
+		if r <= 0xFFFF && (r >= 0x20 || r == '\n' || r == '\r' || r == '\t') {
+			result.WriteRune(r)
+		}
+	}
+	return result.String()
+}
