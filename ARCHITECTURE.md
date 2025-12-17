@@ -82,6 +82,92 @@ graph TB
 
 ---
 
+## External APIs
+
+CleanApp integrates with multiple third-party APIs for AI analysis, geocoding, email delivery, and social media indexing.
+
+```mermaid
+graph LR
+    subgraph "AI & Analysis"
+        GEMINI[Gemini AI]
+        OPENAI[OpenAI]
+    end
+    
+    subgraph "Geocoding & Location"
+        NOM[Nominatim]
+        OVER[Overpass API]
+        GSEARCH[Google Custom Search]
+    end
+    
+    subgraph "Email & Notifications"
+        SG[SendGrid]
+    end
+    
+    subgraph "Social Media"
+        XAPI[X/Twitter API]
+        BSKY[Bluesky API]
+        GHAPI[GitHub API]
+    end
+    
+    subgraph "Payments"
+        STRIPE[Stripe]
+    end
+    
+    subgraph "CleanApp Services"
+        RAP[Report Analyze Pipeline]
+        BI[Bluesky Indexer]
+        XI[X Indexer]
+        ES[Email Service]
+        CS[Customer Service]
+    end
+    
+    RAP --> GEMINI
+    RAP --> OPENAI
+    RAP --> NOM
+    RAP --> OVER
+    RAP --> GSEARCH
+    
+    BI --> BSKY
+    BI --> GEMINI
+    
+    XI --> XAPI
+    XI --> GEMINI
+    
+    ES --> SG
+    CS --> STRIPE
+```
+
+### API Reference Table
+
+| API | Base URL | Purpose | Rate Limit | Auth |
+|-----|----------|---------|------------|------|
+| **Gemini AI** | `generativelanguage.googleapis.com` | Report analysis, brand extraction, summaries | 60 req/min | API Key |
+| **OpenAI** | `api.openai.com` | Report analysis (fallback), voice assistant | Usage-based | API Key |
+| **Nominatim** | `nominatim.openstreetmap.org` | Reverse geocoding for physical report locations | 1 req/sec | None (User-Agent required) |
+| **Overpass API** | `overpass-api.de/api` | Query nearby POIs (schools, businesses) | ~10K/day | None |
+| **Google Custom Search** | `googleapis.com/customsearch/v1` | Location email discovery fallback | 1000/day (configurable) | API Key + CSE ID |
+| **SendGrid** | `api.sendgrid.com` | Transactional email delivery to brands | 100/day free | API Key |
+| **X/Twitter API** | `api.twitter.com/2` | Index tweets mentioning app issues | 500K tweets/mo | Bearer Token |
+| **Bluesky API** | `bsky.social/xrpc` | Index posts mentioning app issues | None | App Password |
+| **GitHub API** | `api.github.com` | Index issues from public repos | 5000 req/hr | None (or PAT) |
+| **Stripe** | `api.stripe.com` | Subscription payments | None | Secret Key |
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `GEMINI_API_KEY` | Google AI Studio API key |
+| `OPENAI_API_KEY` | OpenAI platform API key |
+| `GOOGLE_SEARCH_API_KEY` | Google Cloud API key (Custom Search enabled) |
+| `GOOGLE_SEARCH_CX` | Custom Search Engine ID |
+| `GOOGLE_SEARCH_DAILY_LIMIT` | Max searches/day (default: 1000) |
+| `SENDGRID_API_KEY` | SendGrid API key |
+| `X_BEARER_TOKEN` | Twitter API v2 bearer token |
+| `BSKY_IDENTIFIER` / `BSKY_APP_PASSWORD` | Bluesky credentials |
+| `STRIPE_SECRET_KEY` | Stripe secret key |
+
+---
+
 ## Service Inventory
 
 ### Core Infrastructure
