@@ -978,12 +978,21 @@ func (h *Handlers) GetReportsByBrand(c *gin.Context) {
 		return
 	}
 
+	// Get the total count (without limit)
+	totalCount, err := h.db.GetReportsCountByBrandName(c.Request.Context(), brandName)
+	if err != nil {
+		log.Printf("Failed to get total count for brand '%s': %v", brandName, err)
+		// Don't fail the request, just use the fetched count
+		totalCount = len(reports)
+	}
+
 	// Create the response in the same format as other endpoints
 	response := models.ReportBatch{
-		Reports: reports,
-		Count:   len(reports),
-		FromSeq: 0,
-		ToSeq:   0,
+		Reports:    reports,
+		Count:      len(reports),
+		TotalCount: totalCount,
+		FromSeq:    0,
+		ToSeq:      0,
 	}
 
 	// Set FromSeq and ToSeq if there are reports

@@ -1484,3 +1484,24 @@ func (d *Database) GetImageBySeq(ctx context.Context, seq int) ([]byte, error) {
 
 	return image, nil
 }
+
+// GetReportsCountByBrandName returns the total count of reports for a brand
+func (d *Database) GetReportsCountByBrandName(ctx context.Context, brandName string) (int, error) {
+	query := `
+		SELECT COUNT(DISTINCT r.seq)
+		FROM reports r
+		INNER JOIN report_analysis ra ON r.seq = ra.seq
+		LEFT JOIN report_status rs ON r.seq = rs.seq
+		LEFT JOIN reports_owners ro ON r.seq = ro.seq
+		WHERE ra.brand_name = ? 
+		AND (rs.status IS NULL OR rs.status = 'active')
+		AND ra.is_valid = TRUE
+		AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE)
+	`
+	var count int
+	err := d.db.QueryRowContext(ctx, query, brandName).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count reports by brand: %w", err)
+	}
+	return count, nil
+}

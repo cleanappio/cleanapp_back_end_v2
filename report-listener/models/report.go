@@ -67,10 +67,11 @@ type ReportWithAnalysis struct {
 
 // ReportBatch represents a batch of reports to be broadcasted
 type ReportBatch struct {
-	Reports []ReportWithAnalysis `json:"reports"`
-	Count   int                  `json:"count"`
-	FromSeq int                  `json:"from_seq"`
-	ToSeq   int                  `json:"to_seq"`
+	Reports    []ReportWithAnalysis `json:"reports"`
+	Count      int                  `json:"count"`
+	TotalCount int                  `json:"total_count,omitempty"`
+	FromSeq    int                  `json:"from_seq"`
+	ToSeq      int                  `json:"to_seq"`
 }
 
 // BroadcastMessage represents a message sent to WebSocket clients
