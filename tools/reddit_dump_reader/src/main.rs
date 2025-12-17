@@ -560,15 +560,16 @@ async fn submit_batch(
                 return Ok(());
             }
             Ok(r) => {
-                if should_retry_status(r.status()) && attempt < 5 {
+                let status = r.status();
+                if should_retry_status(status) && attempt < 5 {
                     warn!(
                         "batch failed with status {}. retrying in {:?}",
-                        r.status(),
+                        status,
                         delay
                     );
                 } else {
                     let body = r.text().await.unwrap_or_default();
-                    return Err(anyhow!("batch failed status {} body {}", r.status(), body));
+                    return Err(anyhow!("batch failed status {} body {}", status, body));
                 }
             }
             Err(e) => {
