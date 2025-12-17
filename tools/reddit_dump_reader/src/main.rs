@@ -393,7 +393,7 @@ fn build_comment_item(record: &RedditRecord) -> Result<BulkItem> {
     Ok(BulkItem {
         external_id,
         title: "Reddit comment".to_string(),
-        content: record.body.clone().unwrap_or_default(),
+        content: sanitize_for_mysql(&record.body.clone().unwrap_or_default()),
         url,
         created_at,
         score: record.score.unwrap_or(0.0),
@@ -422,11 +422,11 @@ fn build_submission_item(record: &RedditRecord) -> Result<BulkItem> {
 
     Ok(BulkItem {
         external_id,
-        title: record
+        title: sanitize_for_mysql(&record
             .title
             .clone()
-            .unwrap_or_else(|| "Reddit submission".to_string()),
-        content: record.selftext.clone().unwrap_or_default(),
+            .unwrap_or_else(|| "Reddit submission".to_string())),
+        content: sanitize_for_mysql(&record.selftext.clone().unwrap_or_default()),
         url,
         created_at,
         score: record.score.unwrap_or(0.0),
@@ -443,6 +443,18 @@ fn format_timestamp(ts: Option<f64>) -> Result<String> {
         .single()
         .ok_or_else(|| anyhow!("invalid timestamp"))?;
     Ok(dt.to_rfc3339())
+}
+
+/// Sanitize string for MySQL by removing 4-byte UTF-8 characters (emojis, etc.)
+/// that may cause issues even with utf8mb4 if there are malformed sequences
+fn sanitize_for_mysql(s: &str) -> String {
+    s.chars()
+        .filter(|c| {
+            // Keep only BMP characters (3-byte UTF-8 max) and valid ASCII
+            // This removes emojis and other supplementary plane characters
+            *c <= '\u{FFFF}' && !c.is_control()
+        })
+        .collect()
 }
 
 enum InputSource {
