@@ -23,10 +23,8 @@ graph TB
         RL[Report Listener]
         XI[X Indexer]
         BI[Bluesky Indexer]
-        BA[Bluesky Analyzer]
-        BSU[Bluesky Submitter]
         GHI[GitHub Indexer]
-        RDR[Reddit Dump Reader]
+        RDR[Reddit Indexer]
         WSI[Web Scraper Indexer]
         EF[Email Fetcher]
     end
@@ -54,43 +52,30 @@ graph TB
         EMBED[Embedded Widget]
     end
     
-    %% Direct app/web submissions
     APP --> RL
     WEB --> RL
-    
-    %% Social media indexing flows
     XSRC --> XI
     BS --> BI
-    BI --> BA
-    BA --> BSU
-    BSU --> RL
-    
     GH --> GHI
+    REDDIT --> RDR
     WEBSCRAPE --> WSI
     EMAIL --> EF
     
-    %% Reddit bulk ingestion flow
-    REDDIT --> RDR
+    XI --> RL
+    BI --> RL
+    GHI --> RL
     RDR --> RL
+    WSI --> RL
+    EF --> RL
     
-    %% Ingestion to processing
-    XI --> RAP
-    GHI --> RAP
-    WSI --> RAP
-    EF --> RAP
     RL --> RMQ
     RMQ --> RAP
-    
-    %% Report analyzer for AI enrichment of bulk-ingested reports
-    DB --> RA
+    RAP --> DB
     RA --> DB
     
-    %% Processing to storage
-    RAP --> DB
     RAP --> ES
     RAP --> XR
     
-    %% Frontend reads from DB
     DB --> FE
     DB --> EMBED
 ```
