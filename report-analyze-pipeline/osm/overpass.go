@@ -4,15 +4,28 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
 // Note: OverpassBaseURL is declared in osm.go
+
+// googleSearchDailyCounter tracks daily API usage to prevent cost overruns
+var googleSearchDailyCounter = struct {
+	sync.Mutex
+	count int
+	date  string
+}{}
+
+// DefaultGoogleSearchDailyLimit is the default max searches per day (can be overridden by GOOGLE_SEARCH_DAILY_LIMIT env var)
+const DefaultGoogleSearchDailyLimit = 1000
 
 // POI represents a Point of Interest from Overpass
 type POI struct {
@@ -422,6 +435,7 @@ func extractEmailsFromHTML(html string) []string {
 // SearchLocationEmails searches Google Custom Search API for contact emails for a location
 // This is a fallback when OSM/website scraping doesn't find emails
 // Requires GOOGLE_SEARCH_API_KEY and GOOGLE_SEARCH_CX environment variables
+// Rate limited to GOOGLE_SEARCH_DAILY_LIMIT per day (default 1000)
 func (c *Client) SearchLocationEmails(locationName, city string) ([]string, error) {
 	if locationName == "" {
 		return nil, nil
@@ -435,6 +449,33 @@ func (c *Client) SearchLocationEmails(locationName, city string) ([]string, erro
 		// Fall back to no search if credentials not configured
 		return nil, nil
 	}
+
+	// Check daily limit to prevent cost overruns
+	dailyLimit := DefaultGoogleSearchDailyLimit
+	if limitStr := os.Getenv("GOOGLE_SEARCH_DAILY_LIMIT"); limitStr != "" {
+		if parsed, err := strconv.Atoi(limitStr); err == nil && parsed > 0 {
+			dailyLimit = parsed
+		}
+	}
+	
+	today := time.Now().UTC().Format("2006-01-02")
+	googleSearchDailyCounter.Lock()
+	if googleSearchDailyCounter.date != today {
+		// Reset counter for new day
+		googleSearchDailyCounter.date = today
+		googleSearchDailyCounter.count = 0
+		log.Printf("Google Search daily counter reset for %s", today)
+	}
+	if googleSearchDailyCounter.count >= dailyLimit {
+		googleSearchDailyCounter.Unlock()
+		log.Printf("Google Search daily limit (%d) reached, skipping search for %q", dailyLimit, locationName)
+		return nil, nil
+	}
+	googleSearchDailyCounter.count++
+	currentCount := googleSearchDailyCounter.count
+	googleSearchDailyCounter.Unlock()
+	
+	log.Printf("Google Search API call %d/%d for location %q", currentCount, dailyLimit, locationName)
 
 	c.enforceRateLimit()
 
