@@ -74,6 +74,14 @@ struct Args {
     /// Maximum requests per second (0 = unlimited). Helps prevent overwhelming the backend.
     #[arg(long = "rps", default_value_t = 10)]
     requests_per_second: usize,
+
+    /// Only include records created after this date (UTC, YYYY-MM-DD format)
+    #[arg(long = "after")]
+    after: Option<String>,
+
+    /// Only include records created before this date (UTC, YYYY-MM-DD format)
+    #[arg(long = "before")]
+    before: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
@@ -248,6 +256,26 @@ async fn process_input(
                 continue;
             }
         };
+
+        // Date filtering based on created_utc
+        if let Some(created_utc) = record.created_utc {
+            if let Some(ref after_str) = args.after {
+                if let Ok(after_date) = chrono::NaiveDate::parse_from_str(after_str, "%Y-%m-%d") {
+                    let after_ts = after_date.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp() as f64;
+                    if created_utc < after_ts {
+                        continue;
+                    }
+                }
+            }
+            if let Some(ref before_str) = args.before {
+                if let Ok(before_date) = chrono::NaiveDate::parse_from_str(before_str, "%Y-%m-%d") {
+                    let before_ts = before_date.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp() as f64;
+                    if created_utc >= before_ts {
+                        continue;
+                    }
+                }
+            }
+        }
 
         if let Some(item) = convert_record(&record, args.mode)? {
             if !allowlist.is_empty() {
