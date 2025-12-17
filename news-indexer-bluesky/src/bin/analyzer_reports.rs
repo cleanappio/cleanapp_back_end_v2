@@ -45,29 +45,45 @@ struct GeneralConfig {
 }
 
 const PROMPT: &str = r#"
-You are analyzing a user-submitted report about a digital issue (app bug, service complaint, UX problem).
-Your task is to extract structured information for CleanApp's reporting system.
+You are analyzing a user-submitted report for CleanApp's brand sentiment platform.
+CleanApp crowdsources feedback about SPECIFIC brands and forwards it to those brands.
 
-Given the report title and description, return ONLY a strict JSON object with these fields:
+CRITICAL: We need SPECIFIC, IDENTIFIABLE brand names - not vague categories.
+
+Given the report title and description, return ONLY a strict JSON object:
 {
-  "brand_display_name": string,  // The proper brand/company name (e.g., "Steam", "Uber", "Spotify")
-  "brand_name": string,          // Normalized lowercase version (e.g., "steam", "uber", "spotify")
+  "brand_display_name": string,  // MUST be a specific brand (e.g., "Uber", "Discord", "Steam", "Delta Airlines")
+  "brand_name": string,          // Normalized lowercase version (e.g., "uber", "discord", "steam")
   "summary": string,             // A distilled 1-2 sentence gist of the issue (<= 300 chars)
   "report_title": string,        // A clean, concise title (<= 120 chars)
   "report_description": string,  // A clear description of the issue (<= 1000 chars)
-  "classification": "digital" | "physical" | "unknown",
+  "classification": "digital" | "physical",
   "severity_level": number,      // 0.0 to 1.0 (1.0 = critical)
   "digital_bug_probability": number,  // 0.0 to 1.0
   "language": string             // ISO language code (e.g., "en", "es", "fr")
 }
 
-Rules:
-- Extract the CORRECT brand name from context, not the first word of the title
-- For "MY STEAM ACCOUNT won't download...", brand_display_name = "Steam", brand_name = "steam"
-- For "Uber driver was rude...", brand_display_name = "Uber", brand_name = "uber"
-- summary should be a distilled gist, not the raw content
-- report_description should be cleaned and concise, summarizing the key complaint
-- If you cannot determine a brand, use the source platform name or "Unknown"
+BRAND EXTRACTION RULES:
+1. Extract the ACTUAL company/brand name mentioned or implied
+2. "MY STEAM ACCOUNT won't download..." → brand = "Steam"
+3. "Uber driver was rude..." → brand = "Uber"  
+4. "The Disney+ app keeps crashing" → brand = "Disney+"
+5. Look for product names, app names, service names, company names
+
+DO NOT USE vague categories like:
+- "Unknown Service Platform" ❌
+- "Delivery Service App" ❌
+- "Operating System/Hardware" ❌
+- "Airline Industry" ❌
+- "Unknown Ride Share App" ❌
+
+Instead, identify the SPECIFIC brand:
+- If discussing a rideshare, is it Uber, Lyft, Bolt, or Grab?
+- If discussing delivery, is it DoorDash, UberEats, Grubhub, or Instacart?
+- If discussing an airline, is it Delta, United, Southwest, or American?
+
+If you truly cannot identify a specific brand after careful analysis, use "Unidentified" 
+(but this should be rare - most complaints mention a brand explicitly or implicitly).
 "#;
 
 #[tokio::main]

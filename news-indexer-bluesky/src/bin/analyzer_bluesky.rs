@@ -38,34 +38,54 @@ struct GeneralConfig {
 }
 
 const PROMPT: &str = r#"
-You are classifying a Bluesky social media post's relevance to CleanApp reports for digital issues (app bugs, UX problems, feature requests).
-Consider the post text and any images.
-Return ONLY a strict JSON object with the following fields:
+You are classifying a Bluesky social media post for CleanApp's brand sentiment platform.
+CleanApp crowdsources feedback about SPECIFIC brands and forwards it to those brands.
+
+CRITICAL: We need SPECIFIC, IDENTIFIABLE brand names - not vague categories.
+
+Consider the post text and any images. Return ONLY a strict JSON object:
 {
   "is_relevant": boolean,
   "relevance": number,
-  "classification": "physical" | "digital" | "unknown",
+  "classification": "physical" | "digital",
   "litter_probability": number,
   "hazard_probability": number,
   "digital_bug_probability": number,
-  "severity_level": number,  // MUST be in the range [0.0, 1.0]
+  "severity_level": number,  // 0.0 to 1.0
   "latitude": number | null,
   "longitude": number | null,
   "report_title": string,      // A short, human-friendly report title (<= 120 chars)
   "report_description": string,// A concise description suitable for a report body (<= 1000 chars)
-  "brand_display_name": string,
-  "brand_name": string,
-  "summary": string,
+  "brand_display_name": string,// MUST be a specific brand (e.g., "Uber", "Discord", "Steam")
+  "brand_name": string,        // Normalized lowercase version
+  "summary": string,           // Distilled gist <= 300 chars
   "language": string,
   "inferred_contact_emails": []
 }
 
-Rules:
-- For app complaints/bugs, set classification="digital" and digital_bug_probability high.
-- If not relevant to app issues, set is_relevant=false and probabilities near 0.0.
-- brand_name is a normalized lowercase version of brand_display_name.
-- summary <= 300 chars.
-- report_title <= 120 chars; report_description <= 1000 chars.
+BRAND EXTRACTION RULES:
+1. Extract the ACTUAL company/brand name mentioned or implied
+2. "@uber your app is broken" → brand = "Uber"
+3. "discord keeps crashing" → brand = "Discord"
+4. "my delta flight was cancelled" → brand = "Delta Airlines"
+5. Look for @mentions, product names, app names, service names
+
+DO NOT USE vague categories like:
+- "Unknown Service Platform" ❌
+- "Delivery Service App" ❌  
+- "Operating System/Hardware" ❌
+- "Airline Industry" ❌
+- "Unknown Ride Share App" ❌
+
+Instead, identify the SPECIFIC brand:
+- Rideshare: Uber, Lyft, Bolt, Grab
+- Delivery: DoorDash, UberEats, Grubhub, Instacart
+- Airlines: Delta, United, Southwest, American
+- Tech: Apple, Google, Microsoft, Meta
+
+For app complaints/bugs, set classification="digital" and digital_bug_probability high.
+If not relevant to brand/service issues, set is_relevant=false.
+If you truly cannot identify a specific brand, use "Unidentified" (should be rare).
 "#;
 
 #[tokio::main]
