@@ -82,8 +82,8 @@ Instead, identify the SPECIFIC brand:
 - If discussing delivery, is it DoorDash, UberEats, Grubhub, or Instacart?
 - If discussing an airline, is it Delta, United, Southwest, or American?
 
-If you truly cannot identify a specific brand after careful analysis, use "Unidentified" 
-(but this should be rare - most complaints mention a brand explicitly or implicitly).
+If you truly cannot identify a specific brand after careful analysis, use "Other".
+Reports labeled "Other" may not appear on the map since we crowdsource brand-specific insights.
 "#;
 
 #[tokio::main]

@@ -85,7 +85,7 @@ Instead, identify the SPECIFIC brand:
 
 For app complaints/bugs, set classification="digital" and digital_bug_probability high.
 If not relevant to brand/service issues, set is_relevant=false.
-If you truly cannot identify a specific brand, use "Unidentified" (should be rare).
+If you truly cannot identify a specific brand, use "Other". Reports labeled "Other" may not appear on the map.
 "#;
 
 #[tokio::main]
