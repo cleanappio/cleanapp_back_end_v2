@@ -476,12 +476,33 @@ func (s *Service) enrichPhysicalReportEmails(report *database.Report, analysis *
 		}
 	}
 	
-	// Step 5: Validate and deduplicate all collected emails
+	// Step 5: If still not enough emails, try Google web search for location
+	validEmailsSoFar := osm.ValidateAndFilterEmails(allEmails)
+	if len(validEmailsSoFar) < 2 && locCtx != nil && locCtx.PrimaryName != "" {
+		log.Printf("Report %d: Only %d emails from OSM, trying Google search for %q",
+			report.Seq, len(validEmailsSoFar), locCtx.PrimaryName)
+		
+		city := ""
+		if locCtx.Address.City != "" {
+			city = locCtx.Address.City
+		}
+		
+		searchEmails, err := s.osmService.Client().SearchLocationEmails(locCtx.PrimaryName, city)
+		if err != nil {
+			log.Printf("Report %d: Google search failed: %v", report.Seq, err)
+		} else if len(searchEmails) > 0 {
+			allEmails = append(allEmails, searchEmails...)
+			log.Printf("Report %d: Google search found %d emails for %q",
+				report.Seq, len(searchEmails), locCtx.PrimaryName)
+		}
+	}
+	
+	// Step 6: Validate and deduplicate all collected emails
 	validEmails := osm.ValidateAndFilterEmails(allEmails)
 	log.Printf("Report %d: %d valid emails after filtering (from %d total)",
 		report.Seq, len(validEmails), len(allEmails))
 	
-	// Step 6: If we found enough emails, save them
+	// Step 7: If we found enough emails, save them
 	if len(validEmails) >= 2 {
 		// Limit to top 5
 		if len(validEmails) > 5 {
@@ -491,7 +512,7 @@ func (s *Service) enrichPhysicalReportEmails(report *database.Report, analysis *
 		if err := s.db.UpdateInferredContactEmails(report.Seq, enrichedEmails); err != nil {
 			log.Printf("Report %d: Failed to update with enriched emails: %v", report.Seq, err)
 		} else {
-			log.Printf("Report %d: Enriched with %d OSM-based emails: %s",
+			log.Printf("Report %d: Enriched with %d emails (OSM+web search): %s",
 				report.Seq, len(validEmails), enrichedEmails)
 			s.osmService.SaveInferredEmails(report.Latitude, report.Longitude, enrichedEmails)
 		}

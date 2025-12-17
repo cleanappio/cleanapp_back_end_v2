@@ -418,6 +418,118 @@ func extractEmailsFromHTML(html string) []string {
 	return emails
 }
 
+// SearchLocationEmails searches Google for contact emails for a location
+// This is a fallback when OSM/website scraping doesn't find emails
+func (c *Client) SearchLocationEmails(locationName, city string) ([]string, error) {
+	if locationName == "" {
+		return nil, nil
+	}
+
+	c.enforceRateLimit()
+
+	// Build search query: "Location Name" "city" contact email
+	query := fmt.Sprintf(`"%s" "%s" contact email`, locationName, city)
+	if city == "" {
+		query = fmt.Sprintf(`"%s" contact email`, locationName)
+	}
+	searchURL := fmt.Sprintf("https://www.google.com/search?q=%s&num=10", url.QueryEscape(query))
+
+	req, err := http.NewRequest("GET", searchURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create search request: %w", err)
+	}
+	
+	// Use a desktop browser user agent
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.5")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute search: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("Google returned status %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read search results: %w", err)
+	}
+
+	// Extract emails from search results page
+	emails := extractEmailsFromHTML(string(body))
+	
+	// Also try to extract website URLs and scrape those
+	websiteURLs := extractWebsiteURLsFromGoogle(string(body), locationName)
+	for _, url := range websiteURLs {
+		if len(emails) >= 5 {
+			break // Limit to prevent too many requests
+		}
+		scraped, err := c.ScrapeEmailsFromWebsite(url)
+		if err == nil {
+			emails = append(emails, scraped...)
+		}
+	}
+
+	return ValidateAndFilterEmails(emails), nil
+}
+
+// extractWebsiteURLsFromGoogle extracts relevant website URLs from Google search results
+func extractWebsiteURLsFromGoogle(html, locationName string) []string {
+	var urls []string
+	seen := make(map[string]bool)
+	
+	// Look for URLs in search results
+	// Google often uses /url?q=https://... format
+	urlRegex := regexp.MustCompile(`/url\?q=(https?://[^&"]+)`)
+	matches := urlRegex.FindAllStringSubmatch(html, -1)
+	
+	for _, match := range matches {
+		if len(match) > 1 {
+			rawURL := match[1]
+			// Decode URL
+			decoded, err := url.QueryUnescape(rawURL)
+			if err == nil {
+				rawURL = decoded
+			}
+			
+			// Filter out Google's own URLs and social media
+			lower := strings.ToLower(rawURL)
+			if strings.Contains(lower, "google.") ||
+				strings.Contains(lower, "youtube.") ||
+				strings.Contains(lower, "facebook.") ||
+				strings.Contains(lower, "twitter.") ||
+				strings.Contains(lower, "instagram.") ||
+				strings.Contains(lower, "linkedin.") {
+				continue
+			}
+			
+			// Look for contact/about pages
+			if !seen[rawURL] {
+				seen[rawURL] = true
+				// Prioritize contact pages
+				if strings.Contains(lower, "contact") || 
+					strings.Contains(lower, "about") ||
+					strings.Contains(lower, "impressum") {
+					urls = append([]string{rawURL}, urls...) // prepend
+				} else {
+					urls = append(urls, rawURL)
+				}
+			}
+		}
+	}
+	
+	// Limit results
+	if len(urls) > 5 {
+		urls = urls[:5]
+	}
+	
+	return urls
+}
+
 // GenerateHierarchyEmails generates email addresses for each level of the hierarchy
 func GenerateHierarchyEmails(hierarchy []HierarchyLevel) []string {
 	var emails []string
