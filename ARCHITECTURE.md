@@ -6,79 +6,120 @@
 
 CleanApp is a microservices-based platform for crowdsourced feedback & reporting. Users submit reports about issues (litter, hazards, digital product complaints), which are analyzed by AI, clustered with similar reports, and automatically routed to relevant stakeholders (via email, social notifications, DMs, and (soon) direct automated phone calls if necessary to escalate a given issue).
 
+### The Pipeline at a Glance
+
+```
+┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
+│ 1. INGEST   │ →  │ 2. STORE    │ →  │ 3. ANALYZE  │ →  │ 4. DISPATCH │
+│             │    │             │    │             │    │             │
+│ Collect     │    │ Queue &     │    │ AI Process  │    │ Notify      │
+│ Reports     │    │ Persist     │    │ & Enrich    │    │ Stakeholders│
+└─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
+```
+
+### Detailed Architecture
+
 ```mermaid
-graph TB
-    subgraph "Data Sources"
-        APP[Mobile App]
-        WEB[Web Dashboard]
-        XSRC[X]
-        BS[Bluesky]
-        GH[GitHub]
-        REDDIT[Reddit]
-        WEBSCRAPE[Web Scraper]
-        EMAIL[Email Inbox]
+graph LR
+    %% Stage 1: INGESTION (Green)
+    subgraph STAGE1["① INGESTION"]
+        direction TB
+        subgraph "Data Sources"
+            APP[📱 Mobile App]
+            WEB[🌐 Web Dashboard]
+        end
+        subgraph "Social Indexers"
+            XI[X Indexer]
+            BI[Bluesky Indexer]
+            GHI[GitHub Indexer]
+            RDI[Reddit Indexer]
+        end
+        subgraph "Other Inputs"
+            WSI[Web Scraper]
+            EF[Email Fetcher]
+        end
     end
-    
-    subgraph "Ingestion Layer"
+
+    %% Stage 2: STORAGE (Blue)
+    subgraph STAGE2["② STORAGE"]
+        direction TB
         RL[Report Listener]
-        XI[X Indexer]
-        BI[Bluesky Indexer]
-        GHI[GitHub Indexer]
-        RDR[Reddit Indexer]
-        WSI[Web Scraper Indexer]
-        EF[Email Fetcher]
-    end
-    
-    subgraph "Processing Layer"
-        RAP[Report Analyze Pipeline]
-        RA[Report Analyzer]
-        RP[Report Processor]
-        RTS[Report Tags Service]
-        RRS[Report Renderer]
-    end
-    
-    subgraph "Data Layer"
+        RMQ[(RabbitMQ)]
         DB[(MySQL)]
-        RMQ[RabbitMQ]
     end
-    
-    subgraph "Notification Layer"
-        ES[Email Service]
-        XR[X Replier]
+
+    %% Stage 3: ANALYSIS (Orange)
+    subgraph STAGE3["③ ANALYSIS & ENRICHMENT"]
+        direction TB
+        RAP[Report Analyze Pipeline]
+        subgraph "AI Processing"
+            GEMINI[🤖 Gemini AI]
+            BRAND[Brand Extraction]
+            CONTACT[Contact Discovery]
+        end
+        subgraph "Geo Enrichment"
+            OSM[Nominatim/Overpass]
+            GSEARCH[Google Search]
+        end
     end
-    
-    subgraph "Frontend Layer"
+
+    %% Stage 4: DISPATCH (Purple)
+    subgraph STAGE4["④ DISPATCH"]
+        direction TB
+        ES[📧 Email Service]
+        XR[🐦 X Replier]
+        VOICE[📞 Voice Assistant]
+    end
+
+    %% Stage 5: FRONTEND (Gray)
+    subgraph STAGE5["DASHBOARDS"]
         FE[Next.js Dashboard]
         EMBED[Embedded Widget]
+        BRAND_DASH[Brand Dashboard]
     end
-    
+
+    %% Flow connections
     APP --> RL
     WEB --> RL
-    XSRC --> XI
-    BS --> BI
-    GH --> GHI
-    REDDIT --> RDR
-    WEBSCRAPE --> WSI
-    EMAIL --> EF
-    
     XI --> RL
     BI --> RL
     GHI --> RL
-    RDR --> RL
+    RDI --> RL
     WSI --> RL
     EF --> RL
-    
+
     RL --> RMQ
+    RL --> DB
     RMQ --> RAP
+    
+    RAP --> GEMINI
+    RAP --> OSM
+    RAP --> GSEARCH
     RAP --> DB
-    RA --> DB
     
     RAP --> ES
     RAP --> XR
     
     DB --> FE
     DB --> EMBED
+    DB --> BRAND_DASH
+
+    %% Styling
+    style STAGE1 fill:#1a4d1a,stroke:#2d8a2d,color:#fff
+    style STAGE2 fill:#1a3d5c,stroke:#2d6da8,color:#fff
+    style STAGE3 fill:#5c3d1a,stroke:#a86d2d,color:#fff
+    style STAGE4 fill:#3d1a5c,stroke:#6d2da8,color:#fff
+    style STAGE5 fill:#3d3d3d,stroke:#666,color:#fff
 ```
+
+### Pipeline Stages Explained
+
+| Stage | Purpose | Key Services | Data Flow |
+|-------|---------|--------------|-----------|
+| **① Ingestion** | Collect reports from all sources | Indexers, Report Listener | Mobile/Web → Listener, Social platforms → Indexers → Listener |
+| **② Storage** | Queue for processing, persist raw data | RabbitMQ, MySQL | Listener writes to DB, publishes to queue |
+| **③ Analysis** | AI processing, brand extraction, geo-enrichment | Report Analyze Pipeline, Gemini | Consume from queue → AI → Enrich → Update DB |
+| **④ Dispatch** | Notify stakeholders of issues | Email Service, X Replier | Trigger emails/replies based on analysis results |
 
 ---
 
