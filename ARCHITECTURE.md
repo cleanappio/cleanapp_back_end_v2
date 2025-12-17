@@ -121,6 +121,84 @@ graph LR
 | **③ Analysis** | AI processing, brand extraction, geo-enrichment | Report Analyze Pipeline, Gemini | Consume from queue → AI → Enrich → Update DB |
 | **④ Dispatch** | Notify stakeholders of issues | Email Service, X Replier | Trigger emails/replies based on analysis results |
 
+### Detailed Service Map
+
+For a comprehensive view of all services and their connections:
+
+```mermaid
+graph TB
+    subgraph "Data Sources"
+        APP[Mobile App]
+        WEB[Web Dashboard]
+        XSRC[X]
+        BS[Bluesky]
+        GH[GitHub]
+        REDDIT[Reddit]
+        WEBSCRAPE[Web Scraper]
+        EMAIL[Email Inbox]
+    end
+    
+    subgraph "Ingestion Layer"
+        RL[Report Listener]
+        XI[X Indexer]
+        BI[Bluesky Indexer]
+        GHI[GitHub Indexer]
+        RDR[Reddit Indexer]
+        WSI[Web Scraper Indexer]
+        EF[Email Fetcher]
+    end
+    
+    subgraph "Processing Layer"
+        RAP[Report Analyze Pipeline]
+        RA[Report Analyzer]
+        RP[Report Processor]
+        RTS[Report Tags Service]
+        RRS[Report Renderer]
+    end
+    
+    subgraph "Data Layer"
+        DB[(MySQL)]
+        RMQ[RabbitMQ]
+    end
+    
+    subgraph "Notification Layer"
+        ES[Email Service]
+        XR[X Replier]
+    end
+    
+    subgraph "Frontend Layer"
+        FE[Next.js Dashboard]
+        EMBED[Embedded Widget]
+    end
+    
+    APP --> RL
+    WEB --> RL
+    XSRC --> XI
+    BS --> BI
+    GH --> GHI
+    REDDIT --> RDR
+    WEBSCRAPE --> WSI
+    EMAIL --> EF
+    
+    XI --> RL
+    BI --> RL
+    GHI --> RL
+    RDR --> RL
+    WSI --> RL
+    EF --> RL
+    
+    RL --> RMQ
+    RMQ --> RAP
+    RAP --> DB
+    RA --> DB
+    
+    RAP --> ES
+    RAP --> XR
+    
+    DB --> FE
+    DB --> EMBED
+```
+
 ---
 
 ## CleanApp Internal APIs
