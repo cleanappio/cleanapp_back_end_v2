@@ -82,6 +82,133 @@ graph TB
 
 ---
 
+## CleanApp Internal APIs
+
+CleanApp exposes multiple REST APIs across its microservices. All modern APIs use the `/api/v3` prefix.
+
+```mermaid
+graph TB
+    subgraph "Client Layer"
+        MOBILE[Mobile App]
+        WEB[Web Dashboard]
+        INDEXERS[Indexers]
+    end
+    
+    subgraph "API Gateway Layer"
+        CS[Customer Service<br/>:9080]
+    end
+    
+    subgraph "Core APIs"
+        AUTH[Auth Service<br/>:9084]
+        RL[Report Listener<br/>:9081]
+        RAP[Report Analyze<br/>:9082]
+        RP[Report Processor<br/>:9087]
+    end
+    
+    subgraph "Domain APIs"
+        AREAS[Areas Service<br/>:9086]
+        EMAIL[Email Service<br/>:9089]
+        TAGS[Tags Service<br/>:9098]
+        OWN[Ownership Service<br/>:9090]
+    end
+    
+    MOBILE --> CS
+    WEB --> CS
+    WEB --> RL
+    WEB --> AREAS
+    
+    INDEXERS --> RL
+    
+    CS --> AUTH
+    RL --> RAP
+    RAP --> TAGS
+    RAP --> EMAIL
+    RP --> TAGS
+```
+
+### API Endpoints by Service
+
+#### Auth Service (`:9084`)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v3/auth/login` | User login, returns JWT |
+| POST | `/api/v3/auth/register` | Create new user account |
+| POST | `/api/v3/auth/refresh` | Refresh JWT token |
+| POST | `/api/v3/auth/logout` | 🔒 Invalidate session |
+| POST | `/api/v3/auth/forgot-password` | Send password reset email |
+| POST | `/api/v3/auth/reset-password` | Reset password with token |
+| POST | `/api/v3/validate-token` | Validate JWT (for services) |
+| GET | `/api/v3/users/me` | 🔒 Get current user profile |
+| PUT | `/api/v3/users/me` | 🔒 Update current user |
+| GET | `/api/v3/users/:id` | Get user by ID (internal) |
+| GET | `/api/v3/users/exists` | Check if email exists |
+
+#### Report Listener (`:9081`)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v3/reports/listen` | WebSocket for real-time reports |
+| GET | `/api/v3/reports/last` | Get last N analyzed reports |
+| GET | `/api/v3/reports/by-seq` | Get report by sequence ID |
+| GET | `/api/v3/reports/by-id` | Get reports by report ID |
+| GET | `/api/v3/reports/by-latlng` | Get reports within radius |
+| GET | `/api/v3/reports/by-latlng-lite` | Lightweight geo query |
+| GET | `/api/v3/reports/by-brand` | Get reports for a brand |
+| GET | `/api/v3/reports/search` | Search reports by keyword |
+| GET | `/api/v3/reports/image` | Get processed image |
+| GET | `/api/v3/reports/rawimage` | Get original image |
+| POST | `/api/v3/reports/bulk_ingest` | 🔑 Bulk ingest reports (indexers) |
+
+#### Report Analyze Pipeline (`:9082`)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v3/analysis` | Analyze a report with AI |
+| GET | `/api/v3/health` | Service health check |
+
+#### Customer Service (`:9080`)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v3/auth/*` | Proxies to Auth Service |
+| GET | `/api/v3/subscription` | 🔒 Get user subscription |
+| POST | `/api/v3/checkout` | 🔒 Create Stripe checkout |
+| POST | `/api/v3/portal` | 🔒 Create Stripe portal session |
+| POST | `/api/v3/webhooks/stripe` | Stripe webhook handler |
+
+#### Areas Service (`:9086`)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v3/get_areas` | Get all defined areas |
+| GET | `/api/v3/areas/:id` | Get area by ID |
+| GET | `/api/v3/areas/:id/reports` | Get reports in area |
+
+#### Email Service (`:9089`)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v3/optout` | Process email opt-out |
+| GET | `/opt-out` | Opt-out landing page |
+| GET | `/api/v3/send-digest` | Trigger brand digest emails |
+
+#### Tags Service (`:9098`)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v3/reports/:seq/tags` | Get tags for a report |
+| POST | `/api/v3/reports/:seq/tags` | Add tags to a report |
+
+### Authentication
+
+- 🔒 = Requires JWT Bearer token
+- 🔑 = Requires Fetcher token (for indexers)
+- All other endpoints are public
+
+### Base URLs
+
+| Environment | Base URL |
+|-------------|----------|
+| Production | `https://api.cleanapp.io` |
+| Development | `https://api-dev.cleanapp.io` |
+| Local | `http://localhost:<port>` |
+
+---
+
 ## External APIs
 
 CleanApp integrates with multiple third-party APIs for AI analysis, geocoding, email delivery, and social media indexing.
