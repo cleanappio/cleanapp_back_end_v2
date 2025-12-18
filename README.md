@@ -2,6 +2,9 @@
 
 This repository is for CleanApp (http://cleanapp.io) backend development.
 
+**If you want to understand CleanApp as a system, start here:**  
+[WHY](./WHY.md) → [THEORY](./THEORY.md) → [INVARIANTS](./INVARIANTS.md) → [ARCHITECTURE](./ARCHITECTURE.md)
+
 # Environments
 There are three environments:
 *   `local` - a local machine outside cloud
