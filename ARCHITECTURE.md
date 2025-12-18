@@ -524,7 +524,7 @@ The diagram below captures end-to-end movement of data, with explicit annotation
 ```mermaid
 flowchart LR
     %% Lanes
-    subgraph PRODUCERS[User & External Sources]
+    subgraph PRODUCERS["User & External Sources"]
         direction TB
         APP[Mobile App]
         WEB[Web Dashboard]
@@ -547,24 +547,24 @@ flowchart LR
         WSI[Scraper Indexer]
     end
 
-    subgraph QUEUE[Queue & Storage]
+    subgraph QUEUE["Queue & Storage"]
         direction TB
         RMQ[(RabbitMQ Queue)]
-        DB[(MySQL: reports, brands, contacts, geo)]
-        BLOBS[(Object Storage: images & attachments)]
+        DB[(MySQL Database)]
+        BLOBS[(Object Storage)]
     end
 
-    subgraph ANALYZE[Analysis & Enrichment]
+    subgraph ANALYZE["Analysis & Enrichment"]
         direction TB
         RAP[Report Analyze Pipeline]
-        AI[Gemini / LLM]
+        AI["Gemini / LLM"]
         BRAND[Brand Extractor]
-        GEO[Geocoder (Nominatim / Overpass)]
-        TAGGER[Topic & Tag Service]
-        OCR[Vision/OCR]
+        GEO[Geocoder]
+        TAGGER["Topic & Tag Service"]
+        OCR["Vision / OCR"]
     end
 
-    subgraph DISPATCH[Dispatch & Engagement]
+    subgraph DISPATCH["Dispatch & Engagement"]
         direction TB
         ES[Email Service]
         XR[X Replier]
@@ -573,7 +573,7 @@ flowchart LR
         WEBHOOK[Webhooks]
     end
 
-    subgraph FES[Dashboards & APIs]
+    subgraph FES["Dashboards & APIs"]
         direction TB
         FE[Next.js Dashboard]
         EMBED[Embedded Widget]
