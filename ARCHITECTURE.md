@@ -517,7 +517,158 @@ New Report → Gemini/OpenAI API → Extract:
   - Legal risk estimate
 ```
 
+#### Comprehensive Data Flow (Annotated)
+
+The diagram below captures end-to-end movement of data, with explicit annotations for payloads and directionality to maximize legibility.
+
+```mermaid
+flowchart LR
+    %% Lanes
+    subgraph PRODUCERS[User & External Sources]
+        direction TB
+        APP[Mobile App]
+        WEB[Web Dashboard]
+        XIDX[X Stream]
+        BSIDX[Bluesky Stream]
+        GHIDX[GitHub Issues]
+        RDITX[Reddit Threads]
+        EMAILBOX[Inbox]
+        SCRAPER[Web Scraper]
+    end
+
+    subgraph INGEST[Ingestion Layer]
+        direction TB
+        RL[Report Listener]
+        XI[X Indexer]
+        BI[Bluesky Indexer]
+        GHI[GitHub Indexer]
+        RI[Reddit Indexer]
+        EF[Email Fetcher]
+        WSI[Scraper Indexer]
+    end
+
+    subgraph QUEUE[Queue & Storage]
+        direction TB
+        RMQ[(RabbitMQ Queue)]
+        DB[(MySQL: reports, brands, contacts, geo)]
+        BLOBS[(Object Storage: images & attachments)]
+    end
+
+    subgraph ANALYZE[Analysis & Enrichment]
+        direction TB
+        RAP[Report Analyze Pipeline]
+        AI[Gemini / LLM]
+        BRAND[Brand Extractor]
+        GEO[Geocoder (Nominatim / Overpass)]
+        TAGGER[Topic & Tag Service]
+        OCR[Vision/OCR]
+    end
+
+    subgraph DISPATCH[Dispatch & Engagement]
+        direction TB
+        ES[Email Service]
+        XR[X Replier]
+        BSREP[Bluesky Replier]
+        VOICE[Voice Assistant]
+        WEBHOOK[Webhooks]
+    end
+
+    subgraph FES[Dashboards & APIs]
+        direction TB
+        FE[Next.js Dashboard]
+        EMBED[Embedded Widget]
+        BRAND_DASH[Brand Dashboard]
+        API[Public/Partner API]
+    end
+
+    subgraph OBS[Observability]
+        direction TB
+        LOGS[(Logs)]
+        METRICS[(Metrics)]
+        DLQ[(Dead Letter Queue)]
+    end
+
+    %% Producer → Ingestion
+    APP -- "JSON report + images" --> RL
+    WEB -- "Form submissions" --> RL
+    XIDX -- "X posts (text + media URLs)" --> XI
+    BSIDX -- "Posts" --> BI
+    GHIDX -- "Issues/PR comments" --> GHI
+    RDITX -- "Threads" --> RI
+    EMAILBOX -- "Raw MIME" --> EF
+    SCRAPER -- "HTML snapshots" --> WSI
+
+    %% Ingestion normalization to listener
+    XI -- "Normalized Report events" --> RL
+    BI -- "Normalized Report events" --> RL
+    GHI -- "Normalized Report events" --> RL
+    RI -- "Normalized Report events" --> RL
+    EF -- "Parsed emails" --> RL
+    WSI -- "Scraped findings" --> RL
+
+    %% Listener → Queue/DB
+    RL -- "ReportCreated msg" --> RMQ
+    RL -- "Raw report row" --> DB
+    RL -- "Images" --> BLOBS
+
+    %% Queue → Analysis
+    RMQ -- "ReportCreated" --> RAP
+    RAP -- "LLM prompts" --> AI
+    AI -- "Summary, intents, actions" --> RAP
+    RAP -- "Brand cues" --> BRAND
+    RAP -- "Address text" --> GEO
+    RAP -- "Image refs" --> OCR
+    OCR -- "Detected text/labels" --> RAP
+    BRAND -- "Brand IDs" --> RAP
+    GEO -- "GeoJSON + lat/lng" --> RAP
+
+    %% Analysis persistence
+    RAP -- "Enriched report" --> DB
+    RAP -- "Tags/topics" --> TAGGER
+    TAGGER -- "Tag assignments" --> DB
+    RAP -- "Attachments" --> BLOBS
+
+    %% Triggers to Dispatch
+    RAP -- "Escalation events" --> ES
+    RAP -- "Reply payloads" --> XR
+    RAP -- "Reply payloads" --> BSREP
+    RAP -- "Call scripts" --> VOICE
+    RAP -- "Webhook payload" --> WEBHOOK
+
+    %% User-facing consumption
+    DB -- "Read models" --> FE
+    DB -- "Filtered datasets" --> EMBED
+    DB -- "Brand-specific views" --> BRAND_DASH
+    DB -- "Partner data" --> API
+    BLOBS -- "Signed URLs" --> FE
+
+    %% Observability
+    RL -- "Ingestion logs" --> LOGS
+    RAP -- "Processing logs" --> LOGS
+    DISPATCH -- "Delivery logs" --> LOGS
+    RMQ -- "DLQ for failed msgs" --> DLQ
+    RAP -- "Metrics (latency, throughput)" --> METRICS
+
+    %% Styling
+    classDef producers fill:#0f5132,stroke:#0f5132,color:white;
+    classDef ingestion fill:#0d6efd,stroke:#0b5ed7,color:white;
+    classDef queue fill:#055160,stroke:#0c5460,color:white;
+    classDef analyze fill:#664d03,stroke:#856404,color:white;
+    classDef dispatch fill:#512da8,stroke:#512da8,color:white;
+    classDef fe fill:#2f2f2f,stroke:#4d4d4d,color:white;
+    classDef obs fill:#6c757d,stroke:#495057,color:white;
+
+    class PRODUCERS producers
+    class INGEST ingestion
+    class QUEUE queue
+    class ANALYZE analyze
+    class DISPATCH dispatch
+    class FES fe
+    class OBS obs
+```
+
 ---
+
 
 ## Database Schema (Key Tables)
 
