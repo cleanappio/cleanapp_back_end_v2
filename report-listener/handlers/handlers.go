@@ -986,13 +986,31 @@ func (h *Handlers) GetReportsByBrand(c *gin.Context) {
 		totalCount = len(reports)
 	}
 
+	// Get the high priority count (severity >= 0.7)
+	highPriorityCount, err := h.db.GetHighPriorityCountByBrandName(c.Request.Context(), brandName)
+	if err != nil {
+		log.Printf("Failed to get high priority count for brand '%s': %v", brandName, err)
+		// Don't fail the request, use 0 as fallback
+		highPriorityCount = 0
+	}
+
+	// Get the medium priority count (0.4 <= severity < 0.7)
+	mediumPriorityCount, err := h.db.GetMediumPriorityCountByBrandName(c.Request.Context(), brandName)
+	if err != nil {
+		log.Printf("Failed to get medium priority count for brand '%s': %v", brandName, err)
+		// Don't fail the request, use 0 as fallback
+		mediumPriorityCount = 0
+	}
+
 	// Create the response in the same format as other endpoints
 	response := models.ReportBatch{
-		Reports:    reports,
-		Count:      len(reports),
-		TotalCount: totalCount,
-		FromSeq:    0,
-		ToSeq:      0,
+		Reports:             reports,
+		Count:               len(reports),
+		TotalCount:          totalCount,
+		HighPriorityCount:   highPriorityCount,
+		MediumPriorityCount: mediumPriorityCount,
+		FromSeq:             0,
+		ToSeq:               0,
 	}
 
 	// Set FromSeq and ToSeq if there are reports

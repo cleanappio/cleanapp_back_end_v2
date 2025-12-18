@@ -1505,3 +1505,47 @@ func (d *Database) GetReportsCountByBrandName(ctx context.Context, brandName str
 	}
 	return count, nil
 }
+
+// GetHighPriorityCountByBrandName returns the count of high priority reports (severity >= 0.7) for a brand
+func (d *Database) GetHighPriorityCountByBrandName(ctx context.Context, brandName string) (int, error) {
+	query := `
+		SELECT COUNT(DISTINCT r.seq)
+		FROM reports r
+		INNER JOIN report_analysis ra ON r.seq = ra.seq
+		LEFT JOIN report_status rs ON r.seq = rs.seq
+		LEFT JOIN reports_owners ro ON r.seq = ro.seq
+		WHERE ra.brand_name = ? 
+		AND ra.severity_level >= 0.7
+		AND (rs.status IS NULL OR rs.status = 'active')
+		AND ra.is_valid = TRUE
+		AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE)
+	`
+	var count int
+	err := d.db.QueryRowContext(ctx, query, brandName).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count high priority reports by brand: %w", err)
+	}
+	return count, nil
+}
+
+// GetMediumPriorityCountByBrandName returns the count of medium priority reports (0.4 <= severity < 0.7) for a brand
+func (d *Database) GetMediumPriorityCountByBrandName(ctx context.Context, brandName string) (int, error) {
+	query := `
+		SELECT COUNT(DISTINCT r.seq)
+		FROM reports r
+		INNER JOIN report_analysis ra ON r.seq = ra.seq
+		LEFT JOIN report_status rs ON r.seq = rs.seq
+		LEFT JOIN reports_owners ro ON r.seq = ro.seq
+		WHERE ra.brand_name = ? 
+		AND ra.severity_level >= 0.4 AND ra.severity_level < 0.7
+		AND (rs.status IS NULL OR rs.status = 'active')
+		AND ra.is_valid = TRUE
+		AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE)
+	`
+	var count int
+	err := d.db.QueryRowContext(ctx, query, brandName).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count medium priority reports by brand: %w", err)
+	}
+	return count, nil
+}
