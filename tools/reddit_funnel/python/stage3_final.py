@@ -11,6 +11,15 @@ Usage:
     --output-dir output_full/reports
 """
 
+# =============================================================================
+# GUARDRAIL: cleanapp_signal_corpus_v1 was generated with this logic.
+# Do not modify identity or aggregation semantics without creating a new
+# corpus version (v2, v3, etc.).
+#
+# Future enhancements (time-based trends, alerting, embeddings, finer
+# subclustering) should operate ON TOP OF v1, not by rewriting it.
+# =============================================================================
+
 import argparse
 import json
 import csv
