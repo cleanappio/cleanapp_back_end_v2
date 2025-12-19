@@ -2,6 +2,30 @@
 
 High-throughput pipeline for extracting brand-addressable issues from Reddit data dumps, using Rust for Stage 1 scanning and Python + Gemini for Stage 2 LLM enrichment.
 
+---
+
+## Pipeline Philosophy
+
+Each stage answers a specific question:
+
+| Stage | Question | Purpose |
+|-------|----------|---------|
+| **Stage 1** | *"What might matter?"* | Wide, cheap, recall-heavy filtering. Don't miss things. |
+| **Stage 2** | *"What is this, really?"* | Semantic judgment: brand, issue type, severity, actionability. |
+| **Stage 3** | *"Where is something happening?"* | Deterministic aggregation into stable, brand-addressable clusters. |
+| **Stage 4** | *"What's changing right now?"* | Time, deltas, velocity, emerging risk, early warning. |
+| **Stage 5** | *"Why, exactly?"* | Root cause, subclusters, embeddings, human + AI diagnosis. |
+
+**Laconically:**
+
+- **Stage 1** finds signals.
+- **Stage 2** understands them.
+- **Stage 3** locates them.
+- **Stage 4** tracks change.
+- **Stage 5** explains why.
+
+---
+
 ## Overview
 
 ```
