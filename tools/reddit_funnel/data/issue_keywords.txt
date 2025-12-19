@@ -1,0 +1,76 @@
+bug
+broken
+issue
+error
+crash
+not working
+doesn't work
+won't work
+can't
+cannot
+unable
+failed
+failing
+stuck
+frozen
+hang
+hanging
+slow
+laggy
+glitch
+glitchy
+problem
+trouble
+help
+fix
+broken
+down
+outage
+offline
+unresponsive
+timeout
+401
+403
+404
+500
+502
+503
+exception
+stack trace
+traceback
+error code
+login
+sign in
+signin
+log in
+logout
+sign out
+password
+authentication
+auth
+account
+banned
+suspended
+locked
+disabled
+payment
+billing
+charge
+refund
+subscription
+cancel
+unsubscribe
+update
+upgrade
+after update
+since update
+new version
+latest version
+recently
+yesterday
+today
+support
+customer service
+contact
+response
+waiting

@@ -1,0 +1,2271 @@
+{
+    "brands": [
+        {
+            "canonical": "google",
+            "aliases": [
+                "google",
+                "gmail",
+                "google drive",
+                "google docs",
+                "google maps",
+                "google photos",
+                "google play",
+                "google chrome",
+                "chrome",
+                "google cloud",
+                "gcp",
+                "youtube",
+                "yt"
+            ],
+            "domains": [
+                "google.com",
+                "gmail.com",
+                "youtube.com",
+                "drive.google.com",
+                "cloud.google.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "microsoft",
+            "aliases": [
+                "microsoft",
+                "ms",
+                "windows",
+                "windows 11",
+                "windows 10",
+                "azure",
+                "office 365",
+                "office365",
+                "outlook",
+                "teams",
+                "ms teams",
+                "xbox",
+                "bing",
+                "edge",
+                "msft"
+            ],
+            "domains": [
+                "microsoft.com",
+                "outlook.com",
+                "azure.com",
+                "office.com",
+                "xbox.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "apple",
+            "aliases": [
+                "apple",
+                "iphone",
+                "ipad",
+                "macbook",
+                "mac",
+                "imac",
+                "ios",
+                "macos",
+                "apple music",
+                "itunes",
+                "app store",
+                "icloud",
+                "airpods",
+                "apple watch",
+                "apple tv"
+            ],
+            "domains": [
+                "apple.com",
+                "icloud.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "amazon",
+            "aliases": [
+                "amazon",
+                "aws",
+                "amazon web services",
+                "prime",
+                "amazon prime",
+                "kindle",
+                "alexa",
+                "echo",
+                "fire tv",
+                "twitch"
+            ],
+            "domains": [
+                "amazon.com",
+                "aws.amazon.com",
+                "twitch.tv"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "meta",
+            "aliases": [
+                "meta",
+                "facebook",
+                "fb",
+                "instagram",
+                "ig",
+                "insta",
+                "whatsapp",
+                "messenger",
+                "oculus",
+                "threads"
+            ],
+            "domains": [
+                "facebook.com",
+                "instagram.com",
+                "whatsapp.com",
+                "messenger.com",
+                "meta.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "twitter",
+            "aliases": [
+                "twitter",
+                "x.com",
+                "tweet"
+            ],
+            "domains": [
+                "twitter.com",
+                "x.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "discord",
+            "aliases": [
+                "discord",
+                "disc"
+            ],
+            "domains": [
+                "discord.com",
+                "discord.gg"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "reddit",
+            "aliases": [
+                "reddit"
+            ],
+            "domains": [
+                "reddit.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "tiktok",
+            "aliases": [
+                "tiktok",
+                "tik tok"
+            ],
+            "domains": [
+                "tiktok.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "snapchat",
+            "aliases": [
+                "snapchat",
+                "snap"
+            ],
+            "domains": [
+                "snapchat.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "spotify",
+            "aliases": [
+                "spotify"
+            ],
+            "domains": [
+                "spotify.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "netflix",
+            "aliases": [
+                "netflix"
+            ],
+            "domains": [
+                "netflix.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "uber",
+            "aliases": [
+                "uber",
+                "uber eats",
+                "ubereats"
+            ],
+            "domains": [
+                "uber.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "lyft",
+            "aliases": [
+                "lyft"
+            ],
+            "domains": [
+                "lyft.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "doordash",
+            "aliases": [
+                "doordash",
+                "door dash"
+            ],
+            "domains": [
+                "doordash.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "grubhub",
+            "aliases": [
+                "grubhub",
+                "grub hub"
+            ],
+            "domains": [
+                "grubhub.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "instacart",
+            "aliases": [
+                "instacart"
+            ],
+            "domains": [
+                "instacart.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "airbnb",
+            "aliases": [
+                "airbnb",
+                "air bnb"
+            ],
+            "domains": [
+                "airbnb.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "booking.com",
+            "aliases": [
+                "booking",
+                "booking.com"
+            ],
+            "domains": [
+                "booking.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "expedia",
+            "aliases": [
+                "expedia"
+            ],
+            "domains": [
+                "expedia.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "stripe",
+            "aliases": [
+                "stripe"
+            ],
+            "domains": [
+                "stripe.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "paypal",
+            "aliases": [
+                "paypal",
+                "pay pal"
+            ],
+            "domains": [
+                "paypal.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "venmo",
+            "aliases": [
+                "venmo"
+            ],
+            "domains": [
+                "venmo.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "cashapp",
+            "aliases": [
+                "cash app",
+                "cashapp",
+                "square cash"
+            ],
+            "domains": [
+                "cash.app"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "robinhood",
+            "aliases": [
+                "robinhood",
+                "robin hood"
+            ],
+            "domains": [
+                "robinhood.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "coinbase",
+            "aliases": [
+                "coinbase"
+            ],
+            "domains": [
+                "coinbase.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "binance",
+            "aliases": [
+                "binance"
+            ],
+            "domains": [
+                "binance.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "slack",
+            "aliases": [
+                "slack"
+            ],
+            "domains": [
+                "slack.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "zoom",
+            "aliases": [
+                "zoom"
+            ],
+            "domains": [
+                "zoom.us"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "notion",
+            "aliases": [
+                "notion"
+            ],
+            "domains": [
+                "notion.so"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "figma",
+            "aliases": [
+                "figma"
+            ],
+            "domains": [
+                "figma.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "canva",
+            "aliases": [
+                "canva"
+            ],
+            "domains": [
+                "canva.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "dropbox",
+            "aliases": [
+                "dropbox"
+            ],
+            "domains": [
+                "dropbox.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "github",
+            "aliases": [
+                "github"
+            ],
+            "domains": [
+                "github.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "gitlab",
+            "aliases": [
+                "gitlab"
+            ],
+            "domains": [
+                "gitlab.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "bitbucket",
+            "aliases": [
+                "bitbucket"
+            ],
+            "domains": [
+                "bitbucket.org"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "jira",
+            "aliases": [
+                "jira"
+            ],
+            "domains": [
+                "atlassian.net"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "atlassian",
+            "aliases": [
+                "atlassian",
+                "confluence",
+                "trello"
+            ],
+            "domains": [
+                "atlassian.com",
+                "trello.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "vercel",
+            "aliases": [
+                "vercel",
+                "next.js",
+                "nextjs"
+            ],
+            "domains": [
+                "vercel.com",
+                "vercel.app"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "netlify",
+            "aliases": [
+                "netlify"
+            ],
+            "domains": [
+                "netlify.com",
+                "netlify.app"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "heroku",
+            "aliases": [
+                "heroku"
+            ],
+            "domains": [
+                "heroku.com",
+                "herokuapp.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "digitalocean",
+            "aliases": [
+                "digitalocean",
+                "digital ocean"
+            ],
+            "domains": [
+                "digitalocean.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "cloudflare",
+            "aliases": [
+                "cloudflare"
+            ],
+            "domains": [
+                "cloudflare.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "replit",
+            "aliases": [
+                "replit",
+                "repl.it"
+            ],
+            "domains": [
+                "replit.com",
+                "repl.it"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "codecademy",
+            "aliases": [
+                "codecademy"
+            ],
+            "domains": [
+                "codecademy.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "udemy",
+            "aliases": [
+                "udemy"
+            ],
+            "domains": [
+                "udemy.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "coursera",
+            "aliases": [
+                "coursera"
+            ],
+            "domains": [
+                "coursera.org"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "duolingo",
+            "aliases": [
+                "duolingo"
+            ],
+            "domains": [
+                "duolingo.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "adobe",
+            "aliases": [
+                "adobe",
+                "photoshop",
+                "illustrator",
+                "premiere",
+                "acrobat",
+                "lightroom",
+                "creative cloud"
+            ],
+            "domains": [
+                "adobe.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "autodesk",
+            "aliases": [
+                "autodesk",
+                "autocad",
+                "maya",
+                "3ds max",
+                "fusion 360"
+            ],
+            "domains": [
+                "autodesk.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "steam",
+            "aliases": [
+                "steam",
+                "valve"
+            ],
+            "domains": [
+                "steampowered.com",
+                "steam.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "epic games",
+            "aliases": [
+                "epic games",
+                "epic",
+                "fortnite",
+                "unreal"
+            ],
+            "domains": [
+                "epicgames.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "roblox",
+            "aliases": [
+                "roblox"
+            ],
+            "domains": [
+                "roblox.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "ea",
+            "aliases": [
+                "ea",
+                "electronic arts",
+                "ea sports",
+                "origin"
+            ],
+            "domains": [
+                "ea.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "activision",
+            "aliases": [
+                "activision",
+                "blizzard",
+                "call of duty",
+                "cod",
+                "warzone",
+                "overwatch",
+                "diablo",
+                "world of warcraft",
+                "wow"
+            ],
+            "domains": [
+                "activision.com",
+                "blizzard.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "riot games",
+            "aliases": [
+                "riot",
+                "riot games",
+                "league of legends",
+                "lol",
+                "valorant"
+            ],
+            "domains": [
+                "riotgames.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "nintendo",
+            "aliases": [
+                "nintendo",
+                "switch",
+                "mario",
+                "zelda",
+                "pokemon"
+            ],
+            "domains": [
+                "nintendo.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "playstation",
+            "aliases": [
+                "playstation",
+                "ps5",
+                "ps4",
+                "psn",
+                "sony playstation"
+            ],
+            "domains": [
+                "playstation.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "xbox",
+            "aliases": [
+                "xbox",
+                "xbox series x",
+                "xbox one",
+                "game pass"
+            ],
+            "domains": [
+                "xbox.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "nvidia",
+            "aliases": [
+                "nvidia",
+                "geforce",
+                "rtx",
+                "gtx"
+            ],
+            "domains": [
+                "nvidia.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "amd",
+            "aliases": [
+                "amd",
+                "radeon",
+                "ryzen"
+            ],
+            "domains": [
+                "amd.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "intel",
+            "aliases": [
+                "intel"
+            ],
+            "domains": [
+                "intel.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "samsung",
+            "aliases": [
+                "samsung",
+                "galaxy"
+            ],
+            "domains": [
+                "samsung.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "huawei",
+            "aliases": [
+                "huawei"
+            ],
+            "domains": [
+                "huawei.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "oneplus",
+            "aliases": [
+                "oneplus",
+                "one plus"
+            ],
+            "domains": [
+                "oneplus.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "xiaomi",
+            "aliases": [
+                "xiaomi",
+                "mi",
+                "redmi"
+            ],
+            "domains": [
+                "xiaomi.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "lg",
+            "aliases": [
+                "lg"
+            ],
+            "domains": [
+                "lg.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "sony",
+            "aliases": [
+                "sony"
+            ],
+            "domains": [
+                "sony.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "dell",
+            "aliases": [
+                "dell",
+                "alienware"
+            ],
+            "domains": [
+                "dell.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "hp",
+            "aliases": [
+                "hp",
+                "hewlett packard"
+            ],
+            "domains": [
+                "hp.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "lenovo",
+            "aliases": [
+                "lenovo",
+                "thinkpad"
+            ],
+            "domains": [
+                "lenovo.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "asus",
+            "aliases": [
+                "asus",
+                "rog"
+            ],
+            "domains": [
+                "asus.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "acer",
+            "aliases": [
+                "acer"
+            ],
+            "domains": [
+                "acer.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "razer",
+            "aliases": [
+                "razer"
+            ],
+            "domains": [
+                "razer.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "logitech",
+            "aliases": [
+                "logitech",
+                "logi"
+            ],
+            "domains": [
+                "logitech.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "corsair",
+            "aliases": [
+                "corsair"
+            ],
+            "domains": [
+                "corsair.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "shopify",
+            "aliases": [
+                "shopify"
+            ],
+            "domains": [
+                "shopify.com",
+                "myshopify.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "squarespace",
+            "aliases": [
+                "squarespace"
+            ],
+            "domains": [
+                "squarespace.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "wix",
+            "aliases": [
+                "wix"
+            ],
+            "domains": [
+                "wix.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "wordpress",
+            "aliases": [
+                "wordpress",
+                "wp"
+            ],
+            "domains": [
+                "wordpress.com",
+                "wordpress.org"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "hubspot",
+            "aliases": [
+                "hubspot"
+            ],
+            "domains": [
+                "hubspot.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "salesforce",
+            "aliases": [
+                "salesforce",
+                "sfdc"
+            ],
+            "domains": [
+                "salesforce.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "zendesk",
+            "aliases": [
+                "zendesk"
+            ],
+            "domains": [
+                "zendesk.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "intercom",
+            "aliases": [
+                "intercom"
+            ],
+            "domains": [
+                "intercom.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "mailchimp",
+            "aliases": [
+                "mailchimp"
+            ],
+            "domains": [
+                "mailchimp.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "sendgrid",
+            "aliases": [
+                "sendgrid"
+            ],
+            "domains": [
+                "sendgrid.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "twilio",
+            "aliases": [
+                "twilio"
+            ],
+            "domains": [
+                "twilio.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "segment",
+            "aliases": [
+                "segment"
+            ],
+            "domains": [
+                "segment.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "amplitude",
+            "aliases": [
+                "amplitude"
+            ],
+            "domains": [
+                "amplitude.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "mixpanel",
+            "aliases": [
+                "mixpanel"
+            ],
+            "domains": [
+                "mixpanel.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "datadog",
+            "aliases": [
+                "datadog"
+            ],
+            "domains": [
+                "datadoghq.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "newrelic",
+            "aliases": [
+                "newrelic",
+                "new relic"
+            ],
+            "domains": [
+                "newrelic.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "splunk",
+            "aliases": [
+                "splunk"
+            ],
+            "domains": [
+                "splunk.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "elastic",
+            "aliases": [
+                "elastic",
+                "elasticsearch"
+            ],
+            "domains": [
+                "elastic.co"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "mongodb",
+            "aliases": [
+                "mongodb",
+                "mongo"
+            ],
+            "domains": [
+                "mongodb.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "redis",
+            "aliases": [
+                "redis"
+            ],
+            "domains": [
+                "redis.io",
+                "redis.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "snowflake",
+            "aliases": [
+                "snowflake"
+            ],
+            "domains": [
+                "snowflake.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "databricks",
+            "aliases": [
+                "databricks"
+            ],
+            "domains": [
+                "databricks.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "openai",
+            "aliases": [
+                "openai",
+                "chatgpt",
+                "gpt-4",
+                "gpt-3",
+                "dall-e",
+                "dalle"
+            ],
+            "domains": [
+                "openai.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "anthropic",
+            "aliases": [
+                "anthropic",
+                "claude"
+            ],
+            "domains": [
+                "anthropic.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "midjourney",
+            "aliases": [
+                "midjourney",
+                "mj"
+            ],
+            "domains": [
+                "midjourney.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "stability ai",
+            "aliases": [
+                "stability ai",
+                "stable diffusion",
+                "stablediffusion"
+            ],
+            "domains": [
+                "stability.ai"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "linear",
+            "aliases": [
+                "linear"
+            ],
+            "domains": [
+                "linear.app"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "asana",
+            "aliases": [
+                "asana"
+            ],
+            "domains": [
+                "asana.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "monday.com",
+            "aliases": [
+                "monday",
+                "monday.com"
+            ],
+            "domains": [
+                "monday.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "clickup",
+            "aliases": [
+                "clickup",
+                "click up"
+            ],
+            "domains": [
+                "clickup.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "airtable",
+            "aliases": [
+                "airtable"
+            ],
+            "domains": [
+                "airtable.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "coda",
+            "aliases": [
+                "coda"
+            ],
+            "domains": [
+                "coda.io"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "miro",
+            "aliases": [
+                "miro"
+            ],
+            "domains": [
+                "miro.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "loom",
+            "aliases": [
+                "loom"
+            ],
+            "domains": [
+                "loom.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "calendly",
+            "aliases": [
+                "calendly"
+            ],
+            "domains": [
+                "calendly.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "docusign",
+            "aliases": [
+                "docusign"
+            ],
+            "domains": [
+                "docusign.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "1password",
+            "aliases": [
+                "1password",
+                "one password"
+            ],
+            "domains": [
+                "1password.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "lastpass",
+            "aliases": [
+                "lastpass",
+                "last pass"
+            ],
+            "domains": [
+                "lastpass.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "bitwarden",
+            "aliases": [
+                "bitwarden"
+            ],
+            "domains": [
+                "bitwarden.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "dashlane",
+            "aliases": [
+                "dashlane"
+            ],
+            "domains": [
+                "dashlane.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "nordvpn",
+            "aliases": [
+                "nordvpn",
+                "nord vpn"
+            ],
+            "domains": [
+                "nordvpn.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "expressvpn",
+            "aliases": [
+                "expressvpn",
+                "express vpn"
+            ],
+            "domains": [
+                "expressvpn.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "proton",
+            "aliases": [
+                "proton",
+                "protonmail",
+                "proton mail",
+                "protonvpn"
+            ],
+            "domains": [
+                "proton.me",
+                "protonmail.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "grammarly",
+            "aliases": [
+                "grammarly"
+            ],
+            "domains": [
+                "grammarly.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "evernote",
+            "aliases": [
+                "evernote"
+            ],
+            "domains": [
+                "evernote.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "obsidian",
+            "aliases": [
+                "obsidian"
+            ],
+            "domains": [
+                "obsidian.md"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "roam",
+            "aliases": [
+                "roam",
+                "roam research"
+            ],
+            "domains": [
+                "roamresearch.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "todoist",
+            "aliases": [
+                "todoist"
+            ],
+            "domains": [
+                "todoist.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "ticktick",
+            "aliases": [
+                "ticktick"
+            ],
+            "domains": [
+                "ticktick.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "verizon",
+            "aliases": [
+                "verizon",
+                "vzw"
+            ],
+            "domains": [
+                "verizon.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "at&t",
+            "aliases": [
+                "at&t",
+                "att"
+            ],
+            "domains": [
+                "att.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "t-mobile",
+            "aliases": [
+                "t-mobile",
+                "tmobile",
+                "t mobile"
+            ],
+            "domains": [
+                "t-mobile.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "comcast",
+            "aliases": [
+                "comcast",
+                "xfinity"
+            ],
+            "domains": [
+                "comcast.com",
+                "xfinity.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "spectrum",
+            "aliases": [
+                "spectrum"
+            ],
+            "domains": [
+                "spectrum.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "delta",
+            "aliases": [
+                "delta",
+                "delta airlines"
+            ],
+            "domains": [
+                "delta.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "united",
+            "aliases": [
+                "united",
+                "united airlines"
+            ],
+            "domains": [
+                "united.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "american airlines",
+            "aliases": [
+                "american airlines",
+                "aa"
+            ],
+            "domains": [
+                "aa.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "southwest",
+            "aliases": [
+                "southwest",
+                "southwest airlines"
+            ],
+            "domains": [
+                "southwest.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "jetblue",
+            "aliases": [
+                "jetblue",
+                "jet blue"
+            ],
+            "domains": [
+                "jetblue.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "tesla",
+            "aliases": [
+                "tesla"
+            ],
+            "domains": [
+                "tesla.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "ford",
+            "aliases": [
+                "ford"
+            ],
+            "domains": [
+                "ford.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "toyota",
+            "aliases": [
+                "toyota"
+            ],
+            "domains": [
+                "toyota.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "target",
+            "aliases": [
+                "target"
+            ],
+            "domains": [
+                "target.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "walmart",
+            "aliases": [
+                "walmart"
+            ],
+            "domains": [
+                "walmart.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "costco",
+            "aliases": [
+                "costco"
+            ],
+            "domains": [
+                "costco.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "starbucks",
+            "aliases": [
+                "starbucks"
+            ],
+            "domains": [
+                "starbucks.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "mcdonald's",
+            "aliases": [
+                "mcdonald's",
+                "mcdonalds",
+                "mcd"
+            ],
+            "domains": [
+                "mcdonalds.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "chipotle",
+            "aliases": [
+                "chipotle"
+            ],
+            "domains": [
+                "chipotle.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "postmates",
+            "aliases": [
+                "postmates"
+            ],
+            "domains": [
+                "postmates.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "hulu",
+            "aliases": [
+                "hulu"
+            ],
+            "domains": [
+                "hulu.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "disney+",
+            "aliases": [
+                "disney+",
+                "disney plus",
+                "disneyplus"
+            ],
+            "domains": [
+                "disneyplus.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "hbo max",
+            "aliases": [
+                "hbo max",
+                "hbo",
+                "max"
+            ],
+            "domains": [
+                "hbomax.com",
+                "max.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "paramount+",
+            "aliases": [
+                "paramount+",
+                "paramount plus"
+            ],
+            "domains": [
+                "paramountplus.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "peacock",
+            "aliases": [
+                "peacock"
+            ],
+            "domains": [
+                "peacocktv.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "apple tv+",
+            "aliases": [
+                "apple tv+",
+                "apple tv plus"
+            ],
+            "domains": [
+                "tv.apple.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "crunchyroll",
+            "aliases": [
+                "crunchyroll"
+            ],
+            "domains": [
+                "crunchyroll.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "funimation",
+            "aliases": [
+                "funimation"
+            ],
+            "domains": [
+                "funimation.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "tinder",
+            "aliases": [
+                "tinder"
+            ],
+            "domains": [
+                "tinder.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "bumble",
+            "aliases": [
+                "bumble"
+            ],
+            "domains": [
+                "bumble.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "hinge",
+            "aliases": [
+                "hinge"
+            ],
+            "domains": [
+                "hinge.co"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "linkedin",
+            "aliases": [
+                "linkedin"
+            ],
+            "domains": [
+                "linkedin.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "indeed",
+            "aliases": [
+                "indeed"
+            ],
+            "domains": [
+                "indeed.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "glassdoor",
+            "aliases": [
+                "glassdoor"
+            ],
+            "domains": [
+                "glassdoor.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "cursor",
+            "aliases": [
+                "cursor",
+                "cursor.sh"
+            ],
+            "domains": [
+                "cursor.sh"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "vscode",
+            "aliases": [
+                "vscode",
+                "vs code",
+                "visual studio code"
+            ],
+            "domains": [
+                "code.visualstudio.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "jetbrains",
+            "aliases": [
+                "jetbrains",
+                "intellij",
+                "pycharm",
+                "webstorm",
+                "phpstorm"
+            ],
+            "domains": [
+                "jetbrains.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "sublime text",
+            "aliases": [
+                "sublime",
+                "sublime text"
+            ],
+            "domains": [
+                "sublimetext.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "postman",
+            "aliases": [
+                "postman"
+            ],
+            "domains": [
+                "postman.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "insomnia",
+            "aliases": [
+                "insomnia"
+            ],
+            "domains": [
+                "insomnia.rest"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "docker",
+            "aliases": [
+                "docker"
+            ],
+            "domains": [
+                "docker.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "kubernetes",
+            "aliases": [
+                "kubernetes",
+                "k8s"
+            ],
+            "domains": [
+                "kubernetes.io"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "terraform",
+            "aliases": [
+                "terraform"
+            ],
+            "domains": [
+                "terraform.io"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "ansible",
+            "aliases": [
+                "ansible"
+            ],
+            "domains": [
+                "ansible.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "jenkins",
+            "aliases": [
+                "jenkins"
+            ],
+            "domains": [
+                "jenkins.io"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "circleci",
+            "aliases": [
+                "circleci",
+                "circle ci"
+            ],
+            "domains": [
+                "circleci.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "travis ci",
+            "aliases": [
+                "travis",
+                "travis ci"
+            ],
+            "domains": [
+                "travis-ci.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "supabase",
+            "aliases": [
+                "supabase"
+            ],
+            "domains": [
+                "supabase.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "firebase",
+            "aliases": [
+                "firebase"
+            ],
+            "domains": [
+                "firebase.google.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "planetscale",
+            "aliases": [
+                "planetscale"
+            ],
+            "domains": [
+                "planetscale.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "neon",
+            "aliases": [
+                "neon",
+                "neon.tech"
+            ],
+            "domains": [
+                "neon.tech"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "railway",
+            "aliases": [
+                "railway"
+            ],
+            "domains": [
+                "railway.app"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "render",
+            "aliases": [
+                "render"
+            ],
+            "domains": [
+                "render.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "fly.io",
+            "aliases": [
+                "fly",
+                "fly.io"
+            ],
+            "domains": [
+                "fly.io"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "clerk",
+            "aliases": [
+                "clerk"
+            ],
+            "domains": [
+                "clerk.dev"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "auth0",
+            "aliases": [
+                "auth0"
+            ],
+            "domains": [
+                "auth0.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "okta",
+            "aliases": [
+                "okta"
+            ],
+            "domains": [
+                "okta.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "plaid",
+            "aliases": [
+                "plaid"
+            ],
+            "domains": [
+                "plaid.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "wise",
+            "aliases": [
+                "wise",
+                "transferwise"
+            ],
+            "domains": [
+                "wise.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "revolut",
+            "aliases": [
+                "revolut"
+            ],
+            "domains": [
+                "revolut.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "chime",
+            "aliases": [
+                "chime"
+            ],
+            "domains": [
+                "chime.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "sofi",
+            "aliases": [
+                "sofi"
+            ],
+            "domains": [
+                "sofi.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "etsy",
+            "aliases": [
+                "etsy"
+            ],
+            "domains": [
+                "etsy.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "ebay",
+            "aliases": [
+                "ebay"
+            ],
+            "domains": [
+                "ebay.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "aliexpress",
+            "aliases": [
+                "aliexpress",
+                "ali express"
+            ],
+            "domains": [
+                "aliexpress.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "wish",
+            "aliases": [
+                "wish"
+            ],
+            "domains": [
+                "wish.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "shein",
+            "aliases": [
+                "shein"
+            ],
+            "domains": [
+                "shein.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "temu",
+            "aliases": [
+                "temu"
+            ],
+            "domains": [
+                "temu.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "pinterest",
+            "aliases": [
+                "pinterest"
+            ],
+            "domains": [
+                "pinterest.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "tumblr",
+            "aliases": [
+                "tumblr"
+            ],
+            "domains": [
+                "tumblr.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "quora",
+            "aliases": [
+                "quora"
+            ],
+            "domains": [
+                "quora.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "medium",
+            "aliases": [
+                "medium"
+            ],
+            "domains": [
+                "medium.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "substack",
+            "aliases": [
+                "substack"
+            ],
+            "domains": [
+                "substack.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "patreon",
+            "aliases": [
+                "patreon"
+            ],
+            "domains": [
+                "patreon.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "gofundme",
+            "aliases": [
+                "gofundme",
+                "go fund me"
+            ],
+            "domains": [
+                "gofundme.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "kickstarter",
+            "aliases": [
+                "kickstarter"
+            ],
+            "domains": [
+                "kickstarter.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "indiegogo",
+            "aliases": [
+                "indiegogo"
+            ],
+            "domains": [
+                "indiegogo.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "product hunt",
+            "aliases": [
+                "product hunt",
+                "producthunt"
+            ],
+            "domains": [
+                "producthunt.com"
+            ],
+            "confidence": 1.0
+        },
+        {
+            "canonical": "ycombinator",
+            "aliases": [
+                "ycombinator",
+                "y combinator",
+                "yc",
+                "hacker news",
+                "hn"
+            ],
+            "domains": [
+                "ycombinator.com",
+                "news.ycombinator.com"
+            ],
+            "confidence": 1.0
+        }
+    ]
+}
