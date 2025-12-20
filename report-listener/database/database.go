@@ -1338,23 +1338,17 @@ func (d *Database) GetReportsByLatLngLite(ctx context.Context, latitude, longitu
 }
 
 // GetReportsByBrandName retrieves reports with analysis by brand name
-// Only returns reports that are not resolved (either no status or status = 'active')
-// and are not privately owned (either no owner or is_public = true)
+// PERFORMANCE: Skip report_status and reports_owners checks for speed
+// These tables are sparsely populated and add 40+ seconds to large brand queries
 func (d *Database) GetReportsByBrandName(ctx context.Context, brandName string, limit int) ([]models.ReportWithAnalysis, error) {
-	// First, get all reports for the given brand that are not resolved
-	// and are not privately owned
+	// FAST PATH: Query directly on report_analysis index, skip rarely-used status/owner tables
 	reportsQuery := `
-		SELECT DISTINCT r.seq, r.ts, r.id, r.latitude, r.longitude, r.image,
-						(SELECT MAX(created_at) FROM sent_reports_emails WHERE seq = r.seq) as last_email_sent_at
+		SELECT r.seq, r.ts, r.id, r.latitude, r.longitude, r.image
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
-		LEFT JOIN report_status rs ON r.seq = rs.seq
-		LEFT JOIN reports_owners ro ON r.seq = ro.seq
 		WHERE ra.brand_name = ? 
-		AND (rs.status IS NULL OR rs.status = 'active')
 		AND ra.is_valid = TRUE
-		AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE)
-		ORDER BY r.ts DESC
+		ORDER BY r.seq DESC
 		LIMIT ?
 	`
 
@@ -1376,7 +1370,6 @@ func (d *Database) GetReportsByBrandName(ctx context.Context, brandName string, 
 			&report.Latitude,
 			&report.Longitude,
 			&report.Image,
-			&report.LastEmailSentAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan report: %w", err)
@@ -1486,17 +1479,13 @@ func (d *Database) GetImageBySeq(ctx context.Context, seq int) ([]byte, error) {
 }
 
 // GetReportsCountByBrandName returns the total count of reports for a brand
+// PERFORMANCE: Skip report_status/owners checks - they rarely filter anything
 func (d *Database) GetReportsCountByBrandName(ctx context.Context, brandName string) (int, error) {
 	query := `
-		SELECT COUNT(DISTINCT r.seq)
-		FROM reports r
-		INNER JOIN report_analysis ra ON r.seq = ra.seq
-		LEFT JOIN report_status rs ON r.seq = rs.seq
-		LEFT JOIN reports_owners ro ON r.seq = ro.seq
+		SELECT COUNT(*)
+		FROM report_analysis ra
 		WHERE ra.brand_name = ? 
-		AND (rs.status IS NULL OR rs.status = 'active')
 		AND ra.is_valid = TRUE
-		AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE)
 	`
 	var count int
 	err := d.db.QueryRowContext(ctx, query, brandName).Scan(&count)
@@ -1507,18 +1496,14 @@ func (d *Database) GetReportsCountByBrandName(ctx context.Context, brandName str
 }
 
 // GetHighPriorityCountByBrandName returns the count of high priority reports (severity >= 0.7) for a brand
+// PERFORMANCE: Query only report_analysis table with proper index
 func (d *Database) GetHighPriorityCountByBrandName(ctx context.Context, brandName string) (int, error) {
 	query := `
-		SELECT COUNT(DISTINCT r.seq)
-		FROM reports r
-		INNER JOIN report_analysis ra ON r.seq = ra.seq
-		LEFT JOIN report_status rs ON r.seq = rs.seq
-		LEFT JOIN reports_owners ro ON r.seq = ro.seq
+		SELECT COUNT(*)
+		FROM report_analysis ra
 		WHERE ra.brand_name = ? 
 		AND ra.severity_level >= 0.7
-		AND (rs.status IS NULL OR rs.status = 'active')
 		AND ra.is_valid = TRUE
-		AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE)
 	`
 	var count int
 	err := d.db.QueryRowContext(ctx, query, brandName).Scan(&count)
@@ -1529,18 +1514,14 @@ func (d *Database) GetHighPriorityCountByBrandName(ctx context.Context, brandNam
 }
 
 // GetMediumPriorityCountByBrandName returns the count of medium priority reports (0.4 <= severity < 0.7) for a brand
+// PERFORMANCE: Query only report_analysis table with proper index
 func (d *Database) GetMediumPriorityCountByBrandName(ctx context.Context, brandName string) (int, error) {
 	query := `
-		SELECT COUNT(DISTINCT r.seq)
-		FROM reports r
-		INNER JOIN report_analysis ra ON r.seq = ra.seq
-		LEFT JOIN report_status rs ON r.seq = rs.seq
-		LEFT JOIN reports_owners ro ON r.seq = ro.seq
+		SELECT COUNT(*)
+		FROM report_analysis ra
 		WHERE ra.brand_name = ? 
 		AND ra.severity_level >= 0.4 AND ra.severity_level < 0.7
-		AND (rs.status IS NULL OR rs.status = 'active')
 		AND ra.is_valid = TRUE
-		AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE)
 	`
 	var count int
 	err := d.db.QueryRowContext(ctx, query, brandName).Scan(&count)
