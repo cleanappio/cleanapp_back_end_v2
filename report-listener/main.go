@@ -162,6 +162,50 @@ func setupRouter(svc *service.Service) *gin.Engine {
 		}
 	}
 
+	// API v4 routes (alias for v3 - for backwards compatibility with frontend)
+	apiV4 := router.Group("/api/v4")
+	{
+		// WebSocket endpoint for report listening
+		apiV4.GET("/reports/listen", h.ListenReports)
+
+		// Health check endpoint
+		apiV4.GET("/reports/health", h.HealthCheck)
+
+		// Get last N analyzed reports endpoint
+		apiV4.GET("/reports/last", h.GetLastNAnalyzedReports)
+
+		// Get report by sequence ID endpoint
+		apiV4.GET("/reports/by-seq", h.GetReportBySeq)
+
+		// Get last N reports by ID endpoint
+		apiV4.GET("/reports/by-id", h.GetLastNReportsByID)
+
+		// Get reports by latitude/longitude within radius endpoint
+		apiV4.GET("/reports/by-latlng", h.GetReportsByLatLng)
+
+		// Get reports by latitude/longitude within radius (lite) endpoint
+		apiV4.GET("/reports/by-latlng-lite", h.GetReportsByLatLngLite)
+
+		// Get reports by brand name endpoint
+		apiV4.GET("/reports/by-brand", h.GetReportsByBrand)
+
+		// Search reports endpoint
+		apiV4.GET("/reports/search", h.GetSearchReports)
+
+		// Get image by sequence number endpoint
+		apiV4.GET("/reports/image", h.GetImageBySeq)
+
+		// Get raw image by sequence number endpoint
+		apiV4.GET("/reports/rawimage", h.GetRawImageBySeq)
+
+		// Protected bulk ingest endpoint
+		protectedV4 := apiV4.Group("/reports")
+		protectedV4.Use(middleware.FetcherAuthMiddleware(svc.GetHandlers().Db()))
+		{
+			protectedV4.POST("/bulk_ingest", h.BulkIngest)
+		}
+	}
+
 	// Root health check
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{
