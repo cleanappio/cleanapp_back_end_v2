@@ -12,3 +12,4 @@ transactiontest
 /.idea/
 /news-indexer/config-local.toml
 /news-indexer/data/*
+*.env
