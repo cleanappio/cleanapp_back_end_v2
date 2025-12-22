@@ -101,7 +101,7 @@ func Load() *Config {
 		MaxRetries:       getIntEnv("MAX_RETRIES", 3),
 
 		// Languages to translate to
-		TranslationLanguages: getLanguageMapEnv("TRANSLATION_LANGUAGES", "en,me,de"),
+		TranslationLanguages: getLanguageMapEnv("TRANSLATION_LANGUAGES", "en"),
 
 		// Logging defaults
 		LogLevel: getEnv("LOG_LEVEL", "info"),
