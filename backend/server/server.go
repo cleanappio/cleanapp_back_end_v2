@@ -135,6 +135,10 @@ func StartService() {
 		log.Info("Continuing without RabbitMQ publisher...")
 	}
 
+	// Start background counter cache updater
+	// This uses incremental counting to avoid slow full table scans
+	StartCounterCacheUpdater()
+
 	// Ensure cleanup on exit
 	defer closePublisher()
 

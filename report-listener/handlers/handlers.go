@@ -621,9 +621,10 @@ func (h *Handlers) GetSearchReports(c *gin.Context) {
 	// Get the classification parameter (optional - empty string if not provided)
 	classification := c.Query("classification")
 
-	// Get the full_data parameter from query string, default to true if not provided
-	fullDataStr := c.DefaultQuery("full_data", "true")
-	fullData := true // default value
+	// Get the full_data parameter from query string, default to false for search performance
+	// Full data can be requested explicitly but minimal data is much faster for large result sets
+	fullDataStr := c.DefaultQuery("full_data", "false")
+	fullData := false // default to minimal data for performance
 	if parsedFullData, err := strconv.ParseBool(fullDataStr); err == nil {
 		fullData = parsedFullData
 	} else {

@@ -1,0 +1,31 @@
+  cleanapp_frontend:
+    container_name: cleanapp_frontend
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-frontend-image:dev
+    ports:
+      - 3001:3000
+
+  cleanapp_frontend_embedded:
+    container_name: cleanapp_frontend_embedded
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-frontend-image-embedded:dev
+    ports:
+      - 3002:3000
+
+  cleanapp_customer_service:
+    container_name: cleanapp_customer_service
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-customer-service-image:dev
+    environment:
+      - TRUSTED_PROXIES=127.0.0.1,::1
+      - BASE_URL=https://devapi.cleanapp.io
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
+      - ENCRYPTION_KEY=${CLEANAPP_IO_ENCRYPTION_KEY}
+      - JWT_SECRET=${CLEANAPP_IO_JWT_SECRET}
+      - STRIPE_PRICE_BASE_MONTHLY=price_1ReIJJFW3SknKzLcejkfepTO
+      - STRIPE_PRICE_BASE_ANNUAL=price_1ReIJJFW3SknKzLcXOje9FBb
+      - STRIPE_PRICE_ADVANCED_MONTHLY=price_1ReIKiFW3SknKzLcaPTOR5Ny
+      - STRIPE_PRICE_ADVANCED_ANNUAL=price_1Rg0hEF5CkX59CnmF40QClFx
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+      - DB_PASSWORD=${MYSQL_APP_PASSWORD}
+      - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
