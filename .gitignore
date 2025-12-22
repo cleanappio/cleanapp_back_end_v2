@@ -12,4 +12,47 @@ transactiontest
 /.idea/
 /news-indexer/config-local.toml
 /news-indexer/data/*
+
+# ============================================
+# SECURITY: Environment and Secret Files
+# ============================================
+# Environment files (ALL directories)
 *.env
+*.env.*
+**/*.env
+**/*.env.*
+**/*.env.local
+**/*.env.development
+**/*.env.production
+**/*.env.staging
+**/.env
+**/.env.*
+
+# Private keys and certificates
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+**/*.pem
+**/*.key
+**/id_rsa*
+**/id_ed25519*
+**/id_dsa*
+
+# Secret/credential directories
+**/secrets/
+**/credentials/
+**/.secrets/
+**/.credentials/
+
+# Database dumps that might contain data
+*.sql.gz
+*.sql.bak
+**/dump*.sql
+
+# Backup files that might contain secrets
+*.bak
+*.backup
+*.old
