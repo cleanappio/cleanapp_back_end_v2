@@ -182,3 +182,151 @@ POTENTIAL CONCERNS:
 The human is monitoring you in an IDE. They can see everything. They will catch your mistakes. Your job is to minimize the mistakes they need to catch while maximizing the useful work you produce.
 
 You have unlimited stamina. The human does not. Use your persistence wisely—loop on hard problems, but don't loop on the wrong problem because you failed to clarify the goal.
+
+---
+
+# Cherny Magic
+
+*Tips from Boris Cherny, creator of Claude Code, and the Anthropic Claude Code team (Feb 2026)*
+
+---
+
+## 1. Do More in Parallel
+
+Spin up 3–5 git worktrees at once, each running its own Claude session in parallel. This is the single biggest productivity unlock from the Claude Code team.
+
+**Setup tips:**
+- Name worktrees and create shell aliases (`za`, `zb`, `zc`) to hop between them in one keystroke
+- Keep a dedicated "analysis" worktree just for reading logs and running queries
+- Native worktree support is built into Claude Desktop
+
+```bash
+$ git worktree add .claude/worktrees/my-worktree origin/main
+$ cd .claude/worktrees/my-worktree && claude
+```
+
+---
+
+## 2. Start in Plan Mode
+
+Start every complex task in plan mode. Pour your energy into the plan so Claude can 1-shot the implementation.
+
+**Pro techniques:**
+- Have one Claude write the plan, then spin up a second Claude to review it as a staff engineer
+- The moment something goes sideways, stop and re-plan rather than hacking forward
+- Use `shift+Tab` to cycle between modes
+
+---
+
+## 3. Invest in Your CLAUDE.md
+
+After every correction, end with: *"Update your CLAUDE.md so you don't make that mistake again."*
+
+Claude is eerily good at writing rules for itself. Ruthlessly edit your CLAUDE.md over time. Keep iterating until the mistake rate drops.
+
+**The feedback loop:**
+1. Claude makes a mistake
+2. You correct it
+3. Ask Claude to add a rule preventing that mistake
+4. Commit the updated CLAUDE.md
+5. Repeat
+
+---
+
+## 4. Create Custom Skills
+
+Create your own skills and commit them to git. Reuse across every project.
+
+**Team tips:**
+- If you do something more than once a day, turn it into a skill or slash command
+- Build a `/techdebt` command and run it at the end of every session to find and kill duplicated code
+- Skills live in `.claude/commands/` — commit them and share across projects
+
+---
+
+## 5. Let Claude Fix Bugs
+
+Claude fixes most bugs by itself. Don't micromanage *how* — just point it at the problem.
+
+**Patterns that work:**
+- Enable the Slack MCP, paste a bug thread, and just say `fix` — zero context switching
+- Say "Go fix the failing CI tests" without specifying how
+- Point Claude at Docker logs for complex debugging
+
+---
+
+## 6. Level Up Your Prompting
+
+### Challenge Claude as Your Reviewer
+> "Grill me on these changes and don't make a PR until I pass your test."
+
+> "Prove to me this works" — have Claude diff behavior between main and your feature branch.
+
+### Demand Elegance
+After a mediocre fix:
+> "Knowing everything you know now, scrap this and implement the elegant solution."
+
+### Reduce Ambiguity
+Write detailed specs before handing work off. The more specific you are, the better the output.
+
+---
+
+## 7. Terminal & Environment Setup
+
+**The team loves Ghostty:** synchronized rendering, 24-bit color, proper unicode support.
+
+**Optimize your workflow:**
+- Use `/statusline` to always show context usage and current git branch
+- Color-code and name your terminal tabs — one tab per task/worktree
+- Use tmux for persistent sessions
+
+**Voice dictation:** Hit `fn` twice on macOS. You speak 3x faster than you type, and your prompts get way more detailed as a result.
+
+---
+
+## 8. Use Subagents
+
+Throw more compute at hard problems by using subagents. This keeps your main agent's context window clean and focused.
+
+**How to use:**
+- Append "use subagents" to any request where you want Claude to throw more compute at the problem
+- Offload individual tasks to subagents to keep your main context clean
+- Route permission requests to Opus 4.5 via a hook — let it auto-approve safe ones
+
+**Example:**
+```
+> use 5 subagents to explore the codebase
+
+● I'll launch 5 explore agents in parallel to...
+● Running 5 Explore agents... (ctrl+o to expand)
+  ├─ Explore entry points and startup
+  ├─ Explore React components structure
+  ├─ Explore tools implementation
+  ├─ Explore state management
+  └─ Explore testing infrastructure
+```
+
+---
+
+## 9. Use Claude for Data & Analytics
+
+Ask Claude Code to use CLIs like `bq` (BigQuery) to pull and analyze metrics on the fly.
+
+**The Anthropic team's approach:**
+- They have a BigQuery skill checked into the codebase — everyone uses it for analytics queries directly in Claude Code
+- Boris hasn't written a line of SQL in 6+ months
+- This works for any database that has a CLI, MCP, or API
+
+**Apply to CleanApp:** Consider building skills for querying your MySQL database, checking report stats, or analyzing ingestion metrics.
+
+---
+
+## 10. Learning with Claude
+
+Use Claude as a learning tool, not just a coding tool.
+
+**Techniques:**
+- Enable the "Explanatory" or "Learning" output style in `/config` to have Claude explain the *why* behind its changes
+- Have Claude generate a visual HTML presentation explaining unfamiliar code — it makes surprisingly good slides!
+- Ask Claude to draw ASCII diagrams of new protocols and codebases to help you understand them
+- Build a spaced-repetition learning skill: you explain your understanding, Claude asks follow-ups to fill gaps, stores the result
