@@ -39,6 +39,8 @@ cd /home/deployer
 sudo docker compose -f docker-compose.yml -f docker-compose.override.yml up -d
 ```
 
+Important: compose file merge behavior appends list fields like `ports`. If you define `cleanapp_service` ports in both files, it will try to bind both host ports (and you will hit the `8080` vs nginx conflict). Prefer changing `docker-compose.yml` (or remove the base `ports:` entry and define ports only in the override).
+
 ## Step 2: Cut Over One Service at a Time
 
 Run on the prod VM:

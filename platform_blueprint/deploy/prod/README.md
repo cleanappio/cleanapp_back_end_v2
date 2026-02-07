@@ -14,7 +14,7 @@ The first integration milestone is to make the platform repo’s `docker-compose
 ## Override File
 
 `docker-compose.override.yml` is a small overlay intended to:
-- fix known port reality (`cleanapp_service` should be on host port `8079`)
 - add restart policies for long-running services
 - bring `cleanapp_bluesky_now` under compose
 
+Note: keep `cleanapp_service`'s host port mapping (`8079:8080`) in `docker-compose.yml` (not the override), because compose file merges append list fields like `ports`.

@@ -7,9 +7,6 @@
 services:
   cleanapp_service:
     restart: always
-    # Host port 8080 is occupied by nginx on the VM; prod uses 8079.
-    ports:
-      - 8079:8080
 
   cleanapp_frontend:
     restart: unless-stopped
@@ -33,4 +30,3 @@ services:
       - /home/deployer/bluesky_now_config:/app/config:ro
     depends_on:
       - cleanapp_db
-
