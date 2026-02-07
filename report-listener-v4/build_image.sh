@@ -58,6 +58,17 @@ fi
 
 echo "Running Cloud Build for version ${BUILD_VERSION}" 
 
+cleanup_buildinfo() { rm -f buildinfo.vars; }
+trap cleanup_buildinfo EXIT
+
+GIT_SHA="$(git rev-parse --short=12 HEAD 2>/dev/null || true)"
+BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+cat > buildinfo.vars <<EOF
+CLEANAPP_BUILD_VERSION=${BUILD_VERSION}
+CLEANAPP_GIT_SHA=${GIT_SHA}
+CLEANAPP_BUILD_TIME=${BUILD_TIME}
+EOF
+
 gcloud builds submit \
   --region=${CLOUD_REGION} \
   --tag=${DOCKER_TAG}:${BUILD_VERSION}
@@ -72,6 +83,5 @@ if [ -n "${SSH_KEYFILE}" ]; then
   ./setup.sh -e ${OPT} --ssh-keyfile ${SSH_KEYFILE}
   popd >/dev/null
 fi
-
 
 

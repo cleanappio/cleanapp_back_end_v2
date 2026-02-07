@@ -12,6 +12,7 @@ import (
 	"auth-service/middleware"
 	"auth-service/utils/email"
 	"auth-service/utils/encryption"
+	"auth-service/version"
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/go-sql-driver/mysql"
@@ -102,10 +103,17 @@ func setupRouter(service *database.AuthService, cfg *config.Config) *gin.Engine 
 
 	// Root level health check (not under /api/v3)
 	router.GET("/health", h.RootHealthCheck)
+	router.GET("/version", func(c *gin.Context) {
+		c.JSON(200, version.Get("auth-service"))
+	})
 
 	// Public routes
 	public := router.Group("/api/v3")
 	{
+		public.GET("/version", func(c *gin.Context) {
+			c.JSON(200, version.Get("auth-service"))
+		})
+
 		// Authentication routes
 		auth := public.Group("/auth")
 		{

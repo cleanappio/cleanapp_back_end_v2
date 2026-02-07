@@ -10,6 +10,7 @@ import (
 	"custom-area-dashboard/handlers"
 	"custom-area-dashboard/middleware"
 	"custom-area-dashboard/services"
+	"custom-area-dashboard/version"
 )
 
 func main() {
@@ -48,6 +49,9 @@ func main() {
 
 	// Health endpoint (public)
 	r.GET("/health", areasHandler.HealthHandler)
+	r.GET("/version", func(c *gin.Context) {
+		c.JSON(200, version.Get("custom-area-dashboard"))
+	})
 
 	// Protected routes
 	group := r.Group("/")

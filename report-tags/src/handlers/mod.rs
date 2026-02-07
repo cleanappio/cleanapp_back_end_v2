@@ -3,3 +3,4 @@ pub mod suggestions;
 pub mod follows;
 pub mod feed;
 pub mod health;
+pub mod version;

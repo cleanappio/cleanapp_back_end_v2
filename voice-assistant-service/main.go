@@ -6,6 +6,7 @@ import (
 	"voice-assistant-service/config"
 	"voice-assistant-service/handlers"
 	"voice-assistant-service/middleware"
+	"voice-assistant-service/version"
 
 	"github.com/apex/log"
 	"github.com/gin-gonic/gin"
@@ -52,11 +53,18 @@ func main() {
 	
 	// Health check endpoint (no auth required)
 	router.GET(EndPointHealth, func(c *gin.Context) {
+		info := version.Get("voice-assistant-service")
 		c.JSON(200, gin.H{
 			"status":  "healthy",
-			"service": "voice-assistant-service",
-			"version": "1.0.0",
+			"service": info.Service,
+			"version": info.Version,
+			"git_sha": info.GitSHA,
+			"build_time": info.BuildTime,
 		})
+	})
+
+	router.GET("/version", func(c *gin.Context) {
+		c.JSON(200, version.Get("voice-assistant-service"))
 	})
 	
 	// Rate-limited endpoints (no auth required for mobile app compatibility)

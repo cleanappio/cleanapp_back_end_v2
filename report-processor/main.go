@@ -14,6 +14,7 @@ import (
 	"report_processor/handlers"
 	"report_processor/middleware"
 	"report_processor/rabbitmq"
+	"report_processor/version"
 
 	"github.com/gin-gonic/gin"
 )
@@ -119,6 +120,10 @@ func setupRouter(cfg *config.Config, h *handlers.Handlers, authClient *database.
 	// API routes
 	api := router.Group("/api/v3")
 	{
+		api.GET("/version", func(c *gin.Context) {
+			c.JSON(200, version.Get("report-processor"))
+		})
+
 		// Protected routes (require authentication)
 		protected := api.Group("/reports")
 		protected.Use(middleware.AuthMiddleware(cfg, authClient))
@@ -153,6 +158,9 @@ func setupRouter(cfg *config.Config, h *handlers.Handlers, authClient *database.
 			"service": "report-processor",
 			"time":    time.Now().UTC().Format(time.RFC3339),
 		})
+	})
+	router.GET("/version", func(c *gin.Context) {
+		c.JSON(200, version.Get("report-processor"))
 	})
 
 	return router

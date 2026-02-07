@@ -50,3 +50,21 @@ Next time:
 - Always run secret scanning before push/merge.
 - Prefer explicit image-digest manifests to make redeploys deterministic.
 
+### 2026-02-07 (Provenance + /version Endpoints)
+
+Got wrong:
+- Started with a `buildinfo.env` file name; this repo ignores `*.env`, which likely means `gcloud builds submit` would also exclude it from the build context.
+
+Corrected by:
+- Switched to `buildinfo.vars` and updated Dockerfiles + build scripts to consume it; added `trap` cleanup so the file doesn’t linger locally.
+
+What worked:
+- Standard `/version` endpoints (and version-in-health where helpful) across deployed Go + Rust services.
+- Embedded build metadata into binaries (Go via `-ldflags -X`, Rust via `option_env!`).
+
+What didn't:
+- No local `go`/`cargo` toolchains available here, so this needs validation via a dev deploy + endpoint smoke checks.
+
+Next time:
+- Validate build-context ignore rules (gitignore vs cloud build upload) before choosing file names/extensions.
+- Add a post-deploy smoke script to curl all public `/version` endpoints and save the results to `xray/`.

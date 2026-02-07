@@ -15,6 +15,7 @@ import (
 	"report-analyze-pipeline/handlers"
 	"report-analyze-pipeline/rabbitmq"
 	"report-analyze-pipeline/service"
+	"report-analyze-pipeline/version"
 
 	"github.com/gin-gonic/gin"
 )
@@ -131,11 +132,18 @@ func main() {
 	// API routes
 	api := router.Group("/api/v3")
 	{
+		api.GET("/version", func(c *gin.Context) {
+			c.JSON(200, version.Get("report-analyze-pipeline"))
+		})
 		api.GET("/health", handlers.HealthCheck)
 		api.GET("/status", handlers.GetAnalysisStatus)
 		api.GET("/analysis/:seq", handlers.GetAnalysisBySeq)
 		api.GET("/stats", handlers.GetAnalysisStats)
 	}
+
+	router.GET("/version", func(c *gin.Context) {
+		c.JSON(200, version.Get("report-analyze-pipeline"))
+	})
 
 	// Create HTTP server
 	srv := &http.Server{

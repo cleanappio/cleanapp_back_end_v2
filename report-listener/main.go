@@ -12,6 +12,7 @@ import (
 	"report-listener/config"
 	"report-listener/middleware"
 	"report-listener/service"
+	"report-listener/version"
 
 	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
@@ -118,9 +119,15 @@ func setupRouter(svc *service.Service) *gin.Engine {
 	// Get handlers
 	h := svc.GetHandlers()
 
+	versionHandler := func(c *gin.Context) {
+		c.JSON(200, version.Get("report-listener"))
+	}
+
 	// API routes
 	api := router.Group("/api/v3")
 	{
+		api.GET("/version", versionHandler)
+
 		// WebSocket endpoint for report listening
 		api.GET("/reports/listen", h.ListenReports)
 
@@ -165,6 +172,8 @@ func setupRouter(svc *service.Service) *gin.Engine {
 	// API v4 routes (alias for v3 - for backwards compatibility with frontend)
 	apiV4 := router.Group("/api/v4")
 	{
+		apiV4.GET("/version", versionHandler)
+
 		// WebSocket endpoint for report listening
 		apiV4.GET("/reports/listen", h.ListenReports)
 
@@ -214,6 +223,7 @@ func setupRouter(svc *service.Service) *gin.Engine {
 			"time":    time.Now().UTC().Format(time.RFC3339),
 		})
 	})
+	router.GET("/version", versionHandler)
 
 	return router
 }

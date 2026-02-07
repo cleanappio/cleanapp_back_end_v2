@@ -11,15 +11,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Copy cache-busting build version file (forces rebuild on each new version)
-COPY build_version.txt ./build_version.txt
+# Copy full sources so we can optionally ingest buildinfo.vars produced by build_image.sh
+COPY . .
 
-# Copy project files
-COPY Cargo.toml Cargo.lock ./
-COPY src ./src
-
-# Build binary
-RUN cargo build --release --bin report-tags
+# Build binary (embed provenance if buildinfo.vars is present)
+RUN set -a; \
+    if [ -f buildinfo.vars ]; then . ./buildinfo.vars; else CLEANAPP_BUILD_VERSION="$(cat build_version.txt 2>/dev/null || echo dev)"; CLEANAPP_GIT_SHA=; CLEANAPP_BUILD_TIME=; fi; \
+    set +a; \
+    cargo build --release --bin report-tags
 
 # Sanity-check the produced binary is our server (and not a tiny placeholder)
 RUN test -f target/release/report-tags \

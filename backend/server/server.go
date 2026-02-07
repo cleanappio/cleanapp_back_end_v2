@@ -8,6 +8,7 @@ import (
 	"os"
 	"time"
 
+	"cleanapp/common/version"
 	"cleanapp/backend/rabbitmq"
 
 	"github.com/apex/log"
@@ -37,6 +38,7 @@ const (
 	EndPointUpdateUserAction  = "/update_user_action"
 	EndPointGetAreas          = "/get_areas"
 	EndPointValidReportsCount = "/valid-reports-count"
+	EndPointVersion           = "/version"
 )
 
 var (
@@ -150,6 +152,10 @@ func StartService() {
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
 	}))
+
+	router.GET(EndPointVersion, func(c *gin.Context) {
+		c.JSON(http.StatusOK, version.Get("cleanapp-service"))
+	})
 
 	router.GET(EndPointHelp, Help)
 	router.GET(EndPointGetAreas, GetAreas) // +
