@@ -1,0 +1,48 @@
+[
+    {
+        "CreatedAt": "2025-07-11T07:59:12Z",
+        "Driver": "local",
+        "Labels": null,
+        "Mountpoint": "/var/lib/docker/volumes/eko_mysql/_data",
+        "Name": "eko_mysql",
+        "Options": null,
+        "Scope": "local"
+    },
+    {
+        "CreatedAt": "2025-08-15T14:21:15Z",
+        "Driver": "local",
+        "Labels": null,
+        "Mountpoint": "/var/lib/docker/volumes/mysql_data/_data",
+        "Name": "mysql_data",
+        "Options": null,
+        "Scope": "local"
+    },
+    {
+        "CreatedAt": "2025-09-19T16:02:39Z",
+        "Driver": "local",
+        "Labels": {
+            "com.docker.compose.config-hash": "fdcd158649b6192cad3731c8c1ac3373f74dcac9ebccfbfa73baceb45c48a809",
+            "com.docker.compose.project": "deployer",
+            "com.docker.compose.version": "2.38.2",
+            "com.docker.compose.volume": "rabbitmq-lib"
+        },
+        "Mountpoint": "/var/lib/docker/volumes/rabbitmq-lib/_data",
+        "Name": "rabbitmq-lib",
+        "Options": null,
+        "Scope": "local"
+    },
+    {
+        "CreatedAt": "2025-09-19T16:02:39Z",
+        "Driver": "local",
+        "Labels": {
+            "com.docker.compose.config-hash": "9251e4a256976ea3f41275f11dedf7c9fccd29abae7dc70fa5684111f670bbdf",
+            "com.docker.compose.project": "deployer",
+            "com.docker.compose.version": "2.38.2",
+            "com.docker.compose.volume": "rabbitmq-log"
+        },
+        "Mountpoint": "/var/lib/docker/volumes/rabbitmq-log/_data",
+        "Name": "rabbitmq-log",
+        "Options": null,
+        "Scope": "local"
+    }
+]

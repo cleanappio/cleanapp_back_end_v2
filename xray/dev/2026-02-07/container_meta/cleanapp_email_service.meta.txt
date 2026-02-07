@@ -1,0 +1,1 @@
+image=us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-email-service-image:dev;created=2026-02-07T20:37:44.632170784Z;restart=no;health=none;workdir=/root/;user=;entrypoint=null;cmd=["./main"]

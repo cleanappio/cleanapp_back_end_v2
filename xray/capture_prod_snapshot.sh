@@ -14,23 +14,88 @@ set -euo pipefail
 # Usage:
 #   ./xray/capture_prod_snapshot.sh [YYYY-MM-DD] [OUTDIR]
 #
+# Flags:
+#   --env <name>          Environment name (default: prod)
+#   --host <user@ip>      SSH target (default: deployer@34.122.15.16)
+#   --instance-name <n>   GCE instance name (default: cleanapp-<env>)
+#   --prefix <p>          Prefix for output files (default: <env>)
+#
 # Env overrides:
 #   HOST=deployer@34.122.15.16 ./xray/capture_prod_snapshot.sh
+#
+# Cross-env capture (writes into xray/<ENV_NAME>/<DATE> and prefixes files with <ENV_NAME>):
+#   ENV_NAME=dev HOST=deployer@34.132.121.53 ./xray/capture_prod_snapshot.sh
 
 HOST="${HOST:-deployer@34.122.15.16}"
+ENV_NAME="${ENV_NAME:-prod}"
+INSTANCE_NAME="${INSTANCE_NAME:-}"
+PREFIX="${PREFIX:-}"
+DEBUG="${DEBUG:-0}"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --debug)
+      DEBUG=1
+      shift 1
+      ;;
+    --env)
+      ENV_NAME="${2:?missing value for --env}"
+      shift 2
+      ;;
+    --host)
+      HOST="${2:?missing value for --host}"
+      shift 2
+      ;;
+    --instance-name)
+      INSTANCE_NAME="${2:?missing value for --instance-name}"
+      shift 2
+      ;;
+    --prefix)
+      PREFIX="${2:?missing value for --prefix}"
+      shift 2
+      ;;
+    --help|-h)
+      echo "Usage: $0 [--env <name>] [--host <user@ip>] [--instance-name <name>] [--prefix <p>] [YYYY-MM-DD] [OUTDIR]"
+      exit 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      echo "Unknown flag: $1" >&2
+      exit 2
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+INSTANCE_NAME="${INSTANCE_NAME:-cleanapp-${ENV_NAME}}"
+PREFIX="${PREFIX:-${ENV_NAME}}"
 DATE="${1:-$(date +%F)}"
-OUTDIR="${2:-$(pwd)/xray/prod/${DATE}}"
+OUTDIR="${2:-$(pwd)/xray/${ENV_NAME}/${DATE}}"
+
+if [[ "${DEBUG}" == "1" ]]; then
+  set -x
+fi
+
+PING_FILE="${OUTDIR}/${PREFIX}_ping.txt"
+COMPOSE_FILE="${OUTDIR}/${PREFIX}_docker-compose.yml"
+ENV_KEYS_FILE="${OUTDIR}/${PREFIX}_env_keys.txt"
 
 mkdir -p "${OUTDIR}"
 mkdir -p "${OUTDIR}/nginx_conf_d"
 mkdir -p "${OUTDIR}/container_env_keys" "${OUTDIR}/container_mounts" "${OUTDIR}/container_meta"
 
 echo "[xray] host=${HOST}"
+echo "[xray] env=${ENV_NAME} prefix=${PREFIX} instance=${INSTANCE_NAME}"
 echo "[xray] outdir=${OUTDIR}"
 
-ssh "${HOST}" "hostname && date -Is && uptime" | tee "${OUTDIR}/prod_ping.txt" >/dev/null
+ssh "${HOST}" "hostname && date -Is && uptime" | tee "${PING_FILE}" >/dev/null
 
-ssh "${HOST}" "date -Is; hostname; uname -a; docker --version; docker compose version; nginx -v 2>&1" \
+ssh "${HOST}" "date -Is; hostname; uname -a; docker --version; docker compose version; sudo -n nginx -v 2>&1 || true" \
   | tee "${OUTDIR}/host_info.txt" >/dev/null
 
 ssh "${HOST}" "sudo docker ps --format \"{{.Names}}\t{{.Image}}\t{{.ID}}\t{{.CreatedAt}}\t{{.Status}}\t{{.Ports}}\"" \
@@ -89,7 +154,7 @@ ssh "${HOST}" "bash -lc 'cd /etc/nginx/conf.d; tar -czf - *.conf'" \
 
 # Save compose file separately (easy diffing).
 ssh "${HOST}" "sudo cat /home/deployer/docker-compose.yml" \
-  | tee "${OUTDIR}/prod_docker-compose.yml" >/dev/null
+  | tee "${COMPOSE_FILE}" >/dev/null
 
 # Deployer directory: capture filenames/metadata only (NOT script contents).
 # Rationale: deploy scripts have previously contained hard-coded credentials.
@@ -107,8 +172,8 @@ ssh "${HOST}" "ls -la /home/deployer/*.env* 2>/dev/null || true" \
 
 # Extract env var names referenced in compose/up scripts (keys only).
 (
-  grep -hoE '\\$\\{[A-Z0-9_]+\\}' "${OUTDIR}/prod_docker-compose.yml" || true
-) | sed 's/[${}]//g' | sort -u | tee "${OUTDIR}/prod_env_keys.txt" >/dev/null
+  grep -hoE '\\$\\{[A-Z0-9_]+\\}' "${COMPOSE_FILE}" || true
+) | sed 's/[${}]//g' | sort -u | tee "${ENV_KEYS_FILE}" >/dev/null
 
 # RabbitMQ topology (safe).
 ssh "${HOST}" "sudo docker exec cleanapp_rabbitmq rabbitmqctl list_exchanges name type durable auto_delete internal" \
@@ -145,7 +210,7 @@ ssh "${HOST}" "sudo iptables -S 2>/dev/null || sudo nft list ruleset 2>/dev/null
 ssh "${HOST}" "gcloud config list --format=\"text(core.project)\" 2>/dev/null || true" \
   | tee "${OUTDIR}/gcloud_config.txt" >/dev/null
 
-ssh "${HOST}" "gcloud compute instances list --filter=\"name=(cleanapp-prod)\" --format=\"value(name,zone,networkInterfaces[0].networkIP,tags.items.list())\" 2>/dev/null || true" \
+ssh "${HOST}" "gcloud compute instances list --filter=\"name=${INSTANCE_NAME}\" --format=\"value(name,zone,networkInterfaces[0].networkIP,tags.items.list())\" 2>/dev/null || true" \
   | tee "${OUTDIR}/gcloud_instance_info.txt" >/dev/null
 
 ssh "${HOST}" "gcloud compute firewall-rules list --filter=\"targetTags:(allow-3000 OR allow-8080 OR allow-8090 OR allow-8091 OR http-server OR https-server)\" --format=\"table(name,network,direction,priority,sourceRanges.list(),allowed[].map().firewall_rule().list():label=ALLOWED,targetTags.list():label=TAGS)\" 2>/dev/null || true" \

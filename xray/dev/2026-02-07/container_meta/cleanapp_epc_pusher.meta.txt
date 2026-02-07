@@ -1,0 +1,1 @@
+image=us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-epc-pusher-image:dev;created=2026-02-07T20:37:44.673059958Z;restart=unless-stopped;health=none;workdir=/app;user=;entrypoint=["/app/prod.sh","notify_reports"];cmd=null
