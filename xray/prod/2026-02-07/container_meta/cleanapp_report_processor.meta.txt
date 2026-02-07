@@ -1,0 +1,1 @@
+image=us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-processor-image:prod;created=2025-12-22T00:47:30.216647205Z;restart=no;health=none;workdir=/app;user=appuser;entrypoint=null;cmd=["./main"]

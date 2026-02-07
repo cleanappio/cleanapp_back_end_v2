@@ -1,0 +1,3 @@
+/home/deployer/.env
+/home/deployer/docker-compose.replication.override.yml
+/home/deployer/docker-compose.yml

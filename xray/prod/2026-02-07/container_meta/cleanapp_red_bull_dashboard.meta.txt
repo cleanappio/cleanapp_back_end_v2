@@ -1,0 +1,1 @@
+image=us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-brand-dashboard-image:prod;created=2025-12-22T00:48:09.215920284Z;restart=no;health=healthy;workdir=/app;user=appuser;entrypoint=null;cmd=["./brand-dashboard"]
