@@ -1,0 +1,14 @@
+NAME                    DIRECTION  SRC           ALLOWED                       TAGS
+allow-1194              INGRESS    0.0.0.0/0     udp:1194                      alow-1194
+allow-3000              INGRESS    0.0.0.0/0     tcp:3000                      allow-3000
+allow-3306              INGRESS    0.0.0.0/0     tcp:3306                      allow-3306
+allow-8080              INGRESS    0.0.0.0/0     tcp:8080                      allow-8080
+allow-8090              INGRESS    0.0.0.0/0     tcp:8090                      allow-8090
+allow-8091              INGRESS    0.0.0.0/0     tcp:8091                      allow-8091
+allow-943               INGRESS    0.0.0.0/0     tcp:943                       allow-943
+default-allow-http      INGRESS    0.0.0.0/0     tcp:80                        http-server
+default-allow-https     INGRESS    0.0.0.0/0     tcp:443                       https-server
+default-allow-icmp      INGRESS    0.0.0.0/0     icmp
+default-allow-internal  INGRESS    10.128.0.0/9  tcp:0-65535,udp:0-65535,icmp
+default-allow-rdp       INGRESS    0.0.0.0/0     tcp:3389
+default-allow-ssh       INGRESS    0.0.0.0/0     tcp:22

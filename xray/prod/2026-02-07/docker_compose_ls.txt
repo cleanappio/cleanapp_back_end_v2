@@ -1,0 +1,2 @@
+NAME                STATUS              CONFIG FILES
+deployer            running(25)         /home/deployer/docker-compose.yml

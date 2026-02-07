@@ -56,3 +56,13 @@ transactiontest
 *.bak
 *.backup
 *.old
+
+# macOS junk
+.DS_Store
+**/.DS_Store
+
+# Xray scratch artifacts
+xray/**/_test_*
+
+# Xray: never commit deployer script content (may contain secrets).
+xray/**/deployer_scripts/

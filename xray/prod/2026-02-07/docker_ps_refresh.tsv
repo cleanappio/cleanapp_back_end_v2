@@ -1,0 +1,31 @@
+cleanapp_frontend_embedded	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-frontend-image-embedded:prod	8cbb568e41b6	47 hours ago	Up 47 hours	0.0.0.0:3002->3000/tcp, [::]:3002->3000/tcp
+cleanapp_frontend	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-frontend-image:prod	e6e65869fc63	47 hours ago	Up 47 hours	0.0.0.0:3001->3000/tcp, [::]:3001->3000/tcp
+cleanapp_service	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-service-image:prod	51c949d3d9fa	6 weeks ago	Up 6 weeks	0.0.0.0:8079->8080/tcp, [::]:8079->8080/tcp
+cleanapp_bluesky_analyzer	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-bluesky-analyzer-image:prod	6901c278bf83	6 weeks ago	Up 6 weeks	
+cleanapp_bluesky_now	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/bluesky-now:v3	4979c9bc3a3b	6 weeks ago	Up 6 weeks	
+cleanapp_bluesky_indexer	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-bluesky-indexer-image:prod	b2df118c853e	6 weeks ago	Up 6 weeks	
+cleanapp_bluesky_submitter	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-bluesky-submitter-image:prod	fd286c70e40e	6 weeks ago	Up 6 weeks	
+cleanapp_report_analyze_pipeline	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-analyze-pipeline-image:prod	a48c556dfc75	6 weeks ago	Up 6 weeks	0.0.0.0:9082->8080/tcp, [::]:9082->8080/tcp
+cleanapp_edge_city_areas	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-custom-area-dashboard-image:prod	6d6536879601	6 weeks ago	Up 6 weeks	0.0.0.0:9095->8080/tcp, [::]:9095->8080/tcp
+cleanapp_report_tags_service	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-tags-service-image:prod	33e09fe8a992	6 weeks ago	Up 6 weeks (healthy)	0.0.0.0:9098->8080/tcp, [::]:9098->8080/tcp
+cleanapp_web	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-web-image:prod	5228702fe082	6 weeks ago	Up 6 weeks	0.0.0.0:3000->3000/tcp, [::]:3000->3000/tcp
+cleanapp_report_renderer_service	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-fast-renderer-image:prod	b0de25eaad09	6 weeks ago	Up 6 weeks (healthy)	0.0.0.0:9093->8080/tcp, [::]:9093->8080/tcp
+cleanapp_red_bull_dashboard	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-brand-dashboard-image:prod	7d4f0e214e9a	6 weeks ago	Up 6 weeks (healthy)	0.0.0.0:9085->8080/tcp, [::]:9085->8080/tcp
+cleanapp_devconnect_2025_areas	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-custom-area-dashboard-image:prod	2d8c1ceaef11	6 weeks ago	Up 6 weeks	0.0.0.0:9094->8080/tcp, [::]:9094->8080/tcp
+cleanapp_pipelines	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-pipelines-image:prod	52e86d74c236	6 weeks ago	Up 6 weeks	0.0.0.0:8090->8090/tcp, [::]:8090->8090/tcp, 8091/tcp
+cleanapp_voice_assistant_service	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-voice-assistant-service-image:prod	a59f26470df1	6 weeks ago	Up 6 weeks	0.0.0.0:9092->8080/tcp, [::]:9092->8080/tcp
+cleanapp_new_york_areas	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-custom-area-dashboard-image:prod	7ab5c27499fa	6 weeks ago	Up 6 weeks	0.0.0.0:9088->8080/tcp, [::]:9088->8080/tcp
+cleanapp_customer_service	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-customer-service-image:prod	6cb9e4335a20	6 weeks ago	Up 6 weeks	0.0.0.0:9080->8080/tcp, [::]:9080->8080/tcp
+cleanapp_montenegro_areas	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-custom-area-dashboard-image:prod	33ce02694353	6 weeks ago	Up 6 weeks	0.0.0.0:9083->8080/tcp, [::]:9083->8080/tcp
+84ea7885beaa_cleanapp_areas_service	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-areas-service-image:prod	14bf2ca2becc	6 weeks ago	Up 6 weeks	0.0.0.0:9086->8080/tcp, [::]:9086->8080/tcp
+fd599f74b05f_cleanapp_auth_service	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-auth-service-image:prod	a9f8bcda2664	6 weeks ago	Up 6 weeks	0.0.0.0:9084->8080/tcp, [::]:9084->8080/tcp
+5c8f50873b4c_cleanapp_email_service	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-email-service-image:prod	084d4b7a86c1	6 weeks ago	Up 6 weeks	0.0.0.0:9089->8080/tcp, [::]:9089->8080/tcp
+093e3a8bfd19_cleanapp_report_listener_v4	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-listener-v4-image:prod	77bd757896a6	6 weeks ago	Up 6 weeks	0.0.0.0:9097->8080/tcp, [::]:9097->8080/tcp
+cleanapp_report_processor	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-processor-image:prod	7f8b58ca0733	6 weeks ago	Up 6 weeks	0.0.0.0:9087->8080/tcp, [::]:9087->8080/tcp
+cleanapp_report_listener	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-listener-image:prod	c0a5a02ad07a	6 weeks ago	Up 6 weeks (healthy)	0.0.0.0:9081->8080/tcp, [::]:9081->8080/tcp
+cleanapp_db	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-db-image:live	868cab192692	6 weeks ago	Up 6 weeks (healthy)	0.0.0.0:3306->3306/tcp, [::]:3306->3306/tcp, 33060/tcp
+cleanapp_replier_twitter	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-news-replier-twitter-image:prod	9a2b3794007c	6 weeks ago	Up 6 weeks	
+cleanapp_email_fetcher	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-email-fetcher-image:prod	b641efdd61ee	6 weeks ago	Up 6 weeks	
+cleanapp_news_analyzer_twitter	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-news-analyzer-twitter-image:prod	8a512777e1c4	6 weeks ago	Up 6 weeks	
+cleanapp_news_indexer_twitter	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-news-indexer-twitter-image:prod	ebc14d7113b8	6 weeks ago	Up 6 weeks	
+cleanapp_rabbitmq	rabbitmq:latest	9ed13f446821	6 weeks ago	Up 6 weeks (healthy)	4369/tcp, 0.0.0.0:5672->5672/tcp, [::]:5672->5672/tcp, 5671/tcp, 15691-15692/tcp, 25672/tcp, 0.0.0.0:15672->15672/tcp, [::]:15672->15672/tcp

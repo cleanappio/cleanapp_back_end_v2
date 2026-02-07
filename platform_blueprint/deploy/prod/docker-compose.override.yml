@@ -1,0 +1,36 @@
+# Overrides to make compose match prod reality and enable a clean cutover
+# from manual containers to compose-managed containers.
+#
+# Intended usage on the VM:
+#   docker compose -f docker-compose.yml -f docker-compose.override.yml up -d
+
+services:
+  cleanapp_service:
+    restart: always
+    # Host port 8080 is occupied by nginx on the VM; prod uses 8079.
+    ports:
+      - 8079:8080
+
+  cleanapp_frontend:
+    restart: unless-stopped
+
+  cleanapp_frontend_embedded:
+    restart: unless-stopped
+
+  cleanapp_report_analyze_pipeline:
+    restart: always
+
+  cleanapp_bluesky_analyzer:
+    restart: always
+
+  # Currently running as a manual container with a bind-mounted config dir.
+  cleanapp_bluesky_now:
+    container_name: cleanapp_bluesky_now
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/bluesky-now:v3
+    restart: always
+    command: ["bluesky_now", "--config", "/app/config/config.toml"]
+    volumes:
+      - /home/deployer/bluesky_now_config:/app/config:ro
+    depends_on:
+      - cleanapp_db
+

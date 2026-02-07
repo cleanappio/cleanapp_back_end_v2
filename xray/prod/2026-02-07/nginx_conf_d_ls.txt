@@ -1,0 +1,25 @@
+total 100
+drwxr-xr-x 2 root     root     4096 Feb  3 14:44 .
+drwxr-xr-x 8 root     root     4096 Sep  7 06:14 ..
+-rw-r--r-- 1 eko      eko      1708 Jul  1  2025 STAR_cleanapp_io.key
+-rw-r--r-- 1 eko      eko      6900 Jul  1  2025 STAR_cleanapp_io_chain.crt
+-rw-r--r-- 1 root     root      829 Dec 21 23:00 apicleanapp.conf
+-rw-r--r-- 1 root     root      508 Jul 19  2025 areascleanapp.conf
+-rw-r--r-- 1 root     root      506 Jul 13  2025 authcleanapp.conf
+-rw-r--r-- 1 root     root     2121 Feb  3 14:44 cleanapp.conf
+-rw-r--r-- 1 root     root      516 Dec 20 10:38 cleanapp.conf.bak
+-rw-r--r-- 1 root     root     1929 Feb  3 14:44 cleanapp.conf.bak.geocode
+-rw-r--r-- 1 root     root     1510 Dec 20 16:11 cleanapp.conf.bak2
+-rw-r--r-- 1 root     root      116 Jun 25  2025 cleanapp_default.conf
+-rw-r--r-- 1 root     root      526 Oct 27 12:26 devconnect2025.conf
+-rw-r--r-- 1 root     root      520 Oct 28 11:51 edgecity.conf
+-rw-r--r-- 1 root     root      508 Aug 12 18:20 emailcleanapp.conf
+-rw-r--r-- 1 root     root      528 Jul  8  2025 embeddedcleanapp.conf
+-rw-r--r-- 1 deployer deployer  514 Oct 30 20:19 fastrenderercleanapp.conf
+-rw-r--r-- 1 root     root     2398 Dec 20 20:25 livecleanapp.conf
+-rw-r--r-- 1 root     root      524 Jul 10  2025 montenegrocleanapp.conf
+-rw-r--r-- 1 root     root      518 Jul 24  2025 newyorkcleanapp.conf
+-rw-r--r-- 1 root     root      538 Jul 24  2025 processcleanapp.conf
+-rw-r--r-- 1 root     root      518 Jul 16  2025 redbullcleanapp.conf
+-rw-r--r-- 1 root     root      506 Nov 14 10:01 tagcleanapp.conf
+-rw-r--r-- 1 root     root      508 Sep 24 09:59 voicecleanapp.conf

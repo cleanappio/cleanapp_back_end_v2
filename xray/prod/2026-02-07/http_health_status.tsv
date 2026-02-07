@@ -1,0 +1,6 @@
+http://127.0.0.1:9081/health	200
+http://127.0.0.1:9081/api/v3/health	404
+http://127.0.0.1:9081/api/v3/reports/health	200
+http://127.0.0.1:9097/health	404
+http://127.0.0.1:9097/api/v4/health	200
+http://127.0.0.1:9097/api/v4/openapi.json	200

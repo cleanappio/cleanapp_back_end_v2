@@ -1,0 +1,6 @@
+cleanapp_bluesky_analyzer	(no-compose)
+cleanapp_bluesky_now	(no-compose)
+cleanapp_frontend	(no-compose)
+cleanapp_frontend_embedded	(no-compose)
+cleanapp_report_analyze_pipeline	(no-compose)
+cleanapp_service	(no-compose)

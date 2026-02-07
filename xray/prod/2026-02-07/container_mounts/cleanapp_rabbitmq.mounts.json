@@ -1,0 +1,1 @@
+[{"Type":"volume","Name":"rabbitmq-log","Source":"/var/lib/docker/volumes/rabbitmq-log/_data","Destination":"/var/log/rabbitmq","Driver":"local","Mode":"rw","RW":true,"Propagation":""},{"Type":"volume","Name":"rabbitmq-lib","Source":"/var/lib/docker/volumes/rabbitmq-lib/_data","Destination":"/var/lib/rabbitmq","Driver":"local","Mode":"rw","RW":true,"Propagation":""}]

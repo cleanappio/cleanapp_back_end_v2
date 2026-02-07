@@ -1,0 +1,5 @@
+/home/deployer/down.sh
+/home/deployer/down1.sh
+/home/deployer/setup.sh
+/home/deployer/up.sh
+/home/deployer/up1.sh
