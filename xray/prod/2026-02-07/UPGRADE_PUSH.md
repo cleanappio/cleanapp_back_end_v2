@@ -17,6 +17,7 @@ This is the recommended “big upgrade push” plan, explicitly grounded in what
 Already done for 2026-02-07:
 - Capture running containers, image digests, nginx routing, RabbitMQ topology, and health endpoints.
 - Generate `REPORT.md` and `AS_DEPLOYED.md`.
+- Generate image-digest manifests under `platform_blueprint/manifests/` from `containers_manifest.tsv` (so `:prod` tags are no longer ambiguous).
 
 If repeating later, produce a new dated snapshot folder and diff it against this one.
 
@@ -143,4 +144,3 @@ Treat “Chai knowledge” as something we convert into durable artifacts:
 2. Phase 2 (provenance) in parallel.
 3. Phase 3 (contracts/tests) before any refactor.
 4. Only then: Phase 4+5.
-

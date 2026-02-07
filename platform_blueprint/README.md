@@ -21,6 +21,10 @@ cleanapp-platform/
     prod/
       docker-compose.yml
       nginx_conf_d/
+  manifests/
+    README.md
+    prod/
+    dev/
   tests/
     smoke/
 ```
@@ -30,8 +34,10 @@ cleanapp-platform/
 As of the prod xray snapshot (2026-02-07), the canonical as-deployed artifacts are under:
 - `xray/prod/2026-02-07/`
 
+For deterministic upgrades/rollbacks, pin the baseline using image digest manifests:
+- `platform_blueprint/manifests/`
+
 The recommended bootstrap path is:
 1. Copy the prod compose + nginx configs into the platform repo.
 2. Add OpenAPI + event schemas as explicit contracts.
 3. Add smoke tests that validate the real deployed flows.
-

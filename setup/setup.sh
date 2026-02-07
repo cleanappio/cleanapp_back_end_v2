@@ -264,7 +264,7 @@ cat >up1.sh << UP
 # Turn up CleanApp service.
 # Assumes dependencies are in place (docker)
 
-# Login to Artifact Registry (token embedded at generation time)
+# Login to Artifact Registry (token minted at runtime)
 ACCESS_TOKEN=\$(gcloud auth print-access-token)
 echo "\${ACCESS_TOKEN}" | docker login -u oauth2accesstoken --password-stdin https://${DOCKER_LOCATION}
 
@@ -309,32 +309,32 @@ docker pull ${BLUESKY_SUBMITTER_DOCKER_IMAGE}
 
 # Secrets
 cat >.env << ENV
-MYSQL_ROOT_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_ROOT_PASSWORD_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
-MYSQL_APP_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_APP_PASSWORD_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
-MYSQL_READER_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_READER_PASSWORD_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
-KITN_PRIVATE_KEY_MAIN=\$(gcloud secrets versions access 1 --secret="KITN_PRIVATE_KEY_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
-KITN_PRIVATE_KEY_SHADOW=\$(gcloud secrets versions access 1 --secret="KITN_PRIVATE_KEY_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
-SENDGRID_API_KEY=\$(gcloud secrets versions access latest --secret="SENDGRID_API_KEY_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
-CLEANAPP_IO_ENCRYPTION_KEY=\$(gcloud secrets versions access 1 --secret="CLEANAPP_IO_ENCRYPTION_KEY_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
-CLEANAPP_IO_JWT_SECRET=\$(gcloud secrets versions access 1 --secret="CLEANAPP_IO_JWT_SECRET_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
-STRIPE_SECRET_KEY=\$(gcloud secrets versions access 1 --secret="STRIPE_SECRET_KEY_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
-STRIPE_WEBHOOK_SECRET=\$(gcloud secrets versions access 1 --secret="STRIPE_WEBHOOK_SECRET_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
-OPENAI_API_KEY=\$(gcloud secrets versions access 1 --secret="CLEANAPP_CHATGPT_API_KEY" | tr -d '\r' | sed -e 's/[$]/$$/g')
-TRASHFORMER_OPENAI_API_KEY=\$(gcloud secrets versions access 1 --secret="CLEANAPP_TRASHFORMER_OPENAI_API_KEY" | tr -d '\r' | sed -e 's/[$]/$$/g')
-BLOCKSCAN_CHAT_API_KEY=\$(gcloud secrets versions access latest --secret="BLOCKSCAN_CHAT_API_KEY_${SECRET_SUFFIX}" --project cleanup-mysql-v2 | tr -d '\r' | sed -e 's/^"//' -e 's/"$//' | sed -e 's/[$]/$$/g')
+MYSQL_ROOT_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_ROOT_PASSWORD_${SECRET_SUFFIX}" | tr -d '\r')
+MYSQL_APP_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_APP_PASSWORD_${SECRET_SUFFIX}" | tr -d '\r')
+MYSQL_READER_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_READER_PASSWORD_${SECRET_SUFFIX}" | tr -d '\r')
+KITN_PRIVATE_KEY_MAIN=\$(gcloud secrets versions access 1 --secret="KITN_PRIVATE_KEY_${SECRET_SUFFIX}" | tr -d '\r')
+KITN_PRIVATE_KEY_SHADOW=\$(gcloud secrets versions access 1 --secret="KITN_PRIVATE_KEY_${SECRET_SUFFIX}" | tr -d '\r')
+SENDGRID_API_KEY=\$(gcloud secrets versions access latest --secret="SENDGRID_API_KEY_${SECRET_SUFFIX}" | tr -d '\r')
+CLEANAPP_IO_ENCRYPTION_KEY=\$(gcloud secrets versions access 1 --secret="CLEANAPP_IO_ENCRYPTION_KEY_${SECRET_SUFFIX}" | tr -d '\r')
+CLEANAPP_IO_JWT_SECRET=\$(gcloud secrets versions access 1 --secret="CLEANAPP_IO_JWT_SECRET_${SECRET_SUFFIX}" | tr -d '\r')
+STRIPE_SECRET_KEY=\$(gcloud secrets versions access 1 --secret="STRIPE_SECRET_KEY_${SECRET_SUFFIX}" | tr -d '\r')
+STRIPE_WEBHOOK_SECRET=\$(gcloud secrets versions access 1 --secret="STRIPE_WEBHOOK_SECRET_${SECRET_SUFFIX}" | tr -d '\r')
+OPENAI_API_KEY=\$(gcloud secrets versions access 1 --secret="CLEANAPP_CHATGPT_API_KEY" | tr -d '\r')
+TRASHFORMER_OPENAI_API_KEY=\$(gcloud secrets versions access 1 --secret="CLEANAPP_TRASHFORMER_OPENAI_API_KEY" | tr -d '\r')
+BLOCKSCAN_CHAT_API_KEY=\$(gcloud secrets versions access latest --secret="BLOCKSCAN_CHAT_API_KEY_${SECRET_SUFFIX}" --project cleanup-mysql-v2 | tr -d '\r' | sed -e 's/^"//' -e 's/"$//')
 
 # News indexer Twitter flow secrets
-TWITTER_BEARER_TOKEN=$(gcloud secrets versions access latest --secret="TWITTER_BEARER_TOKEN_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
-GEMINI_API_KEY=$(gcloud secrets versions access latest --secret="GEMINI_API_KEY_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
-CLEANAPP_TWITTER_FETCHER_TOKEN=$(gcloud secrets versions access latest --secret="CLEANAPP_TWITTER_FETCHER_TOKEN_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
+TWITTER_BEARER_TOKEN=\$(gcloud secrets versions access latest --secret="TWITTER_BEARER_TOKEN_${SECRET_SUFFIX}" | tr -d '\r')
+GEMINI_API_KEY=\$(gcloud secrets versions access latest --secret="GEMINI_API_KEY_${SECRET_SUFFIX}" | tr -d '\r')
+CLEANAPP_TWITTER_FETCHER_TOKEN=\$(gcloud secrets versions access latest --secret="CLEANAPP_TWITTER_FETCHER_TOKEN_${SECRET_SUFFIX}" | tr -d '\r')
 # OAuth 1.0a user-context for replier-twitter
-TWITTER_API_KEY=$(gcloud secrets versions access latest --secret="TWITTER_API_KEY_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
-TWITTER_API_SECRET=$(gcloud secrets versions access latest --secret="TWITTER_API_SECRET_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
-TWITTER_OAUTH1_ACCESS_TOKEN=$(gcloud secrets versions access latest --secret="TWITTER_OAUTH1_ACCESS_TOKEN_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
-TWITTER_OAUTH1_ACCESS_SECRET=$(gcloud secrets versions access latest --secret="TWITTER_OAUTH1_ACCESS_SECRET_${SECRET_SUFFIX}" | tr -d '\r' | sed -e 's/[$]/$$/g')
+TWITTER_API_KEY=\$(gcloud secrets versions access latest --secret="TWITTER_API_KEY_${SECRET_SUFFIX}" | tr -d '\r')
+TWITTER_API_SECRET=\$(gcloud secrets versions access latest --secret="TWITTER_API_SECRET_${SECRET_SUFFIX}" | tr -d '\r')
+TWITTER_OAUTH1_ACCESS_TOKEN=\$(gcloud secrets versions access latest --secret="TWITTER_OAUTH1_ACCESS_TOKEN_${SECRET_SUFFIX}" | tr -d '\r')
+TWITTER_OAUTH1_ACCESS_SECRET=\$(gcloud secrets versions access latest --secret="TWITTER_OAUTH1_ACCESS_SECRET_${SECRET_SUFFIX}" | tr -d '\r')
 
 # News indexer Bluesky flow secrets
-BSKY_APP_PASSWORD=$(gcloud secrets versions access latest --secret="BSKY_APP_PASSWORD" | tr -d '\r' | sed -e 's/[$]/$$/g')
+BSKY_APP_PASSWORD=\$(gcloud secrets versions access latest --secret="BSKY_APP_PASSWORD" | tr -d '\r')
 
 ENV
 
