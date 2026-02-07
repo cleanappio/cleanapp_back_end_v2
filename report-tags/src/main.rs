@@ -193,6 +193,8 @@ fn create_router(state: AppState) -> Router {
     
     Router::new()
         .route("/health", get(handlers::health::health_check))
+        .route("/version", get(handlers::version::version))
+        .route("/api/v3/version", get(handlers::version::version))
         .route("/api/v3/reports/:report_seq/tags", post(handlers::tags::add_tags_to_report))
         .route("/api/v3/reports/:report_seq/tags", get(handlers::tags::get_report_tags))
         .route("/api/v3/tags/suggest", get(handlers::suggestions::get_tag_suggestions))

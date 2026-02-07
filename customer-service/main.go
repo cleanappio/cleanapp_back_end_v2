@@ -11,6 +11,7 @@ import (
 	"customer-service/handlers"
 	"customer-service/middleware"
 	"customer-service/utils/stripe"
+	"customer-service/version"
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/go-sql-driver/mysql"
@@ -89,10 +90,17 @@ func setupRouter(service *database.CustomerService, stripeClient *stripe.Client,
 
 	// Root level health check (not under /api/v3)
 	router.GET("/health", h.RootHealthCheck)
+	router.GET("/version", func(c *gin.Context) {
+		c.JSON(200, version.Get("customer-service"))
+	})
 
 	// Public routes
 	public := router.Group("/api/v3")
 	{
+		public.GET("/version", func(c *gin.Context) {
+			c.JSON(200, version.Get("customer-service"))
+		})
+
 		// Authentication routes (proxied to auth-service)
 		auth := public.Group("/auth")
 		{

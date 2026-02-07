@@ -12,6 +12,7 @@ import (
 	"email-service/config"
 	"email-service/handlers"
 	"email-service/service"
+	"email-service/version"
 
 	"github.com/gin-gonic/gin"
 )
@@ -39,6 +40,9 @@ func main() {
 	// API v3 routes
 	apiV3 := router.Group("/api/v3")
 	{
+		apiV3.GET("/version", func(c *gin.Context) {
+			c.JSON(200, version.Get("email-service"))
+		})
 		apiV3.POST("/optout", handler.HandleOptOut)
 	}
 
@@ -47,6 +51,9 @@ func main() {
 
 	// Health check
 	router.GET("/health", handler.HandleHealth)
+	router.GET("/version", func(c *gin.Context) {
+		c.JSON(200, version.Get("email-service"))
+	})
 
 	// Create HTTP server
 	server := &http.Server{

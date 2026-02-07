@@ -14,7 +14,10 @@ COPY Cargo.toml ./
 COPY . .
 
 # Build the application
-RUN cargo install --path . -j $(nproc)
+RUN set -a; \
+    if [ -f buildinfo.vars ]; then . ./buildinfo.vars; else CLEANAPP_BUILD_VERSION=dev; CLEANAPP_GIT_SHA=; CLEANAPP_BUILD_TIME=; fi; \
+    set +a; \
+    cargo install --path . -j $(nproc)
 
 # Runtime stage
 FROM debian:bullseye-slim

@@ -10,6 +10,7 @@ import (
 	"brand-dashboard/handlers"
 	"brand-dashboard/middleware"
 	"brand-dashboard/services"
+	"brand-dashboard/version"
 )
 
 func main() {
@@ -59,6 +60,9 @@ func main() {
 
 	// Health endpoint (public)
 	r.GET("/health", brandHandler.HealthHandler)
+	r.GET("/version", func(c *gin.Context) {
+		c.JSON(200, version.Get("brand-dashboard"))
+	})
 
 	// Protected routes
 	protected := r.Group("/")

@@ -6,6 +6,7 @@ import (
 	"areas-service/handlers"
 	"areas-service/middleware"
 	"areas-service/utils"
+	"areas-service/version"
 	"fmt"
 	"strconv"
 
@@ -60,6 +61,10 @@ func main() {
 		}
 
 		c.Next()
+	})
+
+	router.GET("/version", func(c *gin.Context) {
+		c.JSON(200, version.Get("areas-service"))
 	})
 
 	// Register health endpoint (outside API group)

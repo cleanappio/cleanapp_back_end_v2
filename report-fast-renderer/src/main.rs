@@ -25,6 +25,18 @@ use crate::{
     reports_memory::InMemoryReports,
 };
 
+fn build_version() -> &'static str {
+    option_env!("CLEANAPP_BUILD_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"))
+}
+
+fn git_sha() -> &'static str {
+    option_env!("CLEANAPP_GIT_SHA").unwrap_or("")
+}
+
+fn build_time() -> &'static str {
+    option_env!("CLEANAPP_BUILD_TIME").unwrap_or("")
+}
+
 #[derive(Serialize, Deserialize)]
 struct HealthResponse {
     status: String,
@@ -36,8 +48,17 @@ async fn health_check() -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "healthy".to_string(),
         service: "report-fast-renderer".to_string(),
-        version: "0.1.0".to_string(),
+        version: build_version().to_string(),
     })
+}
+
+async fn version() -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "service": "report-fast-renderer",
+        "version": build_version(),
+        "git_sha": git_sha(),
+        "build_time": build_time(),
+    }))
 }
 
 async fn get_config_info() -> Json<serde_json::Value> {
@@ -124,6 +145,8 @@ async fn main() -> anyhow::Result<()> {
     // Build our application with routes
     let app = Router::new()
         .route("/health", get(health_check))
+        .route("/version", get(version))
+        .route("/api/v4/version", get(version))
         .route("/config", get(get_config_info))
         .route("/stats", get(get_stats_info))
         .route("/api/v4/brands/summary", get(get_brands_summary))

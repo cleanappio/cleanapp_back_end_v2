@@ -64,6 +64,17 @@ echo "Running docker build for version ${BUILD_VERSION}"
 
 set -e
 
+cleanup_buildinfo() { rm -f buildinfo.vars; }
+trap cleanup_buildinfo EXIT
+
+GIT_SHA="$(git rev-parse --short=12 HEAD 2>/dev/null || true)"
+BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+cat > buildinfo.vars <<EOF
+CLEANAPP_BUILD_VERSION=${BUILD_VERSION}
+CLEANAPP_GIT_SHA=${GIT_SHA}
+CLEANAPP_BUILD_TIME=${BUILD_TIME}
+EOF
+
 CLOUD_REGION="us-central1"
 PROJECT_NAME="cleanup-mysql-v2"
 DOCKER_IMAGE="cleanapp-docker-repo/cleanapp-areas-service-image"

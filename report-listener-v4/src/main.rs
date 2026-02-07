@@ -22,6 +22,18 @@ mod openapi;
 use cfg::Config;
 use models::{BrandSummaryItem, ReportBatch, ReportPoint, ReportWithAnalysis};
 
+fn build_version() -> &'static str {
+    option_env!("CLEANAPP_BUILD_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"))
+}
+
+fn git_sha() -> &'static str {
+    option_env!("CLEANAPP_GIT_SHA").unwrap_or("")
+}
+
+fn build_time() -> &'static str {
+    option_env!("CLEANAPP_BUILD_TIME").unwrap_or("")
+}
+
 #[tokio::main]
 async fn main() {
     if let Err(e) = run().await {
@@ -49,6 +61,8 @@ async fn run() -> Result<()> {
 
     let app = Router::new()
         .route("/api/v4/health", get(health))
+        .route("/api/v4/version", get(version))
+        .route("/version", get(version))
         .route("/api/v4/brands/summary", get(get_brands_summary))
         .route("/api/v4/reports/by-brand", get(get_reports_by_brand))
         .route("/api/v4/reports/points", get(get_report_points))
@@ -76,7 +90,17 @@ async fn health() -> impl IntoResponse {
     Json(serde_json::json!({
         "status": "healthy",
         "service": "report-listener-v4",
+        "version": build_version(),
         "time": chrono::Utc::now().to_rfc3339(),
+    }))
+}
+
+async fn version() -> impl IntoResponse {
+    Json(serde_json::json!({
+        "service": "report-listener-v4",
+        "version": build_version(),
+        "git_sha": git_sha(),
+        "build_time": build_time(),
     }))
 }
 
@@ -173,5 +197,4 @@ fn internal_error<E: std::fmt::Display>(e: E) -> (StatusCode, String) {
     tracing::error!("internal error: {}", e);
     (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
 }
-
 

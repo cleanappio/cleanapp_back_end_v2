@@ -48,7 +48,10 @@ echo "Building binary..."
 test -f pipelines && rm -f pipelines
 
 pushd ../
-GOARCH="amd64" GOOS="linux" go build -o docker_pipelines/pipelines pipelines/main.go
+GIT_SHA="$(git rev-parse --short=12 HEAD 2>/dev/null || true)"
+BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+LDFLAGS="-s -w -X cleanapp/common/version.BuildVersion=${BUILD_VERSION} -X cleanapp/common/version.GitSHA=${GIT_SHA} -X cleanapp/common/version.BuildTime=${BUILD_TIME}"
+GOARCH="amd64" GOOS="linux" go build -trimpath -ldflags "${LDFLAGS}" -o docker_pipelines/pipelines pipelines/main.go
 popd
 
 CLOUD_REGION="us-central1"
