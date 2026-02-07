@@ -44,15 +44,16 @@ echo "Running docker build for version ${BUILD_VERSION}"
 
 set -e
 
-echo "Building binary..."
-test -f pipelines && rm -f pipelines
+cleanup_buildinfo() { rm -f buildinfo.vars; }
+trap cleanup_buildinfo EXIT
 
-pushd ../
 GIT_SHA="$(git rev-parse --short=12 HEAD 2>/dev/null || true)"
 BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-LDFLAGS="-s -w -X cleanapp/common/version.BuildVersion=${BUILD_VERSION} -X cleanapp/common/version.GitSHA=${GIT_SHA} -X cleanapp/common/version.BuildTime=${BUILD_TIME}"
-GOARCH="amd64" GOOS="linux" go build -trimpath -ldflags "${LDFLAGS}" -o docker_pipelines/pipelines pipelines/main.go
-popd
+cat > buildinfo.vars <<EOF
+CLEANAPP_BUILD_VERSION=${BUILD_VERSION}
+CLEANAPP_GIT_SHA=${GIT_SHA}
+CLEANAPP_BUILD_TIME=${BUILD_TIME}
+EOF
 
 CLOUD_REGION="us-central1"
 PROJECT_NAME="cleanup-mysql-v2"
@@ -67,14 +68,15 @@ if [ "${PROJECT_NAME}" != "${CURRENT_PROJECT}" ]; then
 fi
 
 echo "Building and pushing docker image..."
+pushd ../ >/dev/null
 gcloud builds submit \
   --region=${CLOUD_REGION} \
-  --tag ${DOCKER_TAG}:${BUILD_VERSION}
+  --substitutions=_TAG=${DOCKER_TAG}:${BUILD_VERSION} \
+  --config=docker_pipelines/cloudbuild.yaml
+popd >/dev/null
 
 echo "Tagging Docker image as current ${OPT}..."
 gcloud artifacts docker tags add ${DOCKER_TAG}:${BUILD_VERSION} ${DOCKER_TAG}:${OPT}
-
-rm -f pipelines
 
 if [ -n "${SSH_KEYFILE}" ]; then
   pushd ../setup
