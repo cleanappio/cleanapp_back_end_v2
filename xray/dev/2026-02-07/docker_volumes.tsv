@@ -1,0 +1,4 @@
+eko_mysql	local
+mysql_data	local
+rabbitmq-lib	local
+rabbitmq-log	local

@@ -1,0 +1,212 @@
+[
+    {
+        "Name": "deployer_default",
+        "Id": "541af554c75c1abae6f9515df54deb9f2dac47dc5dd633b792440bdeb94bfda5",
+        "Created": "2025-07-11T07:56:50.108062539Z",
+        "Scope": "local",
+        "Driver": "bridge",
+        "EnableIPv4": true,
+        "EnableIPv6": false,
+        "IPAM": {
+            "Driver": "default",
+            "Options": null,
+            "Config": [
+                {
+                    "Subnet": "172.18.0.0/16",
+                    "Gateway": "172.18.0.1"
+                }
+            ]
+        },
+        "Internal": false,
+        "Attachable": false,
+        "Ingress": false,
+        "ConfigFrom": {
+            "Network": ""
+        },
+        "ConfigOnly": false,
+        "Containers": {
+            "046e02865626415bafbacfe3677d04804279e39d7f1d164338bf5f8027bccb07": {
+                "Name": "cleanapp_edge_city_areas",
+                "EndpointID": "e6fec4dd5b92c057dddedbacc6c08d36fd985054064e2cd21dec48d565c620ef",
+                "MacAddress": "6e:66:fa:fd:2a:91",
+                "IPv4Address": "172.18.0.21/16",
+                "IPv6Address": ""
+            },
+            "0a4aaf1cc2e96b19768457da7efce9fe2bd2556b1cf107e86a6be70fe7450ec8": {
+                "Name": "cleanapp_red_bull_dashboard",
+                "EndpointID": "f9e5c15cbcd238456ba2e97d2f32efa9d5393917e6c5010275918bd74a22fed8",
+                "MacAddress": "c2:58:7b:b2:1c:ae",
+                "IPv4Address": "172.18.0.4/16",
+                "IPv6Address": ""
+            },
+            "118b82fb18fccb073bc2514a1997ac1b199f6ddb96ad37e0f54c982ec06e21d0": {
+                "Name": "cleanapp_new_york_areas",
+                "EndpointID": "1d386f0c4ae791df4a74b320dc55eb5bf8faf784831a582a9dffb29f72f49899",
+                "MacAddress": "4a:66:d7:a0:0b:5d",
+                "IPv4Address": "172.18.0.17/16",
+                "IPv6Address": ""
+            },
+            "2688c993a491ff478f408eafb22752a1941516de17d0fd2246226a3c493d4491": {
+                "Name": "cleanapp_bluesky_analyzer",
+                "EndpointID": "793510261bd1080b2c388f9e27f267586488d5d34003f27625a659b0df5138a3",
+                "MacAddress": "1e:12:99:ea:76:4f",
+                "IPv4Address": "172.18.0.26/16",
+                "IPv6Address": ""
+            },
+            "29d4f1a2a4da0ff266cacdc55ed7817ea16ff672b810e5af7949ce0861bd33dc": {
+                "Name": "cleanapp_email_service",
+                "EndpointID": "f3b987c2a09f8b224ad71b68ac7582a67381bbd8c0232859124be25d64e8fb89",
+                "MacAddress": "76:f0:35:6c:c1:2b",
+                "IPv4Address": "172.18.0.10/16",
+                "IPv6Address": ""
+            },
+            "2c081c864ebc9027659fed9df83a6af42da5cbe18ccc403537aacf25ce072c5a": {
+                "Name": "cleanapp_devconnect_2025_areas",
+                "EndpointID": "a0c811195f5bb32ba1550e126524fd024dd66501ec6851afd876025ad3637b1a",
+                "MacAddress": "66:ea:6f:d7:bd:3e",
+                "IPv4Address": "172.18.0.24/16",
+                "IPv6Address": ""
+            },
+            "2d87adb39c7f76d2c57b39d2a8ec4933ab0eef4c88490dd2096cbc8f1ef76e5c": {
+                "Name": "cleanapp_areas_service",
+                "EndpointID": "1a035852304b05b93b84da2bbcddfa7b8fb19752c46d7eb436df31eea3af600f",
+                "MacAddress": "8a:ae:61:78:66:a1",
+                "IPv4Address": "172.18.0.19/16",
+                "IPv6Address": ""
+            },
+            "3c471ebcc76aee66ee4bfc863149f564bc39e17e64288f241a65057871764602": {
+                "Name": "cleanapp_pipelines",
+                "EndpointID": "00c7a4c16d449dc9b593b633f47f7819dfeaf348091cb0ae82252b6fcb3614ad",
+                "MacAddress": "32:2c:3d:ee:76:c2",
+                "IPv4Address": "172.18.0.9/16",
+                "IPv6Address": ""
+            },
+            "481a4d51820d96729b607734cc69eec1507bdbc1cbf1c3c5d5c3bc7183dff89a": {
+                "Name": "cleanapp_news_submitter_twitter",
+                "EndpointID": "a7dcc5eccd732f80abd7be7377f574ed071d16e61b9afcefbdd0f185c717ce53",
+                "MacAddress": "aa:d7:21:08:20:0a",
+                "IPv4Address": "172.18.0.25/16",
+                "IPv6Address": ""
+            },
+            "5f45308865b6990015f95e556b3e73ffefec69b590270b1ecf102adfdb3062e7": {
+                "Name": "cleanapp_service",
+                "EndpointID": "8e6b73cf6ecbfbf53406acababe7e455a5715814cb97be2fbb60b224ea4f50cf",
+                "MacAddress": "46:38:5c:04:a5:19",
+                "IPv4Address": "172.18.0.8/16",
+                "IPv6Address": ""
+            },
+            "61e84778d1e0f557c86a9d1b21e26395d393bcb473803b3be5422577a73c2704": {
+                "Name": "cleanapp_montenegro_areas",
+                "EndpointID": "51d96152f7e4036737e6c99d4c9666a9fa9444d9a15eedb21fd9ed5046e423d9",
+                "MacAddress": "9e:63:d1:69:df:f5",
+                "IPv4Address": "172.18.0.30/16",
+                "IPv6Address": ""
+            },
+            "66a71c9df0bdd2eb9b73ee493b6c5a2bae23e8fec77164ded7ac6d7ada114f45": {
+                "Name": "cleanapp_customer_service",
+                "EndpointID": "721315563ee7aa1078af6aa16062189c048e1bbceb1a8748e83cbd951109d620",
+                "MacAddress": "f2:06:06:fa:e6:5a",
+                "IPv4Address": "172.18.0.7/16",
+                "IPv6Address": ""
+            },
+            "6f9cb4f882c73e68553dd571fd8a4e7a1ee18060559e26234477bffca61a69ed": {
+                "Name": "cleanapp_report_processor",
+                "EndpointID": "0a7ae663f35719b354ac6ddd929d6cefc700bf9e279c38aa9e7c82b0565eac1c",
+                "MacAddress": "8a:b6:a8:9f:c7:45",
+                "IPv4Address": "172.18.0.14/16",
+                "IPv6Address": ""
+            },
+            "7756a05c0e330cc01c46d628dc62c81d651189776da95d883a0e9c0c9f6ff0b7": {
+                "Name": "cleanapp_report_listener",
+                "EndpointID": "cf2819ac50025bf7568df6ae6e63b872585874b90e3ea22b067b4131ac1e7e33",
+                "MacAddress": "a6:d3:16:ea:74:19",
+                "IPv4Address": "172.18.0.15/16",
+                "IPv6Address": ""
+            },
+            "7b41a07fd87d30fe7531b0fd5182c4b360b8cf2be0d265d644900d12a3d6c0d7": {
+                "Name": "cleanapp_report_listener_v4",
+                "EndpointID": "688897870a97aa8abb1361bb23be10674979fd169315d31480b98e318387958d",
+                "MacAddress": "a2:85:e7:74:da:37",
+                "IPv4Address": "172.18.0.18/16",
+                "IPv6Address": ""
+            },
+            "9423a63f1fe8e55d3161f52f5265a77d6a02b40f8c27e5d89af740d3461eb962": {
+                "Name": "cleanapp_voice_assistant_service",
+                "EndpointID": "fe1f11ab34d931d8f9e02e48a952b652ad5e8d57f37e037a400a2eaabab3a810",
+                "MacAddress": "56:44:87:b8:a4:c0",
+                "IPv4Address": "172.18.0.3/16",
+                "IPv6Address": ""
+            },
+            "b111d1ba30ffc9cedaa682bc1dc671ab7e637674a142fceaa137ad8137a2498f": {
+                "Name": "cleanapp_rabbitmq",
+                "EndpointID": "b1e8298217526af325e478bb361a05b95786bd6fca61b0933ed99edde0ea4499",
+                "MacAddress": "92:fa:00:54:f9:de",
+                "IPv4Address": "172.18.0.12/16",
+                "IPv6Address": ""
+            },
+            "ca44952e9c556674d95427391beb76166fd15161090784329da797a0d303bcf1": {
+                "Name": "cleanapp_web",
+                "EndpointID": "aff26c8e858e701f0bd87283f73bee59742d8fa3a21acea9b4b5775ed0cfd804",
+                "MacAddress": "76:06:51:f9:d8:39",
+                "IPv4Address": "172.18.0.2/16",
+                "IPv6Address": ""
+            },
+            "d17e379de68a01da7c79f5a3affd37090fbce769ba5dd878801a20cd9d8646d6": {
+                "Name": "cleanapp_db",
+                "EndpointID": "e8258b2c869a6cabe1aa67801732810118d901cfa4d73732d77cfab9488f266a",
+                "MacAddress": "4e:6b:77:82:06:6c",
+                "IPv4Address": "172.18.0.13/16",
+                "IPv6Address": ""
+            },
+            "d99ff6c688b1f3e4b091e0e38d71f3e4f81cfd0ff35a4e39ccea5c4ccdc8cf55": {
+                "Name": "cleanapp_frontend_embedded",
+                "EndpointID": "3ee8675c35b8f6d6871c63c007aec0361b00633d47c3b5913b22a57231302c70",
+                "MacAddress": "6e:31:e3:dd:67:6d",
+                "IPv4Address": "172.18.0.11/16",
+                "IPv6Address": ""
+            },
+            "da7b13668bbd96db150dd234bb883f2091df115de5773c04b9e14ddd01343be5": {
+                "Name": "cleanapp_bluesky_indexer",
+                "EndpointID": "b507dba58df710ff487f96d879ca67c4a575bfbe64feafff2bf4de2c1afae2a8",
+                "MacAddress": "d6:e8:6a:01:c5:51",
+                "IPv4Address": "172.18.0.20/16",
+                "IPv6Address": ""
+            },
+            "df7d3a0d449e4f48e42b06a0b8d4c1c61945f1127c82cdea0f27df6a3f1b0525": {
+                "Name": "cleanapp_auth_service",
+                "EndpointID": "aa292b14af610577137828df2706f4ea62fe5212041a323fd7e5c06e9c3ae281",
+                "MacAddress": "d2:9c:6f:e6:8e:53",
+                "IPv4Address": "172.18.0.23/16",
+                "IPv6Address": ""
+            },
+            "e4c17286be0bc89b779bcf2d5c82c6b0403d09cf4b335ee039e63abed75fd511": {
+                "Name": "cleanapp_frontend",
+                "EndpointID": "9c5b37a03756a5655b18e32b49b5c2f8ba1c162e5ac36b54117ee71bc5cfd0f3",
+                "MacAddress": "5a:2b:50:e7:de:24",
+                "IPv4Address": "172.18.0.5/16",
+                "IPv6Address": ""
+            },
+            "e81bc29780a1ce022bd195e1b49d288645c880e7cfb9b2609f760492f3cfbd95": {
+                "Name": "cleanapp_epc_pusher",
+                "EndpointID": "e5f03b53141ab35aeaabe7bf9a93523e56458d30fc18630b9b139b3f8c3128ff",
+                "MacAddress": "ca:4a:b9:87:65:22",
+                "IPv4Address": "172.18.0.22/16",
+                "IPv6Address": ""
+            },
+            "fd8f84be26a196358ffad9d877c750bc1b392e1d703c843f62eec21d89cc8bfc": {
+                "Name": "cleanapp_bluesky_submitter",
+                "EndpointID": "2593ff460720eb37c91de2a3b8b42f4327d9a82132279e6c9abcb17e92f206b3",
+                "MacAddress": "52:5e:a9:a4:79:90",
+                "IPv4Address": "172.18.0.27/16",
+                "IPv6Address": ""
+            }
+        },
+        "Options": {},
+        "Labels": {
+            "com.docker.compose.config-hash": "c35d51fa39f31bf22fc084c023c6e4a756c4fad932ce5acd662327ac4a78d18d",
+            "com.docker.compose.network": "default",
+            "com.docker.compose.project": "deployer",
+            "com.docker.compose.version": "2.38.2"
+        }
+    }
+]

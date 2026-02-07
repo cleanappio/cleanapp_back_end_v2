@@ -1,0 +1,1 @@
+image=us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-frontend-image:dev;created=2026-02-07T20:37:44.019104746Z;restart=no;health=none;workdir=/app;user=;entrypoint=["docker-entrypoint.sh"];cmd=["npm","start"]

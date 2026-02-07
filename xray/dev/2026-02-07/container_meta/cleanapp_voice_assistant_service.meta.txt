@@ -1,0 +1,1 @@
+image=us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-voice-assistant-service-image:dev;created=2026-02-07T20:37:44.020485314Z;restart=no;health=none;workdir=/root/;user=;entrypoint=null;cmd=["./voice-assistant-service"]

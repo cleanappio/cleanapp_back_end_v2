@@ -1,0 +1,1 @@
+image=us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-email-fetcher-image:dev;created=2026-02-07T20:37:44.667077815Z;restart=no;health=none;workdir=/;user=0;entrypoint=["/email-fetcher"];cmd=null

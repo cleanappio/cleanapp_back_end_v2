@@ -1,0 +1,1 @@
+image=rabbitmq:latest;created=2026-02-07T20:37:44.015079567Z;restart=always;health=unhealthy;workdir=;user=;entrypoint=["docker-entrypoint.sh"];cmd=["rabbitmq-server"]
