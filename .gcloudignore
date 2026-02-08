@@ -1,0 +1,10 @@
+.gcloudignore
+.git
+.gitignore
+#!include:.gitignore
+
+# Cloud Build needs these public CA certificate files for the runtime image.
+# Our .gitignore ignores "*.cer" broadly, so we explicitly include these.
+!docker_backend/certificates/**
+!docker_pipelines/certificates/**
+
