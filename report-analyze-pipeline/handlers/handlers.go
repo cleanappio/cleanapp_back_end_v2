@@ -192,7 +192,11 @@ func (h *Handlers) DoAnalysis(c *gin.Context) {
 	log.Println("Received report for analysis:", report.Seq)
 
 	// Analyze the report
-	go h.analysisService.AnalyzeReport(&report)
+	go func() {
+		if err := h.analysisService.AnalyzeReport(&report); err != nil {
+			log.Printf("Failed to analyze report %d: %v", report.Seq, err)
+		}
+	}()
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Analysis request received successfully",

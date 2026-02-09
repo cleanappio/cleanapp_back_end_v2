@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"log"
 	"strings"
 	"sync"
@@ -186,31 +187,17 @@ func (s *Service) publishAnalyzedReport(report *database.Report, analyses []*dat
 	}
 }
 
-// analyzeReport analyzes a single report
-func (s *Service) AnalyzeReport(report *database.Report) {
+// AnalyzeReport analyzes a single report, persists the results, and publishes them.
+// It returns an error if the analysis could not be completed and saved (so callers
+// can Nack/requeue the triggering message).
+func (s *Service) AnalyzeReport(report *database.Report) error {
 	// Collect all analyses for publishing
 	var allAnalyses []*database.ReportAnalysis
 
 	// Fetch only the image data from database
 	imageData, err := s.db.GetReportImage(report.Seq)
 	if err != nil {
-		log.Printf("Failed to fetch image for report %d from database: %v", report.Seq, err)
-		// Save error report
-		errorAnalysis := &database.ReportAnalysis{
-			Seq:            report.Seq,
-			Source:         "ChatGPT",
-			IsValid:        false,
-			Classification: "physical",
-		}
-		if saveErr := s.db.SaveAnalysis(errorAnalysis); saveErr != nil {
-			log.Printf("Failed to save error analysis for report %d: %v", report.Seq, saveErr)
-		} else {
-			log.Printf("Saved error analysis for report %d (image fetch failed)", report.Seq)
-		}
-		// Add error analysis to collection and publish
-		allAnalyses = append(allAnalyses, errorAnalysis)
-		s.publishAnalyzedReport(report, allAnalyses)
-		return
+		return fmt.Errorf("failed to fetch image for report %d from database: %w", report.Seq, err)
 	}
 
 	// Use the image from database and other fields from the report message
@@ -219,45 +206,13 @@ func (s *Service) AnalyzeReport(report *database.Report) {
 	// Call OpenAI API with assistant for initial analysis in English
 	response, err := s.llmClient.AnalyzeImage(imageData, report.Description)
 	if err != nil {
-		log.Printf("Failed to analyze report %d: %v", report.Seq, err)
-		// Save error report
-		errorAnalysis := &database.ReportAnalysis{
-			Seq:            report.Seq,
-			Source:         s.llmClient.SourceName(),
-			IsValid:        false,
-			Classification: "physical",
-		}
-		if saveErr := s.db.SaveAnalysis(errorAnalysis); saveErr != nil {
-			log.Printf("Failed to save error analysis for report %d: %v", report.Seq, saveErr)
-		} else {
-			log.Printf("Saved error analysis for report %d (analysis failed)", report.Seq)
-		}
-		// Add error analysis to collection and publish
-		allAnalyses = append(allAnalyses, errorAnalysis)
-		s.publishAnalyzedReport(report, allAnalyses)
-		return
+		return fmt.Errorf("failed to analyze report %d: %w", report.Seq, err)
 	}
 
 	// Parse the response
 	analysis, err := parser.ParseAnalysis(response)
 	if err != nil {
-		log.Printf("Failed to parse analysis for report %d: %v", report.Seq, err)
-		// Save error report
-		errorAnalysis := &database.ReportAnalysis{
-			Seq:            report.Seq,
-			Source:         s.llmClient.SourceName(),
-			IsValid:        false,
-			Classification: "physical",
-		}
-		if saveErr := s.db.SaveAnalysis(errorAnalysis); saveErr != nil {
-			log.Printf("Failed to save error analysis for report %d: %v", report.Seq, saveErr)
-		} else {
-			log.Printf("Saved error analysis for report %d (parsing failed)", report.Seq)
-		}
-		// Add error analysis to collection and publish
-		allAnalyses = append(allAnalyses, errorAnalysis)
-		s.publishAnalyzedReport(report, allAnalyses)
-		return
+		return fmt.Errorf("failed to parse analysis for report %d: %w", report.Seq, err)
 	}
 
 	// Normalize the brand name before saving
@@ -300,11 +255,9 @@ func (s *Service) AnalyzeReport(report *database.Report) {
 
 	// Save the English analysis to the database (now includes enriched emails)
 	if err := s.db.SaveAnalysis(analysisResult); err != nil {
-		log.Printf("Failed to save English analysis for report %d: %v", report.Seq, err)
-		return
-	} else {
-		log.Printf("Successfully saved English analysis for report %d", report.Seq)
+		return fmt.Errorf("failed to save English analysis for report %d: %w", report.Seq, err)
 	}
+	log.Printf("Successfully saved English analysis for report %d", report.Seq)
 
 	// Add English analysis to collection
 	allAnalyses = append(allAnalyses, analysisResult)
@@ -386,6 +339,8 @@ func (s *Service) AnalyzeReport(report *database.Report) {
 	if analysisResult.Classification == "physical" {
 		go s.enrichPhysicalReportEmails(report, analysisResult)
 	}
+
+	return nil
 }
 
 // enrichPhysicalReportEmails fetches OSM location context and enriches contact emails for physical reports
@@ -825,4 +780,3 @@ func (s *Service) EnrichExternalDigitalReports() {
 		log.Printf("EnrichExternalDigitalReports: enriched %d/%d reports", enriched, len(reports))
 	}
 }
-

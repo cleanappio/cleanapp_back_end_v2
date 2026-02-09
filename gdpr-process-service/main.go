@@ -104,7 +104,7 @@ func main() {
 func handleUserMessage(msg *rabbitmq.Message, gdprService *database.GdprService, gdprProcessor *processor.GdprProcessor) error {
 	var userMsg UserMessage
 	if err := json.Unmarshal(msg.Body, &userMsg); err != nil {
-		return fmt.Errorf("failed to unmarshal user message: %w", err)
+		return rabbitmq.Permanent(fmt.Errorf("failed to unmarshal user message: %w", err))
 	}
 
 	log.Printf("Processing user message for user ID: %s, avatar: %s", userMsg.Id, userMsg.Avatar)
@@ -123,7 +123,7 @@ func handleUserMessage(msg *rabbitmq.Message, gdprService *database.GdprService,
 func handleReportMessage(msg *rabbitmq.Message, gdprService *database.GdprService, gdprProcessor *processor.GdprProcessor, imagePlaceholderPath string) error {
 	var reportMsg ReportMessage
 	if err := json.Unmarshal(msg.Body, &reportMsg); err != nil {
-		return fmt.Errorf("failed to unmarshal report message: %w", err)
+		return rabbitmq.Permanent(fmt.Errorf("failed to unmarshal report message: %w", err))
 	}
 
 	log.Printf("Processing report message for report seq: %d, description: %s", reportMsg.Seq, reportMsg.Description)

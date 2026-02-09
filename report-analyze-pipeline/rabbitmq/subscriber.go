@@ -3,8 +3,11 @@ package rabbitmq
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
+	"os"
+	"strconv"
 	"time"
 
 	"github.com/streadway/amqp"
@@ -22,6 +25,54 @@ type Message struct {
 
 // CallbackFunc represents a callback function for processing messages
 type CallbackFunc func(msg *Message) error
+
+// PermanentError marks a message processing failure as non-retriable.
+// The subscriber will Nack with requeue=false (dead-letter if configured).
+type PermanentError struct {
+	Err error
+}
+
+func (e *PermanentError) Error() string {
+	if e == nil || e.Err == nil {
+		return "permanent error"
+	}
+	return e.Err.Error()
+}
+
+func (e *PermanentError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+// Permanent wraps err as a PermanentError (non-retriable).
+func Permanent(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &PermanentError{Err: err}
+}
+
+func isPermanent(err error) bool {
+	var perr *PermanentError
+	return errors.As(err, &perr)
+}
+
+const (
+	defaultConcurrency = 20
+	envConcurrency     = "RABBITMQ_CONCURRENCY"
+)
+
+func rabbitMQConcurrency() int {
+	if v := os.Getenv(envConcurrency); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+		log.Printf("rabbitmq: invalid %s=%q, using default=%d", envConcurrency, v, defaultConcurrency)
+	}
+	return defaultConcurrency
+}
 
 // Subscriber represents a RabbitMQ subscriber instance
 type Subscriber struct {
@@ -118,6 +169,18 @@ func (s *Subscriber) Start(routingKeyCallbacks map[string]CallbackFunc) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
+	workers := rabbitMQConcurrency()
+	if s.prefetch > 0 && workers > s.prefetch {
+		workers = s.prefetch
+	}
+	if err := s.channel.Qos(
+		workers, // prefetch count
+		0,       // prefetch size
+		false,   // global
+	); err != nil {
+		return fmt.Errorf("failed to set QoS: %w", err)
+	}
+
 	// Create bindings for each routing key
 	for routingKey := range routingKeyCallbacks {
 		err := s.channel.QueueBind(
@@ -154,54 +217,99 @@ func (s *Subscriber) Start(routingKeyCallbacks map[string]CallbackFunc) error {
 	default:
 	}
 
-	// Process messages in goroutines
-	go func() {
-		for delivery := range msgs {
-			// Create message wrapper
-			msg := &Message{
-				Body:        delivery.Body,
-				RoutingKey:  delivery.RoutingKey,
-				Exchange:    delivery.Exchange,
-				ContentType: delivery.ContentType,
-				Timestamp:   delivery.Timestamp,
-				DeliveryTag: delivery.DeliveryTag,
-			}
+	jobs := make(chan amqp.Delivery, workers)
 
-			// Find callback for this routing key
-			callback, exists := routingKeyCallbacks[delivery.RoutingKey]
-			if !exists {
-				log.Printf("No callback found for routing key: %s", delivery.RoutingKey)
-				// Reject message if no callback found
-				delivery.Nack(false, false)
-				continue
-			}
+	// Worker pool: bounded concurrency, ack/nack is done *after* processing completes.
+	for i := 0; i < workers; i++ {
+		workerID := i + 1
+		go func() {
+			for delivery := range jobs {
+				startedAt := time.Now()
+				log.Printf(
+					"rabbitmq worker_start worker_id=%d exchange=%s queue=%s routing_key=%s delivery_tag=%d redelivered=%t",
+					workerID, delivery.Exchange, s.queue, delivery.RoutingKey, delivery.DeliveryTag, delivery.Redelivered,
+				)
 
-			// Process message in goroutine
-			go func(delivery amqp.Delivery, msg *Message, callback CallbackFunc) {
-				defer func() {
-					if r := recover(); r != nil {
-						log.Printf("Panic in message callback for routing key %s: %v", msg.RoutingKey, r)
-						// Reject message on panic
-						delivery.Nack(false, false)
-					}
+				msg := &Message{
+					Body:        delivery.Body,
+					RoutingKey:  delivery.RoutingKey,
+					Exchange:    delivery.Exchange,
+					ContentType: delivery.ContentType,
+					Timestamp:   delivery.Timestamp,
+					DeliveryTag: delivery.DeliveryTag,
+				}
+
+				// Find callback for this routing key
+				callback, exists := routingKeyCallbacks[delivery.RoutingKey]
+				if !exists {
+					nackErr := delivery.Nack(false, false) // permanent: no handler
+					log.Printf(
+						"rabbitmq worker_finish worker_id=%d routing_key=%s delivery_tag=%d duration_ms=%d action=nack requeue=false err=%q nack_err=%v",
+						workerID, delivery.RoutingKey, delivery.DeliveryTag, time.Since(startedAt).Milliseconds(),
+						"no callback for routing key", nackErr,
+					)
+					continue
+				}
+
+				var callbackErr error
+				requeue := false
+				panicVal := any(nil)
+
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							panicVal = r
+						}
+					}()
+					callbackErr = callback(msg)
 				}()
 
-				// Call the callback function
-				err := callback(msg)
-				if err != nil {
-					log.Printf("Error processing message for routing key %s: %v", msg.RoutingKey, err)
-					// Reject message on error
-					delivery.Nack(false, false)
-					return
+				action := "ack"
+				var ackErr error
+				var nackErr error
+				if panicVal != nil {
+					action = "nack"
+					requeue = false // treat panics as permanent
+					nackErr = delivery.Nack(false, requeue)
+				} else if callbackErr != nil {
+					action = "nack"
+					requeue = !isPermanent(callbackErr)
+					nackErr = delivery.Nack(false, requeue)
+				} else {
+					ackErr = delivery.Ack(false)
 				}
 
-				// Acknowledge message after successful processing
-				err = delivery.Ack(false)
-				if err != nil {
-					log.Printf("Failed to acknowledge message for routing key %s: %v", msg.RoutingKey, err)
+				durationMs := time.Since(startedAt).Milliseconds()
+				if panicVal != nil {
+					log.Printf(
+						"rabbitmq worker_finish worker_id=%d routing_key=%s delivery_tag=%d duration_ms=%d action=%s requeue=%t panic=%v nack_err=%v",
+						workerID, delivery.RoutingKey, delivery.DeliveryTag, durationMs, action, requeue, panicVal, nackErr,
+					)
+					continue
 				}
-			}(delivery, msg, callback)
+
+				if callbackErr != nil {
+					log.Printf(
+						"rabbitmq worker_finish worker_id=%d routing_key=%s delivery_tag=%d duration_ms=%d action=%s requeue=%t err=%v nack_err=%v",
+						workerID, delivery.RoutingKey, delivery.DeliveryTag, durationMs, action, requeue, callbackErr, nackErr,
+					)
+					continue
+				}
+
+				log.Printf(
+					"rabbitmq worker_finish worker_id=%d routing_key=%s delivery_tag=%d duration_ms=%d action=%s ack_err=%v",
+					workerID, delivery.RoutingKey, delivery.DeliveryTag, durationMs, action, ackErr,
+				)
+			}
+		}()
+	}
+
+	// Dispatcher: read deliveries and hand them to workers (no per-message goroutine).
+	go func() {
+		for delivery := range msgs {
+			jobs <- delivery
 		}
+		close(jobs)
 	}()
 
 	return nil

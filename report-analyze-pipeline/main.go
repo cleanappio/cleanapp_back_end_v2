@@ -71,16 +71,14 @@ func processReportMessage(msg *rabbitmq.Message, analysisService *service.Servic
 	var report database.Report
 	err := msg.UnmarshalTo(&report)
 	if err != nil {
-		return fmt.Errorf("failed to unmarshal report message: %w", err)
+		return rabbitmq.Permanent(fmt.Errorf("failed to unmarshal report message: %w", err))
 	}
 
 	log.Printf("Received report for analysis from RabbitMQ: seq=%d, image_size=%d bytes", report.Seq, len(report.Image))
 
 	// Analyze the report using the same logic as the HTTP handler
 	// The AnalyzeReport method will fetch the complete report data (including image) from the database
-	go analysisService.AnalyzeReport(&report)
-
-	return nil
+	return analysisService.AnalyzeReport(&report)
 }
 
 func main() {

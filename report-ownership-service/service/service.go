@@ -89,7 +89,7 @@ func (s *Service) handleReportMessage(msg *rabbitmq.Message) error {
 
 	// Unmarshal the message body
 	if err := msg.UnmarshalTo(&reportWithAnalysis); err != nil {
-		return fmt.Errorf("failed to unmarshal report message: %w", err)
+		return rabbitmq.Permanent(fmt.Errorf("failed to unmarshal report message: %w", err))
 	}
 
 	log.Printf("Received report %d for ownership processing", reportWithAnalysis.Report.Seq)
