@@ -155,3 +155,21 @@ What worked:
 
 Next time:
 - Before relying on a library’s `start()` semantics, confirm whether it blocks or spawns-and-returns; it changes how you keep the runtime alive.
+
+### 2026-02-09 (RabbitMQ Consumer Rollout: report-tags + replier-twitter)
+
+Got wrong:
+- `replier-twitter` Cloud Build failed because `anyhow::Error` in this crate didn’t satisfy `std::error::Error` at the subscriber callback boundary (so it couldn’t be returned as `Box<dyn Error>` or wrapped with `subscriber::permanent(...)`).
+- Forgot that `replier-twitter/build_image.sh` only builds on `-e dev`; `-e prod` is just tag promotion.
+
+Corrected by:
+- Wrapping `anyhow::Error` into `std::io::Error` (stringified) before returning from `Callback::on_message`.
+- Building with `./build_image.sh -e dev`, then tagging with `./build_image.sh -e prod`, then deploying with `docker compose up -d --no-deps`.
+
+What worked:
+- Deploying `cleanapp_report_tags_service` and `cleanapp_replier_twitter` with `--no-deps` avoided restarting DB/RabbitMQ.
+- Verifying `report-tags` and `report-fast-renderer` via localhost `/health` + `/version` confirmed the correct versions were running.
+
+Next time:
+- Avoid `anyhow::Error` at trait boundaries; normalize to a std error type (or a small custom error) before returning.
+- Consider setting `RABBITMQ_CONCURRENCY` explicitly per consumer in compose for predictable throughput tuning.
