@@ -2,7 +2,7 @@ version: '3'
 
 services:
   cleanapp_rabbitmq:
-    image: rabbitmq:latest
+    image: rabbitmq@sha256:e831b3cdc1e6a3abd86bb67a75a54b319f5a2fc4dc3adf68e73417bbd266ef8b
     container_name: cleanapp_rabbitmq
     restart: always
     ports:

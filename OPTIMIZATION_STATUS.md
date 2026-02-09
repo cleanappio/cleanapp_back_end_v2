@@ -13,9 +13,9 @@ Status: **In progress**
 Done:
 - Most internal service ports on prod are now bound to `127.0.0.1` (reduces exposure even if firewall rules are permissive).
 - Prod host ports `3000` (cleanapp_web) and `8090` (cleanapp_pipelines) are now bound to `127.0.0.1` (external access removed even if firewall rules still allow them).
+- Pinned RabbitMQ image in prod compose (stopped relying on `rabbitmq:latest`).
 
 Next:
-- Pin `rabbitmq:latest` to a fixed version/digest in prod compose.
 - Rotate/replace AMQP creds (stop relying on defaults).
 - Reduce GCE firewall tags/rules to only what must be public.
 
