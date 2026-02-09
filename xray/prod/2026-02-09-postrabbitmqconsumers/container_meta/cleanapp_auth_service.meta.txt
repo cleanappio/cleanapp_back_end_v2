@@ -1,0 +1,1 @@
+image=us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-auth-service-image@sha256:e7d0766735b64b02825a90b70da3b97598860d0ce721de3dd38667f20f6aadde;created=2026-02-09T07:22:47.271351746Z;restart=no;health=none;workdir=/root/;user=;entrypoint=null;cmd=["./main"]

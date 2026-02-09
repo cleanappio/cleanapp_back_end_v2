@@ -1,0 +1,1 @@
+image=us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-analyze-pipeline-image:prod;created=2026-02-09T08:21:47.929109059Z;restart=always;health=none;workdir=/root/;user=;entrypoint=null;cmd=["./report-analyze-pipeline"]

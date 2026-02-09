@@ -1,0 +1,1 @@
+{"service":"report-listener-v4","status":"healthy","time":"2026-02-09T14:24:50.250227345+00:00","version":"1.0.37"}

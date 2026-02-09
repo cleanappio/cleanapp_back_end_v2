@@ -1,0 +1,1 @@
+image=us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-web-image:prod;created=2025-12-22T00:48:09.220149601Z;restart=no;health=none;workdir=/react-docker/;user=root;entrypoint=["docker-entrypoint.sh"];cmd=["npm","start"]

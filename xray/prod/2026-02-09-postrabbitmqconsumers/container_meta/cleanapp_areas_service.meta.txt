@@ -1,0 +1,1 @@
+image=us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-areas-service-image@sha256:ca029a0be4991faed73e7091037addcbbce15d796875409ae23fe65302d11cbf;created=2026-02-09T07:22:47.265697556Z;restart=no;health=none;workdir=/root/;user=;entrypoint=null;cmd=["./areas-service"]

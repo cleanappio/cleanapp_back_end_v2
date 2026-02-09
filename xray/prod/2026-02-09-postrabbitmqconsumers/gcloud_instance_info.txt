@@ -1,0 +1,1 @@
+cleanapp-prod	us-central1-a	10.128.0.6	allow-8080,http-server,https-server

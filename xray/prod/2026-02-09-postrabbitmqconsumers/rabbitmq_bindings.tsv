@@ -1,0 +1,8 @@
+Listing bindings for vhost /...
+source_name	destination_name	destination_kind	routing_key	arguments
+	report-tags-queue	queue	report-tags-queue	[]
+	twitter-reply-queue	queue	twitter-reply-queue	[]
+	report-renderer-queue	queue	report-renderer-queue	[]
+cleanapp-exchange	report-renderer-queue	queue	report.analysed	[]
+cleanapp-exchange	twitter-reply-queue	queue	twitter.reply	[]
+cleanapp-exchange	report-tags-queue	queue	report.raw	[]
