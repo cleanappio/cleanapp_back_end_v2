@@ -1,0 +1,1 @@
+[{"Type":"volume","Name":"eko_mysql","Source":"/var/lib/docker/volumes/eko_mysql/_data","Destination":"/var/lib/mysql","Driver":"local","Mode":"rw","RW":true,"Propagation":""}]

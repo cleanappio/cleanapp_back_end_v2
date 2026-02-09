@@ -1,0 +1,11 @@
+Listing exchanges for vhost / ...
+name	type	durable	auto_delete	internal
+	direct	true	false	false
+amq.direct	direct	true	false	false
+amq.fanout	fanout	true	false	false
+amq.headers	headers	true	false	false
+amq.match	headers	true	false	false
+amq.rabbitmq.trace	topic	true	false	true
+amq.topic	topic	true	false	false
+cleanapp-dlx	direct	true	false	false
+cleanapp-exchange	direct	true	false	false

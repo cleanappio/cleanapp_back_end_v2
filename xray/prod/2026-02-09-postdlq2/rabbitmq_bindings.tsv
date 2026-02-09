@@ -1,0 +1,16 @@
+Listing bindings for vhost /...
+source_name	destination_name	destination_kind	routing_key	arguments
+	report-analysis-queue.dlq	queue	report-analysis-queue.dlq	[]
+	report-tags-queue	queue	report-tags-queue	[]
+	report-renderer-queue.dlq	queue	report-renderer-queue.dlq	[]
+	report-tags-queue.dlq	queue	report-tags-queue.dlq	[]
+	twitter-reply-queue	queue	twitter-reply-queue	[]
+	twitter-reply-queue.dlq	queue	twitter-reply-queue.dlq	[]
+	report-renderer-queue	queue	report-renderer-queue	[]
+cleanapp-exchange	report-renderer-queue	queue	report.analysed	[]
+cleanapp-dlx	twitter-reply-queue.dlq	queue	twitter-reply-queue.dlq	[]
+cleanapp-dlx	report-renderer-queue.dlq	queue	report-renderer-queue.dlq	[]
+cleanapp-dlx	report-analysis-queue.dlq	queue	report-analysis-queue.dlq	[]
+cleanapp-dlx	report-tags-queue.dlq	queue	report-tags-queue.dlq	[]
+cleanapp-exchange	twitter-reply-queue	queue	twitter.reply	[]
+cleanapp-exchange	report-tags-queue	queue	report.raw	[]

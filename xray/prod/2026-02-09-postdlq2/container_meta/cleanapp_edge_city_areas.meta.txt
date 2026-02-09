@@ -1,0 +1,1 @@
+image=us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-custom-area-dashboard-image@sha256:b99119b2e07eb3cc2624afbcf0522638034ce528df4d966fbefdbdfff662daa2;created=2026-02-09T07:22:47.254426309Z;restart=no;health=none;workdir=/root/;user=;entrypoint=null;cmd=["./main"]
