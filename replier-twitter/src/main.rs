@@ -317,13 +317,19 @@ impl Callback for ReplyCallback {
 			}
 		});
 
-		match res {
-			Ok(()) => Ok(()),
-			Err(ProcessingError::Transient(e)) => Err(Box::new(e)),
-			Err(ProcessingError::Permanent(e)) => Err(permanent(e)),
+			match res {
+				Ok(()) => Ok(()),
+				Err(ProcessingError::Transient(e)) => Err(Box::new(std::io::Error::new(
+					std::io::ErrorKind::Other,
+					e.to_string(),
+				))),
+				Err(ProcessingError::Permanent(e)) => Err(permanent(std::io::Error::new(
+					std::io::ErrorKind::Other,
+					e.to_string(),
+				))),
+			}
 		}
 	}
-}
 
 impl ReplyCallback {
 	fn clone_for_async(&self) -> Self {
@@ -402,4 +408,3 @@ async fn main() -> Result<()> {
 	tokio::signal::ctrl_c().await.ok();
 	Ok(())
 }
-
