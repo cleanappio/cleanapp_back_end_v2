@@ -576,8 +576,7 @@ dependencies = [
 
 [[package]]
 name = "cleanapp_rustlib"
-version = "1.1.7"
-source = "git+https://github.com/cleanappio/cleanapp-rustlib?tag=v1.1.7#577b2db8a00a9aaab676ddee9966ba2456735fe8"
+version = "1.1.8"
 dependencies = [
  "chrono",
  "futures-util",
