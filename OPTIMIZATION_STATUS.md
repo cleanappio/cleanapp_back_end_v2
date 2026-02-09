@@ -14,12 +14,13 @@ Done:
 - Most internal service ports on prod are now bound to `127.0.0.1` (reduces exposure even if firewall rules are permissive).
 - Prod host ports `3000` (cleanapp_web) and `8090` (cleanapp_pipelines) are now bound to `127.0.0.1` (external access removed even if firewall rules still allow them).
 - Pinned RabbitMQ image in prod compose (stopped relying on `rabbitmq:latest`).
-- Dev VM (`cleanapp-dev`) now binds host ports `3000`/`8080`/`8090` to `127.0.0.1` (external access removed even though its `allow-*` firewall tags still exist).
+- Dev VM (`cleanapp-dev`) now binds host ports `3000`/`8080`/`8090` to `127.0.0.1` and its `allow-*` firewall tags have been removed (only `http-server/https-server` remain).
+- `cleanapp-prod2` had `allow-3000/8090/8091` tags removed (it now only retains `allow-8080` + `http-server/https-server`).
 
 Next:
 - Rotate/replace AMQP creds (stop relying on defaults).
 - Reduce GCE firewall tags/rules to only what must be public.
-  - `cleanapp-prod2` is still tagged with `allow-3000/8090/8091` (0.0.0.0/0 rules). Either remove those tags or decommission that VM if it’s unused.
+  - Decide what to do with `allow-8080` long-term (prod currently uses `api.cleanapp.io:8080` and it is actively hit by mobile clients).
 
 Evidence:
 - `xray/prod/2026-02-09-postdlq2/ss_listening.txt`
