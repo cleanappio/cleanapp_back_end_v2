@@ -1,0 +1,8 @@
+-rwxr-xr-x 1 deployer deployer  1340 Aug 15 13:15 /home/deployer/backup.sh
+-rwxr-xr-x 1 deployer deployer 21524 Aug 29 21:56 /home/deployer/deploy.sh
+-rwxr-xr-x 1 deployer deployer   113 Aug 29 21:56 /home/deployer/down.sh
+-rwxr-xr-x 1 deployer deployer   113 Dec 22 00:40 /home/deployer/down1.sh
+-rwxr-xr-x 1 deployer deployer  1181 Jul  4  2025 /home/deployer/install_docker.sh
+-rwxr-xr-x 1 deployer deployer 13492 Jul  4  2025 /home/deployer/setup.sh
+-rwxr-xr-x 1 deployer deployer  1186 Aug 29 21:56 /home/deployer/up.sh
+-rwxr-xr-x 1 deployer deployer  8198 Dec 22 00:40 /home/deployer/up1.sh

@@ -1,0 +1,3 @@
+cleanapp-prod
+2026-02-09T16:43:16+00:00
+ 16:43:16 up 51 days,  6:12,  0 user,  load average: 4.87, 5.05, 4.89

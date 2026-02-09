@@ -1,0 +1,1 @@
+[{"Type":"bind","Source":"/home/deployer/bluesky_now_config","Destination":"/app/config","Mode":"ro","RW":false,"Propagation":"rprivate"}]

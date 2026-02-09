@@ -1,0 +1,711 @@
+version: '3'
+
+services:
+  cleanapp_rabbitmq:
+    image: rabbitmq:latest
+    container_name: cleanapp_rabbitmq
+    restart: always
+    ports:
+      - 127.0.0.1:5672:5672
+      - 127.0.0.1:15672:15672
+    environment:
+      RABBITMQ_DEFAULT_USER: cleanapp
+\1\2: ${\2}
+    configs:
+      - source: rabbitmq-plugins
+        target: /etc/rabbitmq/enabled_plugins
+    volumes:
+      - rabbitmq-lib:/var/lib/rabbitmq/
+      - rabbitmq-log:/var/log/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  cleanapp_service:
+    container_name: cleanapp_service
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-service-image:prod
+    environment:
+\1\2=${\2}
+\1\2=${\2}
+\1\2=${\2}
+      - ETH_NETWORK_URL_MAIN=https://sepolia.base.org
+      - CONTRACT_ADDRESS_MAIN=0xDc41655b749E8F2922A6E5e525Fc04a915aEaFAA
+      - SOLVER_URL=http://104.154.119.169:8888/report
+      - CLEANAPP_MAP_URL=https://clean-app-map-4-b0150.replit.app/
+      - CLEANAPP_ANDROID_URL=https://play.google.com/store/apps/details?id=com.cleanapp
+      - CLEANAPP_IOS_URL=https://apps.apple.com/us/app/cleanapp/id6466403301
+      - REPORT_ANALYSIS_URL=http://cleanapp_report_analyze_pipeline:8080
+      - AMQP_HOST=cleanapp_rabbitmq
+      - AMQP_PORT=5672
+      - AMQP_USER=cleanapp
+\1\2=${\2}
+      - RABBITMQ_EXCHANGE=cleanapp-exchange
+      - RABBITMQ_RAW_REPORT_ROUTING_KEY=report.raw
+      - RABBITMQ_USER_ROUTING_KEY=user.add
+      - GIN_MODE=release
+    ports:
+      - 127.0.0.1:8079:8080
+
+  cleanapp_pipelines:
+    container_name: cleanapp_pipelines
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-pipelines-image:prod
+    environment:
+      - PIPELINES_PORT=8090
+\1\2=${\2}
+\1\2=${\2}
+\1\2=${\2}
+      - ETH_NETWORK_URL=https://sepolia.base.org
+      - CONTRACT_ADDRESS=0xDc41655b749E8F2922A6E5e525Fc04a915aEaFAA
+      - USERS_TABLE=users
+      - GIN_MODE=release
+    ports:
+      - 8090:8090
+
+  cleanapp_db:
+    container_name: cleanapp_db
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-db-image:live
+    environment:
+\1\2=${\2}
+\1\2=${\2}
+\1\2=${\2}
+    volumes:
+      - mysql:/var/lib/mysql
+    ports:
+      - 127.0.0.1:3306:3306
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 3s
+      timeout: 1s
+      retries: 10
+
+  cleanapp_web:
+    container_name: cleanapp_web
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-web-image:prod
+    environment:
+      - REACT_APP_REF_API_ENDPOINT=http://api.cleanapp.io:8080/write_referral/
+      - REACT_APP_EMAIL_CONSENT_API_ENDPOINT=https://areas.cleanapp.io/api/v3/update_consent/
+      - REACT_APP_PLAYSTORE_URL=https://play.google.com/store/apps/details?id=com.cleanapp
+      - REACT_APP_APPSTORE_URL=https://apps.apple.com/us/app/cleanapp/id6466403301
+    ports:
+      - 3000:3000
+
+  cleanapp_stxn_kickoff:
+    container_name: stxn_kickoff
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-stxn-kickoff-image:prod
+    environment:
+      - CHAIN_ID=21363
+      - WS_CHAIN_URL=wss://service.lestnet.org:8888/
+      - LAMINATOR_ADDRESS=0x36aB7A6ad656BC19Da2D5Af5b46f3cf3fc47274D
+      - CALL_BREAKER_ADDRESS=0x23912387357621473Ff6514a2DC20Df14cd72E7f
+      - KITN_DISBURSEMENT_SCHEDULER_ADDRESS=0x7E485Fd55CEdb1C303b2f91DFE7695e72A537399
+\1\2=${\2}
+      - DISBURSEMENT_SHADOW_SCHEDULE=0 */3 * * * *
+
+  cleanapp_frontend:
+    container_name: cleanapp_frontend
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-frontend-image:prod
+    ports:
+      - 127.0.0.1:3001:3000
+
+  cleanapp_frontend_embedded:
+    container_name: cleanapp_frontend_embedded
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-frontend-image-embedded:prod
+    ports:
+      - 127.0.0.1:3002:3000
+
+  cleanapp_customer_service:
+    container_name: cleanapp_customer_service
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-customer-service-image:prod
+    environment:
+      - TRUSTED_PROXIES=127.0.0.1,::1
+      - BASE_URL=https://api.cleanapp.io
+\1\2=${\2}
+\1\2=${\2}
+\1\2=${\2}
+\1\2=${\2}
+      - STRIPE_PRICE_BASE_MONTHLY=price_1Rg0hJF5CkX59Cnm9L9Z4j36
+      - STRIPE_PRICE_BASE_ANNUAL=price_1Rg0hJF5CkX59CnmOyT5HZVu
+      - STRIPE_PRICE_ADVANCED_MONTHLY=price_1Rg0hEF5CkX59CnmT5ZspSPK
+      - STRIPE_PRICE_ADVANCED_ANNUAL=price_1Rg0hEF5CkX59CnmF40QClFx
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+\1\2=${\2}
+      - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
+      - GIN_MODE=release
+    ports:
+      - 127.0.0.1:9080:8080
+
+  cleanapp_report_listener:
+    container_name: cleanapp_report_listener
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-listener-image:prod
+    environment:
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+\1\2=${\2}
+      - DB_NAME=cleanapp
+      - BROADCAST_INTERVAL=1s
+      - LOG_LEVEL=info
+      - GIN_MODE=release
+      - AMQP_HOST=cleanapp_rabbitmq
+      - AMQP_PORT=5672
+      - AMQP_USER=cleanapp
+\1\2=${\2}
+      - RABBITMQ_EXCHANGE=cleanapp-exchange
+      - RABBITMQ_ANALYSED_REPORT_ROUTING_KEY=report.analysed
+      - RABBITMQ_TWITTER_REPLY_ROUTING_KEY=twitter.reply
+    ports:
+      - 127.0.0.1:9081:8080
+    depends_on:
+      - cleanapp_db
+      - cleanapp_rabbitmq
+
+  cleanapp_report_analyze_pipeline:
+    container_name: cleanapp_report_analyze_pipeline
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-analyze-pipeline-image:prod
+    environment:
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+\1\2=${\2}
+      - DB_NAME=cleanapp
+      - ANALYZER_LLM_PROVIDER=gemini
+\1\2=${\2}
+      - OPENAI_ASSISTANT_ID=asst_kBtuzDRWNorZgw9o2OJTGOn0
+      - OPENAI_MODEL=gpt-4o
+\1\2=${\2}
+      - GEMINI_MODEL=gemini-flash-latest
+      - ANALYSIS_INTERVAL=500ms
+      - MAX_RETRIES=3
+      - ANALYSIS_PROMPT=
+      - LOG_LEVEL=info
+      - SEQ_START_FROM=24900
+      - AMQP_HOST=cleanapp_rabbitmq
+      - AMQP_PORT=5672
+      - AMQP_USER=cleanapp
+\1\2=${\2}
+      - RABBITMQ_EXCHANGE=cleanapp-exchange
+      - RABBITMQ_QUEUE=report-analysis-queue
+      - RABBITMQ_RAW_REPORT_ROUTING_KEY=report.raw
+      - RABBITMQ_ANALYSED_REPORT_ROUTING_KEY=report.analysed
+      - GIN_MODE=release
+    ports:
+      - 127.0.0.1:9082:8080
+    depends_on:
+      cleanapp_db:
+        condition: service_healthy
+
+  cleanapp_montenegro_areas:
+    container_name: cleanapp_montenegro_areas
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-custom-area-dashboard-image:prod
+    environment:
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+\1\2=${\2}
+      - DB_NAME=cleanapp
+      - LOG_LEVEL=info
+      - LOG_FORMAT=json
+      - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
+      - REPORT_AUTH_SERVICE_URL=http://cleanapp_report_auth_service:8080
+      - GIN_MODE=release
+      - CUSTOM_AREA_ID=6787
+      - CUSTOM_AREA_SUB_IDS=6761,6762,6763,6765,6766,6767,6768,6769,6770,6771,6772,6773,6774,6775,6776,6777,6778,6786,6903,6918,6956,6959,6961,6962,6963
+    ports:
+      - 127.0.0.1:9083:8080
+    depends_on:
+      cleanapp_db:
+        condition: service_healthy
+
+  cleanapp_new_york_areas:
+    container_name: cleanapp_new_york_areas
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-custom-area-dashboard-image:prod
+    environment:
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+\1\2=${\2}
+      - DB_NAME=cleanapp
+      - LOG_LEVEL=info
+      - LOG_FORMAT=json
+      - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
+      - REPORT_AUTH_SERVICE_URL=http://cleanapp_report_auth_service:8080
+      - GIN_MODE=release
+      - CUSTOM_AREA_ID=6636
+      - CUSTOM_AREA_SUB_IDS=6637,6638,6639,6640,6641
+    ports:
+      - 127.0.0.1:9088:8080
+    depends_on:
+      cleanapp_db:
+        condition: service_healthy
+
+  cleanapp_devconnect_2025_areas:
+    container_name: cleanapp_devconnect_2025_areas
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-custom-area-dashboard-image:prod
+    environment:
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+\1\2=${\2}
+      - DB_NAME=cleanapp
+      - LOG_LEVEL=info
+      - LOG_FORMAT=json
+      - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
+      - REPORT_AUTH_SERVICE_URL=http://cleanapp_report_auth_service:8080
+      - GIN_MODE=release
+      - CUSTOM_AREA_ID=18544708
+      - CUSTOM_AREA_SUB_IDS=18544708
+    ports:
+      - 127.0.0.1:9094:8080
+    depends_on:
+      cleanapp_db:
+        condition: service_healthy
+  
+  cleanapp_edge_city_areas:
+    container_name: cleanapp_edge_city_areas
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-custom-area-dashboard-image:prod
+    environment:
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+\1\2=${\2}
+      - DB_NAME=cleanapp
+      - LOG_LEVEL=info
+      - LOG_FORMAT=json
+      - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
+      - REPORT_AUTH_SERVICE_URL=http://cleanapp_report_auth_service:8080
+      - GIN_MODE=release
+      - CUSTOM_AREA_ID=18544709
+      - CUSTOM_AREA_SUB_IDS=18544709
+      - IS_PUBLIC=true
+    ports:
+      - 127.0.0.1:9095:8080
+    depends_on:
+      cleanapp_db:
+        condition: service_healthy
+
+  cleanapp_auth_service:
+    container_name: cleanapp_auth_service
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-auth-service-image:prod
+    environment:
+      - TRUSTED_PROXIES=127.0.0.1,::1
+\1\2=${\2}
+\1\2=${\2}
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+\1\2=${\2}
+      - DB_NAME=cleanapp
+      - GIN_MODE=release
+\1\2=${\2}
+      - SENDGRID_FROM_NAME=CleanApp
+      - SENDGRID_FROM_EMAIL=info@cleanapp.io
+      - FRONTEND_URL=https://cleanapp.io
+    ports:
+      - 127.0.0.1:9084:8080
+    depends_on:
+      cleanapp_db:
+        condition: service_healthy
+
+  cleanapp_red_bull_dashboard:
+    container_name: cleanapp_red_bull_dashboard
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-brand-dashboard-image:prod
+    environment:
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+\1\2=${\2}
+      - DB_NAME=cleanapp
+      - GIN_MODE=release
+      - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
+      - REPORT_AUTH_SERVICE_URL=http://cleanapp_report_auth_service:8080
+      - BRAND_NAMES=Red Bull
+    ports:
+      - 127.0.0.1:9085:8080
+
+  cleanapp_areas_service:
+    container_name: cleanapp_areas_service
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-areas-service-image:prod
+    environment:
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+\1\2=${\2}
+      - DB_NAME=cleanapp
+      - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
+      - GIN_MODE=release
+    ports:
+      - 127.0.0.1:9086:8080
+    depends_on:
+      cleanapp_db:
+        condition: service_healthy
+
+  cleanapp_report_processor:
+    container_name: cleanapp_report_processor
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-processor-image:prod
+    environment:
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+\1\2=${\2}
+      - DB_NAME=cleanapp
+      - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
+      - REPORT_AUTH_SERVICE_URL=http://cleanapp_report_auth_service:8080
+      - REPORTS_SUBMISSION_URL=http://cleanapp_service:8080
+      - TAG_SERVICE_URL=http://cleanapp_report_tags_service:8080
+\1\2=${\2}
+      - REPORTS_RADIUS_METERS=35.0
+      - GIN_MODE=release
+      - AMQP_HOST=cleanapp_rabbitmq
+      - AMQP_PORT=5672
+      - AMQP_USER=cleanapp
+\1\2=${\2}
+      - RABBITMQ_EXCHANGE=cleanapp-exchange
+      - RABBITMQ_RAW_REPORT_ROUTING_KEY=report.raw
+    ports:
+      - 127.0.0.1:9087:8080
+
+  cleanapp_email_service:
+    container_name: cleanapp_email_service
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-email-service-image:prod
+    environment:
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+\1\2=${\2}
+      - DB_NAME=cleanapp
+\1\2=${\2}
+      - SENDGRID_FROM_NAME=CleanApp
+      - SENDGRID_FROM_EMAIL=info@cleanapp.io
+      - HTTP_PORT=8080
+      - POLL_INTERVAL=10s
+      - OPT_OUT_URL=https://cleanapp.io/api/optout
+      - GIN_MODE=release
+    ports:
+      - 127.0.0.1:9089:8080
+    depends_on:
+      cleanapp_db:
+        condition: service_healthy
+
+  cleanapp_email_service_v3:
+    container_name: cleanapp_email_service_v3
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-email-service-v3-image:prod
+    environment:
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+\1\2=${\2}
+      - DB_NAME=cleanapp
+\1\2=${\2}
+      - SENDGRID_FROM_NAME=CleanApp
+      - SENDGRID_FROM_EMAIL=info@cleanapp.io
+      - HTTP_PORT=8080
+      - POLL_INTERVAL=10s
+      - OPT_OUT_URL=https://cleanapp.io/api/optout
+      - NOTIFICATION_PERIOD=90d
+      - DIGITAL_BASE_URL=https://cleanapp.io/api/email
+      - BCC_EMAIL_ADDRESS=cleanapp@stxn.io
+      - ENABLE_EMAIL_V3=false
+    depends_on:
+      cleanapp_db:
+        condition: service_healthy
+
+  cleanapp_email_fetcher:
+    container_name: cleanapp_email_fetcher
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-email-fetcher-image:prod
+    environment:
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+\1\2=${\2}
+      - DB_NAME=cleanapp
+\1\2=${\2}
+      - OPENAI_MODEL=gpt-4o
+      - LOOP_DELAY_MS=10000
+      - SEQ_RANGE=85474-283747
+      - BATCH_LIMIT=100
+      - ENABLE_EMAIL_FETCHER=true
+    depends_on:
+      cleanapp_db:
+        condition: service_healthy
+
+  cleanapp_report_ownership_service:
+    container_name: cleanapp_report_ownership_service
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-ownership-service-image:prod
+    environment:
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+\1\2=${\2}
+      - DB_NAME=cleanapp
+      - POLL_INTERVAL=1s
+      - BATCH_SIZE=100
+      - AMQP_HOST=cleanapp_rabbitmq
+      - AMQP_PORT=5672
+      - AMQP_USER=cleanapp
+\1\2=${\2}
+      - RABBITMQ_EXCHANGE=cleanapp-exchange
+      - RABBITMQ_QUEUE=report-ownership-queue
+      - RABBITMQ_RAW_REPORT_ROUTING_KEY=report.raw
+      - RABBITMQ_ANALYSED_REPORT_ROUTING_KEY=report.analysed
+      - GIN_MODE=release
+    ports:
+      - 127.0.0.1:9090:8080
+
+  cleanapp_reports_pusher:
+    container_name: cleanapp_reports_pusher
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-reports-pusher-image:prod
+    environment:
+      - MYSQL_URL=mysql://server:${MYSQL_APP_PASSWORD}@cleanapp_db:3306/cleanapp
+      - REQUEST_REGISTRATOR_URL=https://stxn-cleanapp-prod.stxn.io:443
+      - APP_ID_HEX=0000000000000000000000000000000000000000000000000000000000000000
+      - CHAIN_ID=21363
+      - POLL_SECS=5
+    depends_on:
+      cleanapp_db:
+        condition: service_healthy
+
+  cleanapp_gdpr_process_service:
+    container_name: cleanapp_gdpr_process_service
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-gdpr-process-service-image:prod
+    environment:
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+\1\2=${\2}
+      - DB_NAME=cleanapp
+\1\2=${\2}
+      - OPENAI_MODEL=gpt-4o
+      - FACE_DETECTOR_COUNT=10
+      - FACE_DETECTOR_URL=http://10.128.0.11
+      - FACE_DETECTOR_PORT_START=9500
+      - POLL_INTERVAL=500ms
+      - AMQP_HOST=cleanapp_rabbitmq
+      - AMQP_PORT=5672
+      - AMQP_USER=cleanapp
+\1\2=${\2}
+      - RABBITMQ_EXCHANGE=cleanapp-exchange
+      - RABBITMQ_QUEUE=gdpr-processing-queue
+      - RABBITMQ_RAW_REPORT_ROUTING_KEY=report.raw
+      - RABBITMQ_USER_ROUTING_KEY=user.add
+      - GIN_MODE=release
+    ports:
+      - 127.0.0.1:9091:8080
+    depends_on:
+      cleanapp_db:
+        condition: service_healthy
+
+  cleanapp_voice_assistant_service:
+    container_name: cleanapp_voice_assistant_service
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-voice-assistant-service-image:prod
+    environment:
+      - PORT=8080
+\1\2=${\2}
+      - OPENAI_MODEL=gpt-4o-realtime-preview
+      - RATE_LIMIT_PER_MINUTE=10
+      - ALLOWED_ORIGINS=*
+    ports:
+      - 127.0.0.1:9092:8080
+  
+  cleanapp_report_renderer_service:
+    container_name: cleanapp_report_renderer_service
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-fast-renderer-image:prod
+    environment:
+      - SERVER_PORT=8080
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+\1\2=${\2}
+      - DB_NAME=cleanapp
+      - AMQP_HOST=cleanapp_rabbitmq
+      - AMQP_PORT=5672
+      - AMQP_USER=cleanapp
+\1\2=${\2}
+      - RABBITMQ_EXCHANGE=cleanapp-exchange
+      - RABBITMQ_RENDERER_QUEUE_NAME=report-renderer-queue
+      - RABBITMQ_ANALYSED_REPORT_ROUTING_KEY=report.analysed
+      - GIN_MODE=release
+    ports:
+      - 127.0.0.1:9093:8080
+    depends_on:
+      cleanapp_db:
+        condition: service_healthy
+      cleanapp_rabbitmq:
+        condition: service_healthy
+
+  cleanapp_report_listener_v4:
+    container_name: cleanapp_report_listener_v4
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-listener-v4-image:prod
+    environment:
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+\1\2=${\2}
+      - DB_NAME=cleanapp
+      - HTTP_PORT=8080
+    ports:
+      - 127.0.0.1:9097:8080
+    depends_on:
+      cleanapp_db:
+        condition: service_healthy
+
+  cleanapp_news_indexer_twitter:
+    container_name: cleanapp_news_indexer_twitter
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-news-indexer-twitter-image:prod
+    environment:
+      - DB_URL=mysql://server:${MYSQL_APP_PASSWORD}@cleanapp_db:3306/cleanapp
+\1\2=${\2}
+      - TWITTER_TAGS=cleanapp
+      - TWITTER_MENTIONS=CleanApp
+      - TWITTER_INTERVAL_SECS=300
+      - TWITTER_PAGES_PER_RUN=3
+      - TWITTER_INCLUDE_REPLIES_QUOTES=true
+      - TAGS_BLACKLIST=#cleanapp
+    depends_on:
+      cleanapp_db:
+        condition: service_healthy
+
+  cleanapp_news_analyzer_twitter:
+    container_name: cleanapp_news_analyzer_twitter
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-news-analyzer-twitter-image:prod
+    environment:
+      - DB_URL=mysql://server:${MYSQL_APP_PASSWORD}@cleanapp_db:3306/cleanapp
+\1\2=${\2}
+      - GEMINI_MODEL=gemini-flash-latest
+      - ANALYZER_BATCH_SIZE=100
+      - ANALYZER_INTERVAL_SECS=300
+      - ANALYZER_ONLY_WITH_IMAGES=false
+    depends_on:
+      cleanapp_db:
+        condition: service_healthy
+
+  cleanapp_news_submitter_twitter:
+    container_name: cleanapp_news_submitter_twitter
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-news-submitter-twitter-image:prod
+    environment:
+      - DB_URL=mysql://server:${MYSQL_APP_PASSWORD}@cleanapp_db:3306/cleanapp
+      - SUBMIT_ENDPOINT_URL=http://cleanapp_report_listener:8080
+\1\2=${\2}
+      - SUBMIT_BATCH_SIZE=60
+      - SUBMIT_INTERVAL_SECS=10
+    depends_on:
+      cleanapp_db:
+        condition: service_healthy
+      cleanapp_report_listener:
+        condition: service_started
+  
+  cleanapp_replier_twitter:
+    container_name: cleanapp_replier_twitter
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-news-replier-twitter-image:prod
+    environment:
+      - DB_URL=mysql://server:${MYSQL_APP_PASSWORD}@cleanapp_db:3306/cleanapp
+      - AMQP_HOST=cleanapp_rabbitmq
+      - AMQP_PORT=5672
+      - AMQP_USER=cleanapp
+\1\2=${\2}
+      - RABBITMQ_EXCHANGE=cleanapp-exchange
+      - RABBITMQ_TWITTER_REPLY_QUEUE=twitter-reply-queue
+      - RABBITMQ_TWITTER_REPLY_ROUTING_KEY=twitter.reply
+      - CLEANAPP_BASE_URL=https://cleanapp.io
+\1\2=${\2}
+\1\2=${\2}
+\1\2=${\2}
+\1\2=${\2}
+      - REPLIER_TWITTER_SERVICE_DISABLED=false
+    depends_on:
+      cleanapp_db:
+        condition: service_healthy
+      cleanapp_rabbitmq:
+        condition: service_healthy
+
+  cleanapp_report_tags_service:
+    container_name: cleanapp_report_tags_service
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-tags-service-image:prod
+    environment:
+      - PORT=8080
+      - DB_HOST=cleanapp_db
+      - DB_PORT=3306
+      - DB_USER=server
+\1\2=${\2}
+      - DB_NAME=cleanapp
+      - AMQP_HOST=cleanapp_rabbitmq
+      - AMQP_PORT=5672
+      - AMQP_USER=cleanapp
+\1\2=${\2}
+      - RABBITMQ_EXCHANGE=cleanapp-exchange
+      - RABBITMQ_QUEUE=report-tags-queue
+      - RABBITMQ_RAW_REPORT_ROUTING_KEY=report.raw
+      - RABBITMQ_TAG_EVENT_ROUTING_KEY=tag.added
+      - RUST_LOG=info
+      - MAX_TAG_FOLLOWS=200
+    ports:
+      - 127.0.0.1:9098:8080
+    depends_on:
+      cleanapp_db:
+        condition: service_healthy
+      cleanapp_rabbitmq:
+        condition: service_healthy
+
+  cleanapp_bluesky_indexer:
+    container_name: cleanapp_bluesky_indexer
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-bluesky-indexer-image:prod
+    environment:
+      - DB_URL=mysql://server:${MYSQL_APP_PASSWORD}@cleanapp_db:3306/cleanapp
+      - BSKY_IDENTIFIER=trashcash.bsky.social
+\1\2=${\2}
+      - BSKY_INTERVAL_SECS=900
+      - BSKY_PAGES_PER_RUN=3
+      - BSKY_SEARCH_QUERIES=fatal bug,app crash,horrible UX,broken feature,keeps crashing,feature request,missing dark mode,battery drain,laggy,freezes,login broken,sync fails,unusable,showstopper bug
+    depends_on:
+      cleanapp_db:
+        condition: service_healthy
+
+  cleanapp_bluesky_analyzer:
+    container_name: cleanapp_bluesky_analyzer
+    image: ${BLUESKY_ANALYZER_DOCKER_IMAGE}
+    environment:
+      - DB_URL=mysql://server:${MYSQL_APP_PASSWORD}@cleanapp_db:3306/cleanapp
+\1\2=${\2}
+      - GEMINI_MODEL=gemini-flash-latest
+      - ANALYZER_BATCH_SIZE=200
+      - ANALYZER_INTERVAL_SECS=30
+    depends_on:
+      cleanapp_db:
+        condition: service_healthy
+
+  cleanapp_bluesky_submitter:
+    container_name: cleanapp_bluesky_submitter
+    image: ${BLUESKY_SUBMITTER_DOCKER_IMAGE}
+    environment:
+      - DB_URL=mysql://server:${MYSQL_APP_PASSWORD}@cleanapp_db:3306/cleanapp
+      - SUBMIT_ENDPOINT_URL=http://cleanapp_report_listener:8080
+\1\2=${\2}
+      - SUBMIT_BATCH_SIZE=500
+      - SUBMIT_INTERVAL_SECS=30
+    depends_on:
+      cleanapp_db:
+        condition: service_healthy
+      cleanapp_report_listener:
+        condition: service_started
+
+
+configs:
+  rabbitmq-plugins:
+    content: "[rabbitmq_management]."  
+
+volumes:
+  mysql:
+    name: eko_mysql
+    external: true
+
+  rabbitmq-lib:
+    name: rabbitmq-lib
+    driver: local
+
+  rabbitmq-log:
+    name: rabbitmq-log
+    driver: local
+

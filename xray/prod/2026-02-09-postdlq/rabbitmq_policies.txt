@@ -1,0 +1,6 @@
+Listing policies for vhost "/" ...
+vhost	name	pattern	apply-to	definition	priority
+/	dlx-twitter-reply-queue	^twitter-reply-queue$	queues	{"dead-letter-exchange":"cleanapp-dlx","dead-letter-routing-key":"twitter-reply-queue.dlq"}	0
+/	dlx-report-renderer-queue	^report-renderer-queue$	queues	{"dead-letter-exchange":"cleanapp-dlx","dead-letter-routing-key":"report-renderer-queue.dlq"}	0
+/	dlx-report-analysis-queue	^report-analysis-queue$	queues	{"dead-letter-exchange":"cleanapp-dlx","dead-letter-routing-key":"report-analysis-queue.dlq"}	0
+/	dlx-report-tags-queue	^report-tags-queue$	queues	{"dead-letter-exchange":"cleanapp-dlx","dead-letter-routing-key":"report-tags-queue.dlq"}	0

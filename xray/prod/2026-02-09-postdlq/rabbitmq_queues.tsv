@@ -1,0 +1,10 @@
+Timeout: 60.0 seconds ...
+Listing queues for vhost / ...
+name	durable	auto_delete	arguments	messages_ready	messages_unacknowledged	consumers
+report-analysis-queue.dlq	true	false	[{"x-queue-type","classic"}]	0	0	0
+report-tags-queue	true	false	[{"x-queue-type","classic"}]	0	0	1
+report-renderer-queue.dlq	true	false	[{"x-queue-type","classic"}]	0	0	0
+report-tags-queue.dlq	true	false	[{"x-queue-type","classic"}]	0	0	0
+twitter-reply-queue	true	false	[{"x-queue-type","classic"}]	0	0	1
+twitter-reply-queue.dlq	true	false	[{"x-queue-type","classic"}]	0	0	0
+report-renderer-queue	true	false	[{"x-queue-type","classic"}]	0	0	1

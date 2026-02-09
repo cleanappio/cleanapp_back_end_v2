@@ -1,0 +1,2 @@
+NAME                STATUS              CONFIG FILES
+deployer            running(31)         /home/deployer/docker-compose.yml,/home/deployer/docker-compose.override.yml,/home/deployer/docker-compose.digests.2026-02-09.yml

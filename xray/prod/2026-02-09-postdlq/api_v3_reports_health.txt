@@ -1,0 +1,1 @@
+{"status":"healthy","service":"report-listener","timestamp":"2026-02-09T16:45:12Z","connected_clients":0,"last_broadcast_seq":1140971}
