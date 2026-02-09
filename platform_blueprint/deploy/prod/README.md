@@ -5,9 +5,9 @@ This directory is where the platform repo would keep prod deployment artifacts:
 - `nginx_conf_d/*.conf` (public routing)
 - scripts (upgrade/rollback/smoke)
 
-For the current real-world deployed versions (2026-02-07 snapshot), see:
-- `xray/prod/2026-02-07/prod_docker-compose.yml`
-- `xray/prod/2026-02-07/nginx_conf_d/`
+For the current real-world deployed versions (2026-02-09 snapshot), see:
+- `xray/prod/2026-02-09-postdlq2/prod_docker-compose.yml`
+- `xray/prod/2026-02-09-postdlq2/nginx_conf_d/`
 
 The first integration milestone is to make the platform repo’s `docker-compose.yml` match prod reality (no manual containers).
 
@@ -25,12 +25,13 @@ For deterministic rollouts/rollbacks, prefer `image@sha256:...` pins rather than
 
 Inputs:
 - A captured digest manifest from xray: `platform_blueprint/manifests/prod/<date>.json`
+- Optionally, a checked-in digest override under: `platform_blueprint/deploy/prod/digests/*.digests.yml`
 
 Generate a digest-pinned override:
 
 ```bash
 python3 platform_blueprint/deploy/generate_compose_digests.py \
-  --manifest platform_blueprint/manifests/prod/2026-02-09.json \
+  --manifest platform_blueprint/manifests/prod/2026-02-09-postdlq2.json \
   --compose platform_blueprint/deploy/prod/docker-compose.yml \
   --compose platform_blueprint/deploy/prod/docker-compose.override.yml \
   --out /tmp/docker-compose.digests.yml

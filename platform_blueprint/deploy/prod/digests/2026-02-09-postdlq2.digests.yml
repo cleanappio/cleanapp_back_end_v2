@@ -1,0 +1,81 @@
+# Generated file: docker-compose digest pins
+# manifest: /Users/anon16/Downloads/cleanapp_back_end_v2/platform_blueprint/manifests/prod/2026-02-09-postdlq2.json
+# schema_version: 1
+# env: prod
+# captured_date: 2026-02-09-postdlq2
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.override.yml -f <this file> pull
+#   docker compose -f docker-compose.yml -f docker-compose.override.yml -f <this file> up -d
+
+services:
+  cleanapp_areas_service:
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-areas-service-image@sha256:ca029a0be4991faed73e7091037addcbbce15d796875409ae23fe65302d11cbf
+  cleanapp_auth_service:
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-auth-service-image@sha256:e7d0766735b64b02825a90b70da3b97598860d0ce721de3dd38667f20f6aadde
+  cleanapp_bluesky_analyzer:
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-bluesky-analyzer-image@sha256:3aaf75555c3903d6c2ba1f871b496be2fbc491b0e64cd341205597a1f3ed8dcf
+  cleanapp_bluesky_indexer:
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-bluesky-indexer-image@sha256:1e5567ae3b4babf73fdc04a2eac94d4359eaabfad4cddc5c023300c32efaef68
+  cleanapp_bluesky_now:
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/bluesky-now@sha256:d93c7da4ff8a5a28c9c13e91066b7f384a92c3f189defc9aa7635e6ebbda3c1c
+  cleanapp_bluesky_submitter:
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-bluesky-submitter-image@sha256:cf605e3d2243cbbedd14460987f146d48a163b94bc4507ec64edd72ceb1d4251
+  cleanapp_customer_service:
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-customer-service-image@sha256:e586dd7aa220b3bb6da6813e1afea1ff577d4103cfeaa68511bdccc70782fb9b
+  cleanapp_db:
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-db-image@sha256:03d76343bb098771f86337e8c28a76b6cc3412f7306b6806880a8ef6eef598c0
+  cleanapp_devconnect_2025_areas:
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-custom-area-dashboard-image@sha256:b99119b2e07eb3cc2624afbcf0522638034ce528df4d966fbefdbdfff662daa2
+  cleanapp_edge_city_areas:
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-custom-area-dashboard-image@sha256:b99119b2e07eb3cc2624afbcf0522638034ce528df4d966fbefdbdfff662daa2
+  cleanapp_email_fetcher:
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-email-fetcher-image@sha256:b3d95906977e30756b1a75856193d1694c0fe42ec26318372482fda5a4f68e4f
+  cleanapp_email_service:
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-email-service-image@sha256:3c2c00427efb5dd9a55b57499d830b4bd6a564df5fd1bd6dcfde9f043cc7e678
+  cleanapp_frontend:
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-frontend-image@sha256:d8aeaf8184f4d4010e759b8802907d7069cd0e6215e7c1443a6de599e9f30a4d
+  cleanapp_frontend_embedded:
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-frontend-image-embedded@sha256:cfcf7b4c136660a640516856bdda8985e08392d727d53807e100e5c1adafd761
+  cleanapp_montenegro_areas:
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-custom-area-dashboard-image@sha256:b99119b2e07eb3cc2624afbcf0522638034ce528df4d966fbefdbdfff662daa2
+  cleanapp_new_york_areas:
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-custom-area-dashboard-image@sha256:b99119b2e07eb3cc2624afbcf0522638034ce528df4d966fbefdbdfff662daa2
+  cleanapp_news_analyzer_twitter:
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-news-analyzer-twitter-image@sha256:cb15e9afbeef94450b7bd15d2b755789db8e3ff41a33f25dafcf9095eedcf9f3
+  cleanapp_news_indexer_twitter:
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-news-indexer-twitter-image@sha256:15b4f2d82f31e38153e3a5747b507a2438a73296182bbf93fcf59da7937d04bb
+  cleanapp_pipelines:
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-pipelines-image@sha256:883251d62c7724b69407a713ed02637413bb5d5d12442ef76dbe1ebbd16f8ee2
+  cleanapp_rabbitmq:
+    image: rabbitmq@sha256:e831b3cdc1e6a3abd86bb67a75a54b319f5a2fc4dc3adf68e73417bbd266ef8b
+  cleanapp_red_bull_dashboard:
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-brand-dashboard-image@sha256:60b18a67e22caa06b9b0f80b760cbb1d3d6e8abe14d59dbc9a6e5d9115515f60
+  cleanapp_replier_twitter:
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-news-replier-twitter-image@sha256:86389f491f31cf0204d8a4f4da47f164047a41345c2d660b444a07592fe84a38
+  cleanapp_report_analyze_pipeline:
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-analyze-pipeline-image@sha256:b70ab797049d176d0466a075c43e08c7b04b6d011eeeb6fada2b03de1bb8cb18
+  cleanapp_report_listener:
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-listener-image@sha256:117726a887a5541091d0caf4c3fb4073686adc097eba6bc9173f59acfff4bdb8
+  cleanapp_report_listener_v4:
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-listener-v4-image@sha256:55f7ee54e1e0b68fc607e74caf2850930eb4f25c03d45f54c5de9917e59d4b1f
+  cleanapp_report_processor:
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-processor-image@sha256:4c7ef9a5f5e13760a4c72e3d85d424bbd527181a28be3b8f1e5ee9bbce77f407
+  cleanapp_report_renderer_service:
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-fast-renderer-image@sha256:9c41a9c2ec73aeff9e6c2778b820685dcdbdce70c8f14b47d6a8f08e04f9475a
+  cleanapp_report_tags_service:
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-tags-service-image@sha256:f6b71e10f4ce512c070945540ec58c37fa807bd94cffa814d7faec81af5d3672
+  cleanapp_service:
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-service-image@sha256:c34d8af78db3604d88c6f67a0157e004411adc69ad907e02cd8d15c6d71b8097
+  cleanapp_voice_assistant_service:
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-voice-assistant-service-image@sha256:eb725e8485b7eaaefe1b144f7454daff5d694bfb9a3802d2c3f612677d045d0c
+  cleanapp_web:
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-web-image@sha256:7af5382d44379b796e7146890beb6e25f1dff5be5f4f238dee5b4f4516d72356
+
+# WARNING: no pinned digest found for these services (skipped):
+# - cleanapp_email_service_v3 (container=cleanapp_email_service_v3)
+# - cleanapp_gdpr_process_service (container=cleanapp_gdpr_process_service)
+# - cleanapp_news_submitter_twitter (container=cleanapp_news_submitter_twitter)
+# - cleanapp_report_ownership_service (container=cleanapp_report_ownership_service)
+# - cleanapp_reports_pusher (container=cleanapp_reports_pusher)
+# - cleanapp_stxn_kickoff (container=stxn_kickoff)
