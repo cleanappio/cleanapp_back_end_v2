@@ -98,32 +98,28 @@ async fn run() -> anyhow::Result<()> {
     };
     
     // Start the subscriber if it was initialized (in a background task so it doesn't block HTTP server)
-    // Use a separate thread with LocalSet because Callback trait is not Send
     if let Some(mut subscriber) = report_subscriber {
         let pool_clone = pool.clone();
         let routing_key = config.rabbitmq_raw_report_routing_key.clone();
-        
-        // Spawn a thread with its own LocalSet to run the non-Send subscriber
-        std::thread::spawn(move || {
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.block_on(async {
-                let local_set = tokio::task::LocalSet::new();
-                local_set.spawn_local(async move {
-                    match subscriber.start(pool_clone, &routing_key).await {
-                        Ok(_) => {
-                            log::info!("RabbitMQ subscriber started successfully for routing key: {}", routing_key);
-                        }
-                        Err(e) => {
-                            log::error!("Failed to start RabbitMQ subscriber: {}. Continuing without RabbitMQ.", e);
-                        }
-                    }
-                });
-                local_set.await;
-            });
+
+        tokio::spawn(async move {
+            match subscriber.start(pool_clone, &routing_key).await {
+                Ok(_) => {
+                    log::info!(
+                        "RabbitMQ subscriber started successfully for routing key: {}",
+                        routing_key
+                    );
+                    // Keep the task alive so subscriber/channel stays owned for process lifetime.
+                    std::future::pending::<()>().await;
+                }
+                Err(e) => {
+                    log::error!(
+                        "Failed to start RabbitMQ subscriber: {}. Continuing without RabbitMQ.",
+                        e
+                    );
+                }
+            }
         });
-        
-        // Note: subscriber is moved into the spawned thread, so we can't use it for shutdown
-        // We'll need to handle shutdown differently if needed
     }
     
     // TODO: Re-enable RabbitMQ tag event publisher when we have consumers for tag.added events

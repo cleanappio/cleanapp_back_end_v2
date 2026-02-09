@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 axum = "0.8.6"
-cleanapp_rustlib = { git = "https://github.com/cleanappio/cleanapp-rustlib", tag = "v1.1.7" }
+cleanapp_rustlib = { path = "vendor/cleanapp_rustlib" }
 tokio = { version = "1.0", features = ["full"] }
 tower = "0.5.2"
 tower-http = { version = "0.6.5", features = ["cors", "trace", "compression-full", "compression-gzip"] }

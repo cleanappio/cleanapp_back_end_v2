@@ -24,4 +24,4 @@ chrono = { version = "0.4", features = ["serde"] }
 dotenvy = "0.15"
 tower-http = { version = "0.5", features = ["cors", "trace"] }
 uuid = { version = "1", features = ["v4"] }
-cleanapp_rustlib = { git = "https://github.com/cleanappio/cleanapp-rustlib", tag = "v1.1.6" }
+cleanapp_rustlib = { path = "vendor/cleanapp_rustlib" }

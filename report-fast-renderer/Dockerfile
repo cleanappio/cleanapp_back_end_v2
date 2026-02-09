@@ -17,7 +17,7 @@ COPY . .
 RUN set -a; \
     if [ -f buildinfo.vars ]; then . ./buildinfo.vars; else CLEANAPP_BUILD_VERSION=dev; CLEANAPP_GIT_SHA=; CLEANAPP_BUILD_TIME=; fi; \
     set +a; \
-    cargo install --locked --path . -j $(nproc)
+    cargo install --path . -j $(nproc)
 
 # Runtime stage
 FROM debian:bullseye-slim

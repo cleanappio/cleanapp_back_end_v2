@@ -1,12 +1,13 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use cleanapp_rustlib::rabbitmq::subscriber::{Callback, Message, Subscriber};
+use cleanapp_rustlib::rabbitmq::subscriber::{permanent, Callback, Message, Subscriber};
 use log::{error, info, warn};
 use mysql_async::prelude::*;
 use mysql_async::Pool;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 use tokio::sync::Mutex;
@@ -237,48 +238,90 @@ impl ReplyCallback {
 
 impl Callback for ReplyCallback {
 	fn on_message(&self, msg: &Message) -> Result<(), Box<dyn std::error::Error>> {
-		let evt: TwitterReplyEvent = msg.unmarshal_to()?;
+		let evt: TwitterReplyEvent = msg.unmarshal_to().map_err(|e| permanent(e))?;
 		let this = self.clone_for_async();
-		// Spawn async task per message
-		tokio::spawn(async move {
-			if let Err(e) = this.ensure_table().await {
-				error!("ensure replier_twitter table failed: {}", e);
-				return;
+
+		enum ProcessingError {
+			Transient(anyhow::Error),
+			Permanent(anyhow::Error),
+		}
+
+		fn block_on<F: Future>(fut: F) -> F::Output {
+			tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(fut))
+		}
+
+		let res: std::result::Result<(), ProcessingError> = block_on(async move {
+			this.ensure_table()
+				.await
+				.map_err(ProcessingError::Transient)?;
+
+			// Misconfiguration should not retry forever.
+			if this.oauth1.is_none() && this.token.is_empty() {
+				return Err(ProcessingError::Permanent(anyhow::anyhow!(
+					"twitter auth not configured (need OAuth1 creds or TWITTER_USER_BEARER_TOKEN)"
+				)));
 			}
+
 			match this.already_replied(evt.seq).await {
 				Ok(true) => {
 					info!("seq {} already replied; skipping", evt.seq);
-					return;
+					return Ok(());
 				}
 				Ok(false) => {}
 				Err(e) => {
-					warn!("check already_replied failed: {}", e);
+					// DB check failure is retryable; do not post a duplicate reply.
+					return Err(ProcessingError::Transient(e));
 				}
 			}
+
 			let link = this.build_link(evt.seq, &evt.classification);
 			let text = this.build_text(&link);
+
 			match this.post_reply(&evt.tweet_id, &text).await {
 				Ok(Some(reply_id)) => {
-					info!("posted reply for seq {} tweet {} -> reply {}", evt.seq, evt.tweet_id, reply_id);
-					if let Err(e) = this.record_attempt(evt.seq, &evt.tweet_id, &evt.classification, Some(reply_id)).await {
-						warn!("record reply success failed: {}", e);
-					}
+					info!(
+						"posted reply for seq {} tweet {} -> reply {}",
+						evt.seq, evt.tweet_id, reply_id
+					);
+					// If we posted the tweet but can't record it, treat as permanent to avoid duplicates.
+					this.record_attempt(
+						evt.seq,
+						&evt.tweet_id,
+						&evt.classification,
+						Some(reply_id),
+					)
+					.await
+					.map_err(ProcessingError::Permanent)?;
+					Ok(())
 				}
 				Ok(None) => {
-					// rate limited; record attempt without reply id
-					if let Err(e) = this.record_attempt(evt.seq, &evt.tweet_id, &evt.classification, None).await {
-						warn!("record attempt (429) failed: {}", e);
-					}
+					// 429: record attempt, then retry later via requeue.
+					this.record_attempt(evt.seq, &evt.tweet_id, &evt.classification, None)
+						.await
+						.map_err(ProcessingError::Transient)?;
+					Err(ProcessingError::Transient(anyhow::anyhow!(
+						"twitter rate limited (429)"
+					)))
 				}
 				Err(e) => {
 					error!("post_reply error: {}", e);
-					if let Err(e2) = this.record_attempt(evt.seq, &evt.tweet_id, &evt.classification, None).await {
+					// Best-effort record attempt; if it fails, still requeue.
+					if let Err(e2) =
+						this.record_attempt(evt.seq, &evt.tweet_id, &evt.classification, None)
+							.await
+					{
 						warn!("record attempt failed: {}", e2);
 					}
+					Err(ProcessingError::Transient(e))
 				}
 			}
 		});
-		Ok(())
+
+		match res {
+			Ok(()) => Ok(()),
+			Err(ProcessingError::Transient(e)) => Err(Box::new(e)),
+			Err(ProcessingError::Permanent(e)) => Err(permanent(e)),
+		}
 	}
 }
 
@@ -359,5 +402,4 @@ async fn main() -> Result<()> {
 	tokio::signal::ctrl_c().await.ok();
 	Ok(())
 }
-
 

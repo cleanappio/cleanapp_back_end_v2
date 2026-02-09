@@ -137,3 +137,21 @@ What worked:
 
 Next time:
 - Decide early whether we want to purge historic leaks (history rewrite) vs. start a clean-slate repo for the next upgrade push.
+
+### 2026-02-09 (RabbitMQ Consumers: Bounded Concurrency + Ack Semantics)
+
+Got wrong:
+- Rust RabbitMQ consumers used `tokio::spawn` inside `Callback::on_message`, so the subscriber acked immediately and we could lose messages on async failure.
+- `report-tags` ran the subscriber on a throwaway runtime thread; once `Subscriber::start()` returned, the runtime dropped and the consumer likely stopped.
+- Could not push upstream `cleanappio/cleanapp-rustlib` changes due to GitHub permissions, so “bump tag and redeploy” wasn’t possible immediately.
+
+Corrected by:
+- Enforcing bounded concurrency + post-processing ack/nack semantics in the Rust subscriber implementation, and removing per-message async spawning from consumer callbacks.
+- Making `report-tags` start its subscriber on the main runtime and keeping the task alive for the process lifetime.
+- Vendoring a patched `cleanapp_rustlib` into this repo (`vendor/cleanapp_rustlib`) and switching Rust services to a local `path` dependency to unblock deploys without upstream access.
+
+What worked:
+- Running `gitleaks detect --no-git --redact` after vendoring and before staging/commits.
+
+Next time:
+- Before relying on a library’s `start()` semantics, confirm whether it blocks or spawns-and-returns; it changes how you keep the runtime alive.
