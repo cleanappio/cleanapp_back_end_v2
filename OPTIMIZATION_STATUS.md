@@ -33,10 +33,10 @@ Done:
   - `platform_blueprint/deploy/prod/nginx_conf_d/`
 - Captured and committed digest pins from prod:
   - `platform_blueprint/manifests/prod/2026-02-09-postdlq2.json`
+- Generated and committed a digest-pinned compose overlay:
+  - `platform_blueprint/deploy/prod/digests/2026-02-09-postdlq2.digests.yml`
 
 Next:
-- Generate and store the digest-pinned compose overlay for the latest manifest under:
-  - `platform_blueprint/deploy/prod/digests/`
 - Decide whether we want the manifest to cover *only running containers* or *all compose services* (including stopped ones), and adjust xray capture accordingly.
 
 ## 3) RabbitMQ Pipeline Reliability (Backpressure, Ack Semantics, DLQs)
@@ -80,7 +80,8 @@ Done:
   - `platform_blueprint/tests/smoke/capture_prod_public.sh`
 - v4 OpenAPI contract snapshot is stored:
   - `platform_blueprint/contracts/openapi/api_v4_openapi.json`
+- Prod VM-local smoke checks exist (localhost ports + RabbitMQ invariants):
+  - `platform_blueprint/tests/smoke/smoke_prod_vm.sh`
 
 Next:
-- Add prod VM-local smoke checks (localhost ports + RabbitMQ invariants).
 - Add OpenAPI-driven contract smoke (exercise the v4 endpoints with representative query params).
