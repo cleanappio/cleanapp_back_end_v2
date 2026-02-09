@@ -156,8 +156,8 @@ ssh "${HOST}" "bash -lc 'cd /etc/nginx/conf.d; tar -czf - *.conf'" \
 # We preserve keys by rewriting `KEY=value` into `KEY=${KEY}` for common secret patterns.
 ssh "${HOST}" "sudo cat /home/deployer/docker-compose.yml" \
   | sed -E \
-      -e '/^[[:space:]]*-[[:space:]]*[A-Z0-9_]*(PASS|PASSWORD|SECRET|TOKEN|API_KEY|PRIVATE_KEY|BEARER|JWT|ENCRYPTION_KEY|ACCESS_SECRET|OAUTH1|APP_PASSWORD)[A-Z0-9_]*=/ s/^([[:space:]]*-[[:space:]]*)([A-Z0-9_]+)=.*/\\1\\2=${\\2}/' \
-      -e '/^[[:space:]]*[A-Z0-9_]*(PASS|PASSWORD|SECRET|TOKEN|API_KEY|PRIVATE_KEY|BEARER|JWT|ENCRYPTION_KEY|ACCESS_SECRET|OAUTH1|APP_PASSWORD)[A-Z0-9_]*:/ s/^([[:space:]]*)([A-Z0-9_]+):.*/\\1\\2: ${\\2}/' \
+      -e '/^[[:space:]]*-[[:space:]]*[A-Z0-9_]*(PASS|PASSWORD|SECRET|TOKEN|API_KEY|PRIVATE_KEY|BEARER|JWT|ENCRYPTION_KEY|ACCESS_SECRET|OAUTH1|APP_PASSWORD)[A-Z0-9_]*=/ s/^([[:space:]]*-[[:space:]]*)([A-Z0-9_]+)=.*/\1\2=${\2}/' \
+      -e '/^[[:space:]]*[A-Z0-9_]*(PASS|PASSWORD|SECRET|TOKEN|API_KEY|PRIVATE_KEY|BEARER|JWT|ENCRYPTION_KEY|ACCESS_SECRET|OAUTH1|APP_PASSWORD)[A-Z0-9_]*:/ s/^([[:space:]]*)([A-Z0-9_]+):.*/\1\2: ${\2}/' \
   | tee "${COMPOSE_FILE}" >/dev/null
 
 # Deployer directory: capture filenames/metadata only (NOT script contents).
