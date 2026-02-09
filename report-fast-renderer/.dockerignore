@@ -1,6 +1,6 @@
 # Rust build artifacts
 target/
-Cargo.lock
+# Keep Cargo.lock in build context for reproducible builds (Dockerfile uses --locked).
 
 # IDE files
 .vscode/

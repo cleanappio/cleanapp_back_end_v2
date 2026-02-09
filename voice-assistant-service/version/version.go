@@ -31,7 +31,7 @@ func Get(service string) Info {
 	var modified *bool
 
 	if info, ok := debug.ReadBuildInfo(); ok {
-		for _, s := info.Settings {
+		for _, s := range info.Settings {
 			switch s.Key {
 			case "vcs.revision":
 				if gitSHA == "" {
@@ -62,4 +62,3 @@ func Get(service string) Info {
 		GOARCH:      runtime.GOARCH,
 	}
 }
-
