@@ -103,3 +103,19 @@ What worked:
 
 Next time:
 - If we want strict pinning for *all* services (including currently-exited ones), generate the manifest from `docker ps -a` or from `docker compose config` rather than only running containers.
+
+### 2026-02-09 (Prod Network Hardening: Localhost Port Binds)
+
+Got wrong:
+- Changed `cleanapp_service`'s port mapping to `127.0.0.1:8079:8080` in `docker-compose.yml` but forgot `docker-compose.override.yml` also defined `8079:8080`. Compose merges port lists by appending, which created conflicting duplicate host binds and prevented `cleanapp_service` from starting.
+
+Corrected by:
+- Removing the `ports:` override for `cleanapp_service` from `/home/deployer/docker-compose.override.yml` on prod so the base compose file is the single source of truth for that mapping.
+
+What worked:
+- Rebinding internal service ports (908x/909x/8079/3306/5672/15672/3001/3002) to `127.0.0.1` while keeping intentionally-public ports `3000` and `8090` unchanged.
+- Verifying nginx-routed public health + `/version` endpoints from the VM (all 200).
+- Capturing and committing a post-change prod xray snapshot: `xray/prod/2026-02-09-postharden1/`.
+
+Next time:
+- Always check for duplicate `ports:` across compose files before changing host binds (because list-merge semantics can create conflicts).
