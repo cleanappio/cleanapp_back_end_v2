@@ -1,0 +1,1 @@
+image=us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-ownership-service-image:prod;created=2025-12-22T00:47:30.225882062Z;restart=no;health=none;workdir=/root/;user=;entrypoint=null;cmd=["./main"]

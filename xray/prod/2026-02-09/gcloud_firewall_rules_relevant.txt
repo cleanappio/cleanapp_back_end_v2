@@ -1,0 +1,7 @@
+NAME                 NETWORK  DIRECTION  PRIORITY  SOURCE_RANGES  ALLOWED   TAGS
+allow-3000           default  INGRESS    1000      0.0.0.0/0      tcp:3000  allow-3000
+allow-8080           default  INGRESS    1000      0.0.0.0/0      tcp:8080  allow-8080
+allow-8090           default  INGRESS    1000      0.0.0.0/0      tcp:8090  allow-8090
+allow-8091           default  INGRESS    1000      0.0.0.0/0      tcp:8091  allow-8091
+default-allow-http   default  INGRESS    1000      0.0.0.0/0      tcp:80    http-server
+default-allow-https  default  INGRESS    1000      0.0.0.0/0      tcp:443   https-server

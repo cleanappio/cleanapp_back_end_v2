@@ -1,0 +1,15 @@
+url	http_code
+http://127.0.0.1:8079/version	200
+http://127.0.0.1:8090/version	200
+http://127.0.0.1:9080/version	200
+http://127.0.0.1:9081/version	200
+http://127.0.0.1:9082/version	200
+http://127.0.0.1:9084/version	200
+http://127.0.0.1:9086/version	200
+http://127.0.0.1:9087/version	200
+http://127.0.0.1:9089/version	200
+http://127.0.0.1:9092/version	200
+http://127.0.0.1:9093/version	200
+http://127.0.0.1:9097/version	200
+http://127.0.0.1:9097/api/v4/version	200
+http://127.0.0.1:9098/version	200

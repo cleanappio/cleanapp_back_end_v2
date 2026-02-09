@@ -1,0 +1,1 @@
+image=us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-gdpr-process-service-image:prod;created=2025-12-22T00:47:30.219115403Z;restart=no;health=none;workdir=/root/;user=;entrypoint=null;cmd=["./main"]

@@ -1,0 +1,4 @@
+bridge	bridge	local
+deployer_default	bridge	local
+host	host	local
+none	null	local

@@ -1,0 +1,1 @@
+image=us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-news-analyzer-twitter-image:prod;created=2025-12-21T12:34:02.428076838Z;restart=no;health=none;workdir=/srv;user=;entrypoint=["/usr/local/bin/analyzer_twitter"];cmd=null

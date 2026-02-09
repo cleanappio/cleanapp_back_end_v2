@@ -1,0 +1,1 @@
+image=us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/bluesky-now:v3;created=2026-02-07T20:06:43.051369625Z;restart=always;health=none;workdir=/app;user=;entrypoint=[];cmd=["bluesky_now","--config","/app/config/config.toml"]

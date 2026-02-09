@@ -1,0 +1,20 @@
+# Prod Deployed Versions
+
+Snapshot: /Users/anon16/Downloads/cleanapp_back_end_v2/xray/prod/2026-02-09
+
+| service | version | git sha | build time | source |
+|---|---|---|---|---|
+| `areas-service` | `1.0.24` | `3bc6b11386c9` | `2026-02-08T22:20:44Z` | `areas_service.json` |
+| `auth-service` | `1.0.29` | `3bc6b11386c9` | `2026-02-08T22:31:41Z` | `auth_service.json` |
+| `cleanapp-pipelines` | `2.2.0` | `3bc6b11386c9` | `2026-02-08T22:14:06Z` | `cleanapp_pipelines.json` |
+| `cleanapp-service` | `3.0.10` | `3bc6b11386c9` | `2026-02-08T22:07:22Z` | `cleanapp_service.json` |
+| `customer-service` | `1.0.33` | `3bc6b11386c9` | `2026-02-08T22:53:41Z` | `customer_service.json` |
+| `email-service` | `1.0.33` | `3bc6b11386c9` | `2026-02-08T22:58:18Z` | `email_service.json` |
+| `report-analyze-pipeline` | `1.0.105` | `3bc6b11386c9` | `2026-02-08T23:02:41Z` | `report_analyze_pipeline.json` |
+| `report-fast-renderer` | `1.0.32` | `18f52f23d650` | `2026-02-09T00:31:30Z` | `report_fast_renderer.json` |
+| `report-listener` | `1.0.106` | `3bc6b11386c9` | `2026-02-08T23:10:22Z` | `report_listener_v3.json` |
+| `report-listener-v4` | `1.0.37` | `3bc6b11386c9` | `2026-02-08T23:16:08Z` | `report_listener_v4.json` |
+| `report-listener-v4` | `1.0.37` | `3bc6b11386c9` | `2026-02-08T23:16:08Z` | `report_listener_v4_api.json` |
+| `report-processor` | `1.0.27` | `3bc6b11386c9` | `2026-02-08T23:13:19Z` | `report_processor.json` |
+| `report-tags` | `1.0.23` | `3bc6b11386c9` | `2026-02-08T23:42:29Z` | `report_tags.json` |
+| `voice-assistant-service` | `1.0.9` | `18f52f23d650` | `2026-02-09T00:31:30Z` | `voice_assistant_service.json` |
