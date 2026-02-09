@@ -1,0 +1,1 @@
+image=us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-db-image@sha256:03d76343bb098771f86337e8c28a76b6cc3412f7306b6806880a8ef6eef598c0;created=2026-02-09T07:21:46.511649472Z;restart=no;health=healthy;workdir=/;user=root;entrypoint=["docker-entrypoint.sh"];cmd=["mysqld"]

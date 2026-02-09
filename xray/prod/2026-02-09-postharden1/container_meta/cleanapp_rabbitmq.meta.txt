@@ -1,0 +1,1 @@
+image=rabbitmq@sha256:e831b3cdc1e6a3abd86bb67a75a54b319f5a2fc4dc3adf68e73417bbd266ef8b;created=2026-02-09T07:21:46.513556624Z;restart=always;health=healthy;workdir=;user=;entrypoint=["docker-entrypoint.sh"];cmd=["rabbitmq-server"]

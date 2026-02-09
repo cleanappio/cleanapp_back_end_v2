@@ -1,0 +1,1 @@
+image=us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-listener-v4-image@sha256:55f7ee54e1e0b68fc607e74caf2850930eb4f25c03d45f54c5de9917e59d4b1f;created=2026-02-09T07:22:47.290467519Z;restart=no;health=none;workdir=/srv;user=;entrypoint=["/usr/local/bin/report-listener-v4"];cmd=null

@@ -1,0 +1,4 @@
+deployer_rabbitmq-log	local
+eko_mysql	local
+rabbitmq-lib	local
+rabbitmq-log	local

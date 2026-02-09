@@ -1,0 +1,8 @@
+Listing bindings for vhost /...
+source_name	destination_name	destination_kind	routing_key	arguments
+	report-tags-queue	queue	report-tags-queue	[]
+	report-analysis-queue	queue	report-analysis-queue	[]
+	report-renderer-queue	queue	report-renderer-queue	[]
+cleanapp-exchange	report-analysis-queue	queue	report.raw	[]
+cleanapp-exchange	report-renderer-queue	queue	report.analysed	[]
+cleanapp-exchange	report-tags-queue	queue	report.raw	[]

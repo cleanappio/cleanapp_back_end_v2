@@ -1,0 +1,31 @@
+cleanapp_service	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-service-image	937b7bd0b3c9	2026-02-09 07:31:40 +0000 UTC	Up About a minute	127.0.0.1:8079->8080/tcp
+cleanapp_report_listener_v4	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-listener-v4-image	d197c3197e49	2026-02-09 07:22:47 +0000 UTC	Up 10 minutes	127.0.0.1:9097->8080/tcp
+cleanapp_email_service	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-email-service-image	53cb8664eb55	2026-02-09 07:22:47 +0000 UTC	Up 10 minutes	127.0.0.1:9089->8080/tcp
+cleanapp_report_analyze_pipeline	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-analyze-pipeline-image	8640b4273ea5	2026-02-09 07:22:47 +0000 UTC	Up 10 minutes	127.0.0.1:9082->8080/tcp
+cleanapp_devconnect_2025_areas	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-custom-area-dashboard-image	d7ade1af69d0	2026-02-09 07:22:47 +0000 UTC	Up 10 minutes	127.0.0.1:9094->8080/tcp
+cleanapp_voice_assistant_service	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-voice-assistant-service-image	95637e2e5d2d	2026-02-09 07:22:47 +0000 UTC	Up 10 minutes	127.0.0.1:9092->8080/tcp
+cleanapp_report_renderer_service	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-fast-renderer-image	ca3a24a89b7b	2026-02-09 07:22:47 +0000 UTC	Up 10 minutes (healthy)	127.0.0.1:9093->8080/tcp
+cleanapp_auth_service	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-auth-service-image	7bca9b15143a	2026-02-09 07:22:47 +0000 UTC	Up 10 minutes	127.0.0.1:9084->8080/tcp
+cleanapp_report_tags_service	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-tags-service-image	059da989076a	2026-02-09 07:22:47 +0000 UTC	Up 10 minutes (healthy)	127.0.0.1:9098->8080/tcp
+cleanapp_new_york_areas	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-custom-area-dashboard-image	a44dcb335ed0	2026-02-09 07:22:47 +0000 UTC	Up 10 minutes	127.0.0.1:9088->8080/tcp
+cleanapp_report_processor	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-processor-image	90baf1c9171c	2026-02-09 07:22:47 +0000 UTC	Up 10 minutes	127.0.0.1:9087->8080/tcp
+cleanapp_areas_service	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-areas-service-image	52d513c8e08f	2026-02-09 07:22:47 +0000 UTC	Up 10 minutes	127.0.0.1:9086->8080/tcp
+cleanapp_red_bull_dashboard	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-brand-dashboard-image	c320afe1b2cd	2026-02-09 07:22:47 +0000 UTC	Up 10 minutes (healthy)	127.0.0.1:9085->8080/tcp
+cleanapp_frontend	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-frontend-image	cec76767f772	2026-02-09 07:22:47 +0000 UTC	Up 10 minutes	127.0.0.1:3001->3000/tcp
+cleanapp_customer_service	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-customer-service-image	b64a5d049f95	2026-02-09 07:22:47 +0000 UTC	Up 10 minutes	127.0.0.1:9080->8080/tcp
+cleanapp_montenegro_areas	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-custom-area-dashboard-image	416dda6b66fd	2026-02-09 07:22:47 +0000 UTC	Up 10 minutes	127.0.0.1:9083->8080/tcp
+cleanapp_report_listener	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-listener-image	3e60cbc0371a	2026-02-09 07:22:47 +0000 UTC	Up 10 minutes (healthy)	127.0.0.1:9081->8080/tcp
+cleanapp_edge_city_areas	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-custom-area-dashboard-image	8e529b25e70e	2026-02-09 07:22:47 +0000 UTC	Up 10 minutes	127.0.0.1:9095->8080/tcp
+cleanapp_frontend_embedded	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-frontend-image-embedded	b901230c2004	2026-02-09 07:22:47 +0000 UTC	Up 10 minutes	127.0.0.1:3002->3000/tcp
+cleanapp_rabbitmq	rabbitmq	c81b0c2a1827	2026-02-09 07:21:46 +0000 UTC	Up 11 minutes (healthy)	4369/tcp, 127.0.0.1:5672->5672/tcp, 5671/tcp, 15691-15692/tcp, 25672/tcp, 127.0.0.1:15672->15672/tcp
+cleanapp_db	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-db-image	943a26912227	2026-02-09 07:21:46 +0000 UTC	Up 11 minutes (healthy)	127.0.0.1:3306->3306/tcp, 33060/tcp
+cleanapp_bluesky_submitter	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-bluesky-submitter-image:prod	218e03933674	2026-02-09 00:44:41 +0000 UTC	Up 7 hours	
+cleanapp_replier_twitter	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-news-replier-twitter-image:prod	9cd299fe6d9e	2026-02-09 00:44:40 +0000 UTC	Up 7 hours	
+cleanapp_email_fetcher	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-email-fetcher-image:prod	2190fb9a8a8e	2026-02-09 00:44:32 +0000 UTC	Up 7 hours	
+cleanapp_news_analyzer_twitter	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-news-analyzer-twitter-image:prod	0c6444f24f70	2026-02-09 00:44:32 +0000 UTC	Up 7 hours	
+cleanapp_bluesky_indexer	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-bluesky-indexer-image:prod	68643256c84b	2026-02-09 00:44:32 +0000 UTC	Up 7 hours	
+cleanapp_news_indexer_twitter	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-news-indexer-twitter-image:prod	a6de80b42a5d	2026-02-09 00:44:32 +0000 UTC	Up 7 hours	
+cleanapp_pipelines	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-pipelines-image:prod	be1e2f7d6fea	2026-02-09 00:44:32 +0000 UTC	Up 7 hours	0.0.0.0:8090->8090/tcp, [::]:8090->8090/tcp, 8091/tcp
+cleanapp_bluesky_now	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/bluesky-now:v3	fb2f7e09f5f0	2026-02-07 20:06:43 +0000 UTC	Up 35 hours	
+cleanapp_bluesky_analyzer	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-bluesky-analyzer-image:prod	63ccc4a7cf6a	2026-02-07 20:05:50 +0000 UTC	Up 35 hours	
+cleanapp_web	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-web-image:prod	5228702fe082	2025-12-22 00:48:09 +0000 UTC	Up 7 weeks	0.0.0.0:3000->3000/tcp, [::]:3000->3000/tcp

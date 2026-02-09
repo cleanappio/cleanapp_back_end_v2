@@ -1,0 +1,1 @@
+image=us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-tags-service-image@sha256:cfd555b150b7a5d3a21931bea9054eb3de6b8b1aa3c61818f0987839099dcead;created=2026-02-09T07:22:47.269628176Z;restart=no;health=healthy;workdir=/app;user=;entrypoint=[];cmd=["/usr/local/bin/report-tags"]

@@ -1,0 +1,8 @@
+3b6a117a964d120e1fc5e472dbe2a4d49cb4de47e15f48a930940ab46db517f7  /home/deployer/backup.sh
+d12eba7efb920e6692f8e7ec05efddf01464d4d5da57eba762384eae4b229da1  /home/deployer/deploy.sh
+9beafea2eef3b9e11082ce71fdc579d4edb676eb98ae979d0217102b058ac3d0  /home/deployer/down.sh
+049b03752c0b9fb765755c3e96c4d15dea4ccc595fe257ea09bb652f1c621aa7  /home/deployer/down1.sh
+e266598aceed094f791986fbe075aeec22cd818fc4eb42c46cc5a7ec153a0f67  /home/deployer/install_docker.sh
+1ba1684a4a9e15a0e8af9378816882b2a81926c72e4b3a6ef74f532e328b219a  /home/deployer/setup.sh
+87c7138d960c5b9bc8e40a9dbcd8a658fd7be18c1130186724ac069d718b6f93  /home/deployer/up.sh
+dfbaba76686136296a1b44eb2bcf8c86adf2e8a913bcae593dd89d954a0d9d1d  /home/deployer/up1.sh

@@ -1,0 +1,1 @@
+image=us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-news-replier-twitter-image:prod;created=2026-02-09T00:44:40.181234315Z;restart=no;health=none;workdir=/app;user=;entrypoint=[];cmd=["replier-twitter"]

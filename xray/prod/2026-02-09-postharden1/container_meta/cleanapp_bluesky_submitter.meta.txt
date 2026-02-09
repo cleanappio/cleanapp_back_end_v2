@@ -1,0 +1,1 @@
+image=us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-bluesky-submitter-image:prod;created=2026-02-09T00:44:41.020999375Z;restart=no;health=none;workdir=/srv;user=;entrypoint=["/usr/local/bin/submitter_bluesky"];cmd=null
