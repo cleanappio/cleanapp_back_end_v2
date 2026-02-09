@@ -71,6 +71,11 @@ def _parse_compose_services(path: Path) -> Dict[str, ComposeService]:
                 in_services = True
             continue
 
+        # Stop once we reach the next top-level section (configs:, volumes:, networks:, ...).
+        # Our compose files use top-level keys at indent 0.
+        if line and not line.startswith(" ") and not line.lstrip().startswith("#"):
+            break
+
         m = _SERVICE_RE.match(line)
         if m:
             svc = m.group(1)
@@ -231,4 +236,3 @@ def main(argv: List[str]) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))
-
