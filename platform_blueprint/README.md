@@ -34,6 +34,13 @@ cleanapp-platform/
 As of the prod xray snapshot (2026-02-07), the canonical as-deployed artifacts are under:
 - `xray/prod/2026-02-07/`
 
+As of the latest prod xray snapshot (2026-02-09-postdlq2), the canonical as-deployed artifacts are under:
+- `xray/prod/2026-02-09-postdlq2/`
+
+We also keep a redacted copy of prod deploy config here (for future migration into `cleanapp-platform/`):
+- `platform_blueprint/deploy/prod/docker-compose.yml`
+- `platform_blueprint/deploy/prod/nginx_conf_d/`
+
 For deterministic upgrades/rollbacks, pin the baseline using image digest manifests:
 - `platform_blueprint/manifests/`
 

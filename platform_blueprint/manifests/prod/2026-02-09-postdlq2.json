@@ -1,0 +1,479 @@
+{
+  "captured_date": "2026-02-09-postdlq2",
+  "containers": {
+    "cleanapp_areas_service": {
+      "config_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-areas-service-image@sha256:ca029a0be4991faed73e7091037addcbbce15d796875409ae23fe65302d11cbf",
+      "container_id": "52d513c8e08fb380428ac0771f3ef0c99b224a5d09060ab57f147b21568da6a4",
+      "created": "2026-02-09T07:22:47.265697556Z",
+      "health": "none",
+      "image_id": "sha256:9ce8c7828d5559e8a3c8515244709d36f3c7856dc996fb186e644599f83204da",
+      "networks": "deployer_default",
+      "pinned_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-areas-service-image@sha256:ca029a0be4991faed73e7091037addcbbce15d796875409ae23fe65302d11cbf",
+      "ports": "127.0.0.1:9086->8080/tcp",
+      "repo_digests": [
+        "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-areas-service-image@sha256:ca029a0be4991faed73e7091037addcbbce15d796875409ae23fe65302d11cbf"
+      ],
+      "started_at": "2026-02-09T07:23:00.617682815Z",
+      "state": "running"
+    },
+    "cleanapp_auth_service": {
+      "config_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-auth-service-image@sha256:e7d0766735b64b02825a90b70da3b97598860d0ce721de3dd38667f20f6aadde",
+      "container_id": "7bca9b15143ac584d074bc6fd5a8cea4d7b85bc55e6d96a21071f3e19fe6d218",
+      "created": "2026-02-09T07:22:47.271351746Z",
+      "health": "none",
+      "image_id": "sha256:d0b0e768c4e698ef29fd986c7c7139d37b5f7d1f058eea9cd85c689c9c74a1e6",
+      "networks": "deployer_default",
+      "pinned_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-auth-service-image@sha256:e7d0766735b64b02825a90b70da3b97598860d0ce721de3dd38667f20f6aadde",
+      "ports": "127.0.0.1:9084->8080/tcp",
+      "repo_digests": [
+        "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-auth-service-image@sha256:e7d0766735b64b02825a90b70da3b97598860d0ce721de3dd38667f20f6aadde"
+      ],
+      "started_at": "2026-02-09T07:23:01.074831007Z",
+      "state": "running"
+    },
+    "cleanapp_bluesky_analyzer": {
+      "config_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-bluesky-analyzer-image:prod",
+      "container_id": "63ccc4a7cf6a3d22a7007763f0365867130c05d42348620f7f7c176fbae6500e",
+      "created": "2026-02-07T20:05:50.847516858Z",
+      "health": "none",
+      "image_id": "sha256:25aefc5bc8d6cd682002e3e557f039d813b945694cc7c800e4c13b22735ed851",
+      "networks": "deployer_default",
+      "pinned_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-bluesky-analyzer-image@sha256:3aaf75555c3903d6c2ba1f871b496be2fbc491b0e64cd341205597a1f3ed8dcf",
+      "ports": "",
+      "repo_digests": [
+        "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-bluesky-analyzer-image@sha256:3aaf75555c3903d6c2ba1f871b496be2fbc491b0e64cd341205597a1f3ed8dcf"
+      ],
+      "started_at": "2026-02-07T20:05:55.59457417Z",
+      "state": "running"
+    },
+    "cleanapp_bluesky_indexer": {
+      "config_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-bluesky-indexer-image:prod",
+      "container_id": "68643256c84b485db0f4155462939701cf2be5235074009c2cdd7fda74e41d80",
+      "created": "2026-02-09T00:44:32.883430704Z",
+      "health": "none",
+      "image_id": "sha256:cec733eaafe8aca8bda729e412fc32268861095c8499e9ec5879b144295b17c4",
+      "networks": "deployer_default",
+      "pinned_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-bluesky-indexer-image@sha256:1e5567ae3b4babf73fdc04a2eac94d4359eaabfad4cddc5c023300c32efaef68",
+      "ports": "",
+      "repo_digests": [
+        "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-bluesky-indexer-image@sha256:1e5567ae3b4babf73fdc04a2eac94d4359eaabfad4cddc5c023300c32efaef68"
+      ],
+      "started_at": "2026-02-09T00:44:52.437068495Z",
+      "state": "running"
+    },
+    "cleanapp_bluesky_now": {
+      "config_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/bluesky-now:v3",
+      "container_id": "fb2f7e09f5f04a740a0defe24d6373a926cc40ae9c11f7fe3d10299eb847310c",
+      "created": "2026-02-07T20:06:43.051369625Z",
+      "health": "none",
+      "image_id": "sha256:a1d3b6189d5b96d71ec3f4fdd78f9929640f7a5a3855f0c398a076a1f5b4c648",
+      "networks": "deployer_default",
+      "pinned_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/bluesky-now@sha256:d93c7da4ff8a5a28c9c13e91066b7f384a92c3f189defc9aa7635e6ebbda3c1c",
+      "ports": "",
+      "repo_digests": [
+        "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/bluesky-now@sha256:d93c7da4ff8a5a28c9c13e91066b7f384a92c3f189defc9aa7635e6ebbda3c1c"
+      ],
+      "started_at": "2026-02-07T20:06:43.213527149Z",
+      "state": "running"
+    },
+    "cleanapp_bluesky_submitter": {
+      "config_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-bluesky-submitter-image:prod",
+      "container_id": "218e0393367458ecec2251a19fe8ff40d00969ce9a43d1518e7e02d31ac3d84b",
+      "created": "2026-02-09T00:44:41.020999375Z",
+      "health": "none",
+      "image_id": "sha256:555e15724bec0ac2c0db181c471a1be0237e6ad322aca138493b3d351c386864",
+      "networks": "deployer_default",
+      "pinned_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-bluesky-submitter-image@sha256:cf605e3d2243cbbedd14460987f146d48a163b94bc4507ec64edd72ceb1d4251",
+      "ports": "",
+      "repo_digests": [
+        "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-bluesky-submitter-image@sha256:cf605e3d2243cbbedd14460987f146d48a163b94bc4507ec64edd72ceb1d4251"
+      ],
+      "started_at": "2026-02-09T00:45:06.837257981Z",
+      "state": "running"
+    },
+    "cleanapp_customer_service": {
+      "config_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-customer-service-image@sha256:e586dd7aa220b3bb6da6813e1afea1ff577d4103cfeaa68511bdccc70782fb9b",
+      "container_id": "b64a5d049f9548cacd1818d9181ce6514fcaca1d33e2c1daebb96807638b10b3",
+      "created": "2026-02-09T07:22:47.259466042Z",
+      "health": "none",
+      "image_id": "sha256:b7b1e74f1d688d5b991773768367c2908548d3f8d014af72e72afa791a72dd2a",
+      "networks": "deployer_default",
+      "pinned_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-customer-service-image@sha256:e586dd7aa220b3bb6da6813e1afea1ff577d4103cfeaa68511bdccc70782fb9b",
+      "ports": "127.0.0.1:9080->8080/tcp",
+      "repo_digests": [
+        "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-customer-service-image@sha256:e586dd7aa220b3bb6da6813e1afea1ff577d4103cfeaa68511bdccc70782fb9b"
+      ],
+      "started_at": "2026-02-09T07:23:01.008391709Z",
+      "state": "running"
+    },
+    "cleanapp_db": {
+      "config_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-db-image:live",
+      "container_id": "b18323ec886df381948455df824a533ffb888bbf89a52f6722ecfbc98089fc0e",
+      "created": "2026-02-09T14:05:21.514110887Z",
+      "health": "healthy",
+      "image_id": "sha256:b8702932301d5d5e5abc048470ae857ae83aaa1f96c22dd2cb4629ad99a53895",
+      "networks": "deployer_default",
+      "pinned_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-db-image@sha256:03d76343bb098771f86337e8c28a76b6cc3412f7306b6806880a8ef6eef598c0",
+      "ports": "127.0.0.1:3306->3306/tcp, 33060/tcp",
+      "repo_digests": [
+        "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-db-image@sha256:03d76343bb098771f86337e8c28a76b6cc3412f7306b6806880a8ef6eef598c0"
+      ],
+      "started_at": "2026-02-09T14:05:57.289975233Z",
+      "state": "running"
+    },
+    "cleanapp_devconnect_2025_areas": {
+      "config_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-custom-area-dashboard-image@sha256:b99119b2e07eb3cc2624afbcf0522638034ce528df4d966fbefdbdfff662daa2",
+      "container_id": "d7ade1af69d0d437841b5c93c9465c4e3b3facc005d7f89164ebda2798cd79a7",
+      "created": "2026-02-09T07:22:47.279151717Z",
+      "health": "none",
+      "image_id": "sha256:6c4bd94c11b2f545413d292b49ff8f2128c54d1e8ec94af729907ef139a3650a",
+      "networks": "deployer_default",
+      "pinned_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-custom-area-dashboard-image@sha256:b99119b2e07eb3cc2624afbcf0522638034ce528df4d966fbefdbdfff662daa2",
+      "ports": "127.0.0.1:9094->8080/tcp",
+      "repo_digests": [
+        "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-custom-area-dashboard-image@sha256:b99119b2e07eb3cc2624afbcf0522638034ce528df4d966fbefdbdfff662daa2"
+      ],
+      "started_at": "2026-02-09T07:23:00.985251511Z",
+      "state": "running"
+    },
+    "cleanapp_edge_city_areas": {
+      "config_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-custom-area-dashboard-image@sha256:b99119b2e07eb3cc2624afbcf0522638034ce528df4d966fbefdbdfff662daa2",
+      "container_id": "8e529b25e70e66296154b6e9be63461c86b13e5e4efb7dfa6760d5860fa76d58",
+      "created": "2026-02-09T07:22:47.254426309Z",
+      "health": "none",
+      "image_id": "sha256:6c4bd94c11b2f545413d292b49ff8f2128c54d1e8ec94af729907ef139a3650a",
+      "networks": "deployer_default",
+      "pinned_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-custom-area-dashboard-image@sha256:b99119b2e07eb3cc2624afbcf0522638034ce528df4d966fbefdbdfff662daa2",
+      "ports": "127.0.0.1:9095->8080/tcp",
+      "repo_digests": [
+        "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-custom-area-dashboard-image@sha256:b99119b2e07eb3cc2624afbcf0522638034ce528df4d966fbefdbdfff662daa2"
+      ],
+      "started_at": "2026-02-09T07:23:00.663590469Z",
+      "state": "running"
+    },
+    "cleanapp_email_fetcher": {
+      "config_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-email-fetcher-image:prod",
+      "container_id": "2190fb9a8a8e4ba9ce461c3265a1bcfd8c93a6d0ab6364c305dcce5cca76fca1",
+      "created": "2026-02-09T00:44:32.891309978Z",
+      "health": "none",
+      "image_id": "sha256:74a88248793b902a751292f669665f45c888475e44bb2936db6d0dde60bde9ea",
+      "networks": "deployer_default",
+      "pinned_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-email-fetcher-image@sha256:b3d95906977e30756b1a75856193d1694c0fe42ec26318372482fda5a4f68e4f",
+      "ports": "",
+      "repo_digests": [
+        "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-email-fetcher-image@sha256:b3d95906977e30756b1a75856193d1694c0fe42ec26318372482fda5a4f68e4f"
+      ],
+      "started_at": "2026-02-09T00:44:52.728738552Z",
+      "state": "running"
+    },
+    "cleanapp_email_service": {
+      "config_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-email-service-image@sha256:3c2c00427efb5dd9a55b57499d830b4bd6a564df5fd1bd6dcfde9f043cc7e678",
+      "container_id": "53cb8664eb5503e740a4cac35f488c89cbdc0735abec37aa45f815b7ba9f11cd",
+      "created": "2026-02-09T07:22:47.285170824Z",
+      "health": "none",
+      "image_id": "sha256:ee6e8969066b1c8b039f25b3e76efc058b51d6341552702f5fc47f66957a355b",
+      "networks": "deployer_default",
+      "pinned_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-email-service-image@sha256:3c2c00427efb5dd9a55b57499d830b4bd6a564df5fd1bd6dcfde9f043cc7e678",
+      "ports": "127.0.0.1:9089->8080/tcp",
+      "repo_digests": [
+        "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-email-service-image@sha256:3c2c00427efb5dd9a55b57499d830b4bd6a564df5fd1bd6dcfde9f043cc7e678"
+      ],
+      "started_at": "2026-02-09T07:23:00.630117818Z",
+      "state": "running"
+    },
+    "cleanapp_frontend": {
+      "config_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-frontend-image@sha256:d8aeaf8184f4d4010e759b8802907d7069cd0e6215e7c1443a6de599e9f30a4d",
+      "container_id": "cec76767f772b12aac6bf4683ad169a4da348d88801f82c374655004686f5335",
+      "created": "2026-02-09T07:22:47.261741237Z",
+      "health": "none",
+      "image_id": "sha256:141c5b58f45a221b2ad8d18d49331c9a89123c0f31a9a5fbfade4dc6190d921a",
+      "networks": "deployer_default",
+      "pinned_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-frontend-image@sha256:d8aeaf8184f4d4010e759b8802907d7069cd0e6215e7c1443a6de599e9f30a4d",
+      "ports": "127.0.0.1:3001->3000/tcp",
+      "repo_digests": [
+        "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-frontend-image@sha256:d8aeaf8184f4d4010e759b8802907d7069cd0e6215e7c1443a6de599e9f30a4d"
+      ],
+      "started_at": "2026-02-09T07:23:01.063380023Z",
+      "state": "running"
+    },
+    "cleanapp_frontend_embedded": {
+      "config_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-frontend-image-embedded@sha256:cfcf7b4c136660a640516856bdda8985e08392d727d53807e100e5c1adafd761",
+      "container_id": "b901230c2004105bdf5f902cce0e5627dca8ffe304dcaeb4746c26503d583d4e",
+      "created": "2026-02-09T07:22:47.242775963Z",
+      "health": "none",
+      "image_id": "sha256:f5114210f0dad49981d66733815105639d53521c1635158ba335236b42c833c3",
+      "networks": "deployer_default",
+      "pinned_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-frontend-image-embedded@sha256:cfcf7b4c136660a640516856bdda8985e08392d727d53807e100e5c1adafd761",
+      "ports": "127.0.0.1:3002->3000/tcp",
+      "repo_digests": [
+        "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-frontend-image-embedded@sha256:cfcf7b4c136660a640516856bdda8985e08392d727d53807e100e5c1adafd761"
+      ],
+      "started_at": "2026-02-09T07:23:00.995859652Z",
+      "state": "running"
+    },
+    "cleanapp_montenegro_areas": {
+      "config_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-custom-area-dashboard-image@sha256:b99119b2e07eb3cc2624afbcf0522638034ce528df4d966fbefdbdfff662daa2",
+      "container_id": "416dda6b66fde48018b63cd5bbc2de9f554a6126e9d3ab9d5c13fc6eb2b10b53",
+      "created": "2026-02-09T07:22:47.257768058Z",
+      "health": "none",
+      "image_id": "sha256:6c4bd94c11b2f545413d292b49ff8f2128c54d1e8ec94af729907ef139a3650a",
+      "networks": "deployer_default",
+      "pinned_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-custom-area-dashboard-image@sha256:b99119b2e07eb3cc2624afbcf0522638034ce528df4d966fbefdbdfff662daa2",
+      "ports": "127.0.0.1:9083->8080/tcp",
+      "repo_digests": [
+        "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-custom-area-dashboard-image@sha256:b99119b2e07eb3cc2624afbcf0522638034ce528df4d966fbefdbdfff662daa2"
+      ],
+      "started_at": "2026-02-09T07:23:00.632037226Z",
+      "state": "running"
+    },
+    "cleanapp_new_york_areas": {
+      "config_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-custom-area-dashboard-image@sha256:b99119b2e07eb3cc2624afbcf0522638034ce528df4d966fbefdbdfff662daa2",
+      "container_id": "a44dcb335ed076c72895b7f045a02b2962759bf5846f71e271ec48a90bd7f2f0",
+      "created": "2026-02-09T07:22:47.267685461Z",
+      "health": "none",
+      "image_id": "sha256:6c4bd94c11b2f545413d292b49ff8f2128c54d1e8ec94af729907ef139a3650a",
+      "networks": "deployer_default",
+      "pinned_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-custom-area-dashboard-image@sha256:b99119b2e07eb3cc2624afbcf0522638034ce528df4d966fbefdbdfff662daa2",
+      "ports": "127.0.0.1:9088->8080/tcp",
+      "repo_digests": [
+        "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-custom-area-dashboard-image@sha256:b99119b2e07eb3cc2624afbcf0522638034ce528df4d966fbefdbdfff662daa2"
+      ],
+      "started_at": "2026-02-09T07:23:01.066043284Z",
+      "state": "running"
+    },
+    "cleanapp_news_analyzer_twitter": {
+      "config_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-news-analyzer-twitter-image:prod",
+      "container_id": "0c6444f24f70665acd007dc435dfa32bd34e2aad154e4e5d97b3f06d74c03a16",
+      "created": "2026-02-09T00:44:32.888537806Z",
+      "health": "none",
+      "image_id": "sha256:a6e75d30d319daaf984e4e1dade3fef859ec075f5b0f8d8d2bf390e93d24e2b9",
+      "networks": "deployer_default",
+      "pinned_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-news-analyzer-twitter-image@sha256:cb15e9afbeef94450b7bd15d2b755789db8e3ff41a33f25dafcf9095eedcf9f3",
+      "ports": "",
+      "repo_digests": [
+        "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-news-analyzer-twitter-image@sha256:cb15e9afbeef94450b7bd15d2b755789db8e3ff41a33f25dafcf9095eedcf9f3"
+      ],
+      "started_at": "2026-02-09T00:44:52.887116977Z",
+      "state": "running"
+    },
+    "cleanapp_news_indexer_twitter": {
+      "config_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-news-indexer-twitter-image:prod",
+      "container_id": "a6de80b42a5d58c4b98a4d2b2addf3721396e093a1ae2d824df3960cd577152c",
+      "created": "2026-02-09T00:44:32.82609976Z",
+      "health": "none",
+      "image_id": "sha256:ffc91e6aa7a0ff81abb2dff7639c8b4a92157822d733d87666c8ca83f03ff7b7",
+      "networks": "deployer_default",
+      "pinned_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-news-indexer-twitter-image@sha256:15b4f2d82f31e38153e3a5747b507a2438a73296182bbf93fcf59da7937d04bb",
+      "ports": "",
+      "repo_digests": [
+        "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-news-indexer-twitter-image@sha256:15b4f2d82f31e38153e3a5747b507a2438a73296182bbf93fcf59da7937d04bb"
+      ],
+      "started_at": "2026-02-09T00:44:52.837953971Z",
+      "state": "running"
+    },
+    "cleanapp_pipelines": {
+      "config_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-pipelines-image:prod",
+      "container_id": "be1e2f7d6fea4efbc1e4afd333c2aaf2af88903a03fadcf87a9c869b8cb60f23",
+      "created": "2026-02-09T00:44:32.818364515Z",
+      "health": "none",
+      "image_id": "sha256:e3d3ea824a018578ef29df2081c5eedfa526082ff22f426a7b14566a5619c95b",
+      "networks": "deployer_default",
+      "pinned_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-pipelines-image@sha256:883251d62c7724b69407a713ed02637413bb5d5d12442ef76dbe1ebbd16f8ee2",
+      "ports": "0.0.0.0:8090->8090/tcp, [::]:8090->8090/tcp, 8091/tcp",
+      "repo_digests": [
+        "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-pipelines-image@sha256:883251d62c7724b69407a713ed02637413bb5d5d12442ef76dbe1ebbd16f8ee2"
+      ],
+      "started_at": "2026-02-09T00:44:51.79164157Z",
+      "state": "running"
+    },
+    "cleanapp_rabbitmq": {
+      "config_image": "rabbitmq:latest",
+      "container_id": "7ccd361699bc81af75fe5c5a76a1eafa3c8d4e965207d490a1f5050aa09963ae",
+      "created": "2026-02-09T14:05:21.516419274Z",
+      "health": "healthy",
+      "image_id": "sha256:14eb391011e8fcbceb99d309a07cc95171d2a338b57e912a18b3467454626020",
+      "networks": "deployer_default",
+      "pinned_image": "rabbitmq@sha256:e831b3cdc1e6a3abd86bb67a75a54b319f5a2fc4dc3adf68e73417bbd266ef8b",
+      "ports": "4369/tcp, 127.0.0.1:5672->5672/tcp, 5671/tcp, 15691-15692/tcp, 25672/tcp, 127.0.0.1:15672->15672/tcp",
+      "repo_digests": [
+        "rabbitmq@sha256:e831b3cdc1e6a3abd86bb67a75a54b319f5a2fc4dc3adf68e73417bbd266ef8b"
+      ],
+      "started_at": "2026-02-09T14:05:57.2880001Z",
+      "state": "running"
+    },
+    "cleanapp_red_bull_dashboard": {
+      "config_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-brand-dashboard-image@sha256:60b18a67e22caa06b9b0f80b760cbb1d3d6e8abe14d59dbc9a6e5d9115515f60",
+      "container_id": "c320afe1b2cd3439a3e16487686be34729d8b87c55cf68d5b0f2dd09a426cfa9",
+      "created": "2026-02-09T07:22:47.263588095Z",
+      "health": "healthy",
+      "image_id": "sha256:fe348ec789de761f66e4da32e9417ad5c0248a0aa59e493b755c3da08826f6a5",
+      "networks": "deployer_default",
+      "pinned_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-brand-dashboard-image@sha256:60b18a67e22caa06b9b0f80b760cbb1d3d6e8abe14d59dbc9a6e5d9115515f60",
+      "ports": "127.0.0.1:9085->8080/tcp",
+      "repo_digests": [
+        "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-brand-dashboard-image@sha256:60b18a67e22caa06b9b0f80b760cbb1d3d6e8abe14d59dbc9a6e5d9115515f60"
+      ],
+      "started_at": "2026-02-09T07:23:00.619368089Z",
+      "state": "running"
+    },
+    "cleanapp_replier_twitter": {
+      "config_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-news-replier-twitter-image:prod",
+      "container_id": "ee1426e42d7f7de1cdcbb774c90ea933c15edbf465cb135212986bc758921935",
+      "created": "2026-02-09T14:16:43.670211095Z",
+      "health": "none",
+      "image_id": "sha256:9af8963424b3c54f7bdeaf515fa6980c80ed903ff2a154a257e4fba59b64a704",
+      "networks": "deployer_default",
+      "pinned_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-news-replier-twitter-image@sha256:86389f491f31cf0204d8a4f4da47f164047a41345c2d660b444a07592fe84a38",
+      "ports": "",
+      "repo_digests": [
+        "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-news-replier-twitter-image@sha256:86389f491f31cf0204d8a4f4da47f164047a41345c2d660b444a07592fe84a38"
+      ],
+      "started_at": "2026-02-09T14:16:56.285961435Z",
+      "state": "running"
+    },
+    "cleanapp_report_analyze_pipeline": {
+      "config_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-analyze-pipeline-image:prod",
+      "container_id": "60df638a1f77c708556717389208be85819cdc284bfabb7d4934cd2fa6f635e2",
+      "created": "2026-02-09T08:21:47.929109059Z",
+      "health": "none",
+      "image_id": "sha256:79924d6e44787a911c895281fd33b18f626b46834ba18fc15c120043a2c926c2",
+      "networks": "deployer_default",
+      "pinned_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-analyze-pipeline-image@sha256:b70ab797049d176d0466a075c43e08c7b04b6d011eeeb6fada2b03de1bb8cb18",
+      "ports": "127.0.0.1:9082->8080/tcp",
+      "repo_digests": [
+        "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-analyze-pipeline-image@sha256:b70ab797049d176d0466a075c43e08c7b04b6d011eeeb6fada2b03de1bb8cb18"
+      ],
+      "started_at": "2026-02-09T08:21:48.849113237Z",
+      "state": "running"
+    },
+    "cleanapp_report_listener": {
+      "config_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-listener-image@sha256:117726a887a5541091d0caf4c3fb4073686adc097eba6bc9173f59acfff4bdb8",
+      "container_id": "3e60cbc0371ae78a0f474cb7cb03a517fcd3b022091740fb6343e30ee39e7ff8",
+      "created": "2026-02-09T07:22:47.255998673Z",
+      "health": "healthy",
+      "image_id": "sha256:33ec1571a38a97582dbd96b34efd5bdfbb9bbb464d1cb71eab4bc54ddeaab446",
+      "networks": "deployer_default",
+      "pinned_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-listener-image@sha256:117726a887a5541091d0caf4c3fb4073686adc097eba6bc9173f59acfff4bdb8",
+      "ports": "127.0.0.1:9081->8080/tcp",
+      "repo_digests": [
+        "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-listener-image@sha256:117726a887a5541091d0caf4c3fb4073686adc097eba6bc9173f59acfff4bdb8"
+      ],
+      "started_at": "2026-02-09T07:23:01.010704854Z",
+      "state": "running"
+    },
+    "cleanapp_report_listener_v4": {
+      "config_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-listener-v4-image@sha256:55f7ee54e1e0b68fc607e74caf2850930eb4f25c03d45f54c5de9917e59d4b1f",
+      "container_id": "d197c3197e49be9df720d332159885934c79174b58342c4d6ab8e3cbf0dd1834",
+      "created": "2026-02-09T07:22:47.290467519Z",
+      "health": "none",
+      "image_id": "sha256:4e64ed2b9d93c9b4ca415b7b570344c5f3dd896556811165904555d74b4386ef",
+      "networks": "deployer_default",
+      "pinned_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-listener-v4-image@sha256:55f7ee54e1e0b68fc607e74caf2850930eb4f25c03d45f54c5de9917e59d4b1f",
+      "ports": "127.0.0.1:9097->8080/tcp",
+      "repo_digests": [
+        "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-listener-v4-image@sha256:55f7ee54e1e0b68fc607e74caf2850930eb4f25c03d45f54c5de9917e59d4b1f"
+      ],
+      "started_at": "2026-02-09T07:23:01.07135306Z",
+      "state": "running"
+    },
+    "cleanapp_report_processor": {
+      "config_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-processor-image@sha256:4c7ef9a5f5e13760a4c72e3d85d424bbd527181a28be3b8f1e5ee9bbce77f407",
+      "container_id": "90baf1c9171c1875a466917291850e62b3634dfeeadd4aba8e74e542db352380",
+      "created": "2026-02-09T07:22:47.267605396Z",
+      "health": "none",
+      "image_id": "sha256:2e4bc13c310cebe1260e0205c250846a8bab3ed392a179c876cfb33ddd0180ab",
+      "networks": "deployer_default",
+      "pinned_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-processor-image@sha256:4c7ef9a5f5e13760a4c72e3d85d424bbd527181a28be3b8f1e5ee9bbce77f407",
+      "ports": "127.0.0.1:9087->8080/tcp",
+      "repo_digests": [
+        "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-processor-image@sha256:4c7ef9a5f5e13760a4c72e3d85d424bbd527181a28be3b8f1e5ee9bbce77f407"
+      ],
+      "started_at": "2026-02-09T07:23:01.064927804Z",
+      "state": "running"
+    },
+    "cleanapp_report_renderer_service": {
+      "config_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-fast-renderer-image:prod",
+      "container_id": "84bd8caa4a18ac9e3274db2bdd532a76e0861c8f84e2213395b91e93cd0d7d96",
+      "created": "2026-02-09T14:05:46.617234449Z",
+      "health": "healthy",
+      "image_id": "sha256:02088d6ac7579711d848245d8d1001f91a15e1cd607eacecabb4e6197839c13c",
+      "networks": "deployer_default",
+      "pinned_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-fast-renderer-image@sha256:9c41a9c2ec73aeff9e6c2778b820685dcdbdce70c8f14b47d6a8f08e04f9475a",
+      "ports": "127.0.0.1:9093->8080/tcp",
+      "repo_digests": [
+        "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-fast-renderer-image@sha256:9c41a9c2ec73aeff9e6c2778b820685dcdbdce70c8f14b47d6a8f08e04f9475a"
+      ],
+      "started_at": "2026-02-09T14:06:26.696029656Z",
+      "state": "running"
+    },
+    "cleanapp_report_tags_service": {
+      "config_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-tags-service-image:prod",
+      "container_id": "5a5bd6108a2da5f26168f718f4ece59d06d3b8261355b8d81789275b4e9bda1a",
+      "created": "2026-02-09T14:15:01.23248202Z",
+      "health": "healthy",
+      "image_id": "sha256:70c5492f6e7afa348542535ef36f70017ed4232b0cd0504e501db560e6640942",
+      "networks": "deployer_default",
+      "pinned_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-tags-service-image@sha256:f6b71e10f4ce512c070945540ec58c37fa807bd94cffa814d7faec81af5d3672",
+      "ports": "127.0.0.1:9098->8080/tcp",
+      "repo_digests": [
+        "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-tags-service-image@sha256:f6b71e10f4ce512c070945540ec58c37fa807bd94cffa814d7faec81af5d3672"
+      ],
+      "started_at": "2026-02-09T14:15:23.340655444Z",
+      "state": "running"
+    },
+    "cleanapp_service": {
+      "config_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-service-image@sha256:c34d8af78db3604d88c6f67a0157e004411adc69ad907e02cd8d15c6d71b8097",
+      "container_id": "937b7bd0b3c96caf544e92cfc8121f71d2690a8818a67fb3edabf04d3a863e92",
+      "created": "2026-02-09T07:31:40.959579666Z",
+      "health": "none",
+      "image_id": "sha256:587adce18bd4ff36edf945c0a4eaf295a6a397a21ea441cccc5896566679ed20",
+      "networks": "deployer_default",
+      "pinned_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-service-image@sha256:c34d8af78db3604d88c6f67a0157e004411adc69ad907e02cd8d15c6d71b8097",
+      "ports": "127.0.0.1:8079->8080/tcp",
+      "repo_digests": [
+        "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-service-image@sha256:c34d8af78db3604d88c6f67a0157e004411adc69ad907e02cd8d15c6d71b8097"
+      ],
+      "started_at": "2026-02-09T07:32:14.312644189Z",
+      "state": "running"
+    },
+    "cleanapp_voice_assistant_service": {
+      "config_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-voice-assistant-service-image@sha256:eb725e8485b7eaaefe1b144f7454daff5d694bfb9a3802d2c3f612677d045d0c",
+      "container_id": "95637e2e5d2d2a023db1c3b483cffbb7bf9147225dc733d857383e7e303465f6",
+      "created": "2026-02-09T07:22:47.275984806Z",
+      "health": "none",
+      "image_id": "sha256:ad293657dff0872f56631ce9cec472904896e879999408d1ddc5daf1ac438961",
+      "networks": "deployer_default",
+      "pinned_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-voice-assistant-service-image@sha256:eb725e8485b7eaaefe1b144f7454daff5d694bfb9a3802d2c3f612677d045d0c",
+      "ports": "127.0.0.1:9092->8080/tcp",
+      "repo_digests": [
+        "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-voice-assistant-service-image@sha256:eb725e8485b7eaaefe1b144f7454daff5d694bfb9a3802d2c3f612677d045d0c"
+      ],
+      "started_at": "2026-02-09T07:23:00.896456812Z",
+      "state": "running"
+    },
+    "cleanapp_web": {
+      "config_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-web-image:prod",
+      "container_id": "5228702fe08226012dc20fa07a78479f2f29c700f4e25476e04a2f85a85b308d",
+      "created": "2025-12-22T00:48:09.220149601Z",
+      "health": "none",
+      "image_id": "sha256:667dea7e48c5d9fa4929f308b7f6b65ff48f931aa0694b12e0279ad88c1777ca",
+      "networks": "deployer_default",
+      "pinned_image": "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-web-image@sha256:7af5382d44379b796e7146890beb6e25f1dff5be5f4f238dee5b4f4516d72356",
+      "ports": "0.0.0.0:3000->3000/tcp, [::]:3000->3000/tcp",
+      "repo_digests": [
+        "us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-web-image@sha256:7af5382d44379b796e7146890beb6e25f1dff5be5f4f238dee5b4f4516d72356"
+      ],
+      "started_at": "2025-12-22T00:48:27.041977876Z",
+      "state": "running"
+    }
+  },
+  "containers_missing_repo_digests": [],
+  "env": "prod",
+  "generated_at": "2026-02-09T17:00:24.347914+00:00",
+  "schema_version": 1,
+  "summary": {
+    "container_count": 31,
+    "missing_repo_digests_count": 0
+  },
+  "xray_dir": "/Users/anon16/Downloads/cleanapp_back_end_v2/xray/prod/2026-02-09-postdlq2"
+}

@@ -9,8 +9,8 @@ services:
       - 127.0.0.1:5672:5672
       - 127.0.0.1:15672:15672
     environment:
-      RABBITMQ_DEFAULT_USER: ${AMQP_USER}
-      RABBITMQ_DEFAULT_PASS: ${AMQP_PASSWORD}
+      RABBITMQ_DEFAULT_USER: cleanapp
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
     configs:
       - source: rabbitmq-plugins
         target: /etc/rabbitmq/enabled_plugins
@@ -39,7 +39,7 @@ services:
       - REPORT_ANALYSIS_URL=http://cleanapp_report_analyze_pipeline:8080
       - AMQP_HOST=cleanapp_rabbitmq
       - AMQP_PORT=5672
-      - AMQP_USER=${AMQP_USER}
+      - AMQP_USER=cleanapp
       - AMQP_PASSWORD=${AMQP_PASSWORD}
       - RABBITMQ_EXCHANGE=cleanapp-exchange
       - RABBITMQ_RAW_REPORT_ROUTING_KEY=report.raw
@@ -55,7 +55,7 @@ services:
       - PIPELINES_PORT=8090
       - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
       - MYSQL_APP_PASSWORD=${MYSQL_APP_PASSWORD}
-      - KITN_PRIVATE_KEY=${KITN_PRIVATE_KEY_MAIN}
+      - KITN_PRIVATE_KEY=${KITN_PRIVATE_KEY}
       - ETH_NETWORK_URL=https://sepolia.base.org
       - CONTRACT_ADDRESS=0xDc41655b749E8F2922A6E5e525Fc04a915aEaFAA
       - USERS_TABLE=users
@@ -100,7 +100,7 @@ services:
       - LAMINATOR_ADDRESS=0x36aB7A6ad656BC19Da2D5Af5b46f3cf3fc47274D
       - CALL_BREAKER_ADDRESS=0x23912387357621473Ff6514a2DC20Df14cd72E7f
       - KITN_DISBURSEMENT_SCHEDULER_ADDRESS=0x7E485Fd55CEdb1C303b2f91DFE7695e72A537399
-      - CLEANAPP_WALLET_PRIVATE_KEY=${KITN_PRIVATE_KEY_SHADOW}
+      - CLEANAPP_WALLET_PRIVATE_KEY=${CLEANAPP_WALLET_PRIVATE_KEY}
       - DISBURSEMENT_SHADOW_SCHEDULE=0 */3 * * * *
 
   cleanapp_frontend:
@@ -123,8 +123,8 @@ services:
       - BASE_URL=https://api.cleanapp.io
       - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
       - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
-      - ENCRYPTION_KEY=${CLEANAPP_IO_ENCRYPTION_KEY}
-      - JWT_SECRET=${CLEANAPP_IO_JWT_SECRET}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - JWT_SECRET=${JWT_SECRET}
       - STRIPE_PRICE_BASE_MONTHLY=price_1Rg0hJF5CkX59Cnm9L9Z4j36
       - STRIPE_PRICE_BASE_ANNUAL=price_1Rg0hJF5CkX59CnmOyT5HZVu
       - STRIPE_PRICE_ADVANCED_MONTHLY=price_1Rg0hEF5CkX59CnmT5ZspSPK
@@ -132,7 +132,7 @@ services:
       - DB_HOST=cleanapp_db
       - DB_PORT=3306
       - DB_USER=server
-      - DB_PASSWORD=${MYSQL_APP_PASSWORD}
+      - DB_PASSWORD=${DB_PASSWORD}
       - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
       - GIN_MODE=release
     ports:
@@ -145,14 +145,14 @@ services:
       - DB_HOST=cleanapp_db
       - DB_PORT=3306
       - DB_USER=server
-      - DB_PASSWORD=${MYSQL_APP_PASSWORD}
+      - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=cleanapp
       - BROADCAST_INTERVAL=1s
       - LOG_LEVEL=info
       - GIN_MODE=release
       - AMQP_HOST=cleanapp_rabbitmq
       - AMQP_PORT=5672
-      - AMQP_USER=${AMQP_USER}
+      - AMQP_USER=cleanapp
       - AMQP_PASSWORD=${AMQP_PASSWORD}
       - RABBITMQ_EXCHANGE=cleanapp-exchange
       - RABBITMQ_ANALYSED_REPORT_ROUTING_KEY=report.analysed
@@ -170,7 +170,7 @@ services:
       - DB_HOST=cleanapp_db
       - DB_PORT=3306
       - DB_USER=server
-      - DB_PASSWORD=${MYSQL_APP_PASSWORD}
+      - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=cleanapp
       - ANALYZER_LLM_PROVIDER=gemini
       - OPENAI_API_KEY=${OPENAI_API_KEY}
@@ -185,7 +185,7 @@ services:
       - SEQ_START_FROM=24900
       - AMQP_HOST=cleanapp_rabbitmq
       - AMQP_PORT=5672
-      - AMQP_USER=${AMQP_USER}
+      - AMQP_USER=cleanapp
       - AMQP_PASSWORD=${AMQP_PASSWORD}
       - RABBITMQ_EXCHANGE=cleanapp-exchange
       - RABBITMQ_QUEUE=report-analysis-queue
@@ -205,7 +205,7 @@ services:
       - DB_HOST=cleanapp_db
       - DB_PORT=3306
       - DB_USER=server
-      - DB_PASSWORD=${MYSQL_APP_PASSWORD}
+      - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=cleanapp
       - LOG_LEVEL=info
       - LOG_FORMAT=json
@@ -227,7 +227,7 @@ services:
       - DB_HOST=cleanapp_db
       - DB_PORT=3306
       - DB_USER=server
-      - DB_PASSWORD=${MYSQL_APP_PASSWORD}
+      - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=cleanapp
       - LOG_LEVEL=info
       - LOG_FORMAT=json
@@ -249,7 +249,7 @@ services:
       - DB_HOST=cleanapp_db
       - DB_PORT=3306
       - DB_USER=server
-      - DB_PASSWORD=${MYSQL_APP_PASSWORD}
+      - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=cleanapp
       - LOG_LEVEL=info
       - LOG_FORMAT=json
@@ -271,7 +271,7 @@ services:
       - DB_HOST=cleanapp_db
       - DB_PORT=3306
       - DB_USER=server
-      - DB_PASSWORD=${MYSQL_APP_PASSWORD}
+      - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=cleanapp
       - LOG_LEVEL=info
       - LOG_FORMAT=json
@@ -292,12 +292,12 @@ services:
     image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-auth-service-image:prod
     environment:
       - TRUSTED_PROXIES=127.0.0.1,::1
-      - ENCRYPTION_KEY=${CLEANAPP_IO_ENCRYPTION_KEY}
-      - JWT_SECRET=${CLEANAPP_IO_JWT_SECRET}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - JWT_SECRET=${JWT_SECRET}
       - DB_HOST=cleanapp_db
       - DB_PORT=3306
       - DB_USER=server
-      - DB_PASSWORD=${MYSQL_APP_PASSWORD}
+      - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=cleanapp
       - GIN_MODE=release
       - SENDGRID_API_KEY=${SENDGRID_API_KEY}
@@ -317,7 +317,7 @@ services:
       - DB_HOST=cleanapp_db
       - DB_PORT=3306
       - DB_USER=server
-      - DB_PASSWORD=${MYSQL_APP_PASSWORD}
+      - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=cleanapp
       - GIN_MODE=release
       - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
@@ -333,7 +333,7 @@ services:
       - DB_HOST=cleanapp_db
       - DB_PORT=3306
       - DB_USER=server
-      - DB_PASSWORD=${MYSQL_APP_PASSWORD}
+      - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=cleanapp
       - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
       - GIN_MODE=release
@@ -350,7 +350,7 @@ services:
       - DB_HOST=cleanapp_db
       - DB_PORT=3306
       - DB_USER=server
-      - DB_PASSWORD=${MYSQL_APP_PASSWORD}
+      - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=cleanapp
       - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
       - REPORT_AUTH_SERVICE_URL=http://cleanapp_report_auth_service:8080
@@ -361,7 +361,7 @@ services:
       - GIN_MODE=release
       - AMQP_HOST=cleanapp_rabbitmq
       - AMQP_PORT=5672
-      - AMQP_USER=${AMQP_USER}
+      - AMQP_USER=cleanapp
       - AMQP_PASSWORD=${AMQP_PASSWORD}
       - RABBITMQ_EXCHANGE=cleanapp-exchange
       - RABBITMQ_RAW_REPORT_ROUTING_KEY=report.raw
@@ -375,7 +375,7 @@ services:
       - DB_HOST=cleanapp_db
       - DB_PORT=3306
       - DB_USER=server
-      - DB_PASSWORD=${MYSQL_APP_PASSWORD}
+      - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=cleanapp
       - SENDGRID_API_KEY=${SENDGRID_API_KEY}
       - SENDGRID_FROM_NAME=CleanApp
@@ -397,7 +397,7 @@ services:
       - DB_HOST=cleanapp_db
       - DB_PORT=3306
       - DB_USER=server
-      - DB_PASSWORD=${MYSQL_APP_PASSWORD}
+      - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=cleanapp
       - SENDGRID_API_KEY=${SENDGRID_API_KEY}
       - SENDGRID_FROM_NAME=CleanApp
@@ -420,7 +420,7 @@ services:
       - DB_HOST=cleanapp_db
       - DB_PORT=3306
       - DB_USER=server
-      - DB_PASSWORD=${MYSQL_APP_PASSWORD}
+      - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=cleanapp
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_MODEL=gpt-4o
@@ -439,13 +439,13 @@ services:
       - DB_HOST=cleanapp_db
       - DB_PORT=3306
       - DB_USER=server
-      - DB_PASSWORD=${MYSQL_APP_PASSWORD}
+      - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=cleanapp
       - POLL_INTERVAL=1s
       - BATCH_SIZE=100
       - AMQP_HOST=cleanapp_rabbitmq
       - AMQP_PORT=5672
-      - AMQP_USER=${AMQP_USER}
+      - AMQP_USER=cleanapp
       - AMQP_PASSWORD=${AMQP_PASSWORD}
       - RABBITMQ_EXCHANGE=cleanapp-exchange
       - RABBITMQ_QUEUE=report-ownership-queue
@@ -475,7 +475,7 @@ services:
       - DB_HOST=cleanapp_db
       - DB_PORT=3306
       - DB_USER=server
-      - DB_PASSWORD=${MYSQL_APP_PASSWORD}
+      - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=cleanapp
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_MODEL=gpt-4o
@@ -485,7 +485,7 @@ services:
       - POLL_INTERVAL=500ms
       - AMQP_HOST=cleanapp_rabbitmq
       - AMQP_PORT=5672
-      - AMQP_USER=${AMQP_USER}
+      - AMQP_USER=cleanapp
       - AMQP_PASSWORD=${AMQP_PASSWORD}
       - RABBITMQ_EXCHANGE=cleanapp-exchange
       - RABBITMQ_QUEUE=gdpr-processing-queue
@@ -518,11 +518,11 @@ services:
       - DB_HOST=cleanapp_db
       - DB_PORT=3306
       - DB_USER=server
-      - DB_PASSWORD=${MYSQL_APP_PASSWORD}
+      - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=cleanapp
       - AMQP_HOST=cleanapp_rabbitmq
       - AMQP_PORT=5672
-      - AMQP_USER=${AMQP_USER}
+      - AMQP_USER=cleanapp
       - AMQP_PASSWORD=${AMQP_PASSWORD}
       - RABBITMQ_EXCHANGE=cleanapp-exchange
       - RABBITMQ_RENDERER_QUEUE_NAME=report-renderer-queue
@@ -543,7 +543,7 @@ services:
       - DB_HOST=cleanapp_db
       - DB_PORT=3306
       - DB_USER=server
-      - DB_PASSWORD=${MYSQL_APP_PASSWORD}
+      - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=cleanapp
       - HTTP_PORT=8080
     ports:
@@ -588,7 +588,7 @@ services:
     environment:
       - DB_URL=mysql://server:${MYSQL_APP_PASSWORD}@cleanapp_db:3306/cleanapp
       - SUBMIT_ENDPOINT_URL=http://cleanapp_report_listener:8080
-      - SUBMIT_TOKEN=${CLEANAPP_TWITTER_FETCHER_TOKEN}
+      - SUBMIT_TOKEN=${SUBMIT_TOKEN}
       - SUBMIT_BATCH_SIZE=60
       - SUBMIT_INTERVAL_SECS=10
     depends_on:
@@ -604,7 +604,7 @@ services:
       - DB_URL=mysql://server:${MYSQL_APP_PASSWORD}@cleanapp_db:3306/cleanapp
       - AMQP_HOST=cleanapp_rabbitmq
       - AMQP_PORT=5672
-      - AMQP_USER=${AMQP_USER}
+      - AMQP_USER=cleanapp
       - AMQP_PASSWORD=${AMQP_PASSWORD}
       - RABBITMQ_EXCHANGE=cleanapp-exchange
       - RABBITMQ_TWITTER_REPLY_QUEUE=twitter-reply-queue
@@ -629,11 +629,11 @@ services:
       - DB_HOST=cleanapp_db
       - DB_PORT=3306
       - DB_USER=server
-      - DB_PASSWORD=${MYSQL_APP_PASSWORD}
+      - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=cleanapp
       - AMQP_HOST=cleanapp_rabbitmq
       - AMQP_PORT=5672
-      - AMQP_USER=${AMQP_USER}
+      - AMQP_USER=cleanapp
       - AMQP_PASSWORD=${AMQP_PASSWORD}
       - RABBITMQ_EXCHANGE=cleanapp-exchange
       - RABBITMQ_QUEUE=report-tags-queue
@@ -682,7 +682,7 @@ services:
     environment:
       - DB_URL=mysql://server:${MYSQL_APP_PASSWORD}@cleanapp_db:3306/cleanapp
       - SUBMIT_ENDPOINT_URL=http://cleanapp_report_listener:8080
-      - SUBMIT_TOKEN=${CLEANAPP_TWITTER_FETCHER_TOKEN}
+      - SUBMIT_TOKEN=${SUBMIT_TOKEN}
       - SUBMIT_BATCH_SIZE=500
       - SUBMIT_INTERVAL_SECS=30
     depends_on:
@@ -708,3 +708,4 @@ volumes:
   rabbitmq-log:
     name: rabbitmq-log
     driver: local
+
