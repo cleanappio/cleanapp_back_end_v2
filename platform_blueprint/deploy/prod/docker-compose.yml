@@ -6,8 +6,8 @@ services:
     container_name: cleanapp_rabbitmq
     restart: always
     ports:
-      - 5672:5672
-      - 15672:15672
+      - 127.0.0.1:5672:5672
+      - 127.0.0.1:15672:15672
     environment:
       RABBITMQ_DEFAULT_USER: cleanapp
       RABBITMQ_DEFAULT_PASS: cleanapp
@@ -46,7 +46,7 @@ services:
       - RABBITMQ_USER_ROUTING_KEY=user.add
       - GIN_MODE=release
     ports:
-      - 8079:8080
+      - 127.0.0.1:8079:8080
 
   cleanapp_pipelines:
     container_name: cleanapp_pipelines
@@ -73,7 +73,7 @@ services:
     volumes:
       - mysql:/var/lib/mysql
     ports:
-      - 3306:3306
+      - 127.0.0.1:3306:3306
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p${MYSQL_ROOT_PASSWORD} --silent"]
       interval: 3s
@@ -107,13 +107,13 @@ services:
     container_name: cleanapp_frontend
     image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-frontend-image:prod
     ports:
-      - 3001:3000
+      - 127.0.0.1:3001:3000
 
   cleanapp_frontend_embedded:
     container_name: cleanapp_frontend_embedded
     image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-frontend-image-embedded:prod
     ports:
-      - 3002:3000
+      - 127.0.0.1:3002:3000
 
   cleanapp_customer_service:
     container_name: cleanapp_customer_service
@@ -136,7 +136,7 @@ services:
       - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
       - GIN_MODE=release
     ports:
-      - 9080:8080
+      - 127.0.0.1:9080:8080
 
   cleanapp_report_listener:
     container_name: cleanapp_report_listener
@@ -158,7 +158,7 @@ services:
       - RABBITMQ_ANALYSED_REPORT_ROUTING_KEY=report.analysed
       - RABBITMQ_TWITTER_REPLY_ROUTING_KEY=twitter.reply
     ports:
-      - 9081:8080
+      - 127.0.0.1:9081:8080
     depends_on:
       - cleanapp_db
       - cleanapp_rabbitmq
@@ -193,7 +193,7 @@ services:
       - RABBITMQ_ANALYSED_REPORT_ROUTING_KEY=report.analysed
       - GIN_MODE=release
     ports:
-      - 9082:8080
+      - 127.0.0.1:9082:8080
     depends_on:
       cleanapp_db:
         condition: service_healthy
@@ -215,7 +215,7 @@ services:
       - CUSTOM_AREA_ID=6787
       - CUSTOM_AREA_SUB_IDS=6761,6762,6763,6765,6766,6767,6768,6769,6770,6771,6772,6773,6774,6775,6776,6777,6778,6786,6903,6918,6956,6959,6961,6962,6963
     ports:
-      - 9083:8080
+      - 127.0.0.1:9083:8080
     depends_on:
       cleanapp_db:
         condition: service_healthy
@@ -237,7 +237,7 @@ services:
       - CUSTOM_AREA_ID=6636
       - CUSTOM_AREA_SUB_IDS=6637,6638,6639,6640,6641
     ports:
-      - 9088:8080
+      - 127.0.0.1:9088:8080
     depends_on:
       cleanapp_db:
         condition: service_healthy
@@ -259,7 +259,7 @@ services:
       - CUSTOM_AREA_ID=18544708
       - CUSTOM_AREA_SUB_IDS=18544708
     ports:
-      - 9094:8080
+      - 127.0.0.1:9094:8080
     depends_on:
       cleanapp_db:
         condition: service_healthy
@@ -282,7 +282,7 @@ services:
       - CUSTOM_AREA_SUB_IDS=18544709
       - IS_PUBLIC=true
     ports:
-      - 9095:8080
+      - 127.0.0.1:9095:8080
     depends_on:
       cleanapp_db:
         condition: service_healthy
@@ -305,7 +305,7 @@ services:
       - SENDGRID_FROM_EMAIL=info@cleanapp.io
       - FRONTEND_URL=https://cleanapp.io
     ports:
-      - 9084:8080
+      - 127.0.0.1:9084:8080
     depends_on:
       cleanapp_db:
         condition: service_healthy
@@ -324,7 +324,7 @@ services:
       - REPORT_AUTH_SERVICE_URL=http://cleanapp_report_auth_service:8080
       - BRAND_NAMES=Red Bull
     ports:
-      - 9085:8080
+      - 127.0.0.1:9085:8080
 
   cleanapp_areas_service:
     container_name: cleanapp_areas_service
@@ -338,7 +338,7 @@ services:
       - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
       - GIN_MODE=release
     ports:
-      - 9086:8080
+      - 127.0.0.1:9086:8080
     depends_on:
       cleanapp_db:
         condition: service_healthy
@@ -366,7 +366,7 @@ services:
       - RABBITMQ_EXCHANGE=cleanapp-exchange
       - RABBITMQ_RAW_REPORT_ROUTING_KEY=report.raw
     ports:
-      - 9087:8080
+      - 127.0.0.1:9087:8080
 
   cleanapp_email_service:
     container_name: cleanapp_email_service
@@ -385,7 +385,7 @@ services:
       - OPT_OUT_URL=https://cleanapp.io/api/optout
       - GIN_MODE=release
     ports:
-      - 9089:8080
+      - 127.0.0.1:9089:8080
     depends_on:
       cleanapp_db:
         condition: service_healthy
@@ -453,7 +453,7 @@ services:
       - RABBITMQ_ANALYSED_REPORT_ROUTING_KEY=report.analysed
       - GIN_MODE=release
     ports:
-      - 9090:8080
+      - 127.0.0.1:9090:8080
 
   cleanapp_reports_pusher:
     container_name: cleanapp_reports_pusher
@@ -493,7 +493,7 @@ services:
       - RABBITMQ_USER_ROUTING_KEY=user.add
       - GIN_MODE=release
     ports:
-      - 9091:8080
+      - 127.0.0.1:9091:8080
     depends_on:
       cleanapp_db:
         condition: service_healthy
@@ -508,7 +508,7 @@ services:
       - RATE_LIMIT_PER_MINUTE=10
       - ALLOWED_ORIGINS=*
     ports:
-      - 9092:8080
+      - 127.0.0.1:9092:8080
   
   cleanapp_report_renderer_service:
     container_name: cleanapp_report_renderer_service
@@ -529,7 +529,7 @@ services:
       - RABBITMQ_ANALYSED_REPORT_ROUTING_KEY=report.analysed
       - GIN_MODE=release
     ports:
-      - 9093:8080
+      - 127.0.0.1:9093:8080
     depends_on:
       cleanapp_db:
         condition: service_healthy
@@ -547,7 +547,7 @@ services:
       - DB_NAME=cleanapp
       - HTTP_PORT=8080
     ports:
-      - 9097:8080
+      - 127.0.0.1:9097:8080
     depends_on:
       cleanapp_db:
         condition: service_healthy
@@ -642,7 +642,7 @@ services:
       - RUST_LOG=info
       - MAX_TAG_FOLLOWS=200
     ports:
-      - 9098:8080
+      - 127.0.0.1:9098:8080
     depends_on:
       cleanapp_db:
         condition: service_healthy
