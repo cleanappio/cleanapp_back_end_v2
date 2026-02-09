@@ -13,11 +13,9 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 log = "0.4"
 env_logger = "0.11"
-cleanapp_rustlib = { git = "https://github.com/cleanappio/cleanapp-rustlib", tag = "v1.1.7" }
+cleanapp_rustlib = { path = "vendor/cleanapp_rustlib" }
 base64 = "0.22"
 hmac = "0.12"
 sha1 = "0.10"
 urlencoding = "2.1"
 rand = "0.8"
-
-

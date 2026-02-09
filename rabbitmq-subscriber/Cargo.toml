@@ -11,7 +11,7 @@ name = "rabbitmq-subscriber"
 path = "src/main.rs"
 
 [dependencies]
-cleanapp_rustlib = { git = "https://github.com/cleanappio/cleanapp-rustlib", tag = "v1.1.6" }
+cleanapp_rustlib = { path = "vendor/cleanapp_rustlib" }
 tokio = { version = "1.0", features = ["full"] }
 chrono = { version = "0.4", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }

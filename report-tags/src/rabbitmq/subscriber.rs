@@ -5,6 +5,7 @@ use sqlx::MySqlPool;
 use std::sync::Arc;
 use log;
 use serde::{Deserialize, Serialize};
+use std::future::Future;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ReportWithTagsMessage {
@@ -42,9 +43,10 @@ impl ReportTagsSubscriber {
         log::info!("Starting RabbitMQ subscriber for routing key: {}", routing_key);
 
         let pool = Arc::new(pool);
-        let callback: Arc<dyn Callback> = Arc::new(ReportTagsCallback { pool });
+        let callback: Arc<dyn Callback + Send + Sync + 'static> = Arc::new(ReportTagsCallback { pool });
 
-        let mut callbacks: std::collections::HashMap<String, Arc<dyn Callback>> = std::collections::HashMap::new();
+        let mut callbacks: std::collections::HashMap<String, Arc<dyn Callback + Send + Sync + 'static>> =
+            std::collections::HashMap::new();
         callbacks.insert(routing_key.to_string(), callback);
 
         self.subscriber.start(callbacks).await?;
@@ -62,6 +64,10 @@ impl ReportTagsSubscriber {
 
 struct ReportTagsCallback {
     pool: Arc<MySqlPool>,
+}
+
+fn block_on<F: Future>(fut: F) -> F::Output {
+    tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(fut))
 }
 
 impl Callback for ReportTagsCallback {
@@ -98,30 +104,28 @@ impl Callback for ReportTagsCallback {
             tags
         );
 
-        // Process tags asynchronously
+        // Process inline: ack/nack decision depends on *this* returning success/failure.
         let pool = Arc::clone(&self.pool);
         let report_seq = report_msg.seq;
+        let tags_vec = tags;
 
-        tokio::spawn(async move {
-            match tag_service::add_tags_to_report(&pool, report_seq, tags).await {
-                Ok(added_tags) => {
-                    log::info!(
-                        "Successfully processed tags for report {}: {:?}",
-                        report_seq,
-                        added_tags
-                    );
-                }
-                Err(e) => {
-                    log::error!(
-                        "Failed to process tags for report {}: {}",
-                        report_seq,
-                        e
-                    );
-                }
-            }
+        let res = block_on(async move {
+            tag_service::add_tags_to_report(&pool, report_seq, tags_vec).await
         });
 
-        Ok(())
+        match res {
+            Ok(added_tags) => {
+                log::info!(
+                    "Successfully processed tags for report {}: {:?}",
+                    report_seq,
+                    added_tags
+                );
+                Ok(())
+            }
+            Err(e) => {
+                log::error!("Failed to process tags for report {}: {}", report_seq, e);
+                Err(Box::new(e))
+            }
+        }
     }
 }
-
