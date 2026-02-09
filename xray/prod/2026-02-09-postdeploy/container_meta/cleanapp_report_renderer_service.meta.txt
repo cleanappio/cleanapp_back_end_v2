@@ -1,0 +1,1 @@
+image=us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-fast-renderer-image:prod;created=2026-02-09T00:44:40.193268895Z;restart=no;health=healthy;workdir=/app;user=renderer;entrypoint=[];cmd=["report-fast-renderer"]

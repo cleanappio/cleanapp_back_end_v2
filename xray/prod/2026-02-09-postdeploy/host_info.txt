@@ -1,0 +1,6 @@
+2026-02-09T01:02:13+00:00
+cleanapp-prod
+Linux cleanapp-prod 6.1.0-41-cloud-amd64 #1 SMP PREEMPT_DYNAMIC Debian 6.1.158-1 (2025-11-09) x86_64 GNU/Linux
+Docker version 28.3.1, build 38b7060
+Docker Compose version v2.38.1
+nginx version: nginx/1.22.1

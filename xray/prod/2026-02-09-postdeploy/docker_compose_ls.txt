@@ -1,0 +1,2 @@
+NAME                STATUS              CONFIG FILES
+deployer            running(32)         /home/deployer/docker-compose.yml,/home/deployer/docker-compose.override.yml

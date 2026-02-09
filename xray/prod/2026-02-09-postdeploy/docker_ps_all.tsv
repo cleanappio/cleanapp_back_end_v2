@@ -1,0 +1,43 @@
+cleanapp_bluesky_submitter	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-bluesky-submitter-image:prod	Up 17 minutes
+cleanapp_news_submitter_twitter	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-news-submitter-twitter-image:prod	Up 17 minutes
+cleanapp_report_tags_service	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-tags-service-image:prod	Up 16 minutes (healthy)
+cleanapp_report_renderer_service	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-fast-renderer-image:prod	Up 16 minutes (healthy)
+cleanapp_report_listener	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-listener-image:prod	Up 17 minutes (healthy)
+cleanapp_replier_twitter	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-news-replier-twitter-image:prod	Up 16 minutes
+cleanapp_email_service	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-email-service-image:prod	Up 17 minutes
+cleanapp_service	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-service-image:prod	Up 17 minutes
+cleanapp_email_fetcher	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-email-fetcher-image:prod	Up 17 minutes
+cleanapp_edge_city_areas	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-custom-area-dashboard-image:prod	Up 17 minutes
+cleanapp_news_analyzer_twitter	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-news-analyzer-twitter-image:prod	Up 17 minutes
+cleanapp_report_listener_v4	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-listener-v4-image:prod	Up 17 minutes
+cleanapp_bluesky_indexer	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-bluesky-indexer-image:prod	Up 17 minutes
+cleanapp_rabbitmq	rabbitmq:latest	Up 17 minutes (healthy)
+cleanapp_areas_service	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-areas-service-image:prod	Up 17 minutes
+cleanapp_report_processor	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-processor-image:prod	Up 17 minutes
+cleanapp_reports_pusher	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-reports-pusher-image:prod	Exited (1) 17 minutes ago
+cleanapp_voice_assistant_service	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-voice-assistant-service-image:prod	Up 17 minutes
+cleanapp_new_york_areas	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-custom-area-dashboard-image:prod	Up 17 minutes
+cleanapp_report_analyze_pipeline	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-analyze-pipeline-image:prod	Up 16 minutes
+cleanapp_auth_service	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-auth-service-image:prod	Up 17 minutes
+cleanapp_report_ownership_service	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-report-ownership-service-image:prod	Exited (1) 17 minutes ago
+cleanapp_montenegro_areas	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-custom-area-dashboard-image:prod	Up 17 minutes
+cleanapp_devconnect_2025_areas	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-custom-area-dashboard-image:prod	Up 17 minutes
+cleanapp_customer_service	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-customer-service-image:prod	Up 17 minutes
+cleanapp_news_indexer_twitter	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-news-indexer-twitter-image:prod	Up 17 minutes
+cleanapp_red_bull_dashboard	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-brand-dashboard-image:prod	Up 17 minutes (healthy)
+cleanapp_email_service_v3	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-email-service-v3-image:prod	Exited (0) 17 minutes ago
+cleanapp_pipelines	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-pipelines-image:prod	Up 17 minutes
+cleanapp_frontend	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-frontend-image:prod	Up 29 hours
+cleanapp_frontend_embedded	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-frontend-image-embedded:prod	Up 29 hours
+cleanapp_bluesky_now	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/bluesky-now:v3	Up 29 hours
+cleanapp_bluesky_analyzer	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-bluesky-analyzer-image:prod	Up 29 hours
+cleanapp_frontend_embedded_old_20260207	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-frontend-image-embedded:prod	Exited (1) 29 hours ago
+cleanapp_frontend_old_20260207	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-frontend-image:prod	Exited (1) 29 hours ago
+cleanapp_service_old_20260207	3917c27391b0	Exited (137) 29 hours ago
+cleanapp_bluesky_analyzer_old_20260207	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-bluesky-analyzer-image:prod	Exited (137) 29 hours ago
+cleanapp_bluesky_now_old_20260207	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/bluesky-now:v3	Exited (137) 29 hours ago
+cleanapp_report_analyze_pipeline_old_20260207	29147b9089a9	Exited (0) 29 hours ago
+cleanapp_web	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-web-image:prod	Up 7 weeks
+cleanapp_gdpr_process_service	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-gdpr-process-service-image:prod	Exited (1) 17 minutes ago
+cleanapp_db	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-db-image:live	Up 7 weeks (healthy)
+stxn_kickoff	us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-stxn-kickoff-image:prod	Exited (0) 17 minutes ago

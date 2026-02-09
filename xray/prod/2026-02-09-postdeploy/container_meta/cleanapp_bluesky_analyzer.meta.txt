@@ -1,0 +1,1 @@
+image=us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/cleanapp-bluesky-analyzer-image:prod;created=2026-02-07T20:05:50.847516858Z;restart=always;health=none;workdir=/srv;user=;entrypoint=["/usr/local/bin/analyzer_bluesky"];cmd=null
