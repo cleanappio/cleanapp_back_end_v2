@@ -124,7 +124,12 @@ impl Callback for ReportTagsCallback {
             }
             Err(e) => {
                 log::error!("Failed to process tags for report {}: {}", report_seq, e);
-                Err(Box::new(e))
+                // Avoid depending on the concrete error type implementing `std::error::Error`
+                // across all build configurations; preserve the message for logging/requeue.
+                Err(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e.to_string(),
+                )))
             }
         }
     }
