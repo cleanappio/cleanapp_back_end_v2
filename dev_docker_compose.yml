@@ -9,8 +9,8 @@ services:
       - 5672:5672
       - 15672:15672
     environment:
-      RABBITMQ_DEFAULT_USER: cleanapp
-      RABBITMQ_DEFAULT_PASS: cleanapp
+      RABBITMQ_DEFAULT_USER: ${AMQP_USER}
+      RABBITMQ_DEFAULT_PASS: ${AMQP_PASSWORD}
     configs:
       - source: rabbitmq-plugins
         target: /etc/rabbitmq/enabled_plugins
@@ -39,8 +39,8 @@ services:
       - REPORT_ANALYSIS_URL=http://cleanapp_report_analyze_pipeline:8080
       - AMQP_HOST=cleanapp_rabbitmq
       - AMQP_PORT=5672
-      - AMQP_USER=cleanapp
-      - AMQP_PASSWORD=cleanapp
+      - AMQP_USER=${AMQP_USER}
+      - AMQP_PASSWORD=${AMQP_PASSWORD}
       - RABBITMQ_EXCHANGE=cleanapp-exchange
       - RABBITMQ_RAW_REPORT_ROUTING_KEY=report.raw
       - RABBITMQ_USER_ROUTING_KEY=user.add
@@ -152,8 +152,8 @@ services:
       - GIN_MODE=
       - AMQP_HOST=cleanapp_rabbitmq
       - AMQP_PORT=5672
-      - AMQP_USER=cleanapp
-      - AMQP_PASSWORD=cleanapp
+      - AMQP_USER=${AMQP_USER}
+      - AMQP_PASSWORD=${AMQP_PASSWORD}
       - RABBITMQ_EXCHANGE=cleanapp-exchange
       - RABBITMQ_ANALYSED_REPORT_ROUTING_KEY=report.analysed
       - RABBITMQ_TWITTER_REPLY_ROUTING_KEY=twitter.reply
@@ -185,8 +185,8 @@ services:
       - SEQ_START_FROM=1
       - AMQP_HOST=cleanapp_rabbitmq
       - AMQP_PORT=5672
-      - AMQP_USER=cleanapp
-      - AMQP_PASSWORD=cleanapp
+      - AMQP_USER=${AMQP_USER}
+      - AMQP_PASSWORD=${AMQP_PASSWORD}
       - RABBITMQ_EXCHANGE=cleanapp-exchange
       - RABBITMQ_QUEUE=report-analysis-queue
       - RABBITMQ_RAW_REPORT_ROUTING_KEY=report.raw
@@ -361,8 +361,8 @@ services:
       - GIN_MODE=
       - AMQP_HOST=cleanapp_rabbitmq
       - AMQP_PORT=5672
-      - AMQP_USER=cleanapp
-      - AMQP_PASSWORD=cleanapp
+      - AMQP_USER=${AMQP_USER}
+      - AMQP_PASSWORD=${AMQP_PASSWORD}
       - RABBITMQ_EXCHANGE=cleanapp-exchange
       - RABBITMQ_RAW_REPORT_ROUTING_KEY=report.raw
     ports:
@@ -445,8 +445,8 @@ services:
       - BATCH_SIZE=100
       - AMQP_HOST=cleanapp_rabbitmq
       - AMQP_PORT=5672
-      - AMQP_USER=cleanapp
-      - AMQP_PASSWORD=cleanapp
+      - AMQP_USER=${AMQP_USER}
+      - AMQP_PASSWORD=${AMQP_PASSWORD}
       - RABBITMQ_EXCHANGE=cleanapp-exchange
       - RABBITMQ_QUEUE=report-ownership-queue
       - RABBITMQ_RAW_REPORT_ROUTING_KEY=report.raw
@@ -485,8 +485,8 @@ services:
       - POLL_INTERVAL=500ms
       - AMQP_HOST=cleanapp_rabbitmq
       - AMQP_PORT=5672
-      - AMQP_USER=cleanapp
-      - AMQP_PASSWORD=cleanapp
+      - AMQP_USER=${AMQP_USER}
+      - AMQP_PASSWORD=${AMQP_PASSWORD}
       - RABBITMQ_EXCHANGE=cleanapp-exchange
       - RABBITMQ_QUEUE=gdpr-processing-queue
       - RABBITMQ_RAW_REPORT_ROUTING_KEY=report.raw
@@ -522,8 +522,8 @@ services:
       - DB_NAME=cleanapp
       - AMQP_HOST=cleanapp_rabbitmq
       - AMQP_PORT=5672
-      - AMQP_USER=cleanapp
-      - AMQP_PASSWORD=cleanapp
+      - AMQP_USER=${AMQP_USER}
+      - AMQP_PASSWORD=${AMQP_PASSWORD}
       - RABBITMQ_EXCHANGE=cleanapp-exchange
       - RABBITMQ_RENDERER_QUEUE_NAME=report-renderer-queue
       - RABBITMQ_ANALYSED_REPORT_ROUTING_KEY=report.analysed
@@ -604,8 +604,8 @@ services:
       - DB_URL=mysql://server:${MYSQL_APP_PASSWORD}@cleanapp_db:3306/cleanapp
       - AMQP_HOST=cleanapp_rabbitmq
       - AMQP_PORT=5672
-      - AMQP_USER=cleanapp
-      - AMQP_PASSWORD=cleanapp
+      - AMQP_USER=${AMQP_USER}
+      - AMQP_PASSWORD=${AMQP_PASSWORD}
       - RABBITMQ_EXCHANGE=cleanapp-exchange
       - RABBITMQ_TWITTER_REPLY_QUEUE=twitter-reply-queue
       - RABBITMQ_TWITTER_REPLY_ROUTING_KEY=twitter.reply
@@ -633,8 +633,8 @@ services:
       - DB_NAME=cleanapp
       - AMQP_HOST=cleanapp_rabbitmq
       - AMQP_PORT=5672
-      - AMQP_USER=cleanapp
-      - AMQP_PASSWORD=cleanapp
+      - AMQP_USER=${AMQP_USER}
+      - AMQP_PASSWORD=${AMQP_PASSWORD}
       - RABBITMQ_EXCHANGE=cleanapp-exchange
       - RABBITMQ_QUEUE=report-tags-queue
       - RABBITMQ_RAW_REPORT_ROUTING_KEY=report.raw
@@ -733,4 +733,3 @@ volumes:
   rabbitmq-log:
     name: rabbitmq-log
     driver: local
-

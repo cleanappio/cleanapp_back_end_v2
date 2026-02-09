@@ -21,8 +21,8 @@ This Go program demonstrates how to upload an image to an OpenAI assistant using
 Before running the program, you need to set the following environment variables:
 
 ```bash
-export OPENAI_API_KEY=sk-your-openai-api-key-here
-export OPENAI_ASSISTANT_ID=asst-your-assistant-id-here
+export OPENAI_API_KEY="<openai_api_key>"
+export OPENAI_ASSISTANT_ID="<openai_assistant_id>"
 ```
 
 ## Usage
@@ -35,8 +35,8 @@ go run main.go <image_path>
 
 ```bash
 # Set environment variables
-export OPENAI_API_KEY=sk-abc123def456...
-export OPENAI_ASSISTANT_ID=asst_abc123def456...
+export OPENAI_API_KEY="<openai_api_key>"
+export OPENAI_ASSISTANT_ID="<openai_assistant_id>"
 
 # Run the program
 go run main.go ./image.jpg
@@ -82,8 +82,8 @@ You can also use the provided shell script for easier execution:
 
 ```bash
 # Set environment variables
-export OPENAI_API_KEY=sk-abc123def456...
-export OPENAI_ASSISTANT_ID=asst_abc123def456...
+export OPENAI_API_KEY="<openai_api_key>"
+export OPENAI_ASSISTANT_ID="<openai_assistant_id>"
 
 # Run with the script
 ./run.sh ./image.jpg

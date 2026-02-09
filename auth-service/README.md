@@ -127,8 +127,8 @@ Authenticate a user and receive JWT tokens.
 Response:
 ```json
 {
-  "token": "eyJhbGciOiJIUzI1NiIs...",
-  "refresh_token": "eyJhbGciOiJIUzI1NiIs...",
+  "token": "<access_token>",
+  "refresh_token": "<refresh_token>",
   "token_type": "Bearer",
   "expires_in": 3600
 }
@@ -139,7 +139,7 @@ Refresh an access token using a refresh token.
 
 ```json
 {
-  "refresh_token": "eyJhbGciOiJIUzI1NiIs..."
+  "refresh_token": "<refresh_token>"
 }
 ```
 
@@ -148,7 +148,7 @@ Validate a JWT token (for other services).
 
 ```json
 {
-  "token": "eyJhbGciOiJIUzI1NiIs..."
+  "token": "<access_token>"
 }
 ```
 

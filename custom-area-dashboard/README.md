@@ -20,7 +20,7 @@ All endpoints except `/health` require a valid Bearer token in the Authorization
 
 **Example:**
 ```bash
-curl -H "Authorization: Bearer your-jwt-token" http://localhost:8080/areas?admin_level=8
+curl -H "Authorization: Bearer $JWT_TOKEN" http://localhost:8080/areas?admin_level=8
 ```
 
 ## Running Locally

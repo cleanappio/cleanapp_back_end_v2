@@ -21,7 +21,7 @@ echo "2. Testing with invalid JWT token (should fail):"
 echo "------------------------------------------------"
 curl -s -X POST "$REPORT_AUTH_URL/api/v3/reports/authorization" \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer invalid_token_here" \
+  -H "Authorization: Bearer $INVALID_JWT_TOKEN" \
   -d '{"report_seqs": [1, 2, 3]}' | jq .
 echo ""
 
@@ -51,5 +51,5 @@ echo ""
 echo "Example with valid JWT:"
 echo "curl -X POST \"$REPORT_AUTH_URL/api/v3/reports/authorization\" \\"
 echo "  -H \"Content-Type: application/json\" \\"
-echo "  -H \"Authorization: Bearer YOUR_JWT_TOKEN_HERE\" \\"
+echo "  -H \"Authorization: Bearer $JWT_TOKEN\" \\"
 echo "  -d '{\"report_seqs\": [1, 2, 3]}'"

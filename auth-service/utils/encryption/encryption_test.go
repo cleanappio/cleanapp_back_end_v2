@@ -1,10 +1,12 @@
 package encryption
 
 import (
+	"strings"
 	"testing"
 )
 
 func TestNewEncryptor(t *testing.T) {
+	validKey := strings.Repeat("0", 64)
 	tests := []struct {
 		name    string
 		key     string
@@ -12,7 +14,7 @@ func TestNewEncryptor(t *testing.T) {
 	}{
 		{
 			name:    "valid 32-byte key",
-			key:     "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+			key:     validKey,
 			wantErr: false,
 		},
 		{
@@ -44,7 +46,7 @@ func TestNewEncryptor(t *testing.T) {
 
 func TestEncryptDecrypt(t *testing.T) {
 	// Create encryptor with valid key
-	key := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	key := strings.Repeat("0", 64)
 	enc, err := NewEncryptor(key)
 	if err != nil {
 		t.Fatalf("Failed to create encryptor: %v", err)

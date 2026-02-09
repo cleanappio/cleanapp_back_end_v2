@@ -74,7 +74,7 @@ Protected endpoints require a valid Bearer token in the Authorization header. Th
 # Create or update an area (requires authentication)
 curl -X POST http://localhost:8081/api/v3/create_or_update_area \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Authorization: Bearer $JWT_TOKEN" \
   -d '{"area": {"name": "Central Park", "type": "poi", "description": "Famous park in NYC", "coordinates": {...}}}'
 
 # Response:
@@ -86,7 +86,7 @@ curl -X POST http://localhost:8081/api/v3/create_or_update_area \
 # Delete an area (requires authentication)
 curl -X DELETE http://localhost:8081/api/v3/delete_area \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Authorization: Bearer $JWT_TOKEN" \
   -d '{"area_id": 123}'
 ```
 

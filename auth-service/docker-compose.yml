@@ -6,10 +6,10 @@ services:
     container_name: cleanapp_mysql
     restart: always
     environment:
-      MYSQL_ROOT_PASSWORD: password
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: cleanapp
-      MYSQL_USER: cleanapp_user
-      MYSQL_PASSWORD: cleanapp_password
+      MYSQL_USER: ${MYSQL_USER:-cleanapp_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
     ports:
       - "3306:3306"
     volumes:
@@ -26,12 +26,12 @@ services:
     ports:
       - "8080:8080"
     environment:
-      DB_USER: cleanapp_user
-      DB_PASSWORD: cleanapp_password
+      DB_USER: ${MYSQL_USER:-cleanapp_user}
+      DB_PASSWORD: ${MYSQL_PASSWORD}
       DB_HOST: mysql
       DB_PORT: 3306
-      ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-      JWT_SECRET: "your-super-secret-jwt-key-replace-in-production"
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      JWT_SECRET: ${JWT_SECRET}
       PORT: 8080
       TRUSTED_PROXIES: "127.0.0.1,::1"
       # Password reset email configuration

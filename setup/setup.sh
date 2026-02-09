@@ -191,8 +191,6 @@ esac
 # RabbitMQ vars
 AMQP_HOST="cleanapp_rabbitmq"
 AMQP_PORT="5672"
-AMQP_USER="cleanapp"
-AMQP_PASSWORD="cleanapp"
 RABBITMQ_EXCHANGE="cleanapp-exchange"
 RABBITMQ_GDPR_PROCESS_QUEUE="gdpr-processing-queue"
 RABBITMQ_REPORT_ANALYSIS_QUEUE="report-analysis-queue"
@@ -309,6 +307,8 @@ docker pull ${BLUESKY_SUBMITTER_DOCKER_IMAGE}
 
 # Secrets
 cat >.env << ENV
+AMQP_USER=\$(gcloud secrets versions access latest --secret="AMQP_USER_${SECRET_SUFFIX}" | tr -d '\r')
+AMQP_PASSWORD=\$(gcloud secrets versions access latest --secret="AMQP_PASSWORD_${SECRET_SUFFIX}" | tr -d '\r')
 MYSQL_ROOT_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_ROOT_PASSWORD_${SECRET_SUFFIX}" | tr -d '\r')
 MYSQL_APP_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_APP_PASSWORD_${SECRET_SUFFIX}" | tr -d '\r')
 MYSQL_READER_PASSWORD=\$(gcloud secrets versions access 1 --secret="MYSQL_READER_PASSWORD_${SECRET_SUFFIX}" | tr -d '\r')
@@ -421,8 +421,8 @@ services:
       - 5672:5672
       - 15672:15672
     environment:
-      RABBITMQ_DEFAULT_USER: cleanapp
-      RABBITMQ_DEFAULT_PASS: cleanapp
+      RABBITMQ_DEFAULT_USER: \${AMQP_USER}
+      RABBITMQ_DEFAULT_PASS: \${AMQP_PASSWORD}
     configs:
       - source: rabbitmq-plugins
         target: /etc/rabbitmq/enabled_plugins
@@ -451,8 +451,8 @@ services:
       - REPORT_ANALYSIS_URL=http://cleanapp_report_analyze_pipeline:8080
       - AMQP_HOST=${AMQP_HOST}
       - AMQP_PORT=${AMQP_PORT}
-      - AMQP_USER=${AMQP_USER}
-      - AMQP_PASSWORD=${AMQP_PASSWORD}
+      - AMQP_USER=\${AMQP_USER}
+      - AMQP_PASSWORD=\${AMQP_PASSWORD}
       - RABBITMQ_EXCHANGE=${RABBITMQ_EXCHANGE}
       - RABBITMQ_RAW_REPORT_ROUTING_KEY=${RABBITMQ_RAW_REPORT_ROUTING_KEY}
       - RABBITMQ_USER_ROUTING_KEY=${RABBITMQ_USER_ROUTING_KEY}
@@ -564,8 +564,8 @@ services:
       - GIN_MODE=${GIN_MODE}
       - AMQP_HOST=${AMQP_HOST}
       - AMQP_PORT=${AMQP_PORT}
-      - AMQP_USER=${AMQP_USER}
-      - AMQP_PASSWORD=${AMQP_PASSWORD}
+      - AMQP_USER=\${AMQP_USER}
+      - AMQP_PASSWORD=\${AMQP_PASSWORD}
       - RABBITMQ_EXCHANGE=${RABBITMQ_EXCHANGE}
       - RABBITMQ_ANALYSED_REPORT_ROUTING_KEY=${RABBITMQ_ANALYSED_REPORT_ROUTING_KEY}
       - RABBITMQ_TWITTER_REPLY_ROUTING_KEY=${RABBITMQ_TWITTER_REPLY_ROUTING_KEY}
@@ -597,8 +597,8 @@ services:
       - SEQ_START_FROM=${SEQ_START_FROM}
       - AMQP_HOST=${AMQP_HOST}
       - AMQP_PORT=${AMQP_PORT}
-      - AMQP_USER=${AMQP_USER}
-      - AMQP_PASSWORD=${AMQP_PASSWORD}
+      - AMQP_USER=\${AMQP_USER}
+      - AMQP_PASSWORD=\${AMQP_PASSWORD}
       - RABBITMQ_EXCHANGE=${RABBITMQ_EXCHANGE}
       - RABBITMQ_QUEUE=${RABBITMQ_REPORT_ANALYSIS_QUEUE}
       - RABBITMQ_RAW_REPORT_ROUTING_KEY=${RABBITMQ_RAW_REPORT_ROUTING_KEY}

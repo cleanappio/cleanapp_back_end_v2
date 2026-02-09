@@ -237,8 +237,8 @@ CREATE TABLE IF NOT EXISTS report_tags (
 # RabbitMQ Configuration (for publishing tag events)
 AMQP_HOST=localhost
 AMQP_PORT=5672
-AMQP_USER=guest
-AMQP_PASSWORD=guest
+AMQP_USER=<user>
+AMQP_PASSWORD=<pass>
 RABBITMQ_EXCHANGE=cleanapp
 RABBITMQ_RAW_REPORT_ROUTING_KEY=report.raw
 
@@ -265,8 +265,8 @@ DB_NAME=cleanapp
 # RabbitMQ Configuration (for consuming tag events)
 AMQP_HOST=localhost
 AMQP_PORT=5672
-AMQP_USER=guest
-AMQP_PASSWORD=guest
+AMQP_USER=<user>
+AMQP_PASSWORD=<pass>
 RABBITMQ_EXCHANGE=cleanapp
 RABBITMQ_QUEUE=report-tags
 RABBITMQ_RAW_REPORT_ROUTING_KEY=report.raw
@@ -337,8 +337,8 @@ MAX_TAG_FOLLOWS=200
 docker run -d --name rabbitmq \
   -p 5672:5672 \
   -p 15672:15672 \
-  -e RABBITMQ_DEFAULT_USER=guest \
-  -e RABBITMQ_DEFAULT_PASS=guest \
+  -e RABBITMQ_DEFAULT_USER=<user> \
+  -e RABBITMQ_DEFAULT_PASS=<pass> \
   rabbitmq:3-management-alpine
 
 # Start tag service
@@ -347,8 +347,8 @@ RUST_LOG=info \
   DATABASE_URL="mysql://root:db_password@localhost:3306/cleanapp" \
   AMQP_HOST=localhost \
   AMQP_PORT=5672 \
-  AMQP_USER=guest \
-  AMQP_PASSWORD=guest \
+  AMQP_USER=<user> \
+  AMQP_PASSWORD=<pass> \
   RABBITMQ_EXCHANGE=cleanapp \
   RABBITMQ_QUEUE=report-tags \
   RABBITMQ_RAW_REPORT_ROUTING_KEY=report.raw \
@@ -359,8 +359,8 @@ RUST_LOG=info \
 cd report-processor
 AMQP_HOST=localhost \
   AMQP_PORT=5672 \
-  AMQP_USER=guest \
-  AMQP_PASSWORD=guest \
+  AMQP_USER=<user> \
+  AMQP_PASSWORD=<pass> \
   RABBITMQ_EXCHANGE=cleanapp \
   RABBITMQ_RAW_REPORT_ROUTING_KEY=report.raw \
   go run main.go &
