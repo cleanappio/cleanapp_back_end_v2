@@ -17,11 +17,16 @@ DLX_EXCHANGE="${DLX_EXCHANGE:-cleanapp-dlx}"
 API_BASE="${API_BASE:-http://127.0.0.1:15672/api}"
 VHOST_URLENC="${VHOST_URLENC:-%2F}"
 
-QUEUES=(
-  "report-analysis-queue"
-  "report-renderer-queue"
-  "report-tags-queue"
-)
+if [[ -n "${QUEUE_NAMES:-}" ]]; then
+  IFS=',' read -r -a QUEUES <<<"${QUEUE_NAMES}"
+else
+  QUEUES=(
+    "report-analysis-queue"
+    "report-renderer-queue"
+    "report-tags-queue"
+    "twitter-reply-queue"
+  )
+fi
 
 require() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -84,4 +89,3 @@ for q in "${QUEUES[@]}"; do
 done
 
 echo "[dlq] done"
-

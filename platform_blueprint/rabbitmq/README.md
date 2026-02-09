@@ -21,6 +21,18 @@ Run on the prod VM (as a user that can `sudo docker exec`):
 ./platform_blueprint/rabbitmq/apply_prod_dlx_dlq.sh
 ```
 
+By default, the script targets these queues:
+- `report-analysis-queue`
+- `report-renderer-queue`
+- `report-tags-queue`
+- `twitter-reply-queue`
+
+Override the queue list (comma-separated) if needed:
+
+```bash
+QUEUE_NAMES="report-tags-queue,twitter-reply-queue" ./platform_blueprint/rabbitmq/apply_prod_dlx_dlq.sh
+```
+
 To check status:
 
 ```bash
@@ -31,4 +43,3 @@ To check status:
 
 - If a queue has no DLQ policy configured, `Nack(requeue=false)` will **drop** messages (unless the queue has DLX args).
 - With this DLQ setup, permanent failures land in DLQs for inspection instead of being silently discarded.
-

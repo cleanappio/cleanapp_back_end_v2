@@ -15,9 +15,8 @@ sudo docker exec "${RABBIT_CONTAINER}" rabbitmqctl list_exchanges name type | eg
 
 echo
 echo "== queues (filtered) =="
-sudo docker exec "${RABBIT_CONTAINER}" rabbitmqctl list_queues name messages_ready messages_unacknowledged consumers | egrep "^(name|report-(analysis|renderer|tags)-queue(\\.dlq)?\\b)" || true
+sudo docker exec "${RABBIT_CONTAINER}" rabbitmqctl list_queues name messages_ready messages_unacknowledged consumers | egrep "^(name|(report-(analysis|renderer|tags)-queue|twitter-reply-queue)(\\.dlq)?\\b)" || true
 
 echo
 echo "== policies (vhost=${VHOST}) =="
 sudo docker exec "${RABBIT_CONTAINER}" rabbitmqctl list_policies -p "${VHOST}"
-
