@@ -1,4 +1,4 @@
-FROM rust:1.85-bullseye AS builder
+FROM rust:1.88-bullseye AS builder
 
 WORKDIR /app
 
@@ -35,5 +35,4 @@ ENV RUST_BACKTRACE=1
 
 # Run the application
 CMD ["replier-twitter"]
-
 
