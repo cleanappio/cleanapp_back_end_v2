@@ -16,6 +16,10 @@ req "https://live.cleanapp.io/api/v3/reports/health"
 req "https://live.cleanapp.io/api/v4/health"
 req "https://live.cleanapp.io/api/v4/openapi.json"
 
+# Quick v4 contract checks (should be fast and stable).
+req "https://live.cleanapp.io/api/v4/brands/summary?classification=trash&lang=en"
+req "https://live.cleanapp.io/api/v4/reports/by-brand?brand_name=CleanApp&n=1"
+
 # Build provenance (must be safe to expose publicly).
 req "https://live.cleanapp.io/version"               # report-listener (v3)
 req "https://live.cleanapp.io/api/v4/version"        # report-listener-v4 (v4 alias)

@@ -82,6 +82,8 @@ Done:
   - `platform_blueprint/contracts/openapi/api_v4_openapi.json`
 - Prod VM-local smoke checks exist (localhost ports + RabbitMQ invariants):
   - `platform_blueprint/tests/smoke/smoke_prod_vm.sh`
+- v4 contract checks (quick) are exercised in the public smoke:
+  - `platform_blueprint/tests/smoke/smoke_prod.sh`
 
 Next:
-- Add OpenAPI-driven contract smoke (exercise the v4 endpoints with representative query params).
+- Optionally make the contract smoke OpenAPI-driven (validate endpoint coverage/schema drift).
