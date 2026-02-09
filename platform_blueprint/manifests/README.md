@@ -28,3 +28,15 @@ Treat the latest manifest as the baseline lockfile:
 - During rollout: prefer `image@sha256:...` references when you need deterministic redeploys.
 - After rollout: capture another xray snapshot and diff manifests (baseline vs new).
 
+## Turning A Manifest Into A Compose Override
+
+To use a manifest directly with docker compose, generate an override file that replaces each `image:` tag with its pinned digest:
+
+```bash
+python3 platform_blueprint/deploy/generate_compose_digests.py \
+  --manifest platform_blueprint/manifests/prod/2026-02-09.json \
+  --compose platform_blueprint/deploy/prod/docker-compose.yml \
+  --compose platform_blueprint/deploy/prod/docker-compose.override.yml \
+  --out /tmp/docker-compose.digests.yml
+```
+
