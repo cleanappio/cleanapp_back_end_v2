@@ -173,3 +173,23 @@ What worked:
 Next time:
 - Avoid `anyhow::Error` at trait boundaries; normalize to a std error type (or a small custom error) before returning.
 - Consider setting `RABBITMQ_CONCURRENCY` explicitly per consumer in compose for predictable throughput tuning.
+
+### 2026-02-09 (RabbitMQ DLQs + Blueprinted Prod Deploy Config)
+
+Got wrong:
+- Assumed we could pipe scripts into `ssh` (stdin redirection/heredocs); sandbox restrictions block that path.
+- Earlier xray compose redaction emitted literal `\\1\\2` backreference strings, making the captured compose hard to read.
+
+Corrected by:
+- Applying DLX/DLQ config via direct `ssh` command strings (no stdin piping) and verifying via `rabbitmqctl list_policies/list_queues`.
+- Fixing compose redaction in `xray/capture_prod_snapshot.sh` and re-capturing `xray/prod/2026-02-09-postdlq2/`.
+
+What worked:
+- Enabling DLQs (`cleanapp-dlx` + `<queue>.dlq` queues) for:
+  - `report-tags-queue`
+  - `report-renderer-queue`
+  - `twitter-reply-queue`
+- Copying redacted prod compose + nginx conf into `platform_blueprint/deploy/prod/` and generating a new digest manifest.
+
+Next time:
+- Prefer repo-shipped ops scripts (like `platform_blueprint/rabbitmq/*`) for prod changes: repeatable and auditable.
