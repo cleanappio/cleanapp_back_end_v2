@@ -68,3 +68,23 @@ What didn't:
 Next time:
 - Validate build-context ignore rules (gitignore vs cloud build upload) before choosing file names/extensions.
 - Add a post-deploy smoke script to curl all public `/version` endpoints and save the results to `xray/`.
+
+### 2026-02-09 (Prod Rollout + Provenance Capture)
+
+Got wrong:
+- Shipped a small Go syntax bug in `voice-assistant-service/version` (missing `range` in a `for` loop) that broke Cloud Build.
+- `report-fast-renderer` builds were non-reproducible because `.dockerignore` excluded `Cargo.lock` and the Dockerfile used `cargo install` without `--locked`, which allowed dependency/MSRV drift.
+- First `/version` capture pass wrote `.err` artifacts that were noise once services stabilized; cleaned up and re-captured.
+
+Corrected by:
+- Fixing the `for _, s := range info.Settings` loop and rebuilding the image.
+- Keeping `Cargo.lock` in the Docker build context and using `cargo install --locked`.
+- Re-running the `/version` capture after services were fully started and committing only the clean results.
+
+What worked:
+- Promoting the already-built version tags to `:prod` in Artifact Registry, then `docker compose pull && docker compose up -d` on prod to roll out safely.
+- Capturing `/version` responses into `xray/prod/2026-02-09/version/` and generating `xray/prod/2026-02-09/VERSIONS.md` for a commit-level provenance map.
+
+Next time:
+- Always ensure build lockfiles are included and enforced (`--locked`) for deterministic Rust builds.
+- When collecting endpoint snapshots during restarts, wait for health checks to settle before recording final artifacts.
