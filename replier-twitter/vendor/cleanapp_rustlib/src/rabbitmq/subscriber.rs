@@ -300,7 +300,8 @@ impl Subscriber {
 
                         let mut action = "ack";
                         let mut requeue = false;
-                        let mut callback_err: Option<Box<dyn std::error::Error>> = None;
+                        // Keep errors as strings so this worker future stays `Send` across awaits.
+                        let mut callback_err_str: Option<String> = None;
                         let mut panic_val: Option<String> = None;
 
                         if let Some(callback) = callbacks.get(&routing_key) {
@@ -312,7 +313,7 @@ impl Subscriber {
                                 Ok(Err(e)) => {
                                     action = "nack";
                                     requeue = !is_permanent(&*e);
-                                    callback_err = Some(e);
+                                    callback_err_str = Some(e.to_string());
                                 }
                                 Err(p) => {
                                     action = "nack";
@@ -330,7 +331,7 @@ impl Subscriber {
                         } else {
                             action = "nack";
                             requeue = false; // no handler -> permanent
-                            callback_err = Some(Box::new(SubscriberError::NoCallbackFound(routing_key.clone())));
+                            callback_err_str = Some(SubscriberError::NoCallbackFound(routing_key.clone()).to_string());
                         }
 
                         let duration_ms = started_at.elapsed().as_millis();
@@ -371,7 +372,7 @@ impl Subscriber {
                                 return;
                             }
 
-                            if let Some(e) = callback_err {
+                            if let Some(e) = callback_err_str {
                                 log::error!(
                                     "rabbitmq worker_finish routing_key={} delivery_tag={} duration_ms={} action=nack requeue={} err={} nack_err={:?}",
                                     routing_key,
