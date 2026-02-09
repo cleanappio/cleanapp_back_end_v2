@@ -88,3 +88,18 @@ What worked:
 Next time:
 - Always ensure build lockfiles are included and enforced (`--locked`) for deterministic Rust builds.
 - When collecting endpoint snapshots during restarts, wait for health checks to settle before recording final artifacts.
+
+### 2026-02-09 (Digest-Pinned Deploy Tooling)
+
+Got wrong:
+- Assumed `PyYAML` might exist for compose parsing; it isn’t installed here.
+
+Corrected by:
+- Writing a small indentation-based parser for our current compose style (services + container_name/image fields only).
+
+What worked:
+- Generating a third compose overlay that replaces tags with `image@sha256:...` pins from `platform_blueprint/manifests/*`, enabling deterministic `docker compose ... pull/up`.
+- Expanding the blueprint prod smoke checks to include public `/version` endpoints, plus a capture script that records responses into `xray/`.
+
+Next time:
+- If we want strict pinning for *all* services (including currently-exited ones), generate the manifest from `docker ps -a` or from `docker compose config` rather than only running containers.
