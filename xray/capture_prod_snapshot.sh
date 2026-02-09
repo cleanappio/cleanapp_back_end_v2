@@ -185,6 +185,10 @@ ssh "${HOST}" "sudo docker exec cleanapp_rabbitmq rabbitmqctl list_queues name d
 ssh "${HOST}" "sudo docker exec cleanapp_rabbitmq rabbitmqctl list_bindings source_name destination_name destination_kind routing_key arguments" \
   | tee "${OUTDIR}/rabbitmq_bindings.tsv" >/dev/null || true
 
+# RabbitMQ policies (safe; no credentials).
+ssh "${HOST}" "sudo docker exec cleanapp_rabbitmq rabbitmqctl list_policies -p /" \
+  | tee "${OUTDIR}/rabbitmq_policies.txt" >/dev/null || true
+
 # Health endpoints on localhost (safe).
 ssh "${HOST}" 'set -e; urls="http://127.0.0.1:9081/health http://127.0.0.1:9081/api/v3/reports/health http://127.0.0.1:9097/api/v4/health http://127.0.0.1:9097/api/v4/openapi.json"; for u in $urls; do code=$(curl -sS --max-time 5 -o /dev/null -w "%{http_code}" "$u" || true); echo -e "$u\t$code"; done' \
   | tee "${OUTDIR}/http_health_status.tsv" >/dev/null || true
