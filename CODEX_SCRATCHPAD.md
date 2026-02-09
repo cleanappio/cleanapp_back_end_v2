@@ -119,3 +119,21 @@ What worked:
 
 Next time:
 - Always check for duplicate `ports:` across compose files before changing host binds (because list-merge semantics can create conflicts).
+
+### 2026-02-09 (Nginx Port Visibility + Secret Hygiene)
+
+Got wrong:
+- Xray capture claimed “no secret values” but could still capture secret-like literals from `/home/deployer/docker-compose.yml` (e.g., password fields).
+- Gitleaks flags token-shaped placeholders in docs/tests (Bearer headers, JWT-looking strings, long hex keys), even when they are examples.
+
+Corrected by:
+- Enabling a separate nginx debug access log on prod that records `host`, `server_port`, and `upstream` so we can quantify real `:8080` usage before closing it.
+- Removing hardcoded RabbitMQ/AMQP creds (`cleanapp`) from repo compose/templates and switching to env placeholders.
+- Redacting token-like examples in docs/tests to avoid gitleaks false positives and accidental copy/paste of real creds.
+- Updating `xray/capture_prod_snapshot.sh` to redact secret-like values from the captured compose file stream.
+
+What worked:
+- Running `gitleaks detect --no-git` before commit/push to guarantee the current tree is clean.
+
+Next time:
+- Decide early whether we want to purge historic leaks (history rewrite) vs. start a clean-slate repo for the next upgrade push.
