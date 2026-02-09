@@ -61,7 +61,7 @@ services:
       - USERS_TABLE=users
       - GIN_MODE=release
     ports:
-      - 8090:8090
+      - 127.0.0.1:8090:8090
 
   cleanapp_db:
     container_name: cleanapp_db
@@ -89,7 +89,7 @@ services:
       - REACT_APP_PLAYSTORE_URL=https://play.google.com/store/apps/details?id=com.cleanapp
       - REACT_APP_APPSTORE_URL=https://apps.apple.com/us/app/cleanapp/id6466403301
     ports:
-      - 3000:3000
+      - 127.0.0.1:3000:3000
 
   cleanapp_stxn_kickoff:
     container_name: stxn_kickoff
@@ -708,4 +708,3 @@ volumes:
   rabbitmq-log:
     name: rabbitmq-log
     driver: local
-

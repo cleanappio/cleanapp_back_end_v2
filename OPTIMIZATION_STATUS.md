@@ -12,6 +12,7 @@ Status: **In progress**
 
 Done:
 - Most internal service ports on prod are now bound to `127.0.0.1` (reduces exposure even if firewall rules are permissive).
+- Prod host ports `3000` (cleanapp_web) and `8090` (cleanapp_pipelines) are now bound to `127.0.0.1` (external access removed even if firewall rules still allow them).
 
 Next:
 - Pin `rabbitmq:latest` to a fixed version/digest in prod compose.
@@ -83,4 +84,3 @@ Done:
 Next:
 - Add prod VM-local smoke checks (localhost ports + RabbitMQ invariants).
 - Add OpenAPI-driven contract smoke (exercise the v4 endpoints with representative query params).
-
