@@ -72,10 +72,10 @@ sudo docker exec cleanapp_rabbitmq rabbitmqctl list_queues name messages_ready m
 
 echo
 echo \"== rabbitmq: dlx policies ==\"
-sudo docker exec cleanapp_rabbitmq rabbitmqctl list_policies -p / | grep -q \"dlx-report-tags-queue\"
-sudo docker exec cleanapp_rabbitmq rabbitmqctl list_policies -p / | grep -q \"dlx-report-renderer-queue\"
-sudo docker exec cleanapp_rabbitmq rabbitmqctl list_policies -p / | grep -q \"dlx-twitter-reply-queue\"
-sudo docker exec cleanapp_rabbitmq rabbitmqctl list_policies -p / | grep -q \"dlx-report-analysis-queue\"
+sudo docker exec cleanapp_rabbitmq rabbitmqctl list_policies -p / | grep -F \"dlx-report-tags-queue\" >/dev/null
+sudo docker exec cleanapp_rabbitmq rabbitmqctl list_policies -p / | grep -F \"dlx-report-renderer-queue\" >/dev/null
+sudo docker exec cleanapp_rabbitmq rabbitmqctl list_policies -p / | grep -F \"dlx-twitter-reply-queue\" >/dev/null
+sudo docker exec cleanapp_rabbitmq rabbitmqctl list_policies -p / | grep -F \"dlx-report-analysis-queue\" >/dev/null
 sudo docker exec cleanapp_rabbitmq rabbitmqctl list_policies -p / | sed -n \"1,120p\"
 
 echo
