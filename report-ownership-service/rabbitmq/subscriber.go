@@ -312,17 +312,17 @@ func (s *Subscriber) Start(routingKeyCallbacks map[string]CallbackFunc) error {
 					DeliveryTag: delivery.DeliveryTag,
 				}
 
-					// Find callback for this routing key
-					callback, exists := routingKeyCallbacks[delivery.RoutingKey]
-					if !exists {
-						var nackErr error
-						s.opMu.Lock()
-						nackErr = delivery.Nack(false, false) // permanent: no handler
-						s.opMu.Unlock()
-						log.Printf(
-							"rabbitmq worker_finish worker_id=%d routing_key=%s delivery_tag=%d duration_ms=%d action=nack requeue=false err=%q nack_err=%v",
-							workerID, delivery.RoutingKey, delivery.DeliveryTag, time.Since(startedAt).Milliseconds(),
-							"no callback for routing key", nackErr,
+				// Find callback for this routing key
+				callback, exists := routingKeyCallbacks[delivery.RoutingKey]
+				if !exists {
+					var nackErr error
+					s.opMu.Lock()
+					nackErr = delivery.Nack(false, false) // permanent: no handler
+					s.opMu.Unlock()
+					log.Printf(
+						"rabbitmq worker_finish worker_id=%d routing_key=%s delivery_tag=%d duration_ms=%d action=nack requeue=false err=%q nack_err=%v",
+						workerID, delivery.RoutingKey, delivery.DeliveryTag, time.Since(startedAt).Milliseconds(),
+						"no callback for routing key", nackErr,
 					)
 					continue
 				}
@@ -404,14 +404,14 @@ func (s *Subscriber) Start(routingKeyCallbacks map[string]CallbackFunc) error {
 					continue
 				}
 
-					if callbackErr != nil {
-						log.Printf(
-							"rabbitmq worker_finish worker_id=%d routing_key=%s delivery_tag=%d duration_ms=%d action=%s requeue=%t err=%v retry_exchange=%s publish_err=%v ack_err=%v nack_err=%v",
-							workerID, delivery.RoutingKey, delivery.DeliveryTag, durationMs, action, requeue, callbackErr,
-							retryExchange, publishErr, ackErr, nackErr,
-						)
-						continue
-					}
+				if callbackErr != nil {
+					log.Printf(
+						"rabbitmq worker_finish worker_id=%d routing_key=%s delivery_tag=%d duration_ms=%d action=%s requeue=%t err=%v retry_exchange=%s publish_err=%v ack_err=%v nack_err=%v",
+						workerID, delivery.RoutingKey, delivery.DeliveryTag, durationMs, action, requeue, callbackErr,
+						retryExchange, publishErr, ackErr, nackErr,
+					)
+					continue
+				}
 
 				log.Printf(
 					"rabbitmq worker_finish worker_id=%d routing_key=%s delivery_tag=%d duration_ms=%d action=%s retry_exchange=%s publish_err=%v ack_err=%v",

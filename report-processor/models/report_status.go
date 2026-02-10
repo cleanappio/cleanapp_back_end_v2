@@ -47,15 +47,15 @@ type MatchReportRequest struct {
 
 // Report represents a report from the database
 type Report struct {
-	Seq       int     `json:"seq" db:"seq"`
-	ID        string  `json:"id" db:"id"`
-	Team      int     `json:"team" db:"team"`
-	Latitude  float64 `json:"latitude" db:"latitude"`
-	Longitude float64 `json:"longitude" db:"longitude"`
-	X         float64 `json:"x" db:"x"`
-	Y         float64 `json:"y" db:"y"`
-	Image     []byte  `json:"image" db:"image"`
-	ActionID  *string `json:"action_id" db:"action_id"`
+	Seq          int     `json:"seq" db:"seq"`
+	ID           string  `json:"id" db:"id"`
+	Team         int     `json:"team" db:"team"`
+	Latitude     float64 `json:"latitude" db:"latitude"`
+	Longitude    float64 `json:"longitude" db:"longitude"`
+	X            float64 `json:"x" db:"x"`
+	Y            float64 `json:"y" db:"y"`
+	Image        []byte  `json:"image" db:"image"`
+	ActionID     *string `json:"action_id" db:"action_id"`
 	AnalysisText string  `json:"analysis_text" db:"analysis_text"`
 }
 
@@ -87,4 +87,3 @@ type Response struct {
 	Status    string  `json:"status" db:"status"`
 	ReportSeq int     `json:"report_seq" db:"report_seq"`
 }
-

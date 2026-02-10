@@ -36,11 +36,11 @@ type Config struct {
 	TagServiceURL string
 
 	// RabbitMQ configuration
-	AMQPHost                  string
-	AMQPPort                  string
-	AMQPUser                  string
-	AMQPPassword              string
-	RabbitMQExchange          string
+	AMQPHost                    string
+	AMQPPort                    string
+	AMQPUser                    string
+	AMQPPassword                string
+	RabbitMQExchange            string
 	RabbitMQRawReportRoutingKey string
 
 	// Logging
@@ -77,11 +77,11 @@ func Load() *Config {
 		TagServiceURL: getEnv("TAG_SERVICE_URL", "http://localhost:8083"),
 
 		// RabbitMQ defaults
-		AMQPHost:                  getEnv("AMQP_HOST", "localhost"),
-		AMQPPort:                  getEnv("AMQP_PORT", "5672"),
-		AMQPUser:                  getEnv("AMQP_USER", "guest"),
-		AMQPPassword:              getEnv("AMQP_PASSWORD", "guest"),
-		RabbitMQExchange:          getEnv("RABBITMQ_EXCHANGE", "cleanapp"),
+		AMQPHost:                    getEnv("AMQP_HOST", "localhost"),
+		AMQPPort:                    getEnv("AMQP_PORT", "5672"),
+		AMQPUser:                    getEnv("AMQP_USER", "guest"),
+		AMQPPassword:                getEnv("AMQP_PASSWORD", "guest"),
+		RabbitMQExchange:            getEnv("RABBITMQ_EXCHANGE", "cleanapp"),
 		RabbitMQRawReportRoutingKey: getEnv("RABBITMQ_RAW_REPORT_ROUTING_KEY", "report.raw"),
 
 		// Logging defaults

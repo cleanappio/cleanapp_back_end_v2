@@ -14,7 +14,7 @@ import (
 
 const (
 	aggregationLevelThreshold = 14
-	retention = 24 * 365 * time.Hour // For initial run it's one year. To be reduced after we get more users.
+	retention                 = 24 * 365 * time.Hour // For initial run it's one year. To be reduced after we get more users.
 )
 
 func GetMap(c *gin.Context) {
@@ -50,5 +50,5 @@ func GetMap(c *gin.Context) {
 			a.AddPoint(p)
 		}
 		c.IndentedJSON(http.StatusOK, a.ToArray()) // 200
-		}
+	}
 }

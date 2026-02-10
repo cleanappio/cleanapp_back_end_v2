@@ -25,6 +25,25 @@ type CustomerService struct {
 	authServiceURL string
 }
 
+var (
+	errDBNotInitialized  = errors.New("db not initialized")
+	errCustomerIDMissing = errors.New("customerID is required")
+)
+
+func (s *CustomerService) requireDB() error {
+	if s == nil || s.db == nil {
+		return errDBNotInitialized
+	}
+	return nil
+}
+
+func validateCustomerID(customerID string) error {
+	if strings.TrimSpace(customerID) == "" {
+		return errCustomerIDMissing
+	}
+	return nil
+}
+
 // NewCustomerService creates a new customer service instance
 func NewCustomerService(db *sql.DB, stripeClient *stripe.Client, authServiceURL string) *CustomerService {
 	return &CustomerService{
@@ -81,6 +100,13 @@ func (s *CustomerService) CreateCustomer(ctx context.Context, customerID string,
 
 // GetCustomer retrieves a customer by ID, creating one if it doesn't exist
 func (s *CustomerService) GetCustomer(ctx context.Context, customerID string) (*models.Customer, error) {
+	if err := s.requireDB(); err != nil {
+		return nil, err
+	}
+	if err := validateCustomerID(customerID); err != nil {
+		return nil, err
+	}
+
 	log.Printf("DEBUG: Getting customer %s", customerID)
 
 	var createdAt, updatedAt time.Time
@@ -755,6 +781,13 @@ func (s *CustomerService) GetAreas(ctx context.Context) ([]models.Area, error) {
 
 // GetCustomerBrands retrieves all brands for a customer
 func (s *CustomerService) GetCustomerBrands(ctx context.Context, customerID string) ([]models.CustomerBrand, error) {
+	if err := s.requireDB(); err != nil {
+		return nil, err
+	}
+	if err := validateCustomerID(customerID); err != nil {
+		return nil, err
+	}
+
 	rows, err := s.db.QueryContext(ctx, "SELECT customer_id, brand_name, is_public FROM customer_brands WHERE customer_id = ? ORDER BY brand_name", customerID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query customer brands: %w", err)
@@ -777,6 +810,12 @@ func (s *CustomerService) GetCustomerBrands(ctx context.Context, customerID stri
 
 // AddCustomerBrands adds brands to a customer's brand list
 func (s *CustomerService) AddCustomerBrands(ctx context.Context, customerID string, brands []models.CustomerBrand) error {
+	if err := s.requireDB(); err != nil {
+		return err
+	}
+	if err := validateCustomerID(customerID); err != nil {
+		return err
+	}
 	if len(brands) == 0 {
 		return nil
 	}
@@ -812,6 +851,12 @@ func (s *CustomerService) AddCustomerBrands(ctx context.Context, customerID stri
 
 // RemoveCustomerBrands removes brands from a customer's brand list
 func (s *CustomerService) RemoveCustomerBrands(ctx context.Context, customerID string, brands []models.CustomerBrand) error {
+	if err := s.requireDB(); err != nil {
+		return err
+	}
+	if err := validateCustomerID(customerID); err != nil {
+		return err
+	}
 	if len(brands) == 0 {
 		return nil
 	}
@@ -848,6 +893,12 @@ func (s *CustomerService) RemoveCustomerBrands(ctx context.Context, customerID s
 
 // UpdateCustomerBrands replaces all brands for a customer with the new list
 func (s *CustomerService) UpdateCustomerBrands(ctx context.Context, customerID string, brands []models.CustomerBrand) error {
+	if err := s.requireDB(); err != nil {
+		return err
+	}
+	if err := validateCustomerID(customerID); err != nil {
+		return err
+	}
 	// Start transaction
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

@@ -90,24 +90,24 @@ type NominatimResponse struct {
 
 // NominatimAddress contains address details from Nominatim
 type NominatimAddress struct {
-	Amenity       string `json:"amenity"`
-	Building      string `json:"building"`
-	HouseNumber   string `json:"house_number"`
-	Road          string `json:"road"`
-	Suburb        string `json:"suburb"`
-	City          string `json:"city"`
-	Town          string `json:"town"`
-	Village       string `json:"village"`
-	County        string `json:"county"`
-	State         string `json:"state"`
-	PostCode      string `json:"postcode"`
-	Country       string `json:"country"`
-	CountryCode   string `json:"country_code"`
-	University    string `json:"university"`
-	School        string `json:"school"`
-	Hospital      string `json:"hospital"`
+	Amenity        string `json:"amenity"`
+	Building       string `json:"building"`
+	HouseNumber    string `json:"house_number"`
+	Road           string `json:"road"`
+	Suburb         string `json:"suburb"`
+	City           string `json:"city"`
+	Town           string `json:"town"`
+	Village        string `json:"village"`
+	County         string `json:"county"`
+	State          string `json:"state"`
+	PostCode       string `json:"postcode"`
+	Country        string `json:"country"`
+	CountryCode    string `json:"country_code"`
+	University     string `json:"university"`
+	School         string `json:"school"`
+	Hospital       string `json:"hospital"`
 	ShoppingCentre string `json:"shopping_centre"`
-	Mall          string `json:"mall"`
+	Mall           string `json:"mall"`
 }
 
 // enforceRateLimit ensures we don't exceed Nominatim's rate limit

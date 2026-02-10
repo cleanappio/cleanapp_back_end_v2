@@ -22,11 +22,11 @@ type mapAggregatorS2 struct {
 }
 
 const (
-	expectedCells             = 16
-	minLevel                  = 2
-	maxLevel                  = 18
-	minRepToAggr              = 10
-	weightDiffThreshold       = 8
+	expectedCells       = 16
+	minLevel            = 2
+	maxLevel            = 18
+	minRepToAggr        = 10
+	weightDiffThreshold = 8
 )
 
 func CellBaseLevel(vp *api.ViewPort, center *api.Point) int {

@@ -6,17 +6,17 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"report-analyze-pipeline/database"
 	"report-analyze-pipeline/rabbitmq"
 	"report-analyze-pipeline/service"
-	"github.com/gin-gonic/gin"
 )
 
 // Handlers represents the HTTP handlers
 type Handlers struct {
-	db *database.Database
+	db              *database.Database
 	analysisService *service.Service
-	subscriber *rabbitmq.Subscriber
+	subscriber      *rabbitmq.Subscriber
 }
 
 // NewHandlers creates new HTTP handlers
@@ -44,14 +44,14 @@ func (h *Handlers) HealthCheck(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"status":  "healthy",
-		"service": "report-analyze-pipeline",
-		"rabbitmq_connected": rmqConnected,
-		"rabbitmq_queue": rmqQueue,
-		"rabbitmq_exchange": rmqExchange,
-		"rabbitmq_last_connect_at": rmqLastConnectAt,
+		"status":                    "healthy",
+		"service":                   "report-analyze-pipeline",
+		"rabbitmq_connected":        rmqConnected,
+		"rabbitmq_queue":            rmqQueue,
+		"rabbitmq_exchange":         rmqExchange,
+		"rabbitmq_last_connect_at":  rmqLastConnectAt,
 		"rabbitmq_last_delivery_at": rmqLastDeliveryAt,
-		"rabbitmq_last_error": rmqLastError,
+		"rabbitmq_last_error":       rmqLastError,
 	})
 }
 

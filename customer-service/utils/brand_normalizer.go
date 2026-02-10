@@ -20,6 +20,8 @@ func NormalizeBrandName(brandName string) string {
 	normalized = strings.ReplaceAll(normalized, "_", "")
 	normalized = strings.ReplaceAll(normalized, ".", "")
 	normalized = strings.ReplaceAll(normalized, ",", "")
+	normalized = strings.ReplaceAll(normalized, "'", "")
+	normalized = strings.ReplaceAll(normalized, "’", "")
 	normalized = strings.ReplaceAll(normalized, "&", "")
 	normalized = strings.ReplaceAll(normalized, "and", "")
 

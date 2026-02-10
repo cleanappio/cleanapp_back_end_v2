@@ -103,4 +103,3 @@ func Register() {
 func NowUnixSeconds() float64 {
 	return float64(time.Now().Unix())
 }
-

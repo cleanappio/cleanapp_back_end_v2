@@ -21,12 +21,12 @@ type LinkedInProfile struct {
 
 // GitHubContributor represents a GitHub contributor
 type GitHubContributor struct {
-	Login     string `json:"login"`
-	HTMLURL   string `json:"html_url"`
-	Email     string `json:"email,omitempty"`
-	Name      string `json:"name,omitempty"`
-	Company   string `json:"company,omitempty"`
-	Twitter   string `json:"twitter_username,omitempty"`
+	Login   string `json:"login"`
+	HTMLURL string `json:"html_url"`
+	Email   string `json:"email,omitempty"`
+	Name    string `json:"name,omitempty"`
+	Company string `json:"company,omitempty"`
+	Twitter string `json:"twitter_username,omitempty"`
 }
 
 // TwitterProfile represents a Twitter/X profile
@@ -46,7 +46,7 @@ func (s *ContactService) SearchLinkedInViaGoogle(company, title string) ([]Linke
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-	
+
 	// Use a desktop browser user agent
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
@@ -79,13 +79,13 @@ func parseLinkedInFromGoogle(html, company string) []LinkedInProfile {
 	// Regex to find LinkedIn profile URLs
 	// Format: https://www.linkedin.com/in/username or https://linkedin.com/in/username
 	linkedinRegex := regexp.MustCompile(`https?://(?:www\.)?linkedin\.com/in/([a-zA-Z0-9\-]+)`)
-	
+
 	matches := linkedinRegex.FindAllStringSubmatch(html, -1)
 	for _, match := range matches {
 		if len(match) > 1 {
 			username := match[1]
 			profileURL := "https://www.linkedin.com/in/" + username
-			
+
 			if !seen[username] {
 				seen[username] = true
 				profiles = append(profiles, LinkedInProfile{
@@ -106,7 +106,7 @@ func formatNameFromUsername(username string) string {
 	// Remove trailing numeric/hash suffixes
 	parts := strings.Split(username, "-")
 	var nameParts []string
-	
+
 	for _, part := range parts {
 		// Skip parts that are mostly numbers (likely IDs)
 		if len(part) > 0 && !isNumeric(part) {
@@ -117,7 +117,7 @@ func formatNameFromUsername(username string) string {
 			break
 		}
 	}
-	
+
 	return strings.Join(nameParts, " ")
 }
 
@@ -140,7 +140,7 @@ func (s *ContactService) SearchGitHubContributors(owner, repo string) ([]GitHubC
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-	
+
 	req.Header.Set("User-Agent", "CleanApp/1.0")
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
 
@@ -184,7 +184,7 @@ func (s *ContactService) getGitHubUserDetails(username string) (*GitHubContribut
 	if err != nil {
 		return nil, err
 	}
-	
+
 	req.Header.Set("User-Agent", "CleanApp/1.0")
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
 
@@ -216,7 +216,7 @@ func (s *ContactService) SearchTwitterHandles(companyName string) ([]TwitterProf
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-	
+
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
 	resp, err := s.httpClient.Do(req)
@@ -244,19 +244,19 @@ func parseTwitterFromGoogle(html string) []TwitterProfile {
 
 	// Regex to find Twitter/X handles
 	twitterRegex := regexp.MustCompile(`https?://(?:www\.)?(?:twitter|x)\.com/([a-zA-Z0-9_]+)`)
-	
+
 	matches := twitterRegex.FindAllStringSubmatch(html, -1)
 	for _, match := range matches {
 		if len(match) > 1 {
 			handle := strings.ToLower(match[1])
-			
+
 			// Skip common non-profile URLs
-			if handle == "home" || handle == "search" || handle == "explore" || 
-			   handle == "notifications" || handle == "messages" || handle == "i" ||
-			   handle == "settings" || handle == "intent" || handle == "share" {
+			if handle == "home" || handle == "search" || handle == "explore" ||
+				handle == "notifications" || handle == "messages" || handle == "i" ||
+				handle == "settings" || handle == "intent" || handle == "share" {
 				continue
 			}
-			
+
 			if !seen[handle] {
 				seen[handle] = true
 				profiles = append(profiles, TwitterProfile{
@@ -273,7 +273,7 @@ func parseTwitterFromGoogle(html string) []TwitterProfile {
 // This is the main entry point for Phase 2 discovery
 func (s *ContactService) DiscoverContactsForBrand(brandName, domain string) ([]Contact, error) {
 	var discovered []Contact
-	
+
 	log.Printf("Starting contact discovery for brand %q domain %q", brandName, domain)
 
 	// 1. Search LinkedIn for executives
@@ -284,7 +284,7 @@ func (s *ContactService) DiscoverContactsForBrand(brandName, domain string) ([]C
 			log.Printf("LinkedIn search failed for %s %s: %v", brandName, title, err)
 			continue
 		}
-		
+
 		for _, p := range profiles {
 			// Infer email from name and domain
 			emails := InferEmailsFromName(p.Name, domain)
@@ -292,7 +292,7 @@ func (s *ContactService) DiscoverContactsForBrand(brandName, domain string) ([]C
 			if len(emails) > 0 {
 				email = emails[0] // Use first pattern
 			}
-			
+
 			discovered = append(discovered, Contact{
 				BrandName:    brandName,
 				ContactName:  p.Name,
@@ -303,7 +303,7 @@ func (s *ContactService) DiscoverContactsForBrand(brandName, domain string) ([]C
 			})
 		}
 	}
-	
+
 	// 2. Search Twitter/X for brand handles
 	twitterProfiles, err := s.SearchTwitterHandles(brandName)
 	if err != nil {
@@ -340,14 +340,14 @@ func (s *ContactService) DiscoverAndSaveContactsForBrand(brandName, domain strin
 	if err != nil {
 		return err
 	}
-	
+
 	for _, c := range contacts {
 		c.BrandName = strings.ToLower(c.BrandName)
 		if err := s.SaveContact(&c); err != nil {
 			log.Printf("Failed to save discovered contact: %v", err)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -364,7 +364,7 @@ func GetGitHubRepoForBrand(brandName string) (owner, repo string) {
 		"stripe":    {"stripe", "stripe-python"},
 		"shopify":   {"Shopify", "shopify-api-ruby"},
 	}
-	
+
 	if r, ok := repos[strings.ToLower(brandName)]; ok {
 		return r[0], r[1]
 	}

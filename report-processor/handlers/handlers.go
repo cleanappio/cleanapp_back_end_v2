@@ -23,10 +23,10 @@ import (
 
 // Handlers holds all HTTP handlers
 type Handlers struct {
-	db              *database.Database
-	config          *config.Config
-	openaiClient    *openai.Client
-	tagClient       *services.TagClient
+	db                *database.Database
+	config            *config.Config
+	openaiClient      *openai.Client
+	tagClient         *services.TagClient
 	rabbitmqPublisher *rabbitmq.Publisher
 }
 
@@ -40,10 +40,10 @@ func NewHandlers(db *database.Database, cfg *config.Config, rabbitmqPublisher *r
 	tagClient := services.NewTagClient(cfg.TagServiceURL)
 
 	return &Handlers{
-		db:              db,
-		config:          cfg,
-		openaiClient:    openaiClient,
-		tagClient:       tagClient,
+		db:                db,
+		config:            cfg,
+		openaiClient:      openaiClient,
+		tagClient:         tagClient,
 		rabbitmqPublisher: rabbitmqPublisher,
 	}
 }

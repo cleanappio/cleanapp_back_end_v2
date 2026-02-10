@@ -21,17 +21,17 @@ import (
 
 // AuthService handles all authentication-related database operations
 type AuthService struct {
-	db                *sql.DB
-	encryptor         *encryption.Encryptor
-	jwtSecret         []byte
+	db        *sql.DB
+	encryptor *encryption.Encryptor
+	jwtSecret []byte
 }
 
 // NewAuthService creates a new authentication service instance
 func NewAuthService(db *sql.DB, encryptor *encryption.Encryptor, jwtSecret string) *AuthService {
 	return &AuthService{
-		db:                db,
-		encryptor:         encryptor,
-		jwtSecret:         []byte(jwtSecret),
+		db:        db,
+		encryptor: encryptor,
+		jwtSecret: []byte(jwtSecret),
 	}
 }
 
@@ -822,4 +822,3 @@ func (s *AuthService) ResetPassword(ctx context.Context, token, newPassword stri
 	log.Printf("INFO: Password reset successful for user %s", userID)
 	return nil
 }
-

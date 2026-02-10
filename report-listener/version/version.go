@@ -62,4 +62,3 @@ func Get(service string) Info {
 		GOARCH:      runtime.GOARCH,
 	}
 }
-

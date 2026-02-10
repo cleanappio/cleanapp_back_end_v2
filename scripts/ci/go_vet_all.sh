@@ -4,14 +4,17 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
-mapfile -t mods < <(
+mods=()
+while IFS= read -r d; do
+  mods+=("$d")
+done < <(
   find . -name go.mod -type f \
     -not -path './vendor/*' \
     -not -path '*/vendor/*' \
     -not -path './xray/*' \
     -print \
-  | sed 's|/go.mod$||' \
-  | sort
+    | sed 's|/go.mod$||' \
+    | sort
 )
 
 for d in "${mods[@]}"; do
@@ -20,4 +23,3 @@ for d in "${mods[@]}"; do
 done
 
 echo "OK: go vet"
-

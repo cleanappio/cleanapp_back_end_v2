@@ -23,14 +23,14 @@ import (
 
 // Service represents the report analysis service
 type Service struct {
-	config          *config.Config
-	db              *database.Database
-	llmClient       llm.Client
-	brandService    *services.BrandService
-	osmService      *osm.CachedLocationService
-	contactService  *contacts.ContactService
-	publisher       *rabbitmq.Publisher
-	stopChan        chan bool
+	config         *config.Config
+	db             *database.Database
+	llmClient      llm.Client
+	brandService   *services.BrandService
+	osmService     *osm.CachedLocationService
+	contactService *contacts.ContactService
+	publisher      *rabbitmq.Publisher
+	stopChan       chan bool
 }
 
 // NewService creates a new report analysis service
@@ -75,14 +75,14 @@ func NewService(cfg *config.Config, db *database.Database) *Service {
 	contactService := contacts.NewContactService(db.GetDB())
 
 	return &Service{
-		config:          cfg,
-		db:              db,
-		llmClient:       client,
-		brandService:    brandService,
-		osmService:      osmService,
-		contactService:  contactService,
-		publisher:       publisher,
-		stopChan:        make(chan bool),
+		config:         cfg,
+		db:             db,
+		llmClient:      client,
+		brandService:   brandService,
+		osmService:     osmService,
+		contactService: contactService,
+		publisher:      publisher,
+		stopChan:       make(chan bool),
 	}
 }
 
@@ -376,29 +376,29 @@ func (s *Service) enrichPhysicalReportEmails(report *database.Report, analysis *
 
 	// Collect all discovered emails with provenance
 	var allEmails []string
-	
+
 	// Step 1: Reverse geocode with Nominatim
 	locCtx, err := s.osmService.GetLocationContext(report.Latitude, report.Longitude)
 	if err != nil {
 		log.Printf("Report %d: Failed to get OSM location context: %v", report.Seq, err)
 	}
-	
+
 	if locCtx != nil && locCtx.HasUsefulData() {
 		log.Printf("Report %d: Nominatim returned: primary=%q, parent=%q, domain=%q, type=%q",
 			report.Seq, locCtx.PrimaryName, locCtx.ParentOrg, locCtx.Domain, locCtx.LocationType)
-		
+
 		// Direct email from OSM tags (highest priority)
 		if locCtx.ContactEmail != "" {
 			allEmails = append(allEmails, locCtx.ContactEmail)
 		}
-		
+
 		// Step 2: Generate hierarchy-based emails
 		hierarchy := s.osmService.Client().GetLocationHierarchy(locCtx)
 		hierarchyEmails := osm.GenerateHierarchyEmails(hierarchy)
 		allEmails = append(allEmails, hierarchyEmails...)
 		log.Printf("Report %d: Generated %d hierarchy emails from %d levels",
 			report.Seq, len(hierarchyEmails), len(hierarchy))
-		
+
 		// Step 3: Scrape website for mailto links
 		if locCtx.Domain != "" {
 			websiteURL := "https://" + locCtx.Domain
@@ -411,20 +411,20 @@ func (s *Service) enrichPhysicalReportEmails(report *database.Report, analysis *
 			}
 		}
 	}
-	
+
 	// Step 4: Query Overpass for nearby POIs (may find additional buildings/orgs)
 	pois, err := s.osmService.Client().QueryNearbyPOIs(report.Latitude, report.Longitude, 200)
 	if err != nil {
 		log.Printf("Report %d: Overpass query failed: %v", report.Seq, err)
 	} else if len(pois) > 0 {
 		log.Printf("Report %d: Overpass found %d nearby POIs", report.Seq, len(pois))
-		
+
 		for _, poi := range pois {
 			// Direct contact email from POI
 			if poi.ContactEmail != "" {
 				allEmails = append(allEmails, poi.ContactEmail)
 			}
-			
+
 			// Try scraping POI website
 			if poi.Website != "" && len(allEmails) < 10 { // Limit scraping
 				scrapedEmails, err := s.osmService.Client().ScrapeEmailsFromWebsite(poi.Website)
@@ -436,18 +436,18 @@ func (s *Service) enrichPhysicalReportEmails(report *database.Report, analysis *
 			}
 		}
 	}
-	
+
 	// Step 5: If still not enough emails, try Google web search for location
 	validEmailsSoFar := osm.ValidateAndFilterEmails(allEmails)
 	if len(validEmailsSoFar) < 2 && locCtx != nil && locCtx.PrimaryName != "" {
 		log.Printf("Report %d: Only %d emails from OSM, trying Google search for %q",
 			report.Seq, len(validEmailsSoFar), locCtx.PrimaryName)
-		
+
 		city := ""
 		if locCtx.Address.City != "" {
 			city = locCtx.Address.City
 		}
-		
+
 		searchEmails, err := s.osmService.Client().SearchLocationEmails(locCtx.PrimaryName, city)
 		if err != nil {
 			log.Printf("Report %d: Google search failed: %v", report.Seq, err)
@@ -457,12 +457,12 @@ func (s *Service) enrichPhysicalReportEmails(report *database.Report, analysis *
 				report.Seq, len(searchEmails), locCtx.PrimaryName)
 		}
 	}
-	
+
 	// Step 6: Validate and deduplicate all collected emails
 	validEmails := osm.ValidateAndFilterEmails(allEmails)
 	log.Printf("Report %d: %d valid emails after filtering (from %d total)",
 		report.Seq, len(validEmails), len(allEmails))
-	
+
 	// Step 7: If we found enough emails, save them
 	if len(validEmails) >= 2 {
 		// Limit to top 5
@@ -479,7 +479,7 @@ func (s *Service) enrichPhysicalReportEmails(report *database.Report, analysis *
 		}
 		return
 	}
-	
+
 	// Step 7: Fall back to LLM re-analysis with location context if we didn't find enough
 	if locCtx != nil && locCtx.HasUsefulData() {
 		if geminiClient, ok := s.llmClient.(*gemini.Client); ok {
@@ -562,15 +562,15 @@ func (s *Service) enrichDigitalReportEmails(report *database.Report, analysis *d
 	// If no contacts found, try Phase 2 discovery
 	if len(brandContacts) == 0 {
 		log.Printf("Report %d: No contacts in DB for brand %q, attempting discovery...", report.Seq, brandName)
-		
+
 		// Infer domain from brand name (simple heuristic)
 		domain := brandName + ".com"
-		
+
 		// Run discovery (LinkedIn, Twitter, GitHub)
 		if err := s.contactService.DiscoverAndSaveContactsForBrand(brandName, domain); err != nil {
 			log.Printf("Report %d: Discovery failed for brand %q: %v", report.Seq, brandName, err)
 		}
-		
+
 		// Re-fetch contacts after discovery
 		brandContacts, err = s.contactService.GetContactsForBrand(brandName)
 		if err != nil || len(brandContacts) == 0 {
@@ -578,7 +578,6 @@ func (s *Service) enrichDigitalReportEmails(report *database.Report, analysis *d
 			return
 		}
 	}
-
 
 	log.Printf("Report %d: Found %d contacts for brand %q", report.Seq, len(brandContacts), brandName)
 

@@ -41,7 +41,6 @@ func main() {
 
 	log.Printf("minLat: %f, maxLat: %f, minLng: %f, maxLng: %f", minLat, maxLat, minLng, maxLng)
 
-
 	// Parse coordinates if provided
 	if len(os.Args) >= 8 {
 		if _, err := fmt.Sscanf(os.Args[4], "%f", &lat1); err != nil {

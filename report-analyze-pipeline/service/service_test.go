@@ -39,7 +39,7 @@ func TestBrandDisplayNamePopulation(t *testing.T) {
 			}
 
 			// Test display name
-			displayName := tc.inputBrandName
+			displayName := brandService.GetBrandDisplayName(tc.inputBrandName)
 			if displayName != tc.expectedDisplay {
 				t.Errorf("GetBrandDisplayName(%q) = %q, want %q", tc.inputBrandName, displayName, tc.expectedDisplay)
 			}

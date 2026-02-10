@@ -101,7 +101,7 @@ func updateCounterCache() {
 	}
 
 	incrementalUpdateCounterCache(dbc, lastSeq, maxSeq)
-	log.Infof("Counter cache: incremental update complete in %v (counted seq %d to %d)", 
+	log.Infof("Counter cache: incremental update complete in %v (counted seq %d to %d)",
 		time.Since(startTime), lastSeq, maxSeq)
 }
 

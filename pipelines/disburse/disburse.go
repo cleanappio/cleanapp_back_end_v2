@@ -40,7 +40,7 @@ func NewDailyDisburser(db *sql.DB) (*DailyDisburser, error) {
 		return nil, err
 	}
 	return &DailyDisburser{
-		db: db,
+		db:        db,
 		disburser: disburser,
 	}, nil
 }

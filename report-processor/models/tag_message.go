@@ -6,4 +6,3 @@ type ReportWithTagsMessage struct {
 	Seq  int      `json:"seq"`
 	Tags []string `json:"tags"`
 }
-

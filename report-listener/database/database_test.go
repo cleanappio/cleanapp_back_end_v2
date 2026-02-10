@@ -114,7 +114,7 @@ func TestReportFilteringWithStatus(t *testing.T) {
 
 			// Verify that only the expected fields exist (no extra fields in the struct)
 			// This test ensures the payload is truly minimal
-			t.Logf("Report %d analysis[%d] has minimal fields: severity=%.2f, classification=%s, language=%s, title=%s", 
+			t.Logf("Report %d analysis[%d] has minimal fields: severity=%.2f, classification=%s, language=%s, title=%s",
 				reportWithAnalysis.Report.Seq, i, analysis.SeverityLevel, analysis.Classification, analysis.Language, analysis.Title)
 		}
 	}
@@ -173,11 +173,11 @@ func TestGetReportsByBrandName(t *testing.T) {
 	// This is a basic test to ensure the function signature is correct
 	// In a real environment, you would need a test database with actual data
 	db := &Database{}
-	
+
 	ctx := context.Background()
 	brandName := "test_brand"
 	limit := 10
-	
+
 	// Test that the function can be called without compilation errors
 	// We expect this to panic due to nil database connection, which is expected behavior
 	defer func() {
@@ -186,9 +186,9 @@ func TestGetReportsByBrandName(t *testing.T) {
 			t.Log("Expected panic due to nil database connection")
 		}
 	}()
-	
+
 	_, _ = db.GetReportsByBrandName(ctx, brandName, limit)
-	
+
 	// If we reach here, the function didn't panic, which means the signature is correct
 	t.Log("GetReportsByBrandName function exists and can be called")
 }

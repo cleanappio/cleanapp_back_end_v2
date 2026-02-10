@@ -345,13 +345,13 @@ func (e *EmailSender) sendOneEmailWithAnalysis(recipient string, reportImage, ma
 	if brandDisplay == "" {
 		brandDisplay = "Unknown"
 	}
-	
+
 	// Truncate title to ~50 chars for subject line
 	shortTitle := analysis.Title
 	if len(shortTitle) > 50 {
 		shortTitle = shortTitle[:47] + "..."
 	}
-	
+
 	subject := fmt.Sprintf("%s issue #%d: %s", brandDisplay, analysis.BrandReportCount, shortTitle)
 
 	to := mail.NewEmail(recipient, recipient)
@@ -686,7 +686,7 @@ func (e *EmailSender) getMetricsSection(analysis *models.ReportAnalysis, isDigit
 
 	// Generate CTA button URL based on report type
 	ctaURL := e.getDashboardURL(analysis)
-	
+
 	// Dynamic CTA text: "View all N reports about Brand"
 	ctaText := fmt.Sprintf("View all %d reports about %s", analysis.BrandReportCount, brandDisplay)
 	if analysis.BrandReportCount <= 1 {

@@ -1,8 +1,8 @@
 package server
 
 import (
-	"cleanapp/pipelines/redeem"
 	"cleanapp/common"
+	"cleanapp/pipelines/redeem"
 	"net/http"
 
 	"github.com/apex/log"
@@ -10,7 +10,7 @@ import (
 )
 
 type RedeemArgs struct {
-	Version string  `json:"version"` // Must be "2.0"
+	Version string `json:"version"` // Must be "2.0"
 }
 
 func ReferralsRedeem(c *gin.Context) {
