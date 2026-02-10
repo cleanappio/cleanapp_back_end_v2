@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/streadway/amqp"
@@ -62,6 +63,13 @@ func isPermanent(err error) bool {
 const (
 	defaultConcurrency = 20
 	envConcurrency     = "RABBITMQ_CONCURRENCY"
+
+	defaultMaxRetries = 10
+	envMaxRetries     = "RABBITMQ_MAX_RETRIES"
+
+	defaultRetryExchangePrefix = "cleanapp-retry."
+	envRetryExchangePrefix     = "RABBITMQ_RETRY_EXCHANGE_PREFIX"
+	retryCountHeaderKey        = "x-cleanapp-retry-count"
 )
 
 func rabbitMQConcurrency() int {
@@ -74,12 +82,90 @@ func rabbitMQConcurrency() int {
 	return defaultConcurrency
 }
 
+func rabbitMQMaxRetries() int {
+	if v := os.Getenv(envMaxRetries); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			return n
+		}
+		log.Printf("rabbitmq: invalid %s=%q, using default=%d", envMaxRetries, v, defaultMaxRetries)
+	}
+	return defaultMaxRetries
+}
+
+func rabbitMQRetryExchange(queue string) string {
+	prefix := os.Getenv(envRetryExchangePrefix)
+	if prefix == "" {
+		prefix = defaultRetryExchangePrefix
+	}
+	return prefix + queue
+}
+
+func retryCountFromHeaders(headers amqp.Table) int {
+	if headers == nil {
+		return 0
+	}
+	v, ok := headers[retryCountHeaderKey]
+	if !ok || v == nil {
+		return 0
+	}
+	switch t := v.(type) {
+	case int:
+		if t < 0 {
+			return 0
+		}
+		return t
+	case int32:
+		if t < 0 {
+			return 0
+		}
+		return int(t)
+	case int64:
+		if t < 0 {
+			return 0
+		}
+		if t > int64(^uint(0)>>1) {
+			return int(^uint(0) >> 1)
+		}
+		return int(t)
+	case uint32:
+		if t > uint32(^uint(0)>>1) {
+			return int(^uint(0) >> 1)
+		}
+		return int(t)
+	case uint64:
+		if t > uint64(^uint(0)>>1) {
+			return int(^uint(0) >> 1)
+		}
+		return int(t)
+	case string:
+		if n, err := strconv.Atoi(t); err == nil && n >= 0 {
+			return n
+		}
+		return 0
+	default:
+		return 0
+	}
+}
+
+func withRetryCountHeader(headers amqp.Table, next int) amqp.Table {
+	out := amqp.Table{}
+	for k, v := range headers {
+		out[k] = v
+	}
+	if next < 0 {
+		next = 0
+	}
+	out[retryCountHeaderKey] = int32(next)
+	return out
+}
+
 // Subscriber represents a RabbitMQ subscriber instance
 type Subscriber struct {
 	conn     *amqp.Connection
 	channel  *amqp.Channel
 	exchange string
 	queue    string
+	opMu     sync.Mutex
 }
 
 // NewSubscriber creates a new RabbitMQ subscriber instance
@@ -202,6 +288,8 @@ func (s *Subscriber) Start(routingKeyCallbacks map[string]CallbackFunc) error {
 	}
 
 	jobs := make(chan amqp.Delivery, workers)
+	maxRetries := rabbitMQMaxRetries()
+	retryExchange := rabbitMQRetryExchange(s.queue)
 
 	// Worker pool: bounded concurrency, ack/nack is done *after* processing completes.
 	for i := 0; i < workers; i++ {
@@ -223,14 +311,17 @@ func (s *Subscriber) Start(routingKeyCallbacks map[string]CallbackFunc) error {
 					DeliveryTag: delivery.DeliveryTag,
 				}
 
-				// Find callback for this routing key
-				callback, exists := routingKeyCallbacks[delivery.RoutingKey]
-				if !exists {
-					nackErr := delivery.Nack(false, false) // permanent: no handler
-					log.Printf(
-						"rabbitmq worker_finish worker_id=%d routing_key=%s delivery_tag=%d duration_ms=%d action=nack requeue=false err=%q nack_err=%v",
-						workerID, delivery.RoutingKey, delivery.DeliveryTag, time.Since(startedAt).Milliseconds(),
-						"no callback for routing key", nackErr,
+					// Find callback for this routing key
+					callback, exists := routingKeyCallbacks[delivery.RoutingKey]
+					if !exists {
+						var nackErr error
+						s.opMu.Lock()
+						nackErr = delivery.Nack(false, false) // permanent: no handler
+						s.opMu.Unlock()
+						log.Printf(
+							"rabbitmq worker_finish worker_id=%d routing_key=%s delivery_tag=%d duration_ms=%d action=nack requeue=false err=%q nack_err=%v",
+							workerID, delivery.RoutingKey, delivery.DeliveryTag, time.Since(startedAt).Milliseconds(),
+							"no callback for routing key", nackErr,
 					)
 					continue
 				}
@@ -251,16 +342,56 @@ func (s *Subscriber) Start(routingKeyCallbacks map[string]CallbackFunc) error {
 				action := "ack"
 				var ackErr error
 				var nackErr error
+				var publishErr error
 				if panicVal != nil {
 					action = "nack"
 					requeue = false // treat panics as permanent
+					s.opMu.Lock()
 					nackErr = delivery.Nack(false, requeue)
+					s.opMu.Unlock()
 				} else if callbackErr != nil {
-					action = "nack"
 					requeue = !isPermanent(callbackErr)
-					nackErr = delivery.Nack(false, requeue)
+					if requeue {
+						// Transient error: publish to per-queue retry exchange, then ack original.
+						attempts := retryCountFromHeaders(delivery.Headers)
+						if attempts >= maxRetries {
+							action = "nack"
+							requeue = false
+							s.opMu.Lock()
+							nackErr = delivery.Nack(false, requeue)
+							s.opMu.Unlock()
+						} else {
+							action = "retry"
+							next := attempts + 1
+							pub := amqp.Publishing{
+								Headers:      withRetryCountHeader(delivery.Headers, next),
+								ContentType:  delivery.ContentType,
+								Body:         delivery.Body,
+								DeliveryMode: delivery.DeliveryMode,
+								Timestamp:    delivery.Timestamp,
+							}
+							s.opMu.Lock()
+							publishErr = s.channel.Publish(retryExchange, delivery.RoutingKey, false, false, pub)
+							if publishErr == nil {
+								ackErr = delivery.Ack(false)
+							} else {
+								// Fallback if retry exchange isn't set up: requeue original.
+								action = "nack"
+								requeue = true
+								nackErr = delivery.Nack(false, requeue)
+							}
+							s.opMu.Unlock()
+						}
+					} else {
+						action = "nack"
+						s.opMu.Lock()
+						nackErr = delivery.Nack(false, requeue)
+						s.opMu.Unlock()
+					}
 				} else {
+					s.opMu.Lock()
 					ackErr = delivery.Ack(false)
+					s.opMu.Unlock()
 				}
 
 				durationMs := time.Since(startedAt).Milliseconds()
@@ -272,17 +403,18 @@ func (s *Subscriber) Start(routingKeyCallbacks map[string]CallbackFunc) error {
 					continue
 				}
 
-				if callbackErr != nil {
-					log.Printf(
-						"rabbitmq worker_finish worker_id=%d routing_key=%s delivery_tag=%d duration_ms=%d action=%s requeue=%t err=%v nack_err=%v",
-						workerID, delivery.RoutingKey, delivery.DeliveryTag, durationMs, action, requeue, callbackErr, nackErr,
-					)
-					continue
-				}
+					if callbackErr != nil {
+						log.Printf(
+							"rabbitmq worker_finish worker_id=%d routing_key=%s delivery_tag=%d duration_ms=%d action=%s requeue=%t err=%v retry_exchange=%s publish_err=%v ack_err=%v nack_err=%v",
+							workerID, delivery.RoutingKey, delivery.DeliveryTag, durationMs, action, requeue, callbackErr,
+							retryExchange, publishErr, ackErr, nackErr,
+						)
+						continue
+					}
 
 				log.Printf(
-					"rabbitmq worker_finish worker_id=%d routing_key=%s delivery_tag=%d duration_ms=%d action=%s ack_err=%v",
-					workerID, delivery.RoutingKey, delivery.DeliveryTag, durationMs, action, ackErr,
+					"rabbitmq worker_finish worker_id=%d routing_key=%s delivery_tag=%d duration_ms=%d action=%s retry_exchange=%s publish_err=%v ack_err=%v",
+					workerID, delivery.RoutingKey, delivery.DeliveryTag, durationMs, action, retryExchange, publishErr, ackErr,
 				)
 			}
 		}()

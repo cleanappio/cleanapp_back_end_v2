@@ -11,11 +11,11 @@ sudo docker exec "${RABBIT_CONTAINER}" rabbitmqctl version
 
 echo
 echo "== exchanges (filtered) =="
-sudo docker exec "${RABBIT_CONTAINER}" rabbitmqctl list_exchanges name type | egrep "^(name|cleanapp-exchange|cleanapp-dlx)\\b" || true
+sudo docker exec "${RABBIT_CONTAINER}" rabbitmqctl list_exchanges name type | egrep "^(name|cleanapp-exchange|cleanapp-dlx|cleanapp-retry\\.)\\b" || true
 
 echo
 echo "== queues (filtered) =="
-sudo docker exec "${RABBIT_CONTAINER}" rabbitmqctl list_queues name messages_ready messages_unacknowledged consumers | egrep "^(name|(report-(analysis|renderer|tags)-queue|twitter-reply-queue)(\\.dlq)?\\b)" || true
+sudo docker exec "${RABBIT_CONTAINER}" rabbitmqctl list_queues name messages_ready messages_unacknowledged consumers | egrep "^(name|(report-(analysis|renderer|tags)-queue|twitter-reply-queue)(\\.(dlq|retry))?\\b)" || true
 
 echo
 echo "== policies (vhost=${VHOST}) =="

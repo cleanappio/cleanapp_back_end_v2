@@ -12,6 +12,10 @@ This folder contains **prod-safe**, **secrets-safe** tooling for hardening the R
 2. **No secrets in git**:
    - Scripts do not require existing RabbitMQ credentials.
    - When the management API must be used (to create exchanges/queues/bindings), we create a short-lived admin user via `rabbitmqctl`, use it, then delete it.
+3. **Retry / backoff** for transient failures:
+   - Per-queue retry exchange: `cleanapp-retry.<queue>` (topic)
+   - Per-queue retry queue: `<queue>.retry` (TTL delay, dead-letters back to `cleanapp-exchange`)
+   - Consumers publish transient failures to the retry exchange and ack the original delivery (avoids tight requeue loops).
 
 ## Apply On Prod VM
 
@@ -19,6 +23,12 @@ Run on the prod VM (as a user that can `sudo docker exec`):
 
 ```bash
 ./platform_blueprint/rabbitmq/apply_prod_dlx_dlq.sh
+```
+
+Create retry exchanges/queues (TTL delay) for the same queue set:
+
+```bash
+./platform_blueprint/rabbitmq/apply_prod_retry_queues.sh
 ```
 
 By default, the script targets these queues:

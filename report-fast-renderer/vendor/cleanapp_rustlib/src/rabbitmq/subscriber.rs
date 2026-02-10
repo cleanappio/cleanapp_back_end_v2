@@ -1,4 +1,8 @@
-use lapin::{options::*, types::FieldTable, Channel, Connection, ConnectionProperties, Consumer, ExchangeKind};
+use lapin::{
+    options::*,
+    types::{AMQPValue, FieldTable},
+    Channel, Connection, ConnectionProperties, Consumer, ExchangeKind,
+};
 use serde::de::DeserializeOwned;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use thiserror::Error;
@@ -6,6 +10,14 @@ use tokio::time::timeout;
 
 const DEFAULT_CONCURRENCY: usize = 20;
 const ENV_CONCURRENCY: &str = "RABBITMQ_CONCURRENCY";
+
+const DEFAULT_MAX_RETRIES: u32 = 10;
+const ENV_MAX_RETRIES: &str = "RABBITMQ_MAX_RETRIES";
+
+const DEFAULT_RETRY_EXCHANGE_PREFIX: &str = "cleanapp-retry.";
+const ENV_RETRY_EXCHANGE_PREFIX: &str = "RABBITMQ_RETRY_EXCHANGE_PREFIX";
+
+const RETRY_COUNT_HEADER: &str = "x-cleanapp-retry-count";
 
 fn rabbitmq_concurrency() -> usize {
     let v = std::env::var(ENV_CONCURRENCY).ok();
@@ -24,6 +36,52 @@ fn rabbitmq_concurrency() -> usize {
             DEFAULT_CONCURRENCY
         }
     }
+}
+
+fn rabbitmq_max_retries() -> u32 {
+    let v = std::env::var(ENV_MAX_RETRIES).ok();
+    let Some(v) = v else {
+        return DEFAULT_MAX_RETRIES;
+    };
+    match v.parse::<u32>() {
+        Ok(n) => n,
+        _ => {
+            log::warn!(
+                "rabbitmq: invalid {}={:?}, using default={}",
+                ENV_MAX_RETRIES,
+                v,
+                DEFAULT_MAX_RETRIES
+            );
+            DEFAULT_MAX_RETRIES
+        }
+    }
+}
+
+fn retry_exchange_for_queue(prefix: &str, queue: &str) -> String {
+    format!("{}{}", prefix, queue)
+}
+
+fn retry_count_from_headers(headers: Option<&FieldTable>) -> u32 {
+    let Some(h) = headers else { return 0; };
+    let Some(v) = h.get(RETRY_COUNT_HEADER) else { return 0; };
+    match v {
+        AMQPValue::LongUInt(n) => *n,
+        AMQPValue::LongLongUInt(n) => (*n).try_into().unwrap_or(u32::MAX),
+        AMQPValue::LongInt(n) => (*n).try_into().unwrap_or(0),
+        AMQPValue::LongLongInt(n) => (*n).try_into().unwrap_or(0),
+        _ => 0,
+    }
+}
+
+fn with_retry_count(mut props: lapin::BasicProperties, next: u32) -> lapin::BasicProperties {
+    let mut headers = props
+        .headers()
+        .as_ref()
+        .cloned()
+        .unwrap_or_else(FieldTable::default);
+    headers.insert(RETRY_COUNT_HEADER.into(), AMQPValue::LongUInt(next));
+    props = props.with_headers(headers);
+    props
 }
 
 #[derive(Debug)]
@@ -248,6 +306,10 @@ impl Subscriber {
         let callbacks = Arc::new(routing_key_callbacks);
         let channel = self.channel.clone();
         let queue_name = self.queue.clone();
+        let retry_prefix =
+            std::env::var(ENV_RETRY_EXCHANGE_PREFIX).unwrap_or_else(|_| DEFAULT_RETRY_EXCHANGE_PREFIX.to_string());
+        let retry_exchange = retry_exchange_for_queue(&retry_prefix, &queue_name);
+        let max_retries = rabbitmq_max_retries();
 
         tokio::spawn(async move {
             use futures_util::stream::StreamExt;
@@ -260,6 +322,7 @@ impl Subscriber {
                     let callbacks = callbacks.clone();
                     let channel = channel.clone();
                     let queue_name = queue_name.clone();
+                    let retry_exchange = retry_exchange.clone();
 
                     async move {
                         let delivery = match delivery_res {
@@ -286,7 +349,7 @@ impl Subscriber {
                         );
 
                         let message = Message {
-                            body: delivery.data,
+                            body: delivery.data.clone(),
                             routing_key: routing_key.clone(),
                             exchange: exchange.clone(),
                             content_type: delivery
@@ -300,6 +363,8 @@ impl Subscriber {
 
                         let mut action = "ack";
                         let mut requeue = false;
+                        let mut retry_to_exchange = false;
+                        let retry_count = retry_count_from_headers(delivery.properties.headers());
                         // Keep errors as strings so this worker future stays `Send` across awaits.
                         let mut callback_err_str: Option<String> = None;
                         let mut panic_val: Option<String> = None;
@@ -313,6 +378,7 @@ impl Subscriber {
                                 Ok(Err(e)) => {
                                     action = "nack";
                                     requeue = !is_permanent(&*e);
+                                    retry_to_exchange = requeue;
                                     callback_err_str = Some(e.to_string());
                                 }
                                 Err(p) => {
@@ -348,6 +414,90 @@ impl Subscriber {
                                 ack_err
                             );
                         } else {
+                            // Transient error: move message to per-queue retry exchange (delayed via <queue>.retry TTL),
+                            // then ack the original delivery to prevent tight requeue loops.
+                            if retry_to_exchange {
+                                if retry_count >= max_retries {
+                                    // Retry budget exhausted -> send to DLQ via Nack(requeue=false).
+                                    let nack_err = channel
+                                        .basic_nack(
+                                            delivery_tag,
+                                            BasicNackOptions {
+                                                multiple: false,
+                                                requeue: false,
+                                            },
+                                        )
+                                        .await
+                                        .err();
+                                    log::error!(
+                                        "rabbitmq worker_finish routing_key={} delivery_tag={} duration_ms={} action=nack requeue=false retries_exhausted=true retry_count={} max_retries={} err={} nack_err={:?}",
+                                        routing_key,
+                                        delivery_tag,
+                                        duration_ms,
+                                        retry_count,
+                                        max_retries,
+                                        callback_err_str.clone().unwrap_or_else(|| "error".to_string()),
+                                        nack_err
+                                    );
+                                    return;
+                                }
+
+                                let next_retry = retry_count.saturating_add(1);
+                                let props = with_retry_count(delivery.properties.clone(), next_retry);
+
+                                let publish_err = channel
+                                    .basic_publish(
+                                        &retry_exchange,
+                                        &routing_key,
+                                        BasicPublishOptions::default(),
+                                        &delivery.data,
+                                        props,
+                                    )
+                                    .await
+                                    .err();
+
+                                if publish_err.is_none() {
+                                    let ack_err = channel
+                                        .basic_ack(delivery_tag, BasicAckOptions::default())
+                                        .await
+                                        .err();
+                                    log::error!(
+                                        "rabbitmq worker_finish routing_key={} delivery_tag={} duration_ms={} action=retry retry_exchange={} retry_count_next={} max_retries={} ack_err={:?}",
+                                        routing_key,
+                                        delivery_tag,
+                                        duration_ms,
+                                        retry_exchange,
+                                        next_retry,
+                                        max_retries,
+                                        ack_err
+                                    );
+                                } else {
+                                    // Fallback: if retry exchange isn't configured yet, requeue the original.
+                                    let nack_err = channel
+                                        .basic_nack(
+                                            delivery_tag,
+                                            BasicNackOptions {
+                                                multiple: false,
+                                                requeue: true,
+                                            },
+                                        )
+                                        .await
+                                        .err();
+                                    log::error!(
+                                        "rabbitmq worker_finish routing_key={} delivery_tag={} duration_ms={} action=nack requeue=true retry_exchange={} retry_count={} max_retries={} publish_err={:?} nack_err={:?}",
+                                        routing_key,
+                                        delivery_tag,
+                                        duration_ms,
+                                        retry_exchange,
+                                        retry_count,
+                                        max_retries,
+                                        publish_err,
+                                        nack_err
+                                    );
+                                }
+                                return;
+                            }
+
                             let nack_err = channel
                                 .basic_nack(
                                     delivery_tag,
