@@ -63,11 +63,11 @@ func RateLimitMiddleware(limit int, window time.Duration) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Use IP address as the key for rate limiting
 		clientIP := c.ClientIP()
-		
+
 		if !limiter.Allow(clientIP) {
 			log.Warnf("Rate limit exceeded for IP: %s", clientIP)
 			c.JSON(http.StatusTooManyRequests, gin.H{
-				"error": "Rate limit exceeded",
+				"error":       "Rate limit exceeded",
 				"retry_after": int(window.Seconds()),
 			})
 			c.Abort()
@@ -85,11 +85,11 @@ func UserRateLimitMiddleware(limit int, window time.Duration) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Use IP address for rate limiting since we don't have authentication
 		userID := c.ClientIP()
-		
+
 		if !limiter.Allow(userID) {
 			log.Warnf("Rate limit exceeded for user: %s", userID)
 			c.JSON(http.StatusTooManyRequests, gin.H{
-				"error": "Rate limit exceeded",
+				"error":       "Rate limit exceeded",
 				"retry_after": int(window.Seconds()),
 			})
 			c.Abort()

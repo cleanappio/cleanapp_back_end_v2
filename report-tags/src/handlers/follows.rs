@@ -1,12 +1,12 @@
-use axum::{
-    extract::{Path, State},
-    response::Json,
-    http::StatusCode,
-};
 use crate::app_state::AppState;
-use crate::models::{FollowTagRequest, FollowTagResponse, UnfollowTagResponse, GetFollowsResponse};
+use crate::models::{FollowTagRequest, FollowTagResponse, GetFollowsResponse, UnfollowTagResponse};
 use crate::services::tag_service;
 use crate::utils::normalization::normalize_tag;
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    response::Json,
+};
 use log;
 
 pub async fn follow_tag(
@@ -15,9 +15,9 @@ pub async fn follow_tag(
     Json(request): Json<FollowTagRequest>,
 ) -> Result<Json<FollowTagResponse>, (StatusCode, String)> {
     // Normalize the tag
-    let (canonical, _) = normalize_tag(&request.tag)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
-    
+    let (canonical, _) =
+        normalize_tag(&request.tag).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+
     match tag_service::follow_tag(&state.pool, &user_id, &canonical, 200).await {
         Ok(tag_id) => {
             let response = FollowTagResponse {
@@ -30,7 +30,12 @@ pub async fn follow_tag(
             if e.to_string().contains("Follow limit exceeded") {
                 Err((StatusCode::TOO_MANY_REQUESTS, e.to_string()))
             } else {
-                log::error!("Failed to follow tag '{}' for user '{}': {}", request.tag, user_id, e);
+                log::error!(
+                    "Failed to follow tag '{}' for user '{}': {}",
+                    request.tag,
+                    user_id,
+                    e
+                );
                 Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
             }
         }
@@ -47,7 +52,12 @@ pub async fn unfollow_tag(
             Ok(Json(response))
         }
         Err(e) => {
-            log::error!("Failed to unfollow tag {} for user '{}': {}", tag_id, user_id, e);
+            log::error!(
+                "Failed to unfollow tag {} for user '{}': {}",
+                tag_id,
+                user_id,
+                e
+            );
             Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
         }
     }

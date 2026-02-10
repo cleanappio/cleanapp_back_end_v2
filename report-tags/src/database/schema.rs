@@ -1,6 +1,6 @@
-use sqlx::{MySql, Pool};
 use anyhow::Result;
 use log;
+use sqlx::{MySql, Pool};
 
 pub async fn initialize_schema(pool: &Pool<MySql>) -> Result<()> {
     log::info!("Initializing database schema...");
@@ -20,7 +20,7 @@ pub async fn initialize_schema(pool: &Pool<MySql>) -> Result<()> {
             INDEX idx_usage_count (usage_count DESC),
             INDEX idx_last_used (last_used_at)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-        "#
+        "#,
     )
     .execute(pool)
     .await?;
@@ -39,7 +39,7 @@ pub async fn initialize_schema(pool: &Pool<MySql>) -> Result<()> {
             INDEX idx_report_seq (report_seq),
             FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
         ) ENGINE=InnoDB
-        "#
+        "#,
     )
     .execute(pool)
     .await?;
@@ -58,7 +58,7 @@ pub async fn initialize_schema(pool: &Pool<MySql>) -> Result<()> {
             INDEX idx_tag_id (tag_id),
             FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
         ) ENGINE=InnoDB
-        "#
+        "#,
     )
     .execute(pool)
     .await?;

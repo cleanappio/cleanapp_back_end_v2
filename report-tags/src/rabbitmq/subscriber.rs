@@ -1,11 +1,11 @@
-use cleanapp_rustlib::rabbitmq::subscriber::{Callback, Message, Subscriber, SubscriberError};
 use crate::config::Config;
 use crate::services::tag_service;
-use sqlx::MySqlPool;
-use std::sync::Arc;
+use cleanapp_rustlib::rabbitmq::subscriber::{Callback, Message, Subscriber, SubscriberError};
 use log;
 use serde::{Deserialize, Serialize};
+use sqlx::MySqlPool;
 use std::future::Future;
+use std::sync::Arc;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ReportWithTagsMessage {
@@ -40,13 +40,19 @@ impl ReportTagsSubscriber {
         pool: MySqlPool,
         routing_key: &str,
     ) -> Result<(), SubscriberError> {
-        log::info!("Starting RabbitMQ subscriber for routing key: {}", routing_key);
+        log::info!(
+            "Starting RabbitMQ subscriber for routing key: {}",
+            routing_key
+        );
 
         let pool = Arc::new(pool);
-        let callback: Arc<dyn Callback + Send + Sync + 'static> = Arc::new(ReportTagsCallback { pool });
+        let callback: Arc<dyn Callback + Send + Sync + 'static> =
+            Arc::new(ReportTagsCallback { pool });
 
-        let mut callbacks: std::collections::HashMap<String, Arc<dyn Callback + Send + Sync + 'static>> =
-            std::collections::HashMap::new();
+        let mut callbacks: std::collections::HashMap<
+            String,
+            Arc<dyn Callback + Send + Sync + 'static>,
+        > = std::collections::HashMap::new();
         callbacks.insert(routing_key.to_string(), callback);
 
         self.subscriber.start(callbacks).await?;
@@ -109,9 +115,10 @@ impl Callback for ReportTagsCallback {
         let report_seq = report_msg.seq;
         let tags_vec = tags;
 
-        let res = block_on(async move {
-            tag_service::add_tags_to_report(&pool, report_seq, tags_vec).await
-        });
+        let res =
+            block_on(
+                async move { tag_service::add_tags_to_report(&pool, report_seq, tags_vec).await },
+            );
 
         match res {
             Ok(added_tags) => {

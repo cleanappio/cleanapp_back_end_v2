@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"os"
+	"strconv"
 	"time"
 
 	"report_processor/config"
@@ -30,14 +32,32 @@ func NewDatabase(cfg *config.Config) (*Database, error) {
 	}
 
 	// Test connection with exponential backoff retry
+	maxWaitSec := 300
+	if os.Getenv("CI") == "true" {
+		maxWaitSec = 5
+	}
+	if v := os.Getenv("DB_PING_MAX_WAIT_SEC"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			maxWaitSec = n
+		}
+	}
+	deadline := time.Now().Add(time.Duration(maxWaitSec) * time.Second)
+
 	var waitInterval time.Duration = 1 * time.Second
 	for {
-		if err := db.Ping(); err == nil {
+		pingErr := db.Ping()
+		if pingErr == nil {
 			break // Connection successful
 		}
-		log.Printf("Database connection failed, retrying in %v: %v", waitInterval, err)
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("database ping timeout after %ds: %w", maxWaitSec, pingErr)
+		}
+		log.Printf("Database connection failed, retrying in %v: %v", waitInterval, pingErr)
 		time.Sleep(waitInterval)
 		waitInterval *= 2 // Exponential backoff: 1s, 2s, 4s, 8s, ...
+		if waitInterval > 30*time.Second {
+			waitInterval = 30 * time.Second
+		}
 	}
 
 	// Set connection pool settings

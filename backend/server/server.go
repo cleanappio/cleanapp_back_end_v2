@@ -8,8 +8,8 @@ import (
 	"os"
 	"time"
 
-	"cleanapp/common/version"
 	"cleanapp/backend/rabbitmq"
+	"cleanapp/common/version"
 
 	"github.com/apex/log"
 	"github.com/gin-contrib/cors"

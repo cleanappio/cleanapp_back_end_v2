@@ -23,10 +23,10 @@ import (
 
 // Handlers holds all HTTP handlers
 type Handlers struct {
-	db              *database.Database
-	config          *config.Config
-	openaiClient    *openai.Client
-	tagClient       *services.TagClient
+	db                *database.Database
+	config            *config.Config
+	openaiClient      *openai.Client
+	tagClient         *services.TagClient
 	rabbitmqPublisher *rabbitmq.Publisher
 }
 
@@ -40,10 +40,10 @@ func NewHandlers(db *database.Database, cfg *config.Config, rabbitmqPublisher *r
 	tagClient := services.NewTagClient(cfg.TagServiceURL)
 
 	return &Handlers{
-		db:              db,
-		config:          cfg,
-		openaiClient:    openaiClient,
-		tagClient:       tagClient,
+		db:                db,
+		config:            cfg,
+		openaiClient:      openaiClient,
+		tagClient:         tagClient,
 		rabbitmqPublisher: rabbitmqPublisher,
 	}
 }
@@ -417,28 +417,31 @@ func (h *Handlers) submitReport(ctx context.Context, req models.MatchReportReque
 	}
 
 	log.Printf("Successfully submitted report %s to %s with seq %d", req.ID, url, response.Seq)
-	
-	// Process tags if provided
-	if len(req.Tags) > 0 {
-		// Publish tag processing event to RabbitMQ
-		if h.rabbitmqPublisher != nil {
-			tagMessage := models.ReportWithTagsMessage{
-				Seq:  response.Seq,
-				Tags: req.Tags,
-			}
-			
-			err := h.rabbitmqPublisher.PublishWithRoutingKey(h.config.RabbitMQRawReportRoutingKey, tagMessage)
-			if err != nil {
-				log.Printf("Failed to publish tag event for report %d: %v", response.Seq, err)
-				// Don't fail the whole operation for tag processing
-			} else {
-				log.Printf("Successfully published tag event for report %d with %d tags", response.Seq, len(req.Tags))
-			}
-		} else {
-			log.Printf("RabbitMQ publisher not available, skipping tag processing for report %d", response.Seq)
+
+	// Always publish report.raw so downstream consumers (analysis, tags, etc.) can react.
+	// Tags are optional; consumers that need tags can ignore messages without them.
+	if h.rabbitmqPublisher != nil {
+		rawEvent := struct {
+			Seq  int      `json:"seq"`
+			Tags []string `json:"tags,omitempty"`
+		}{
+			Seq:  response.Seq,
+			Tags: req.Tags,
 		}
+
+		err := h.rabbitmqPublisher.PublishWithRoutingKey(h.config.RabbitMQRawReportRoutingKey, rawEvent)
+		if err != nil {
+			// Don't fail the whole operation for async processing
+			log.Printf("Failed to publish report.raw event for report %d: %v", response.Seq, err)
+		} else if len(req.Tags) > 0 {
+			log.Printf("Published report.raw event for report %d with %d tags", response.Seq, len(req.Tags))
+		} else {
+			log.Printf("Published report.raw event for report %d (no tags)", response.Seq)
+		}
+	} else {
+		log.Printf("RabbitMQ publisher not available, skipping report.raw event for report %d", response.Seq)
 	}
-	
+
 	return response.Seq, nil
 }
 
@@ -524,4 +527,3 @@ func (h *Handlers) GetResponsesByStatus(c *gin.Context) {
 		"count":   len(responses),
 	})
 }
-

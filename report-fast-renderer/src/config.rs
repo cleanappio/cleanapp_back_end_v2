@@ -23,42 +23,43 @@ impl Config {
         let server_port = env::var("SERVER_PORT")
             .map_err(|_| ConfigError::MissingEnvVar("SERVER_PORT".to_string()))?;
 
-        let db_host = env::var("DB_HOST")
-            .map_err(|_| ConfigError::MissingEnvVar("DB_HOST".to_string()))?;
+        let db_host =
+            env::var("DB_HOST").map_err(|_| ConfigError::MissingEnvVar("DB_HOST".to_string()))?;
 
-        let db_port = env::var("DB_PORT")
-            .map_err(|_| ConfigError::MissingEnvVar("DB_PORT".to_string()))?;
+        let db_port =
+            env::var("DB_PORT").map_err(|_| ConfigError::MissingEnvVar("DB_PORT".to_string()))?;
 
-            let db_user = env::var("DB_USER")
-            .map_err(|_| ConfigError::MissingEnvVar("DB_USER".to_string()))?;
+        let db_user =
+            env::var("DB_USER").map_err(|_| ConfigError::MissingEnvVar("DB_USER".to_string()))?;
         let db_password = env::var("DB_PASSWORD")
             .map_err(|_| ConfigError::MissingEnvVar("DB_PASSWORD".to_string()))?;
 
-        let db_name = env::var("DB_NAME")
-            .map_err(|_| ConfigError::MissingEnvVar("DB_NAME".to_string()))?;
+        let db_name =
+            env::var("DB_NAME").map_err(|_| ConfigError::MissingEnvVar("DB_NAME".to_string()))?;
 
         let amqp_host = env::var("AMQP_HOST")
             .map_err(|_| ConfigError::MissingEnvVar("AMQP_HOST".to_string()))?;
-        
+
         let amqp_port = env::var("AMQP_PORT")
             .map_err(|_| ConfigError::MissingEnvVar("AMQP_PORT".to_string()))?
             .parse::<u16>()
             .map_err(|e| ConfigError::InvalidEnvVar("AMQP_PORT".to_string(), e.to_string()))?;
-        
+
         let amqp_user = env::var("AMQP_USER")
             .map_err(|_| ConfigError::MissingEnvVar("AMQP_USER".to_string()))?;
-        
+
         let amqp_password = env::var("AMQP_PASSWORD")
             .map_err(|_| ConfigError::MissingEnvVar("AMQP_PASSWORD".to_string()))?;
-        
+
         let exchange = env::var("RABBITMQ_EXCHANGE")
             .map_err(|_| ConfigError::MissingEnvVar("RABBITMQ_EXCHANGE".to_string()))?;
-        
+
         let queue_name = env::var("RABBITMQ_RENDERER_QUEUE_NAME")
             .map_err(|_| ConfigError::MissingEnvVar("RABBITMQ_RENDERER_QUEUE_NAME".to_string()))?;
-        
-        let routing_key = env::var("RABBITMQ_ANALYSED_REPORT_ROUTING_KEY")
-            .map_err(|_| ConfigError::MissingEnvVar("RABBITMQ_ANALYSED_REPORT_ROUTING_KEY".to_string()))?;
+
+        let routing_key = env::var("RABBITMQ_ANALYSED_REPORT_ROUTING_KEY").map_err(|_| {
+            ConfigError::MissingEnvVar("RABBITMQ_ANALYSED_REPORT_ROUTING_KEY".to_string())
+        })?;
 
         Ok(Config {
             server_port,
@@ -78,59 +79,94 @@ impl Config {
     }
 
     pub fn amqp_url(&self) -> String {
-        format!("amqp://{}:{}@{}:{}", 
-                self.amqp_user, 
-                self.amqp_password, 
-                self.amqp_host, 
-                self.amqp_port)
+        format!(
+            "amqp://{}:{}@{}:{}",
+            self.amqp_user, self.amqp_password, self.amqp_host, self.amqp_port
+        )
     }
 
     pub fn validate(&self) -> Result<(), ConfigError> {
         if self.server_port.is_empty() {
-            return Err(ConfigError::InvalidEnvVar("SERVER_PORT".to_string(), "cannot be empty".to_string()));
+            return Err(ConfigError::InvalidEnvVar(
+                "SERVER_PORT".to_string(),
+                "cannot be empty".to_string(),
+            ));
         }
 
         if self.db_host.is_empty() {
-            return Err(ConfigError::InvalidEnvVar("DB_HOST".to_string(), "cannot be empty".to_string()));
+            return Err(ConfigError::InvalidEnvVar(
+                "DB_HOST".to_string(),
+                "cannot be empty".to_string(),
+            ));
         }
 
         if self.db_port.is_empty() {
-            return Err(ConfigError::InvalidEnvVar("DB_PORT".to_string(), "cannot be empty".to_string()));
+            return Err(ConfigError::InvalidEnvVar(
+                "DB_PORT".to_string(),
+                "cannot be empty".to_string(),
+            ));
         }
 
         if self.db_user.is_empty() {
-            return Err(ConfigError::InvalidEnvVar("DB_USER".to_string(), "cannot be empty".to_string()));
+            return Err(ConfigError::InvalidEnvVar(
+                "DB_USER".to_string(),
+                "cannot be empty".to_string(),
+            ));
         }
 
         if self.db_password.is_empty() {
-            return Err(ConfigError::InvalidEnvVar("DB_PASSWORD".to_string(), "cannot be empty".to_string()));
+            return Err(ConfigError::InvalidEnvVar(
+                "DB_PASSWORD".to_string(),
+                "cannot be empty".to_string(),
+            ));
         }
 
         if self.db_name.is_empty() {
-            return Err(ConfigError::InvalidEnvVar("DB_NAME".to_string(), "cannot be empty".to_string()));
+            return Err(ConfigError::InvalidEnvVar(
+                "DB_NAME".to_string(),
+                "cannot be empty".to_string(),
+            ));
         }
         if self.amqp_host.is_empty() {
-            return Err(ConfigError::InvalidEnvVar("AMQP_HOST".to_string(), "cannot be empty".to_string()));
+            return Err(ConfigError::InvalidEnvVar(
+                "AMQP_HOST".to_string(),
+                "cannot be empty".to_string(),
+            ));
         }
-        
+
         if self.amqp_user.is_empty() {
-            return Err(ConfigError::InvalidEnvVar("AMQP_USER".to_string(), "cannot be empty".to_string()));
+            return Err(ConfigError::InvalidEnvVar(
+                "AMQP_USER".to_string(),
+                "cannot be empty".to_string(),
+            ));
         }
-        
+
         if self.amqp_password.is_empty() {
-            return Err(ConfigError::InvalidEnvVar("AMQP_PASSWORD".to_string(), "cannot be empty".to_string()));
+            return Err(ConfigError::InvalidEnvVar(
+                "AMQP_PASSWORD".to_string(),
+                "cannot be empty".to_string(),
+            ));
         }
-        
+
         if self.exchange.is_empty() {
-            return Err(ConfigError::InvalidEnvVar("RABBITMQ_EXCHANGE".to_string(), "cannot be empty".to_string()));
+            return Err(ConfigError::InvalidEnvVar(
+                "RABBITMQ_EXCHANGE".to_string(),
+                "cannot be empty".to_string(),
+            ));
         }
-        
+
         if self.queue_name.is_empty() {
-            return Err(ConfigError::InvalidEnvVar("RABBITMQ_RENDERER_QUEUE_NAME".to_string(), "cannot be empty".to_string()));
+            return Err(ConfigError::InvalidEnvVar(
+                "RABBITMQ_RENDERER_QUEUE_NAME".to_string(),
+                "cannot be empty".to_string(),
+            ));
         }
-        
+
         if self.routing_key.is_empty() {
-            return Err(ConfigError::InvalidEnvVar("RABBITMQ_ANALYSED_REPORT_ROUTING_KEY".to_string(), "cannot be empty".to_string()));
+            return Err(ConfigError::InvalidEnvVar(
+                "RABBITMQ_ANALYSED_REPORT_ROUTING_KEY".to_string(),
+                "cannot be empty".to_string(),
+            ));
         }
 
         Ok(())
@@ -141,7 +177,7 @@ impl Config {
 pub enum ConfigError {
     #[error("Missing environment variable: {0}")]
     MissingEnvVar(String),
-    
+
     #[error("Invalid environment variable {0}: {1}")]
     InvalidEnvVar(String, String),
 }
@@ -154,15 +190,21 @@ static CONFIG: OnceLock<Config> = OnceLock::new();
 pub fn init_config() -> Result<(), ConfigError> {
     let config = Config::from_env()?;
     config.validate()?;
-    
-    CONFIG.set(config)
-        .map_err(|_| ConfigError::InvalidEnvVar("CONFIG".to_string(), "Config already initialized".to_string()))?;
-    
+
+    CONFIG.set(config).map_err(|_| {
+        ConfigError::InvalidEnvVar(
+            "CONFIG".to_string(),
+            "Config already initialized".to_string(),
+        )
+    })?;
+
     Ok(())
 }
 
 pub fn get_config() -> &'static Config {
-    CONFIG.get().expect("Config not initialized. Call init_config() first.")
+    CONFIG
+        .get()
+        .expect("Config not initialized. Call init_config() first.")
 }
 
 #[cfg(test)]

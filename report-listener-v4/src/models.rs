@@ -64,6 +64,3 @@ pub struct ReportPoint {
     pub latitude: f64,
     pub longitude: f64,
 }
-
-
-

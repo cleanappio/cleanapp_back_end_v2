@@ -33,4 +33,3 @@ pub async fn version() -> (StatusCode, Json<VersionResponse>) {
 
     (StatusCode::OK, Json(response))
 }
-

@@ -53,7 +53,7 @@ type TagInfo struct {
 // AddTagsToReport adds tags to a report via the Rust service
 func (tc *TagClient) AddTagsToReport(ctx context.Context, reportSeq int, tags []string) ([]string, error) {
 	url := fmt.Sprintf("%s/api/v3/reports/%d/tags", tc.baseURL, reportSeq)
-	
+
 	reqBody := AddTagsRequest{Tags: tags}
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {

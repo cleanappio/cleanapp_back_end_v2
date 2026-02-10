@@ -23,17 +23,17 @@ func (c *Client) AnalyzeImage(imageData []byte, description string) (string, err
 	short := hex.EncodeToString(sum[:8])
 
 	out := map[string]any{
-		"title":                  fmt.Sprintf("CI Stub Analysis (%s)", short),
-		"description":            fmt.Sprintf("Stubbed analysis for: %s", truncate(description, 120)),
-		"classification":         "physical",
-		"user_info":              map[string]any{"name": "", "email": "", "company": "", "role": "", "company_size": ""},
-		"location":               "",
-		"brand_name":             "",
-		"responsible_party":      "",
+		"title":                   fmt.Sprintf("CI Stub Analysis (%s)", short),
+		"description":             fmt.Sprintf("Stubbed analysis for: %s", truncate(description, 120)),
+		"classification":          "physical",
+		"user_info":               map[string]any{"name": "", "email": "", "company": "", "role": "", "company_size": ""},
+		"location":                "",
+		"brand_name":              "",
+		"responsible_party":       "",
 		"inferred_contact_emails": []string{},
-		"suggested_remediation":  []string{"Investigate", "Remediate", "Close out"},
-		"litter_probability":     0.5,
-		"hazard_probability":     0.1,
+		"suggested_remediation":   []string{"Investigate", "Remediate", "Close out"},
+		"litter_probability":      0.5,
+		"hazard_probability":      0.1,
 		// Note the historical spelling used by the parser schema.
 		"digital_bug_probabilty": 0.0,
 		"severity_level":         0.2,
@@ -80,4 +80,3 @@ func truncate(s string, max int) string {
 	}
 	return s[:max]
 }
-

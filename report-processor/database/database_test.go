@@ -2,12 +2,17 @@ package database
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"report_processor/config"
 )
 
 func TestEnsureReportStatusTable(t *testing.T) {
+	if os.Getenv("RUN_DB_TESTS") != "1" {
+		t.Skip("skipping DB integration test (set RUN_DB_TESTS=1 to enable)")
+	}
+
 	// This test requires a running MySQL database
 	// Skip if not available
 	cfg := &config.Config{
@@ -33,6 +38,10 @@ func TestEnsureReportStatusTable(t *testing.T) {
 }
 
 func TestMarkReportResolved(t *testing.T) {
+	if os.Getenv("RUN_DB_TESTS") != "1" {
+		t.Skip("skipping DB integration test (set RUN_DB_TESTS=1 to enable)")
+	}
+
 	// This test requires a running MySQL database with reports table
 	// Skip if not available
 	cfg := &config.Config{
@@ -67,6 +76,10 @@ func TestMarkReportResolved(t *testing.T) {
 }
 
 func TestEnsureResponsesTable(t *testing.T) {
+	if os.Getenv("RUN_DB_TESTS") != "1" {
+		t.Skip("skipping DB integration test (set RUN_DB_TESTS=1 to enable)")
+	}
+
 	// This test requires a running MySQL database
 	// Skip if not available
 	cfg := &config.Config{

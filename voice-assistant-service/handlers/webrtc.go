@@ -48,7 +48,7 @@ func (h *WebRTCHandler) ProxyOffer(c *gin.Context) {
 
 	reqBody := bytes.NewReader([]byte(req.OfferSDP))
 	openaiURL := "https://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview"
-	
+
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", openaiURL, reqBody)
 	if err != nil {
 		log.Errorf("Failed to create OpenAI WebRTC request: %v", err)
@@ -73,7 +73,7 @@ func (h *WebRTCHandler) ProxyOffer(c *gin.Context) {
 	if resp.StatusCode >= 400 {
 		respBytes, _ := io.ReadAll(resp.Body)
 		log.Errorf("OpenAI WebRTC returned %d: %s", resp.StatusCode, string(respBytes))
-		
+
 		switch resp.StatusCode {
 		case 401:
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid ephemeral key"})

@@ -1,7 +1,7 @@
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
-use crate::models::{BrandSummaryItem, ReportBatch, ReportWithAnalysis, Report, ReportPoint};
+use crate::models::{BrandSummaryItem, Report, ReportBatch, ReportPoint, ReportWithAnalysis};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -24,5 +24,3 @@ pub fn routes() -> utoipa_swagger_ui::SwaggerUi {
     let openapi = ApiDoc::openapi();
     SwaggerUi::new("/api/v4/docs").url("/api/v4/openapi.json", openapi)
 }
-
-

@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  secrets:
+    name: Secret Scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install gitleaks
+        run: |
+          set -euo pipefail
+          VER="8.30.0"
+          curl -fsSLo /tmp/gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/download/v${VER}/gitleaks_${VER}_linux_x64.tar.gz"
+          tar -xzf /tmp/gitleaks.tgz -C /tmp
+          sudo mv /tmp/gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+      - name: gitleaks detect
+        run: gitleaks detect --no-git --redact
+
+  go:
+    name: Go (fmt/test/vet)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: gofmt check
+        run: ./scripts/ci/go_fmt_check.sh
+      - name: go test (all modules)
+        run: ./scripts/ci/go_test_all.sh
+      - name: go vet (all modules)
+        run: ./scripts/ci/go_vet_all.sh
+
+  golangci:
+    name: Go Lint (golangci-lint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install golangci-lint
+        run: |
+          set -euo pipefail
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.6
+          golangci-lint --version
+      - name: golangci-lint (all modules)
+        run: ./scripts/ci/golangci_lint_all.sh
+
+  rust:
+    name: Rust (fmt/clippy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: System deps
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev
+      - name: cargo fmt --check
+        run: ./scripts/ci/rust_fmt_check.sh
+      - name: cargo clippy
+        run: ./scripts/ci/rust_clippy_check.sh
+
+  integration-analyzer:
+    name: Integration (Analyzer Golden Path)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Docker info
+        run: docker version && docker compose version
+      - name: Analyzer golden path
+        env:
+          RABBITMQ_MGMT_USER: guest
+          RABBITMQ_MGMT_PASSWORD: guest
+        run: make ci-analyzer

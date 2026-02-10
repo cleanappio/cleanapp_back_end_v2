@@ -144,7 +144,6 @@ func (s *EmailService) getDailyEmailCount(ctx context.Context, brandName string)
 	return count, nil
 }
 
-
 // NewEmailService creates a new email service
 func NewEmailService(cfg *config.Config) (*EmailService, error) {
 	// Connect to database
@@ -344,7 +343,7 @@ func (s *EmailService) ProcessBrandNotifications() error {
 		if err != nil {
 			log.Warnf("Failed to get daily email count for %s: %v", summary.BrandName, err)
 		} else if dailyCount >= s.config.MaxDailyEmailsPerBrand {
-			log.Warnf("⚠️ DAILY LIMIT REACHED for brand %s (%d/%d), skipping", 
+			log.Warnf("⚠️ DAILY LIMIT REACHED for brand %s (%d/%d), skipping",
 				summary.BrandName, dailyCount, s.config.MaxDailyEmailsPerBrand)
 			// Mark reports as processed so we don't keep retrying tomorrow
 			for _, seq := range summary.ReportSeqs {

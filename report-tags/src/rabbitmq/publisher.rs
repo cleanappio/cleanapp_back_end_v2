@@ -1,8 +1,8 @@
 use crate::config::Config;
 use crate::rabbitmq::messages::TagAddedEvent;
-use cleanapp_rustlib::rabbitmq::publisher::Publisher as RustLibPublisher;
-use chrono::Utc;
 use anyhow::Result;
+use chrono::Utc;
+use cleanapp_rustlib::rabbitmq::publisher::Publisher as RustLibPublisher;
 use log;
 
 pub struct TagEventPublisher {
@@ -52,4 +52,3 @@ impl TagEventPublisher {
         self.publisher.is_connected()
     }
 }
-

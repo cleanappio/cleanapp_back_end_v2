@@ -520,4 +520,3 @@ func (d *Database) GetDigitalReportsNeedingEnrichment(limit int) ([]DigitalRepor
 
 	return reports, nil
 }
-

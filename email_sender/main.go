@@ -13,7 +13,7 @@ func main() {
 
 	err := utils.LoadEnvFile(".env")
 	if err != nil {
-		log.Printf("warning: failed to load env file:", err)
+		log.Printf("warning: failed to load env file: %v", err)
 	}
 
 	flag.Parse()

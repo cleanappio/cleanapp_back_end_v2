@@ -90,7 +90,7 @@ func (c *Client) QueryNearbyPOIs(lat, lon float64, radiusMeters int) ([]POI, err
   nwr["railway"="station"](around:%d,%f,%f);
 );
 out center;
-`, 
+`,
 		radiusMeters, lat, lon,
 		radiusMeters, lat, lon,
 		radiusMeters, lat, lon,
@@ -151,14 +151,14 @@ out center;
 			poi.Operator = elem.Tags["operator"]
 			poi.Amenity = elem.Tags["amenity"]
 			poi.Building = elem.Tags["building"]
-			
+
 			// Extract contact info
 			if email, ok := elem.Tags["contact:email"]; ok {
 				poi.ContactEmail = email
 			} else if email, ok := elem.Tags["email"]; ok {
 				poi.ContactEmail = email
 			}
-			
+
 			// Extract website
 			if website, ok := elem.Tags["website"]; ok {
 				poi.Website = website
@@ -180,10 +180,10 @@ out center;
 
 // HierarchyLevel represents a level in the place hierarchy
 type HierarchyLevel struct {
-	Name        string `json:"name"`
-	Type        string `json:"type"` // building, campus, university, city, etc.
-	Domain      string `json:"domain"`
-	Operator    string `json:"operator"`
+	Name         string `json:"name"`
+	Type         string `json:"type"` // building, campus, university, city, etc.
+	Domain       string `json:"domain"`
+	Operator     string `json:"operator"`
 	ContactEmail string `json:"contact_email"`
 }
 
@@ -240,7 +240,7 @@ func (c *Client) GetLocationHierarchy(ctx *LocationContext) []HierarchyLevel {
 // inferDomainFromOrgName attempts to infer a domain from an organization name
 func inferDomainFromOrgName(orgName string) string {
 	name := strings.ToLower(orgName)
-	
+
 	// Common university patterns
 	if strings.Contains(name, "university of california") {
 		// Extract campus name: "University of California, Los Angeles" -> "ucla.edu"
@@ -248,22 +248,22 @@ func inferDomainFromOrgName(orgName string) string {
 		if len(parts) > 1 {
 			campus := strings.TrimSpace(parts[1])
 			abbreviations := map[string]string{
-				"los angeles": "ucla.edu",
-				"berkeley":    "berkeley.edu",
-				"san diego":   "ucsd.edu",
-				"davis":       "ucdavis.edu",
-				"irvine":      "uci.edu",
+				"los angeles":   "ucla.edu",
+				"berkeley":      "berkeley.edu",
+				"san diego":     "ucsd.edu",
+				"davis":         "ucdavis.edu",
+				"irvine":        "uci.edu",
 				"santa barbara": "ucsb.edu",
-				"santa cruz":  "ucsc.edu",
-				"riverside":   "ucr.edu",
-				"merced":      "ucmerced.edu",
+				"santa cruz":    "ucsc.edu",
+				"riverside":     "ucr.edu",
+				"merced":        "ucmerced.edu",
 			}
 			if domain, ok := abbreviations[campus]; ok {
 				return domain
 			}
 		}
 	}
-	
+
 	// Generic university: try to form acronym.edu
 	if strings.Contains(name, "university") || strings.Contains(name, "college") {
 		// Remove common words and form acronym
@@ -295,11 +295,11 @@ func inferCityGovDomain(city, state, countryCode string) string {
 	cityNorm := strings.ToLower(city)
 	cityNorm = strings.ReplaceAll(cityNorm, " ", "")
 	cityNorm = strings.ReplaceAll(cityNorm, "-", "")
-	
+
 	// Try common patterns
 	// Los Angeles -> lacity.gov, losangeles.gov
 	// Santa Monica -> santamonica.gov, smgov.net
-	
+
 	// Default to city.gov pattern
 	return cityNorm + ".gov"
 }
@@ -313,12 +313,12 @@ func ValidateEmail(email string) bool {
 	if email == "" {
 		return false
 	}
-	
+
 	// Check syntax
 	if !emailRegex.MatchString(email) {
 		return false
 	}
-	
+
 	// Filter obvious placeholders
 	lower := strings.ToLower(email)
 	placeholders := []string{
@@ -332,7 +332,7 @@ func ValidateEmail(email string) bool {
 			return false
 		}
 	}
-	
+
 	return true
 }
 
@@ -340,17 +340,17 @@ func ValidateEmail(email string) bool {
 func ValidateAndFilterEmails(emails []string) []string {
 	var valid []string
 	seen := make(map[string]bool)
-	
+
 	for _, email := range emails {
 		email = strings.TrimSpace(email)
 		lower := strings.ToLower(email)
-		
+
 		if ValidateEmail(email) && !seen[lower] {
 			valid = append(valid, email)
 			seen[lower] = true
 		}
 	}
-	
+
 	return valid
 }
 
@@ -401,10 +401,10 @@ func extractEmailsFromHTML(html string) []string {
 	// Look for mailto: links first (most reliable)
 	mailtoRegex := regexp.MustCompile(`mailto:([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})`)
 	matches := mailtoRegex.FindAllStringSubmatch(html, -1)
-	
+
 	var emails []string
 	seen := make(map[string]bool)
-	
+
 	for _, match := range matches {
 		if len(match) > 1 {
 			email := strings.ToLower(match[1])
@@ -414,11 +414,11 @@ func extractEmailsFromHTML(html string) []string {
 			}
 		}
 	}
-	
+
 	// Also look for plain email addresses (but these may have more false positives)
 	plainEmailRegex := regexp.MustCompile(`\b([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.(edu|gov|org|com|net))\b`)
 	plainMatches := plainEmailRegex.FindAllStringSubmatch(html, -1)
-	
+
 	for _, match := range plainMatches {
 		if len(match) > 1 {
 			email := strings.ToLower(match[1])
@@ -428,7 +428,7 @@ func extractEmailsFromHTML(html string) []string {
 			}
 		}
 	}
-	
+
 	return emails
 }
 
@@ -444,7 +444,7 @@ func (c *Client) SearchLocationEmails(locationName, city string) ([]string, erro
 	// Get API credentials from environment
 	apiKey := os.Getenv("GOOGLE_SEARCH_API_KEY")
 	cseID := os.Getenv("GOOGLE_SEARCH_CX")
-	
+
 	if apiKey == "" || cseID == "" {
 		// Fall back to no search if credentials not configured
 		return nil, nil
@@ -457,7 +457,7 @@ func (c *Client) SearchLocationEmails(locationName, city string) ([]string, erro
 			dailyLimit = parsed
 		}
 	}
-	
+
 	today := time.Now().UTC().Format("2006-01-02")
 	googleSearchDailyCounter.Lock()
 	if googleSearchDailyCounter.date != today {
@@ -474,7 +474,7 @@ func (c *Client) SearchLocationEmails(locationName, city string) ([]string, erro
 	googleSearchDailyCounter.count++
 	currentCount := googleSearchDailyCounter.count
 	googleSearchDailyCounter.Unlock()
-	
+
 	log.Printf("Google Search API call %d/%d for location %q", currentCount, dailyLimit, locationName)
 
 	c.enforceRateLimit()
@@ -484,7 +484,7 @@ func (c *Client) SearchLocationEmails(locationName, city string) ([]string, erro
 	if city == "" {
 		query = fmt.Sprintf(`"%s" contact email`, locationName)
 	}
-	
+
 	// Use Google Custom Search JSON API
 	searchURL := fmt.Sprintf(
 		"https://www.googleapis.com/customsearch/v1?key=%s&cx=%s&q=%s&num=10",
@@ -514,13 +514,13 @@ func (c *Client) SearchLocationEmails(locationName, city string) ([]string, erro
 	}
 
 	var emails []string
-	
+
 	// Extract emails from search result snippets
 	for _, item := range searchResp.Items {
 		// Check snippet for emails
 		snippetEmails := extractEmailsFromHTML(item.Snippet)
 		emails = append(emails, snippetEmails...)
-		
+
 		// Scrape the result URL for emails (limit to first 3)
 		if len(emails) < 5 && item.Link != "" {
 			scraped, err := c.ScrapeEmailsFromWebsite(item.Link)
@@ -549,12 +549,12 @@ type GoogleSearchItem struct {
 func extractWebsiteURLsFromGoogle(html, locationName string) []string {
 	var urls []string
 	seen := make(map[string]bool)
-	
+
 	// Look for URLs in search results
 	// Google often uses /url?q=https://... format
 	urlRegex := regexp.MustCompile(`/url\?q=(https?://[^&"]+)`)
 	matches := urlRegex.FindAllStringSubmatch(html, -1)
-	
+
 	for _, match := range matches {
 		if len(match) > 1 {
 			rawURL := match[1]
@@ -563,7 +563,7 @@ func extractWebsiteURLsFromGoogle(html, locationName string) []string {
 			if err == nil {
 				rawURL = decoded
 			}
-			
+
 			// Filter out Google's own URLs and social media
 			lower := strings.ToLower(rawURL)
 			if strings.Contains(lower, "google.") ||
@@ -574,12 +574,12 @@ func extractWebsiteURLsFromGoogle(html, locationName string) []string {
 				strings.Contains(lower, "linkedin.") {
 				continue
 			}
-			
+
 			// Look for contact/about pages
 			if !seen[rawURL] {
 				seen[rawURL] = true
 				// Prioritize contact pages
-				if strings.Contains(lower, "contact") || 
+				if strings.Contains(lower, "contact") ||
 					strings.Contains(lower, "about") ||
 					strings.Contains(lower, "impressum") {
 					urls = append([]string{rawURL}, urls...) // prepend
@@ -589,12 +589,12 @@ func extractWebsiteURLsFromGoogle(html, locationName string) []string {
 			}
 		}
 	}
-	
+
 	// Limit results
 	if len(urls) > 5 {
 		urls = urls[:5]
 	}
-	
+
 	return urls
 }
 
@@ -602,29 +602,29 @@ func extractWebsiteURLsFromGoogle(html, locationName string) []string {
 func GenerateHierarchyEmails(hierarchy []HierarchyLevel) []string {
 	var emails []string
 	seen := make(map[string]bool)
-	
+
 	// Email patterns by type
 	patterns := map[string][]string{
-		"university": {"facilities@", "security@", "custodian@", "info@", "accessibility@"},
-		"school":     {"facilities@", "office@", "info@"},
-		"hospital":   {"facilities@", "safety@", "info@", "patientservices@"},
+		"university":   {"facilities@", "security@", "custodian@", "info@", "accessibility@"},
+		"school":       {"facilities@", "office@", "info@"},
+		"hospital":     {"facilities@", "safety@", "info@", "patientservices@"},
 		"organization": {"facilities@", "info@", "contact@"},
-		"operator":   {"info@", "contact@", "support@"},
-		"city":       {"311@", "publicworks@", "parks@", "info@"},
-		"building":   {"facilities@", "management@", "info@"},
+		"operator":     {"info@", "contact@", "support@"},
+		"city":         {"311@", "publicworks@", "parks@", "info@"},
+		"building":     {"facilities@", "management@", "info@"},
 	}
-	
+
 	for _, level := range hierarchy {
 		if level.Domain == "" {
 			continue
 		}
-		
+
 		// Get patterns for this type
 		typePatterns, ok := patterns[level.Type]
 		if !ok {
 			typePatterns = patterns["organization"] // default
 		}
-		
+
 		for _, pattern := range typePatterns {
 			email := pattern + level.Domain
 			lower := strings.ToLower(email)
@@ -633,7 +633,7 @@ func GenerateHierarchyEmails(hierarchy []HierarchyLevel) []string {
 				seen[lower] = true
 			}
 		}
-		
+
 		// Add the direct contact email if available
 		if level.ContactEmail != "" && !seen[strings.ToLower(level.ContactEmail)] {
 			if ValidateEmail(level.ContactEmail) {
@@ -642,6 +642,6 @@ func GenerateHierarchyEmails(hierarchy []HierarchyLevel) []string {
 			}
 		}
 	}
-	
+
 	return emails
 }

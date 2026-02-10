@@ -18,10 +18,17 @@ impl Config {
         let db_user = std::env::var("DB_USER").unwrap_or_else(|_| "server".into());
         let db_password = std::env::var("DB_PASSWORD").unwrap_or_default();
         let db_name = std::env::var("DB_NAME").unwrap_or_else(|_| "cleanapp".into());
-        let http_port = std::env::var("HTTP_PORT").ok().and_then(|s| s.parse().ok()).unwrap_or(9084);
-        Ok(Self { db_host, db_port, db_user, db_password, db_name, http_port })
+        let http_port = std::env::var("HTTP_PORT")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(9084);
+        Ok(Self {
+            db_host,
+            db_port,
+            db_user,
+            db_password,
+            db_name,
+            http_port,
+        })
     }
 }
-
-
-

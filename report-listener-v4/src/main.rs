@@ -1,17 +1,14 @@
 use std::net::SocketAddr;
 
 use anyhow::Result;
-use axum::{
-    extract::Query,
-    http::StatusCode,
-    response::IntoResponse,
-    routing::get,
-    Json, Router,
-};
+use axum::{extract::Query, http::StatusCode, response::IntoResponse, routing::get, Json, Router};
 use mysql as my;
 use serde::Deserialize;
 use tower::ServiceBuilder;
-use tower_http::{cors::{Any, CorsLayer}, trace::TraceLayer};
+use tower_http::{
+    cors::{Any, CorsLayer},
+    trace::TraceLayer,
+};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod cfg;
@@ -72,7 +69,12 @@ async fn run() -> Result<()> {
         .layer(
             ServiceBuilder::new()
                 .layer(TraceLayer::new_for_http())
-                .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any)),
+                .layer(
+                    CorsLayer::new()
+                        .allow_origin(Any)
+                        .allow_methods(Any)
+                        .allow_headers(Any),
+                ),
         );
 
     let addr: SocketAddr = format!("0.0.0.0:{}", cfg.http_port).parse().unwrap();
@@ -148,7 +150,8 @@ async fn get_reports_by_brand(
     Query(params): Query<ReportsByBrandParams>,
 ) -> Result<Json<ReportBatch>, (StatusCode, String)> {
     let limit = params.n.unwrap_or(1000) as usize;
-    let batch = db::fetch_reports_by_brand(&pool, &params.brand_name, limit).map_err(internal_error)?;
+    let batch =
+        db::fetch_reports_by_brand(&pool, &params.brand_name, limit).map_err(internal_error)?;
     Ok(Json(batch))
 }
 
@@ -176,7 +179,9 @@ async fn get_report_points(
 
 #[derive(Deserialize, utoipa::IntoParams)]
 #[into_params(parameter_in = Query)]
-struct BySeqParams { seq: i64 }
+struct BySeqParams {
+    seq: i64,
+}
 
 /// GET /api/v4/reports/by-seq
 #[utoipa::path(
@@ -197,4 +202,3 @@ fn internal_error<E: std::fmt::Display>(e: E) -> (StatusCode, String) {
     tracing::error!("internal error: {}", e);
     (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
 }
-

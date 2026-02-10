@@ -51,10 +51,10 @@ func TestHashToken(t *testing.T) {
 			name:  "simple token",
 			token: "simple-token-123",
 		},
-			{
-				name:  "JWT-like token",
-				token: "jwt-like-token-abc123",
-			},
+		{
+			name:  "JWT-like token",
+			token: "jwt-like-token-abc123",
+		},
 		{
 			name:  "empty token",
 			token: "",

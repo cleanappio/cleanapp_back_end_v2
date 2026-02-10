@@ -2,10 +2,15 @@ package services
 
 import (
 	"custom-area-dashboard/config"
+	"os"
 	"testing"
 )
 
 func TestGetReportsAggregatedData(t *testing.T) {
+	if os.Getenv("RUN_DB_TESTS") != "1" {
+		t.Skip("skipping DB integration test (set RUN_DB_TESTS=1 to enable)")
+	}
+
 	// This is a basic test to ensure the function can be called
 	// In a real implementation, you would use a test database or mock the database calls
 

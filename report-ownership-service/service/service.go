@@ -6,10 +6,10 @@ import (
 	"log"
 	"time"
 
-	"report-ownership-service/rabbitmq"
 	"report-ownership-service/config"
 	"report-ownership-service/database"
 	"report-ownership-service/models"
+	"report-ownership-service/rabbitmq"
 )
 
 // Service represents the main ownership service

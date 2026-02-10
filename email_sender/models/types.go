@@ -25,11 +25,10 @@ type Config struct {
 	DBHost     string
 	DBPort     string
 	DBName     string
-
 }
 
 type Contact struct {
-	AreaID int
-	Email string
+	AreaID        int
+	Email         string
 	ConsentReport bool
 }

@@ -57,8 +57,8 @@ func generate(xMin, xMax, yMin, yMax, zoom int, feature *geojson.Feature, report
 
 	dc := gg.NewContextForRGBA(dst)
 	dc.SetLineWidth(3)
-	
-	// Draw image 
+
+	// Draw image
 	for j, col := range imgs {
 		for i, img := range col {
 			ic := getImageCoords(i, j)
@@ -263,8 +263,8 @@ func getTileBBox(x, y, zoom int) *api.ViewPort {
 
 // convertPoly converts the polygon from the lat/lngs to the image coordinates.
 func convertPoly(srcPoly [][][]float64, tiles [][][]int, zoom int) (ret [][][]float64) {
-	bbMin := getTileBBox(tiles[len(tiles) - 1][0][0], tiles[len(tiles) - 1][0][1], zoom)
-	bbMax := getTileBBox(tiles[0][len(tiles[0]) - 1][0], tiles[0][len(tiles[0]) - 1][1], zoom)
+	bbMin := getTileBBox(tiles[len(tiles)-1][0][0], tiles[len(tiles)-1][0][1], zoom)
+	bbMax := getTileBBox(tiles[0][len(tiles[0])-1][0], tiles[0][len(tiles[0])-1][1], zoom)
 	bbXSize := bbMax.LonMax - bbMin.LonMin
 	bbYSize := bbMax.LatMax - bbMin.LatMin
 
@@ -273,8 +273,8 @@ func convertPoly(srcPoly [][][]float64, tiles [][][]int, zoom int) (ret [][][]fl
 		ret[i] = make([][]float64, len(loop))
 		for j, pt := range loop {
 			ret[i][j] = make([]float64, 2)
-			ret[i][j][0] = (1-(bbMax.LonMax-pt[0])/bbXSize)*tileSize*float64(len(tiles[0]))
-			ret[i][j][1] = (bbMax.LatMax-pt[1])/bbYSize*tileSize*float64(len(tiles))
+			ret[i][j][0] = (1 - (bbMax.LonMax-pt[0])/bbXSize) * tileSize * float64(len(tiles[0]))
+			ret[i][j][1] = (bbMax.LatMax - pt[1]) / bbYSize * tileSize * float64(len(tiles))
 		}
 	}
 	return
@@ -282,13 +282,13 @@ func convertPoly(srcPoly [][][]float64, tiles [][][]int, zoom int) (ret [][][]fl
 
 // convertPoint converts point lat/lng to the image coordinates.
 func convertPoint(ptLat, ptLon float64, tiles [][][]int, zoom int) (retX, retY float64) {
-	bbMin := getTileBBox(tiles[len(tiles) - 1][0][0], tiles[len(tiles) - 1][0][1], zoom)
-	bbMax := getTileBBox(tiles[0][len(tiles[0]) - 1][0], tiles[0][len(tiles[0]) - 1][1], zoom)
+	bbMin := getTileBBox(tiles[len(tiles)-1][0][0], tiles[len(tiles)-1][0][1], zoom)
+	bbMax := getTileBBox(tiles[0][len(tiles[0])-1][0], tiles[0][len(tiles[0])-1][1], zoom)
 	bbXSize := bbMax.LonMax - bbMin.LonMin
 	bbYSize := bbMax.LatMax - bbMin.LatMin
 
-	retX = (1-(bbMax.LonMax-ptLon)/bbXSize)*tileSize*float64(len(tiles[0]))
-	retY = (bbMax.LatMax-ptLat)/bbYSize*tileSize*float64(len(tiles))
+	retX = (1 - (bbMax.LonMax-ptLon)/bbXSize) * tileSize * float64(len(tiles[0]))
+	retY = (bbMax.LatMax - ptLat) / bbYSize * tileSize * float64(len(tiles))
 	return
 }
 

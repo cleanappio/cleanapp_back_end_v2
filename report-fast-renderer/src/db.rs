@@ -1,8 +1,11 @@
 use anyhow::Result;
-use mysql as my;
 use my::prelude::*;
+use mysql as my;
 
-use crate::{config::Config, model::{BrandSummaryItem, ReportPoint}};
+use crate::{
+    config::Config,
+    model::{BrandSummaryItem, ReportPoint},
+};
 
 pub fn connect_pool() -> Result<my::Pool> {
     let cfg: &Config = crate::config::get_config();
@@ -16,7 +19,11 @@ pub fn connect_pool() -> Result<my::Pool> {
     Ok(my::Pool::new(builder)?)
 }
 
-pub fn fetch_brand_summaries(pool: &my::Pool, classification: &str, lang: &str) -> Result<Vec<BrandSummaryItem>> {
+pub fn fetch_brand_summaries(
+    pool: &my::Pool,
+    classification: &str,
+    lang: &str,
+) -> Result<Vec<BrandSummaryItem>> {
     let mut conn = pool.get_conn()?;
     let rows: Vec<(String, String, u64)> = conn.exec(
         r#"
@@ -28,7 +35,14 @@ pub fn fetch_brand_summaries(pool: &my::Pool, classification: &str, lang: &str) 
         "#,
         (lang, classification),
     )?;
-    Ok(rows.into_iter().map(|(brand_name, brand_display_name, total)| BrandSummaryItem { brand_name, brand_display_name, total }).collect())
+    Ok(rows
+        .into_iter()
+        .map(|(brand_name, brand_display_name, total)| BrandSummaryItem {
+            brand_name,
+            brand_display_name,
+            total,
+        })
+        .collect())
 }
 
 pub fn fetch_report_points(pool: &my::Pool, classification: &str) -> Result<Vec<ReportPoint>> {
@@ -71,9 +85,12 @@ pub fn fetch_report_points(pool: &my::Pool, classification: &str) -> Result<Vec<
         let severity_level: f64 = row.take::<Option<f64>, _>(1).unwrap_or(None).unwrap_or(0.0);
         let latitude: f64 = row.take::<Option<f64>, _>(2).unwrap_or(None).unwrap_or(0.0);
         let longitude: f64 = row.take::<Option<f64>, _>(3).unwrap_or(None).unwrap_or(0.0);
-        out.push(ReportPoint { seq, severity_level, latitude, longitude });
+        out.push(ReportPoint {
+            seq,
+            severity_level,
+            latitude,
+            longitude,
+        });
     }
     Ok(out)
 }
-
-

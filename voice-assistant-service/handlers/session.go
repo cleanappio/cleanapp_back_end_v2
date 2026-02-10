@@ -25,24 +25,24 @@ func NewSessionHandler(cfg *config.Config) *SessionHandler {
 }
 
 type CreateSessionRequest struct {
-	Model       string                 `json:"model"`
-	Voice       string                 `json:"voice,omitempty"`
-	SystemPrompt string                `json:"system_prompt,omitempty"`
-	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+	Model        string                 `json:"model"`
+	Voice        string                 `json:"voice,omitempty"`
+	SystemPrompt string                 `json:"system_prompt,omitempty"`
+	Metadata     map[string]interface{} `json:"metadata,omitempty"`
 }
 
 type CreateSessionResponse struct {
-	SessionID     string                 `json:"session_id"`
-	ClientSecret  map[string]interface{} `json:"client_secret"`
-	ExpiresAt     string                 `json:"expires_at,omitempty"`
-	IceServers    []map[string]interface{} `json:"ice_servers,omitempty"`
-	SystemPrompt  string                 `json:"system_prompt,omitempty"`
+	SessionID    string                   `json:"session_id"`
+	ClientSecret map[string]interface{}   `json:"client_secret"`
+	ExpiresAt    string                   `json:"expires_at,omitempty"`
+	IceServers   []map[string]interface{} `json:"ice_servers,omitempty"`
+	SystemPrompt string                   `json:"system_prompt,omitempty"`
 }
 
 type OpenAISessionResponse struct {
-	ID           string                 `json:"id"`
-	ClientSecret map[string]interface{} `json:"client_secret"`
-	ExpiresAt    interface{}            `json:"expires_at,omitempty"`
+	ID           string                   `json:"id"`
+	ClientSecret map[string]interface{}   `json:"client_secret"`
+	ExpiresAt    interface{}              `json:"expires_at,omitempty"`
 	IceServers   []map[string]interface{} `json:"ice_servers,omitempty"`
 }
 
@@ -218,7 +218,7 @@ We minimize data and avoid unnecessary PII. Location is used for routing and ver
 	// Handle OpenAI errors
 	if resp.StatusCode >= 400 {
 		log.Errorf("OpenAI session create returned %d: %s", resp.StatusCode, string(respBytes))
-		
+
 		switch resp.StatusCode {
 		case 401:
 			c.JSON(http.StatusBadGateway, gin.H{"error": "OpenAI authentication failed"})
@@ -243,7 +243,7 @@ We minimize data and avoid unnecessary PII. Location is used for routing and ver
 
 	// Build response
 	var expiresAtStr string
-	
+
 	// Try to get expires_at from client_secret first (this is where it actually is)
 	if openaiResp.ClientSecret != nil {
 		if clientSecretExpiresAt, ok := openaiResp.ClientSecret["expires_at"]; ok {
@@ -261,7 +261,7 @@ We minimize data and avoid unnecessary PII. Location is used for routing and ver
 			}
 		}
 	}
-	
+
 	// If not found in client_secret, try the top-level field
 	if expiresAtStr == "" && openaiResp.ExpiresAt != nil {
 		switch v := openaiResp.ExpiresAt.(type) {
@@ -277,7 +277,7 @@ We minimize data and avoid unnecessary PII. Location is used for routing and ver
 			expiresAtStr = fmt.Sprintf("%v", v)
 		}
 	}
-	
+
 	// If still empty, set to "0" as fallback
 	if expiresAtStr == "" {
 		expiresAtStr = "0"

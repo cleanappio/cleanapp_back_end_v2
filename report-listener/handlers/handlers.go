@@ -520,10 +520,8 @@ func (h *Handlers) GetLastNAnalyzedReports(c *gin.Context) {
 	limitStr := c.DefaultQuery("n", "10")
 	classification := c.DefaultQuery("classification", "physical")
 
-	limit := 10 // default value
-	if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
-		limit = parsedLimit
-	} else {
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil || limit <= 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'n' parameter. Must be a positive integer."})
 		return
 	}
@@ -535,10 +533,8 @@ func (h *Handlers) GetLastNAnalyzedReports(c *gin.Context) {
 
 	// Get the full_data parameter from query string, default to true if not provided
 	fullDataStr := c.DefaultQuery("full_data", "true")
-	fullData := true // default value
-	if parsedFullData, err := strconv.ParseBool(fullDataStr); err == nil {
-		fullData = parsedFullData
-	} else {
+	fullData, err := strconv.ParseBool(fullDataStr)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'full_data' parameter. Must be 'true' or 'false'."})
 		return
 	}
@@ -803,10 +799,8 @@ func (h *Handlers) GetReportsByLatLng(c *gin.Context) {
 	// Get the n parameter from query string, default to 10 if not provided
 	nStr := c.DefaultQuery("n", "10")
 
-	n := 10 // default value
-	if parsedN, err := strconv.Atoi(nStr); err == nil && parsedN > 0 {
-		n = parsedN
-	} else {
+	n, err := strconv.Atoi(nStr)
+	if err != nil || n <= 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'n' parameter. Must be a positive integer."})
 		return
 	}
@@ -826,11 +820,9 @@ func (h *Handlers) GetReportsByLatLng(c *gin.Context) {
 	}
 
 	// Parse radius_km
-	radiusKm := 1.0 // default value
-	if parsedRadius, err := strconv.ParseFloat(radiusKmStr, 32); err == nil && parsedRadius > 0 {
-		radiusKm = parsedRadius
-	} else {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'radius_km' parameter. Must be a positive integer."})
+	radiusKm, err := strconv.ParseFloat(radiusKmStr, 64)
+	if err != nil || radiusKm <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'radius_km' parameter. Must be a positive number."})
 		return
 	}
 
@@ -886,10 +878,8 @@ func (h *Handlers) GetReportsByLatLngLite(c *gin.Context) {
 	// Get the n parameter from query string, default to 10 if not provided
 	nStr := c.DefaultQuery("n", "10")
 
-	n := 10 // default value
-	if parsedN, err := strconv.Atoi(nStr); err == nil && parsedN > 0 {
-		n = parsedN
-	} else {
+	n, err := strconv.Atoi(nStr)
+	if err != nil || n <= 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'n' parameter. Must be a positive integer."})
 		return
 	}
@@ -909,11 +899,9 @@ func (h *Handlers) GetReportsByLatLngLite(c *gin.Context) {
 	}
 
 	// Parse radius_km
-	radiusKm := 1.0 // default value
-	if parsedRadius, err := strconv.ParseFloat(radiusKmStr, 32); err == nil && parsedRadius > 0 {
-		radiusKm = parsedRadius
-	} else {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'radius_km' parameter. Must be a positive integer."})
+	radiusKm, err := strconv.ParseFloat(radiusKmStr, 64)
+	if err != nil || radiusKm <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'radius_km' parameter. Must be a positive number."})
 		return
 	}
 
@@ -958,10 +946,8 @@ func (h *Handlers) GetReportsByBrand(c *gin.Context) {
 	// Get the limit parameter from query string, default to 10 if not provided
 	limitStr := c.DefaultQuery("n", "10")
 
-	limit := 10 // default value
-	if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
-		limit = parsedLimit
-	} else {
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil || limit <= 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'n' parameter. Must be a positive integer."})
 		return
 	}

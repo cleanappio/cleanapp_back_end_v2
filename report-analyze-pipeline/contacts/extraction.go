@@ -15,7 +15,7 @@ func ExtractContactsFromText(text string) (emails []string, handles []string) {
 	// Email regex
 	emailRegex := regexp.MustCompile(`[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}`)
 	matches := emailRegex.FindAllString(text, -1)
-	
+
 	seenEmails := make(map[string]bool)
 	for _, email := range matches {
 		email = strings.ToLower(email)
@@ -27,7 +27,7 @@ func ExtractContactsFromText(text string) (emails []string, handles []string) {
 
 	// Twitter/X handle extraction
 	seenHandles := make(map[string]bool)
-	
+
 	// 1. Matches @handle logic
 	words := strings.Fields(text)
 	for _, word := range words {
@@ -62,14 +62,14 @@ func ExtractContactsFromText(text string) (emails []string, handles []string) {
 // ProcessReportDescription extracts and saves contacts from report description
 func (s *ContactService) ProcessReportDescription(brandName string, description string) error {
 	log.Printf("ProcessReportDescription called for brand %q with description: %q", brandName, description)
-	
+
 	emails, handles := ExtractContactsFromText(description)
-	
+
 	if len(emails) == 0 && len(handles) == 0 {
 		log.Printf("ProcessReportDescription: No emails or handles extracted from description")
 		return nil
 	}
-	
+
 	log.Printf("Extracted from description for %s: %d emails (%v), %d handles (%v)", brandName, len(emails), emails, len(handles), handles)
 
 	// Check existing contacts to prevent overwrites or duplicates
@@ -88,31 +88,31 @@ func (s *ContactService) ProcessReportDescription(brandName string, description 
 			existingHandleMap[strings.ToLower(c.TwitterHandle)] = true
 		}
 	}
-	
+
 	// Save new emails
 	for _, email := range emails {
 		if existingEmailMap[email] {
 			continue
 		}
 		contact := &Contact{
-			BrandName:    brandName,
-			ContactName:  "User Reported Contact",
-			ContactTitle: "Reported via App",
-			ContactLevel: "ic",
-			Email:        email,
-			Source:       "manual",
+			BrandName:     brandName,
+			ContactName:   "User Reported Contact",
+			ContactTitle:  "Reported via App",
+			ContactLevel:  "ic",
+			Email:         email,
+			Source:        "manual",
 			EmailVerified: true,
 		}
 		if err := s.SaveContact(contact); err != nil {
 			log.Printf("Failed to save user-reported email %s: %v", email, err)
 		}
 	}
-	
+
 	// Save new handles
 	for _, handle := range handles {
 		if existingHandleMap[handle] {
 			continue
-        }
+		}
 		contact := &Contact{
 			BrandName:     brandName,
 			ContactName:   "User Reported Contact",
@@ -125,6 +125,6 @@ func (s *ContactService) ProcessReportDescription(brandName string, description 
 			log.Printf("Failed to save user-reported handle %s: %v", handle, err)
 		}
 	}
-	
+
 	return nil
 }

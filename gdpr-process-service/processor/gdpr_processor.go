@@ -3,8 +3,8 @@ package processor
 import (
 	"fmt"
 	"gdpr-process-service/face_detector"
-	"gdpr-process-service/openai"
 	"gdpr-process-service/image"
+	"gdpr-process-service/openai"
 
 	"github.com/apex/log"
 )

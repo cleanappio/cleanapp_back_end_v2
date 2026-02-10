@@ -26,7 +26,7 @@ type Config struct {
 	LogLevel string
 
 	// End Seq
-	SeqEndTo   int
+	SeqEndTo int
 }
 
 // Load loads configuration from environment variables
@@ -50,7 +50,7 @@ func Load() *Config {
 		LogLevel: getEnv("LOG_LEVEL", "info"),
 
 		// Start and End Point
-		SeqEndTo:   getIntEnv("SEQ_END_TO", 0),
+		SeqEndTo: getIntEnv("SEQ_END_TO", 0),
 	}
 
 	return config

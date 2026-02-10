@@ -1,11 +1,11 @@
-use axum::{
-    extract::{Path, State},
-    response::Json,
-    http::StatusCode,
-};
 use crate::app_state::AppState;
 use crate::models::{AddTagsRequest, AddTagsResponse, GetTagsResponse};
 use crate::services::tag_service;
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    response::Json,
+};
 use log;
 
 pub async fn add_tags_to_report(

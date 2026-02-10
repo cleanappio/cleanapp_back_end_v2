@@ -85,18 +85,18 @@ func (s *ContactService) GetContactsForBrand(brandName string) ([]Contact, error
 	WHERE brand_name = ?
 	ORDER BY CASE WHEN contact_title = 'Reported via App' THEN 0 ELSE 1 END, FIELD(contact_level, 'founder', 'c_suite', 'vp', 'director', 'manager', 'ic')
 	`
-	
+
 	rows, err := s.db.Query(query, brandName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query contacts for brand %s: %w", brandName, err)
 	}
 	defer rows.Close()
-	
+
 	var contacts []Contact
 	for rows.Next() {
 		var c Contact
 		var productName, contactTitle, email, twitter, linkedin, github sql.NullString
-		
+
 		err := rows.Scan(
 			&c.ID, &c.BrandName, &productName, &c.ContactName, &contactTitle, &c.ContactLevel,
 			&email, &c.EmailVerified, &twitter, &linkedin, &github, &c.Source, &c.CreatedAt,
@@ -104,17 +104,17 @@ func (s *ContactService) GetContactsForBrand(brandName string) ([]Contact, error
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan contact: %w", err)
 		}
-		
+
 		c.ProductName = productName.String
 		c.ContactTitle = contactTitle.String
 		c.Email = email.String
 		c.TwitterHandle = twitter.String
 		c.LinkedInURL = linkedin.String
 		c.GitHubHandle = github.String
-		
+
 		contacts = append(contacts, c)
 	}
-	
+
 	return contacts, nil
 }
 
@@ -127,18 +127,18 @@ func (s *ContactService) GetContactsForBrandProduct(brandName, productName strin
 	WHERE brand_name = ? AND (product_name = ? OR product_name IS NULL OR product_name = '')
 	ORDER BY CASE WHEN contact_title = 'Reported via App' THEN 0 ELSE 1 END, FIELD(contact_level, 'founder', 'c_suite', 'vp', 'director', 'manager', 'ic')
 	`
-	
+
 	rows, err := s.db.Query(query, brandName, productName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query contacts for brand %s product %s: %w", brandName, productName, err)
 	}
 	defer rows.Close()
-	
+
 	var contacts []Contact
 	for rows.Next() {
 		var c Contact
 		var productNameDB, contactTitle, email, twitter, linkedin, github sql.NullString
-		
+
 		err := rows.Scan(
 			&c.ID, &c.BrandName, &productNameDB, &c.ContactName, &contactTitle, &c.ContactLevel,
 			&email, &c.EmailVerified, &twitter, &linkedin, &github, &c.Source, &c.CreatedAt,
@@ -146,17 +146,17 @@ func (s *ContactService) GetContactsForBrandProduct(brandName, productName strin
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan contact: %w", err)
 		}
-		
+
 		c.ProductName = productNameDB.String
 		c.ContactTitle = contactTitle.String
 		c.Email = email.String
 		c.TwitterHandle = twitter.String
 		c.LinkedInURL = linkedin.String
 		c.GitHubHandle = github.String
-		
+
 		contacts = append(contacts, c)
 	}
-	
+
 	return contacts, nil
 }
 
@@ -178,7 +178,7 @@ func (s *ContactService) SaveContact(c *Contact) error {
 		source = VALUES(source),
 		updated_at = NOW()
 	`
-	
+
 	_, err := s.db.Exec(query,
 		c.BrandName, c.ProductName, c.ContactName, c.ContactTitle, c.ContactLevel,
 		c.Email, c.EmailVerified, c.TwitterHandle, c.LinkedInURL, c.GitHubHandle, c.Source,
@@ -186,7 +186,7 @@ func (s *ContactService) SaveContact(c *Contact) error {
 	if err != nil {
 		return fmt.Errorf("failed to save contact: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -195,33 +195,33 @@ func InferEmailsFromName(fullName, domain string) []string {
 	if fullName == "" || domain == "" {
 		return nil
 	}
-	
+
 	// Normalize name
 	name := strings.ToLower(strings.TrimSpace(fullName))
 	parts := strings.Fields(name)
-	
+
 	if len(parts) == 0 {
 		return nil
 	}
-	
+
 	firstName := parts[0]
 	var lastName string
 	if len(parts) > 1 {
 		lastName = parts[len(parts)-1]
 	}
-	
+
 	var emails []string
-	
+
 	// Common patterns
-	emails = append(emails, firstName+"@"+domain)                              // sam@openai.com
+	emails = append(emails, firstName+"@"+domain) // sam@openai.com
 	if lastName != "" {
-		emails = append(emails, firstName+lastName+"@"+domain)                 // samaltman@openai.com
-		emails = append(emails, firstName+"."+lastName+"@"+domain)             // sam.altman@openai.com
-		emails = append(emails, string(firstName[0])+lastName+"@"+domain)      // saltman@openai.com
-		emails = append(emails, firstName+"_"+lastName+"@"+domain)             // sam_altman@openai.com
-		emails = append(emails, lastName+"@"+domain)                           // altman@openai.com
+		emails = append(emails, firstName+lastName+"@"+domain)            // samaltman@openai.com
+		emails = append(emails, firstName+"."+lastName+"@"+domain)        // sam.altman@openai.com
+		emails = append(emails, string(firstName[0])+lastName+"@"+domain) // saltman@openai.com
+		emails = append(emails, firstName+"_"+lastName+"@"+domain)        // sam_altman@openai.com
+		emails = append(emails, lastName+"@"+domain)                      // altman@openai.com
 	}
-	
+
 	return emails
 }
 
@@ -303,17 +303,17 @@ func (s *ContactService) GetEmailsForBrand(brandName string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	var emails []string
 	seen := make(map[string]bool)
-	
+
 	for _, c := range contacts {
 		if c.Email != "" && !seen[strings.ToLower(c.Email)] {
 			emails = append(emails, c.Email)
 			seen[strings.ToLower(c.Email)] = true
 		}
 	}
-	
+
 	return emails, nil
 }
 
@@ -323,16 +323,16 @@ func (s *ContactService) GetSocialHandlesForBrand(brandName string) ([]string, e
 	if err != nil {
 		return nil, err
 	}
-	
+
 	var handles []string
 	seen := make(map[string]bool)
-	
+
 	for _, c := range contacts {
 		if c.TwitterHandle != "" && !seen[strings.ToLower(c.TwitterHandle)] {
 			handles = append(handles, c.TwitterHandle)
 			seen[strings.ToLower(c.TwitterHandle)] = true
 		}
 	}
-	
+
 	return handles, nil
 }

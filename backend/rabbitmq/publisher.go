@@ -3,8 +3,11 @@ package rabbitmq
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/streadway/amqp"
@@ -12,6 +15,8 @@ import (
 
 // Publisher represents a RabbitMQ publisher instance
 type Publisher struct {
+	mu         sync.Mutex
+	amqpURL    string
 	conn       *amqp.Connection
 	channel    *amqp.Channel
 	exchange   string
@@ -20,97 +25,28 @@ type Publisher struct {
 
 // NewPublisher creates a new RabbitMQ publisher instance
 func NewPublisher(amqpURL, exchangeName, routingKey string) (*Publisher, error) {
-	// Create connection with timeout context
+	// Create connection with timeout context (best-effort; streadway doesn't accept ctx)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	// Connect to RabbitMQ
-	conn, err := amqp.Dial(amqpURL)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to RabbitMQ: %w", err)
-	}
-
-	// Create channel
-	channel, err := conn.Channel()
-	if err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("failed to open channel: %w", err)
-	}
-
-	// Declare exchange with specified parameters
-	err = channel.ExchangeDeclare(
-		exchangeName, // name
-		"direct",     // type
-		true,         // durable
-		false,        // auto-deleted
-		false,        // internal
-		false,        // no-wait
-		nil,          // arguments
-	)
-	if err != nil {
-		channel.Close()
-		conn.Close()
-		return nil, fmt.Errorf("failed to declare exchange: %w", err)
-	}
-
-	// Check if context is cancelled
-	select {
-	case <-ctx.Done():
-		channel.Close()
-		conn.Close()
-		return nil, fmt.Errorf("context timeout while creating publisher: %w", ctx.Err())
-	default:
-	}
-
-	publisher := &Publisher{
-		conn:       conn,
-		channel:    channel,
+	p := &Publisher{
+		amqpURL:    amqpURL,
 		exchange:   exchangeName,
 		routingKey: routingKey,
 	}
 
-	return publisher, nil
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if err := p.connectLocked(ctx); err != nil {
+		return nil, err
+	}
+	return p, nil
 }
 
 // Publish sends a JSON message to the exchange with the configured routing key
 func (p *Publisher) Publish(message interface{}) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
-	// Marshal message to JSON
-	body, err := json.Marshal(message)
-	if err != nil {
-		return fmt.Errorf("failed to marshal message to JSON: %w", err)
-	}
-
-	// Create publishing message
-	publishing := amqp.Publishing{
-		ContentType:  "application/json",
-		Body:         body,
-		DeliveryMode: amqp.Persistent, // Make message persistent
-		Timestamp:    time.Now(),
-	}
-
-	// Publish message
-	err = p.channel.Publish(
-		p.exchange,   // exchange
-		p.routingKey, // routing key
-		false,        // mandatory
-		false,        // immediate
-		publishing,   // message
-	)
-	if err != nil {
-		return fmt.Errorf("failed to publish message: %w", err)
-	}
-
-	// Check if context is cancelled
-	select {
-	case <-ctx.Done():
-		return fmt.Errorf("context timeout while publishing message: %w", ctx.Err())
-	default:
-	}
-
-	return nil
+	return p.PublishWithRoutingKey(p.routingKey, message)
 }
 
 // PublishWithRoutingKey sends a JSON message to the exchange with a custom routing key
@@ -132,30 +68,14 @@ func (p *Publisher) PublishWithRoutingKey(routingKey string, message interface{}
 		Timestamp:    time.Now(),
 	}
 
-	// Publish message
-	err = p.channel.Publish(
-		p.exchange, // exchange
-		routingKey, // routing key
-		false,      // mandatory
-		false,      // immediate
-		publishing, // message
-	)
-	if err != nil {
-		return fmt.Errorf("failed to publish message: %w", err)
-	}
-
-	// Check if context is cancelled
-	select {
-	case <-ctx.Done():
-		return fmt.Errorf("context timeout while publishing message: %w", ctx.Err())
-	default:
-	}
-
-	return nil
+	return p.publish(ctx, routingKey, publishing)
 }
 
 // Close closes the publisher connection and channel
 func (p *Publisher) Close() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	var err error
 
 	if p.channel != nil {
@@ -177,19 +97,120 @@ func (p *Publisher) Close() error {
 	return err
 }
 
-// IsConnected checks if the publisher is still connected
-func (p *Publisher) IsConnected() bool {
-	if p.conn == nil || p.channel == nil {
-		return false
+func (p *Publisher) connectLocked(ctx context.Context) error {
+	// Connect to RabbitMQ
+	conn, err := amqp.Dial(p.amqpURL)
+	if err != nil {
+		return fmt.Errorf("failed to connect to RabbitMQ: %w", err)
 	}
 
-	// Check if connection is still alive
+	// Create channel
+	ch, err := conn.Channel()
+	if err != nil {
+		conn.Close()
+		return fmt.Errorf("failed to open channel: %w", err)
+	}
+
+	// Declare exchange with specified parameters
+	if err := ch.ExchangeDeclare(
+		p.exchange, // name
+		"direct",   // type
+		true,       // durable
+		false,      // auto-deleted
+		false,      // internal
+		false,      // no-wait
+		nil,        // arguments
+	); err != nil {
+		ch.Close()
+		conn.Close()
+		return fmt.Errorf("failed to declare exchange: %w", err)
+	}
+
+	// Best-effort context check to avoid hanging on startup (dial already done).
 	select {
-	case <-p.conn.NotifyClose(make(chan *amqp.Error)):
-		return false
+	case <-ctx.Done():
+		ch.Close()
+		conn.Close()
+		return fmt.Errorf("context timeout while creating publisher: %w", ctx.Err())
 	default:
+	}
+
+	p.conn = conn
+	p.channel = ch
+	return nil
+}
+
+func (p *Publisher) closeLocked() {
+	if p.channel != nil {
+		_ = p.channel.Close()
+		p.channel = nil
+	}
+	if p.conn != nil {
+		_ = p.conn.Close()
+		p.conn = nil
+	}
+}
+
+func isConnClosedErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	// streadway returns amqp.ErrClosed for closed conns/channels.
+	if errors.Is(err, amqp.ErrClosed) {
 		return true
 	}
+	// Common error string observed in prod logs.
+	if strings.Contains(err.Error(), "channel/connection is not open") {
+		return true
+	}
+	return false
+}
+
+func (p *Publisher) publish(ctx context.Context, routingKey string, publishing amqp.Publishing) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// Ensure we have a live connection/channel; reconnect if needed.
+	if p.conn == nil || p.conn.IsClosed() || p.channel == nil {
+		p.closeLocked()
+		if err := p.connectLocked(ctx); err != nil {
+			return err
+		}
+	}
+
+	err := p.channel.Publish(
+		p.exchange, // exchange
+		routingKey, // routing key
+		false,      // mandatory
+		false,      // immediate
+		publishing, // message
+	)
+	if err != nil && isConnClosedErr(err) {
+		// One reconnect attempt; if RabbitMQ bounced, recover transparently.
+		p.closeLocked()
+		if connErr := p.connectLocked(ctx); connErr != nil {
+			return fmt.Errorf("failed to publish message: %w (reconnect failed: %v)", err, connErr)
+		}
+		err = p.channel.Publish(p.exchange, routingKey, false, false, publishing)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to publish message: %w", err)
+	}
+
+	// Check if context is cancelled (best-effort).
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("context timeout while publishing message: %w", ctx.Err())
+	default:
+	}
+	return nil
+}
+
+// IsConnected checks if the publisher is still connected
+func (p *Publisher) IsConnected() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.conn != nil && !p.conn.IsClosed() && p.channel != nil
 }
 
 // GetExchange returns the exchange name

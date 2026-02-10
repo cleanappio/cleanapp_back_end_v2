@@ -376,99 +376,99 @@ func (s *Subscriber) Start(routingKeyCallbacks map[string]CallbackFunc) error {
 						retryExchange := rabbitMQRetryExchange(s.queue)
 
 						if panicVal != nil {
-						action = "nack"
-						requeue = false // treat panics as permanent
-						s.opMu.Lock()
-						nackErr = delivery.Nack(false, requeue)
-						s.opMu.Unlock()
-						if nackErr != nil {
-							metrics.NackErrorTotal.Inc()
-						}
-						} else if callbackErr != nil {
-						requeue = !isPermanent(callbackErr)
-						if requeue {
-							attempts := retryCountFromHeaders(delivery.Headers)
-							if attempts >= maxRetries {
-								action = "nack"
-								requeue = false
-								s.opMu.Lock()
-								nackErr = delivery.Nack(false, requeue)
-								s.opMu.Unlock()
-								if nackErr != nil {
-									metrics.NackErrorTotal.Inc()
-								}
-							} else {
-								action = "retry"
-								next := attempts + 1
-								pub := amqp.Publishing{
-									Headers:      withRetryCountHeader(delivery.Headers, next),
-									ContentType:  delivery.ContentType,
-									Body:         delivery.Body,
-									DeliveryMode: delivery.DeliveryMode,
-									Timestamp:    delivery.Timestamp,
-								}
-
-								s.opMu.Lock()
-								// Publish to retry exchange then Ack original to avoid tight retry loops.
-								publishErr = s.channel.Publish(retryExchange, delivery.RoutingKey, false, false, pub)
-								if publishErr == nil {
-									ackErr = delivery.Ack(false)
-									if ackErr != nil {
-										metrics.AckErrorTotal.Inc()
-									}
-								} else {
-									metrics.RetryPublishErrorTotal.Inc()
-									action = "nack"
-									requeue = true
-									nackErr = delivery.Nack(false, requeue)
-									if nackErr != nil {
-										metrics.NackErrorTotal.Inc()
-									}
-								}
-								s.opMu.Unlock()
-							}
-						} else {
 							action = "nack"
+							requeue = false // treat panics as permanent
 							s.opMu.Lock()
 							nackErr = delivery.Nack(false, requeue)
 							s.opMu.Unlock()
 							if nackErr != nil {
 								metrics.NackErrorTotal.Inc()
 							}
-						}
+						} else if callbackErr != nil {
+							requeue = !isPermanent(callbackErr)
+							if requeue {
+								attempts := retryCountFromHeaders(delivery.Headers)
+								if attempts >= maxRetries {
+									action = "nack"
+									requeue = false
+									s.opMu.Lock()
+									nackErr = delivery.Nack(false, requeue)
+									s.opMu.Unlock()
+									if nackErr != nil {
+										metrics.NackErrorTotal.Inc()
+									}
+								} else {
+									action = "retry"
+									next := attempts + 1
+									pub := amqp.Publishing{
+										Headers:      withRetryCountHeader(delivery.Headers, next),
+										ContentType:  delivery.ContentType,
+										Body:         delivery.Body,
+										DeliveryMode: delivery.DeliveryMode,
+										Timestamp:    delivery.Timestamp,
+									}
+
+									s.opMu.Lock()
+									// Publish to retry exchange then Ack original to avoid tight retry loops.
+									publishErr = s.channel.Publish(retryExchange, delivery.RoutingKey, false, false, pub)
+									if publishErr == nil {
+										ackErr = delivery.Ack(false)
+										if ackErr != nil {
+											metrics.AckErrorTotal.Inc()
+										}
+									} else {
+										metrics.RetryPublishErrorTotal.Inc()
+										action = "nack"
+										requeue = true
+										nackErr = delivery.Nack(false, requeue)
+										if nackErr != nil {
+											metrics.NackErrorTotal.Inc()
+										}
+									}
+									s.opMu.Unlock()
+								}
+							} else {
+								action = "nack"
+								s.opMu.Lock()
+								nackErr = delivery.Nack(false, requeue)
+								s.opMu.Unlock()
+								if nackErr != nil {
+									metrics.NackErrorTotal.Inc()
+								}
+							}
 						} else {
-						s.opMu.Lock()
-						ackErr = delivery.Ack(false)
-						s.opMu.Unlock()
-						if ackErr != nil {
-							metrics.AckErrorTotal.Inc()
+							s.opMu.Lock()
+							ackErr = delivery.Ack(false)
+							s.opMu.Unlock()
+							if ackErr != nil {
+								metrics.AckErrorTotal.Inc()
+							}
 						}
-					}
 
 						durationMs := time.Since(startedAt).Milliseconds()
 						if panicVal != nil {
-						metrics.ProcessedTotal.WithLabelValues("panic").Inc()
-						metrics.ProcessingDurationSeconds.WithLabelValues("panic").Observe(time.Since(startedAt).Seconds())
-						log.Printf(
-							"rabbitmq worker_finish worker_id=%d routing_key=%s delivery_tag=%d duration_ms=%d action=%s requeue=%t panic=%v nack_err=%v",
-							workerID, delivery.RoutingKey, delivery.DeliveryTag, durationMs, action, requeue, panicVal, nackErr,
-						)
+							metrics.ProcessedTotal.WithLabelValues("panic").Inc()
+							metrics.ProcessingDurationSeconds.WithLabelValues("panic").Observe(time.Since(startedAt).Seconds())
+							log.Printf(
+								"rabbitmq worker_finish worker_id=%d routing_key=%s delivery_tag=%d duration_ms=%d action=%s requeue=%t panic=%v nack_err=%v",
+								workerID, delivery.RoutingKey, delivery.DeliveryTag, durationMs, action, requeue, panicVal, nackErr,
+							)
 							return
 						}
 
 						if callbackErr != nil {
-						if isPermanent(callbackErr) {
-							metrics.ProcessedTotal.WithLabelValues("permanent_error").Inc()
-							metrics.ProcessingDurationSeconds.WithLabelValues("permanent_error").Observe(time.Since(startedAt).Seconds())
-						} else {
-							metrics.ProcessedTotal.WithLabelValues("transient_error").Inc()
-							metrics.ProcessingDurationSeconds.WithLabelValues("transient_error").Observe(time.Since(startedAt).Seconds())
-						}
-						log.Printf(
-							"rabbitmq worker_finish worker_id=%d routing_key=%s delivery_tag=%d duration_ms=%d action=%s requeue=%t err=%v retry_exchange=%s publish_err=%v ack_err=%v nack_err=%v",
-							workerID, delivery.RoutingKey, delivery.DeliveryTag, durationMs, action, requeue, callbackErr,
-							retryExchange, publishErr, ackErr, nackErr,
-						)
+							if isPermanent(callbackErr) {
+								metrics.ProcessedTotal.WithLabelValues("permanent_error").Inc()
+								metrics.ProcessingDurationSeconds.WithLabelValues("permanent_error").Observe(time.Since(startedAt).Seconds())
+							} else {
+								metrics.ProcessedTotal.WithLabelValues("transient_error").Inc()
+								metrics.ProcessingDurationSeconds.WithLabelValues("transient_error").Observe(time.Since(startedAt).Seconds())
+							}
+							log.Printf(
+								"rabbitmq worker_finish worker_id=%d routing_key=%s delivery_tag=%d duration_ms=%d action=%s requeue=%t err=%v retry_exchange=%s publish_err=%v ack_err=%v nack_err=%v",
+								workerID, delivery.RoutingKey, delivery.DeliveryTag, durationMs, action, requeue, callbackErr,
+								retryExchange, publishErr, ackErr, nackErr,
+							)
 							return
 						}
 

@@ -55,10 +55,9 @@ impl Callback for InMemoryReports {
 
         match classification {
             "physical" => {
-                let mut physical_lock = self
-                    .physical_content
-                    .write()
-                    .unwrap_or_else(|e| panic!("Failed to acquire lock on physical_content: {}", e));
+                let mut physical_lock = self.physical_content.write().unwrap_or_else(|e| {
+                    panic!("Failed to acquire lock on physical_content: {}", e)
+                });
                 physical_lock.insert(
                     report.seq,
                     ReportPoint {

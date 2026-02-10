@@ -36,10 +36,10 @@ type ReportAnalysis struct {
 type BrandReportSummary struct {
 	BrandName             string  `json:"brand_name"`
 	BrandDisplayName      string  `json:"brand_display_name"`
-	NewReportCount        int     `json:"new_report_count"`         // New reports since last notification
-	TotalReportCount      int     `json:"total_report_count"`       // Total reports for this brand
-	Classification        string  `json:"classification"`           // digital or physical
-	InferredContactEmails string  `json:"inferred_contact_emails"`  // Comma-separated emails
-	ReportSeqs            []int64 `json:"report_seqs"`              // Seqs of reports to mark as processed
-	LatestReportSeq       int64   `json:"latest_report_seq"`        // Most recent report seq
+	NewReportCount        int     `json:"new_report_count"`        // New reports since last notification
+	TotalReportCount      int     `json:"total_report_count"`      // Total reports for this brand
+	Classification        string  `json:"classification"`          // digital or physical
+	InferredContactEmails string  `json:"inferred_contact_emails"` // Comma-separated emails
+	ReportSeqs            []int64 `json:"report_seqs"`             // Seqs of reports to mark as processed
+	LatestReportSeq       int64   `json:"latest_report_seq"`       // Most recent report seq
 }

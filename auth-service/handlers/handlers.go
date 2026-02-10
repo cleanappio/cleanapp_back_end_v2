@@ -366,4 +366,3 @@ func (h *Handlers) ResetPassword(c *gin.Context) {
 	log.Printf("INFO: Password reset successful from %s", c.ClientIP())
 	c.JSON(http.StatusOK, models.MessageResponse{Message: "Password has been reset successfully. You can now log in with your new password."})
 }
-
