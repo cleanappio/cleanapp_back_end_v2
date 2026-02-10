@@ -26,6 +26,10 @@ ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
   "${DIR}/rabbitmq_ensure.sh"
   "${DIR}/smoke_local.sh"
+  # Only does work when a report appears stuck; otherwise it is passive.
+  if [[ -x "${DIR}/golden_path.sh" ]]; then
+    "${DIR}/golden_path.sh"
+  fi
 
   echo "{\"last_ok\":\"${ts}\",\"last_fail\":\"\",\"last_error\":\"\"}" > "${STATUS}"
   echo "OK"
@@ -42,4 +46,3 @@ ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   fi
   exit "${rc}"
 }
-

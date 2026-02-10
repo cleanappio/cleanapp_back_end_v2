@@ -18,6 +18,7 @@ ssh "${HOST}" "bash -lc 'set -euo pipefail; mkdir -p ~/cleanapp_watchdog; chmod 
 
 cat "${VM_DIR}/rabbitmq_ensure.sh" | ssh "${HOST}" "bash -lc 'cat > ~/cleanapp_watchdog/rabbitmq_ensure.sh'"
 cat "${VM_DIR}/smoke_local.sh" | ssh "${HOST}" "bash -lc 'cat > ~/cleanapp_watchdog/smoke_local.sh'"
+cat "${VM_DIR}/golden_path.sh" | ssh "${HOST}" "bash -lc 'cat > ~/cleanapp_watchdog/golden_path.sh'"
 cat "${VM_DIR}/run.sh" | ssh "${HOST}" "bash -lc 'cat > ~/cleanapp_watchdog/run.sh'"
 
 ssh "${HOST}" "bash -lc 'set -euo pipefail; chmod 700 ~/cleanapp_watchdog/*.sh'"
