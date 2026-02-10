@@ -61,12 +61,12 @@ fn retry_exchange_for_queue(prefix: &str, queue: &str) -> String {
     format!("{}{}", prefix, queue)
 }
 
-fn retry_count_from_headers(headers: Option<&FieldTable>) -> u32 {
-    let Some(h) = headers else { return 0; };
-    let Some(v) = h.get(RETRY_COUNT_HEADER) else { return 0; };
+fn retry_count_from_headers(headers: &Option<FieldTable>) -> u32 {
+    let Some(h) = headers.as_ref() else { return 0; };
+    // FieldTable is a thin wrapper around a map; access the inner map for lookups.
+    let Some(v) = h.inner().get(RETRY_COUNT_HEADER) else { return 0; };
     match v {
         AMQPValue::LongUInt(n) => *n,
-        AMQPValue::LongLongUInt(n) => (*n).try_into().unwrap_or(u32::MAX),
         AMQPValue::LongInt(n) => (*n).try_into().unwrap_or(0),
         AMQPValue::LongLongInt(n) => (*n).try_into().unwrap_or(0),
         _ => 0,
