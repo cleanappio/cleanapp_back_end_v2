@@ -16,6 +16,7 @@ Done:
 - Pinned RabbitMQ image in prod compose (stopped relying on `rabbitmq:latest`).
 - Dev VM (`cleanapp-dev`) now binds host ports `3000`/`8080`/`8090` to `127.0.0.1` and its `allow-*` firewall tags have been removed (only `http-server/https-server` remain).
 - `cleanapp-prod2` had `allow-3000/8090/8091` tags removed (it now only retains `allow-8080` + `http-server/https-server`).
+- Deleted unused GCE firewall rules: `allow-3000`, `allow-8090`, `allow-8091`.
 
 Next:
 - Rotate/replace AMQP creds (stop relying on defaults).
