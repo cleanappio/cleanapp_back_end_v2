@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"report-listener/config"
@@ -9,6 +10,10 @@ import (
 )
 
 func TestReportFilteringWithStatus(t *testing.T) {
+	if os.Getenv("RUN_DB_TESTS") != "1" {
+		t.Skip("skipping DB integration test (set RUN_DB_TESTS=1 to enable)")
+	}
+
 	// This test verifies that the new filtering logic works correctly
 	// Skip if database not available
 	cfg := &config.Config{
@@ -121,6 +126,10 @@ func TestReportFilteringWithStatus(t *testing.T) {
 }
 
 func TestGetReportsSince(t *testing.T) {
+	if os.Getenv("RUN_DB_TESTS") != "1" {
+		t.Skip("skipping DB integration test (set RUN_DB_TESTS=1 to enable)")
+	}
+
 	// This test verifies that GetReportsSince works with the new filtering
 	// Skip if database not available
 	cfg := &config.Config{
