@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  secrets:
+    name: Secret Scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: gitleaks/gitleaks-action@v2
+        with:
+          args: --redact
+
+  go:
+    name: Go (fmt/test/vet)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: gofmt check
+        run: ./scripts/ci/go_fmt_check.sh
+      - name: go test (all modules)
+        run: ./scripts/ci/go_test_all.sh
+      - name: go vet (all modules)
+        run: ./scripts/ci/go_vet_all.sh
+
+  golangci:
+    name: Go Lint (golangci-lint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.64.6
+          # Install/cached toolchain; linting happens per-module below.
+          args: --version
+          skip-cache: false
+      - name: golangci-lint (all modules)
+        run: ./scripts/ci/golangci_lint_all.sh
+
+  rust:
+    name: Rust (fmt/clippy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: System deps
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev
+      - name: cargo fmt --check
+        run: ./scripts/ci/rust_fmt_check.sh
+      - name: cargo clippy
+        run: ./scripts/ci/rust_clippy_check.sh
+
+  integration-analyzer:
+    name: Integration (Analyzer Golden Path)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Docker info
+        run: docker version && docker compose version
+      - name: Analyzer golden path
+        env:
+          RABBITMQ_MGMT_USER: guest
+          RABBITMQ_MGMT_PASSWORD: guest
+        run: make ci-analyzer
