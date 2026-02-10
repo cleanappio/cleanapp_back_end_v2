@@ -1,0 +1,27 @@
+services:
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    container_name: cleanapp_prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+      - "--web.enable-lifecycle"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - 127.0.0.1:9090:9090
+    restart: unless-stopped
+    networks:
+      - cleanapp_net
+
+volumes:
+  prometheus_data:
+
+networks:
+  cleanapp_net:
+    external: true
+    name: deployer_default
+

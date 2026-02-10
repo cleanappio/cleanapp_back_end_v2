@@ -1,0 +1,12 @@
+groups:
+  - name: cleanapp-analyzer
+    rules:
+      - alert: AnalyzerRabbitMQDisconnected
+        expr: cleanapp_analyzer_rabbitmq_connected == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Analyzer RabbitMQ disconnected"
+          description: "report-analyze-pipeline reports RabbitMQ disconnected for 5+ minutes."
+
