@@ -52,6 +52,12 @@ echo \"== v4 contract checks (quick) ==\"
 req \"http://127.0.0.1:9097/api/v4/brands/summary?classification=trash&lang=en\" \"\${VM_HTTP_TIMEOUT}\"
 req \"http://127.0.0.1:9097/api/v4/reports/by-brand?brand_name=CleanApp&n=1\" \"\${VM_HTTP_TIMEOUT}\"
 
+echo
+echo \"== report-analyze-pipeline (localhost) ==\"
+req \"http://127.0.0.1:9082/version\" \"\${VM_HTTP_TIMEOUT}\"
+req \"http://127.0.0.1:9082/api/v3/health\" \"\${VM_HTTP_TIMEOUT}\"
+curl -fsS --max-time \"\${VM_HTTP_TIMEOUT}\" http://127.0.0.1:9082/api/v3/health | grep -F \"\\\"rabbitmq_connected\\\":true\" >/dev/null
+
 if [[ \"\${RUN_SLOW}\" == \"1\" ]]; then
   echo
   echo \"== v4 contract checks (slow) ==\"
@@ -69,6 +75,20 @@ sudo docker exec cleanapp_rabbitmq rabbitmqctl list_queues name messages_ready m
   | egrep \"^(name|(report-(analysis|renderer|tags)-queue|twitter-reply-queue)(\\.dlq)?\\b)\" >/dev/null
 sudo docker exec cleanapp_rabbitmq rabbitmqctl list_queues name messages_ready messages_unacknowledged consumers \\
   | egrep \"^(name|(report-(analysis|renderer|tags)-queue|twitter-reply-queue)(\\.dlq)?\\b)\"
+
+echo
+echo \"== rabbitmq: must-have bindings ==\"
+sudo docker exec cleanapp_rabbitmq rabbitmqctl list_bindings source_name destination_name destination_kind routing_key \\
+  | egrep \"^cleanapp-exchange\\s+report-analysis-queue\\s+queue\\s+report\\.raw$\" >/dev/null
+sudo docker exec cleanapp_rabbitmq rabbitmqctl list_bindings source_name destination_name destination_kind routing_key \\
+  | egrep \"^cleanapp-exchange\\s+report-analysis-queue\\s+queue\\s+report\\.raw$\"
+
+echo
+echo \"== rabbitmq: report-analysis consumer must be present ==\"
+sudo docker exec cleanapp_rabbitmq rabbitmqctl list_queues name consumers --no-table-headers \\
+  | egrep \"^report-analysis-queue[[:space:]]+[1-9]\" >/dev/null
+sudo docker exec cleanapp_rabbitmq rabbitmqctl list_queues name consumers --no-table-headers \\
+  | egrep \"^(report-analysis-queue|report-renderer-queue|report-tags-queue)[[:space:]]+\"
 
 echo
 echo \"== rabbitmq: dlx policies ==\"
