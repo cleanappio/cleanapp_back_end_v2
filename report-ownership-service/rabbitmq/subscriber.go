@@ -108,6 +108,7 @@ func retryCountFromHeaders(headers amqp.Table) int {
 	if !ok || v == nil {
 		return 0
 	}
+	maxInt := int(^uint(0) >> 1)
 	switch t := v.(type) {
 	case int:
 		if t < 0 {
@@ -123,18 +124,18 @@ func retryCountFromHeaders(headers amqp.Table) int {
 		if t < 0 {
 			return 0
 		}
-		if t > int64(^uint(0)>>1) {
-			return int(^uint(0) >> 1)
+		if t > int64(maxInt) {
+			return maxInt
 		}
 		return int(t)
 	case uint32:
-		if t > uint32(^uint(0)>>1) {
-			return int(^uint(0) >> 1)
+		if t > uint32(maxInt) {
+			return maxInt
 		}
 		return int(t)
 	case uint64:
-		if t > uint64(^uint(0)>>1) {
-			return int(^uint(0) >> 1)
+		if t > uint64(maxInt) {
+			return maxInt
 		}
 		return int(t)
 	case string:
