@@ -694,6 +694,23 @@ flowchart LR
 - **Container Registry**: Artifact Registry (us-central1)
 - **Secrets**: Google Secret Manager
 
+### Ops Watchdog (Prod VM)
+CleanApp runs a small VM-local watchdog on production to continuously validate the "report ingestion -> analysis" golden path and self-heal common RabbitMQ breakages.
+
+- Location (prod VM): `~/cleanapp_watchdog/`
+- Schedule: `cron` (default every 5 minutes)
+- Responsibilities:
+  - Ensure RabbitMQ invariants via management API (exchanges/queues/bindings/policies, plus retry queues)
+  - Run VM-local smoke checks for core services
+  - Run a golden-path remediation: if a report appears "stuck" (no `report_analysis` row after a minimum age), republish its `seq` to `report.raw` and wait for analysis
+- Outputs:
+  - `~/cleanapp_watchdog/watchdog.log`
+  - `~/cleanapp_watchdog/status.json`
+
+Repo tooling:
+- Installer/uninstaller: `platform_blueprint/ops/watchdog/`
+- Laptop-run golden path: `platform_blueprint/tests/golden_path/golden_path_prod_vm.sh`
+
 ### Deployment Process
 ```bash
 # Build & tag image
@@ -717,7 +734,7 @@ flowchart LR
 1. **Single database** - All services share one MySQL instance
 2. **No auto-scaling** - Manual VM management
 3. **No service mesh** - Direct container networking
-4. **Limited observability** - Basic Docker logs only
+4. **Limited observability** - Basic Docker logs only (plus VM-local watchdog/smoke checks)
 5. **Container conflicts** - Docker Compose naming collisions on redeploy
 
 ---
