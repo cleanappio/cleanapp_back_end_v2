@@ -193,3 +193,22 @@ What worked:
 
 Next time:
 - Prefer repo-shipped ops scripts (like `platform_blueprint/rabbitmq/*`) for prod changes: repeatable and auditable.
+
+### 2026-02-10 (Analyzer Observability: /metrics + CI Golden Path)
+
+Got wrong:
+- Added a CI golden-path script that used `curl -u user:pass ...`; gitleaks flagged it even though it was only for localhost RabbitMQ.
+- Assumed we could keep `go.mod` "close enough" without a local Go toolchain; Cloud Build treated the module as read-only and failed builds until the module graph was tidied.
+
+Corrected by:
+- Switching CI RabbitMQ mgmt calls to `curl --netrc-file ...` with the credential material created at runtime (not committed).
+- Adding a deterministic `stub` LLM provider to let CI run end-to-end without real API keys.
+- Exposing Prometheus `/metrics` on `report-analyze-pipeline` and adding basic RabbitMQ processing metrics.
+- Updating the analyzer Dockerfile to run `go mod tidy` during the build so Cloud Build doesn't choke on go.mod drift.
+
+What worked:
+- Gitleaks as a hard gate before commits prevented "harmless" but policy-breaking auth patterns from landing.
+- Shipping the stub provider plus the docker-compose CI harness gave us an automated regression net for the analyzer pipeline.
+
+Next time:
+- When adding new Go deps in a module without local Go tooling, assume Cloud Build will enforce tidy behavior: either keep module files tidy in-repo or run tidy in Docker build.
