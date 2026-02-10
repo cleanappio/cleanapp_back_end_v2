@@ -4,8 +4,10 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"time"
 
 	"report-analyze-pipeline/database"
+	"report-analyze-pipeline/rabbitmq"
 	"report-analyze-pipeline/service"
 	"github.com/gin-gonic/gin"
 )
@@ -14,18 +16,42 @@ import (
 type Handlers struct {
 	db *database.Database
 	analysisService *service.Service
+	subscriber *rabbitmq.Subscriber
 }
 
 // NewHandlers creates new HTTP handlers
-func NewHandlers(db *database.Database, analysisService *service.Service) *Handlers {
-	return &Handlers{db: db, analysisService: analysisService}
+func NewHandlers(db *database.Database, analysisService *service.Service, subscriber *rabbitmq.Subscriber) *Handlers {
+	return &Handlers{db: db, analysisService: analysisService, subscriber: subscriber}
 }
 
 // HealthCheck handles health check requests
 func (h *Handlers) HealthCheck(c *gin.Context) {
+	var rmqConnected bool
+	var rmqQueue, rmqExchange, rmqLastError string
+	var rmqLastConnectAt, rmqLastDeliveryAt string
+
+	if h.subscriber != nil {
+		rmqConnected = h.subscriber.IsConnected()
+		rmqQueue = h.subscriber.GetQueue()
+		rmqExchange = h.subscriber.GetExchange()
+		rmqLastError = h.subscriber.LastError()
+		if t := h.subscriber.LastConnectAt(); !t.IsZero() {
+			rmqLastConnectAt = t.UTC().Format(time.RFC3339)
+		}
+		if t := h.subscriber.LastDeliveryAt(); !t.IsZero() {
+			rmqLastDeliveryAt = t.UTC().Format(time.RFC3339)
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"status":  "healthy",
 		"service": "report-analyze-pipeline",
+		"rabbitmq_connected": rmqConnected,
+		"rabbitmq_queue": rmqQueue,
+		"rabbitmq_exchange": rmqExchange,
+		"rabbitmq_last_connect_at": rmqLastConnectAt,
+		"rabbitmq_last_delivery_at": rmqLastDeliveryAt,
+		"rabbitmq_last_error": rmqLastError,
 	})
 }
 

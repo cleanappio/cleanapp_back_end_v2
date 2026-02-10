@@ -122,7 +122,7 @@ func main() {
 	defer closeReportSubscriber()
 
 	// Initialize handlers
-	handlers := handlers.NewHandlers(db, analysisService)
+	handlers := handlers.NewHandlers(db, analysisService, reportSubscriber)
 
 	// Setup HTTP server
 	router := gin.Default()
