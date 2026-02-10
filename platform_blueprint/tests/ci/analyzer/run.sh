@@ -58,12 +58,18 @@ fi
 echo "seq=$SEQ"
 
 echo "== publish to rabbitmq exchange =="
-PAYLOAD="{\"seq\":${SEQ},\"description\":\"${DESC}\"}"
-PUBLISH_BODY="{\"properties\":{},\"routing_key\":\"report.raw\",\"payload\":\"${PAYLOAD}\",\"payload_encoding\":\"string\"}"
-curl -fsS --max-time 5 --netrc-file "$NETRC_FILE" -H "content-type: application/json" \
+PAYLOAD_JSON="$(python3 - <<PY
+import json
+print(json.dumps({"seq": int("$SEQ"), "description": "$DESC"}))
+PY
+)"
+PAYLOAD_B64="$(printf '%s' "$PAYLOAD_JSON" | base64 | tr -d '\n')"
+PUBLISH_BODY="$(printf '{"properties":{},"routing_key":"report.raw","payload":"%s","payload_encoding":"base64"}' "$PAYLOAD_B64")"
+
+PUBLISH_RESP="$(curl -fsS --max-time 10 --netrc-file "$NETRC_FILE" -H "content-type: application/json" \
   -d "$PUBLISH_BODY" \
-  "http://localhost:15672/api/exchanges/%2F/cleanapp/publish" \
-  | grep -q '"routed":true'
+  "http://localhost:15672/api/exchanges/%2F/cleanapp/publish")"
+echo "$PUBLISH_RESP" | grep -q '"routed":true'
 
 echo "== wait for report_analysis row =="
 for _ in $(seq 1 120); do
