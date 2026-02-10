@@ -5,6 +5,17 @@ This repository is for CleanApp (http://cleanapp.io) backend development.
 **If you want to understand CleanApp as a system, start here:**  
 [WHY](./WHY.md) → [THEORY](./THEORY.md) → [INVARIANTS](./INVARIANTS.md) → [ARCHITECTURE](./ARCHITECTURE.md)
 
+## Standard Commands
+
+We use a root `Makefile` as the primary entry point for common tasks:
+
+```bash
+make help
+make gitleaks
+make ci-analyzer
+make hooks
+```
+
 # Environments
 There are three environments:
 *   `local` - a local machine outside cloud
@@ -399,4 +410,3 @@ cat .version
 # The build script auto-increments minor version
 ./build_image.sh -e dev
 ```
-
