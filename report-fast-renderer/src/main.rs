@@ -167,7 +167,10 @@ async fn main() -> anyhow::Result<()> {
     // Run the server
     let port = get_config().server_port.clone();
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
-    tracing::info!("🚀 Report Fast Renderer server starting on http://0.0.0.0:{}", port);
+    tracing::info!(
+        "🚀 Report Fast Renderer server starting on http://0.0.0.0:{}",
+        port
+    );
 
     axum::serve(listener, app).await?;
 

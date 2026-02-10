@@ -14,4 +14,3 @@ pub struct ReportMessage {
     pub id: String,
     // Add other report fields as needed for future auto-tagging
 }
-

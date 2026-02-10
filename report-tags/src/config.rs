@@ -49,14 +49,16 @@ impl Config {
                 .unwrap_or(5672),
             amqp_user: env::var("AMQP_USER").unwrap_or_else(|_| "guest".to_string()),
             amqp_password: env::var("AMQP_PASSWORD").unwrap_or_else(|_| "guest".to_string()),
-            rabbitmq_exchange: env::var("RABBITMQ_EXCHANGE").unwrap_or_else(|_| "cleanapp".to_string()),
-            rabbitmq_queue: env::var("RABBITMQ_QUEUE").unwrap_or_else(|_| "report-tags".to_string()),
+            rabbitmq_exchange: env::var("RABBITMQ_EXCHANGE")
+                .unwrap_or_else(|_| "cleanapp".to_string()),
+            rabbitmq_queue: env::var("RABBITMQ_QUEUE")
+                .unwrap_or_else(|_| "report-tags".to_string()),
             rabbitmq_raw_report_routing_key: env::var("RABBITMQ_RAW_REPORT_ROUTING_KEY")
                 .unwrap_or_else(|_| "report.raw".to_string()),
             rabbitmq_tag_event_routing_key: env::var("RABBITMQ_TAG_EVENT_ROUTING_KEY")
                 .unwrap_or_else(|_| "tag.added".to_string()),
         };
-        
+
         // Validate configuration
         if config.db_host.is_empty() {
             panic!("DB_HOST environment variable is required");
@@ -73,15 +75,14 @@ impl Config {
         if config.port == 0 {
             panic!("PORT environment variable must be a valid port number");
         }
-        
+
         config
     }
 
     pub fn amqp_url(&self) -> String {
-        format!("amqp://{}:{}@{}:{}", 
-                self.amqp_user, 
-                self.amqp_password, 
-                self.amqp_host, 
-                self.amqp_port)
+        format!(
+            "amqp://{}:{}@{}:{}",
+            self.amqp_user, self.amqp_password, self.amqp_host, self.amqp_port
+        )
     }
 }

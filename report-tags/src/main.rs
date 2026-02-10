@@ -1,30 +1,30 @@
-mod config;
-mod models;
-mod database;
-mod services;
-mod handlers;
-mod utils;
-mod rabbitmq;
 mod app_state;
+mod config;
+mod database;
+mod handlers;
+mod models;
+mod rabbitmq;
+mod services;
+mod utils;
 
 use axum::{
-    routing::{get, post, delete},
+    routing::{delete, get, post},
     Router,
 };
 use std::net::SocketAddr;
 // TODO: Re-enable when we have consumers for tag.added events
 // use std::sync::Arc;
+use log;
+use stderrlog::{self, Timestamp};
 use tokio::signal;
 use tower_http::{
     cors::{Any, CorsLayer},
     trace::TraceLayer,
 };
-use stderrlog::{self, Timestamp};
-use log;
 // TODO: Re-enable when we have consumers for tag.added events
 // use crate::rabbitmq::TagEventPublisher;
-use crate::rabbitmq::ReportTagsSubscriber;
 use crate::app_state::AppState;
+use crate::rabbitmq::ReportTagsSubscriber;
 
 #[tokio::main]
 async fn main() {
@@ -43,11 +43,11 @@ async fn run() -> anyhow::Result<()> {
         .show_module_names(true)
         .init()
         .unwrap();
-    
+
     log::info!("=== Report Tags Service Starting ===");
     log::info!("Process ID: {}", std::process::id());
     log::info!("Current working directory: {:?}", std::env::current_dir());
-    
+
     // Load environment variables
     log::info!("Loading environment variables...");
     let env_result = dotenvy::dotenv();
@@ -55,15 +55,30 @@ async fn run() -> anyhow::Result<()> {
         Ok(_) => log::info!("Environment variables loaded from .env file"),
         Err(_) => log::info!("No .env file found, using system environment variables"),
     }
-    
+
     // Log key environment variables (without sensitive data)
     log::info!("Environment check:");
-    log::info!("  DB_HOST: {}", std::env::var("DB_HOST").unwrap_or_else(|_| "not set".to_string()));
-    log::info!("  DB_PORT: {}", std::env::var("DB_PORT").unwrap_or_else(|_| "not set".to_string()));
-    log::info!("  DB_NAME: {}", std::env::var("DB_NAME").unwrap_or_else(|_| "not set".to_string()));
-    log::info!("  PORT: {}", std::env::var("PORT").unwrap_or_else(|_| "not set".to_string()));
-    log::info!("  RUST_LOG: {}", std::env::var("RUST_LOG").unwrap_or_else(|_| "not set".to_string()));
-    
+    log::info!(
+        "  DB_HOST: {}",
+        std::env::var("DB_HOST").unwrap_or_else(|_| "not set".to_string())
+    );
+    log::info!(
+        "  DB_PORT: {}",
+        std::env::var("DB_PORT").unwrap_or_else(|_| "not set".to_string())
+    );
+    log::info!(
+        "  DB_NAME: {}",
+        std::env::var("DB_NAME").unwrap_or_else(|_| "not set".to_string())
+    );
+    log::info!(
+        "  PORT: {}",
+        std::env::var("PORT").unwrap_or_else(|_| "not set".to_string())
+    );
+    log::info!(
+        "  RUST_LOG: {}",
+        std::env::var("RUST_LOG").unwrap_or_else(|_| "not set".to_string())
+    );
+
     // Load configuration
     log::info!("Loading configuration...");
     let config = config::Config::load();
@@ -72,19 +87,19 @@ async fn run() -> anyhow::Result<()> {
     log::info!("Database port: {}", config.db_port);
     log::info!("Database name: {}", config.db_name);
     log::info!("Server port: {}", config.port);
-    
+
     log::info!("Starting report-tags service on port {}", config.port);
-    
+
     // Create database pool
     log::info!("Creating database connection pool...");
     let pool = database::create_pool(&config).await?;
     log::info!("Database connection pool created successfully");
-    
+
     // Initialize database schema
     log::info!("Initializing database schema...");
     database::schema::initialize_schema(&pool).await?;
     log::info!("Database schema initialized successfully");
-    
+
     // Initialize RabbitMQ subscriber for processing report tags (optional, graceful degradation)
     let report_subscriber = match ReportTagsSubscriber::new(&config).await {
         Ok(sub) => {
@@ -96,7 +111,7 @@ async fn run() -> anyhow::Result<()> {
             None
         }
     };
-    
+
     // Start the subscriber if it was initialized (in a background task so it doesn't block HTTP server)
     if let Some(mut subscriber) = report_subscriber {
         let pool_clone = pool.clone();
@@ -121,7 +136,7 @@ async fn run() -> anyhow::Result<()> {
             }
         });
     }
-    
+
     // TODO: Re-enable RabbitMQ tag event publisher when we have consumers for tag.added events
     // Initialize RabbitMQ publisher (optional, graceful degradation)
     // let publisher = match TagEventPublisher::new(&config).await {
@@ -134,41 +149,41 @@ async fn run() -> anyhow::Result<()> {
     //         None
     //     }
     // };
-    // 
+    //
     // // Clone publisher for shutdown handler before moving into state
     // let shutdown_publisher = publisher.clone();
-    
+
     // Create application state
     let app_state = AppState {
         pool,
         // publisher,
     };
-    
+
     // Create router
     log::info!("Creating HTTP router...");
     let app = create_router(app_state);
     log::info!("HTTP router created successfully");
-    
+
     // Create server
     let addr = SocketAddr::from(([0, 0, 0, 0], config.port));
     log::info!("Binding to address: {}", addr);
-    
+
     // Start server with graceful shutdown
     log::info!("Starting TCP listener...");
     let listener = tokio::net::TcpListener::bind(addr).await?;
     log::info!("TCP listener bound successfully");
     log::info!("Server listening on {}", addr);
     log::info!("=== Report Tags Service Ready ===");
-    
+
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await?;
-    
+
     // Note: Subscriber is running in a background task and will be cleaned up
     // when the process exits. If graceful shutdown of subscriber is needed,
     // we would need to use a channel or other synchronization mechanism.
     log::info!("HTTP server shutdown, background tasks will be cleaned up");
-    
+
     // TODO: Re-enable publisher shutdown when we have consumers for tag.added events
     // Close publisher on shutdown
     // Note: Publisher close consumes self, so we can't close through Arc
@@ -176,7 +191,7 @@ async fn run() -> anyhow::Result<()> {
     // if shutdown_publisher.is_some() {
     //     log::info!("RabbitMQ publisher will be closed on drop");
     // }
-    
+
     log::info!("Server shutdown complete");
     Ok(())
 }
@@ -186,18 +201,39 @@ fn create_router(state: AppState) -> Router {
         .allow_origin(Any)
         .allow_methods(Any)
         .allow_headers(Any);
-    
+
     Router::new()
         .route("/health", get(handlers::health::health_check))
         .route("/version", get(handlers::version::version))
         .route("/api/v3/version", get(handlers::version::version))
-        .route("/api/v3/reports/:report_seq/tags", post(handlers::tags::add_tags_to_report))
-        .route("/api/v3/reports/:report_seq/tags", get(handlers::tags::get_report_tags))
-        .route("/api/v3/tags/suggest", get(handlers::suggestions::get_tag_suggestions))
-        .route("/api/v3/tags/trending", get(handlers::suggestions::get_trending_tags))
-        .route("/api/v3/users/:user_id/tags/follow", post(handlers::follows::follow_tag))
-        .route("/api/v3/users/:user_id/tags/follow/:tag_id", delete(handlers::follows::unfollow_tag))
-        .route("/api/v3/users/:user_id/tags/follows", get(handlers::follows::get_user_follows))
+        .route(
+            "/api/v3/reports/:report_seq/tags",
+            post(handlers::tags::add_tags_to_report),
+        )
+        .route(
+            "/api/v3/reports/:report_seq/tags",
+            get(handlers::tags::get_report_tags),
+        )
+        .route(
+            "/api/v3/tags/suggest",
+            get(handlers::suggestions::get_tag_suggestions),
+        )
+        .route(
+            "/api/v3/tags/trending",
+            get(handlers::suggestions::get_trending_tags),
+        )
+        .route(
+            "/api/v3/users/:user_id/tags/follow",
+            post(handlers::follows::follow_tag),
+        )
+        .route(
+            "/api/v3/users/:user_id/tags/follow/:tag_id",
+            delete(handlers::follows::unfollow_tag),
+        )
+        .route(
+            "/api/v3/users/:user_id/tags/follows",
+            get(handlers::follows::get_user_follows),
+        )
         .route("/api/v3/feed", get(handlers::feed::get_location_feed))
         .route("/api/v3/feed/tags", get(handlers::feed::get_tag_feed))
         .layer(cors)
@@ -211,7 +247,7 @@ async fn shutdown_signal() {
             .await
             .expect("Failed to install Ctrl+C handler");
     };
-    
+
     #[cfg(unix)]
     let terminate = async {
         signal::unix::signal(signal::unix::SignalKind::terminate())
@@ -219,10 +255,10 @@ async fn shutdown_signal() {
             .recv()
             .await;
     };
-    
+
     #[cfg(not(unix))]
     let terminate = std::future::pending::<()>();
-    
+
     tokio::select! {
         _ = ctrl_c => {
             log::info!("Received Ctrl+C, shutting down gracefully...");

@@ -6,4 +6,3 @@ pub struct AppState {
     // TODO: Add tag event publisher back when we have consumers for tag.added events
     // pub publisher: Option<Arc<TagEventPublisher>>,
 }
-

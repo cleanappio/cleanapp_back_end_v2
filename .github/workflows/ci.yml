@@ -14,9 +14,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: gitleaks/gitleaks-action@v2
-        with:
-          args: --redact
+      - name: Install gitleaks
+        run: |
+          set -euo pipefail
+          VER="8.30.0"
+          curl -fsSLo /tmp/gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/download/v${VER}/gitleaks_${VER}_linux_x64.tar.gz"
+          tar -xzf /tmp/gitleaks.tgz -C /tmp
+          sudo mv /tmp/gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+      - name: gitleaks detect
+        run: gitleaks detect --no-git --redact
 
   go:
     name: Go (fmt/test/vet)
@@ -43,12 +50,12 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - uses: golangci/golangci-lint-action@v6
-        with:
-          version: v1.64.6
-          # Install/cached toolchain; linting happens per-module below.
-          args: --version
-          skip-cache: false
+      - name: Install golangci-lint
+        run: |
+          set -euo pipefail
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.6
+          golangci-lint --version
       - name: golangci-lint (all modules)
         run: ./scripts/ci/golangci_lint_all.sh
 
