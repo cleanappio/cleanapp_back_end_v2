@@ -59,6 +59,12 @@ transactiontest
 
 # macOS junk
 .DS_Store
+.DS_Store?
+.idea/
+
+# Local command outputs / artifacts (keep under xray/ if needed)
+*_docker_ps*.txt
+test-query.sql
 **/.DS_Store
 
 # Xray scratch artifacts
