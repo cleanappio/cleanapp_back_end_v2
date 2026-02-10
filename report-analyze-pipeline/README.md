@@ -57,7 +57,7 @@ Environment variables:
 - `DB_PASSWORD` - Database password (default: secret_app)
 - `DB_NAME` - Database name (default: cleanapp)
 - `PORT` - HTTP server port (default: 8080)
-- `ANALYZER_LLM_PROVIDER` - Model provider: `openai` (default) or `gemini`
+- `ANALYZER_LLM_PROVIDER` - Model provider: `openai` (default), `gemini`, or `stub` (CI/local e2e only, no API keys)
 - `OPENAI_API_KEY` - OpenAI API key (required when `ANALYZER_LLM_PROVIDER=openai`)
 - `OPENAI_MODEL` - OpenAI model to use (default: gpt-4o)
 - `GEMINI_API_KEY` - Google Gemini API key (required when `ANALYZER_LLM_PROVIDER=gemini`)
@@ -118,6 +118,7 @@ cp .env.template .env
 # Required keys depend on provider:
 #   - ANALYZER_LLM_PROVIDER=openai → OPENAI_API_KEY
 #   - ANALYZER_LLM_PROVIDER=gemini → GEMINI_API_KEY
+#   - ANALYZER_LLM_PROVIDER=stub   → (no API keys; deterministic outputs for CI/local tests)
 # Also set DB_PASSWORD
 ```
 

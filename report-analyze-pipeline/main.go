@@ -13,11 +13,13 @@ import (
 	"report-analyze-pipeline/config"
 	"report-analyze-pipeline/database"
 	"report-analyze-pipeline/handlers"
+	"report-analyze-pipeline/metrics"
 	"report-analyze-pipeline/rabbitmq"
 	"report-analyze-pipeline/service"
 	"report-analyze-pipeline/version"
 
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // Global RabbitMQ subscriber instance
@@ -91,6 +93,8 @@ func main() {
 		if cfg.GeminiAPIKey == "" {
 			log.Fatal("GEMINI_API_KEY environment variable is required when ANALYZER_LLM_PROVIDER=gemini")
 		}
+	case "stub":
+		// No API keys required. Intended for CI/local e2e tests.
 	default: // openai
 		if cfg.OpenAIAPIKey == "" {
 			log.Fatal("OPENAI_API_KEY environment variable is required when ANALYZER_LLM_PROVIDER=openai")
@@ -126,6 +130,10 @@ func main() {
 
 	// Setup HTTP server
 	router := gin.Default()
+
+	// Observability endpoints
+	metrics.Register()
+	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
 	// API routes
 	api := router.Group("/api/v3")

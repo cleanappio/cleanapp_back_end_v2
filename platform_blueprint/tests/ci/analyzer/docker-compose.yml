@@ -1,0 +1,60 @@
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+    command:
+      - "--default-authentication-plugin=mysql_native_password"
+      - "--max_connections=250"
+    volumes:
+      - ../../../../db/init.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -proot --silent"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "15672:15672"
+      - "5672:5672"
+    healthcheck:
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+
+  analyzer:
+    build:
+      context: ../../../../report-analyze-pipeline
+    environment:
+      PORT: "8080"
+      SEQ_START_FROM: "1"
+      TRANSLATION_LANGUAGES: "en"
+      ANALYZER_LLM_PROVIDER: "stub"
+
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_USER: "server"
+      DB_PASSWORD: "secret_app"
+      DB_NAME: "cleanapp"
+
+      AMQP_HOST: rabbitmq
+      AMQP_PORT: "5672"
+      AMQP_USER: "guest"
+      AMQP_PASSWORD: "guest"
+      RABBITMQ_EXCHANGE: "cleanapp"
+      RABBITMQ_QUEUE: "report-analyze"
+      RABBITMQ_RAW_REPORT_ROUTING_KEY: "report.raw"
+      RABBITMQ_ANALYSED_REPORT_ROUTING_KEY: "report.analysed"
+      RABBITMQ_PREFETCH_COUNT: "5"
+      RABBITMQ_CONCURRENCY: "5"
+      RABBITMQ_MAX_RETRIES: "2"
+    ports:
+      - "18080:8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy

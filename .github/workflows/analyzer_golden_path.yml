@@ -1,0 +1,21 @@
+name: analyzer-golden-path
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  golden-path:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Golden path (stub LLM)
+        env:
+          RABBITMQ_MGMT_USER: guest
+          RABBITMQ_MGMT_PASSWORD: guest
+        run: ./platform_blueprint/tests/ci/analyzer/run.sh

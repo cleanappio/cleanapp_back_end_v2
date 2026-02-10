@@ -18,6 +18,7 @@ import (
 	"report-analyze-pipeline/parser"
 	"report-analyze-pipeline/rabbitmq"
 	"report-analyze-pipeline/services"
+	"report-analyze-pipeline/stubllm"
 )
 
 // Service represents the report analysis service
@@ -35,9 +36,12 @@ type Service struct {
 // NewService creates a new report analysis service
 func NewService(cfg *config.Config, db *database.Database) *Service {
 	var client llm.Client
-	if cfg.LLMProvider == "gemini" {
+	switch cfg.LLMProvider {
+	case "gemini":
 		client = gemini.NewClient(cfg.GeminiAPIKey, cfg.GeminiModel)
-	} else {
+	case "stub":
+		client = stubllm.NewClient()
+	default: // openai
 		client = openai.NewClient(cfg.OpenAIAPIKey, cfg.OpenAIModel)
 	}
 	brandService := services.NewBrandService()
@@ -45,6 +49,8 @@ func NewService(cfg *config.Config, db *database.Database) *Service {
 	selectedModel := ""
 	if cfg.LLMProvider == "gemini" {
 		selectedModel = cfg.GeminiModel
+	} else if cfg.LLMProvider == "stub" {
+		selectedModel = "stub"
 	} else {
 		selectedModel = cfg.OpenAIModel
 	}
