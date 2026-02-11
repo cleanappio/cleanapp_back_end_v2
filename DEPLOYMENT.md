@@ -151,6 +151,9 @@ PASS=$(grep MYSQL_APP_PASSWORD /home/deployer/.env | cut -d= -f2)
 
 **Never commit .env files or print passwords in logs.**
 
+Also avoid passing passwords on the command line (they can show up in `ps` output). Prefer piping
+secrets via stdin into a short-lived file *inside* the container when you need to run `mysql`.
+
 ## Quick Health Check
 
 ```bash
@@ -161,6 +164,39 @@ sudo docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 curl -s https://live.cleanapp.io/api/v3/reports/health | jq
 
 # Check database connections
-sudo docker exec cleanapp_db mysql -u server -p"$PASS" cleanapp \
-  -e "SELECT COUNT(*) as connections FROM information_schema.processlist;"
+PASS="$(gcloud secrets versions access latest --secret=MYSQL_APP_PASSWORD_PROD)"
+printf '%s' "$PASS" | sudo docker exec -i cleanapp_db sh -lc '
+  set -euo pipefail
+  pwfile="$(mktemp)"
+  cat >"$pwfile"
+  chmod 600 "$pwfile"
+  MYSQL_PWD="$(cat "$pwfile")" mysql -u server cleanapp -e "SELECT COUNT(*) as connections FROM information_schema.processlist;"
+  rm -f "$pwfile"
+'
+```
+
+## Database Backups (Prod)
+
+CleanApp stores full MySQL backups in GCS:
+- Prod bucket: `gs://cleanapp_mysql_backup_prod`
+- Current object key (versioned): `gs://cleanapp_mysql_backup_prod/current/cleanapp_all.sql.gz`
+- Weekly pins (kept ~30 weeks): `gs://cleanapp_mysql_backup_prod/weekly/<ISO_WEEK>/cleanapp_all.sql.gz`
+
+### Restore (One-Liner)
+
+Restore the current backup into the running prod DB container:
+
+```bash
+PASS="$(gcloud secrets versions access latest --secret=MYSQL_ROOT_PASSWORD_PROD)"
+printf '%s' "$PASS" | sudo docker exec -i cleanapp_db sh -lc 'cat > /tmp/.restore_pw && chmod 600 /tmp/.restore_pw' && \
+  gsutil cat gs://cleanapp_mysql_backup_prod/current/cleanapp_all.sql.gz | gunzip -c | sudo docker exec -i cleanapp_db sh -lc 'MYSQL_PWD="$(cat /tmp/.restore_pw)" exec mysql -uroot' && \
+  sudo docker exec cleanapp_db sh -lc 'rm -f /tmp/.restore_pw'
+```
+
+### Restore Drill (Recommended)
+
+To prove backups are restorable, run a restore drill into a scratch MySQL container on the prod VM:
+
+```bash
+HOST=deployer@34.122.15.16 ./platform_blueprint/ops/db_backup/restore_drill_prod_vm.sh
 ```
