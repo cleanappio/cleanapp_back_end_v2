@@ -720,6 +720,20 @@ Repo tooling:
 ./setup.sh -e prod --ssh-keyfile ~/.ssh/id_ed25519
 ```
 
+### Deterministic (Immutable) Deploys
+Docker image tags like `:prod` are mutable. For deterministic rollouts/rollbacks, production deploys should use
+digest pins (`image@sha256:...`) via a compose override on the VM:
+
+- Current symlink on VM: `~/docker-compose.digests.current.yml`
+- Timestamped pins: `~/docker-compose.digests.<timestamp>.yml`
+- Repo helper (laptop-run, pins from *pulled* images on the VM): `platform_blueprint/deploy/prod/vm/deploy_with_digests.sh`
+
+This flow:
+1. `docker compose pull` (tag-based)
+2. resolves each internal service image to its `RepoDigest`
+3. writes a digest override file
+4. `docker compose up -d` using `-f docker-compose.digests.current.yml`
+
 ### Environment Variables (via Secret Manager)
 - `MYSQL_ROOT_PASSWORD_*`
 - `SENDGRID_API_KEY_*`
