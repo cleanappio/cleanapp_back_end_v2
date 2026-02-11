@@ -47,7 +47,6 @@ current_link="docker-compose.digests.current.yml"
 
 echo "== generate digest pins =="
 INTERNAL_PREFIX="${INTERNAL_PREFIX:-us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/}" \
-DIGEST_SERVICES="${SERVICES:-}" \
 DIGEST_OUT="${digest_file}" \
 DOCKER_CMD="sudo docker" \
 python3 - << 'PY'
@@ -60,8 +59,6 @@ from datetime import datetime, timezone
 
 internal_prefix = os.environ.get("INTERNAL_PREFIX", "").strip()
 out_path = os.environ["DIGEST_OUT"]
-services_filter_raw = os.environ.get("DIGEST_SERVICES", "").strip()
-services_filter = set(services_filter_raw.split()) if services_filter_raw else None
 docker_cmd = os.environ.get("DOCKER_CMD", "docker").split()
 
 SERVICE_RE = re.compile(r"^  ([A-Za-z0-9_-]+):\s*$")
@@ -164,8 +161,6 @@ missing = []
 emitted = 0
 
 for svc_name in sorted(services.keys()):
-    if services_filter is not None and svc_name not in services_filter:
-        continue
     svc = services[svc_name]
     img = (svc.get("image") or "").strip()
     if not img:
