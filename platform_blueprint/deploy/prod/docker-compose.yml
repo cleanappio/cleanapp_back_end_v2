@@ -453,7 +453,8 @@ services:
       - RABBITMQ_ANALYSED_REPORT_ROUTING_KEY=report.analysed
       - GIN_MODE=release
     ports:
-      - 127.0.0.1:9090:8080
+      # 9090 is reserved for Prometheus on prod; avoid host-port conflicts.
+      - 127.0.0.1:9096:8080
 
   cleanapp_reports_pusher:
     container_name: cleanapp_reports_pusher
