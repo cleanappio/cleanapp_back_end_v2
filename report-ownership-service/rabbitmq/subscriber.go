@@ -162,11 +162,16 @@ func withRetryCountHeader(headers amqp.Table, next int) amqp.Table {
 
 // Subscriber represents a RabbitMQ subscriber instance
 type Subscriber struct {
+	amqpURL  string
 	conn     *amqp.Connection
 	channel  *amqp.Channel
 	exchange string
 	queue    string
 	opMu     sync.Mutex
+
+	startOnce sync.Once
+	closeOnce sync.Once
+	done      chan struct{}
 }
 
 // NewSubscriber creates a new RabbitMQ subscriber instance
@@ -229,207 +234,351 @@ func NewSubscriber(amqpURL, exchangeName, queueName string) (*Subscriber, error)
 	}
 
 	subscriber := &Subscriber{
+		amqpURL:  amqpURL,
 		conn:     conn,
 		channel:  channel,
 		exchange: exchangeName,
 		queue:    queue.Name,
+		done:     make(chan struct{}),
 	}
 
 	return subscriber, nil
 }
 
-// Start begins consuming messages from the queue with the specified routing key callbacks
-func (s *Subscriber) Start(routingKeyCallbacks map[string]CallbackFunc) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
+func (s *Subscriber) closeLocked() {
+	if s.channel != nil {
+		_ = s.channel.Close()
+		s.channel = nil
+	}
+	if s.conn != nil {
+		_ = s.conn.Close()
+		s.conn = nil
+	}
+}
 
-	workers := rabbitMQConcurrency()
-	if err := s.channel.Qos(
-		workers, // prefetch count
-		0,       // prefetch size
-		false,   // global
-	); err != nil {
-		return fmt.Errorf("failed to set QoS: %w", err)
+func (s *Subscriber) reconnectLocked() error {
+	s.closeLocked()
+
+	conn, err := amqp.Dial(s.amqpURL)
+	if err != nil {
+		return fmt.Errorf("failed to connect to RabbitMQ: %w", err)
 	}
 
-	// Create bindings for each routing key
-	for routingKey := range routingKeyCallbacks {
-		err := s.channel.QueueBind(
-			s.queue,    // queue name
-			routingKey, // routing key
-			s.exchange, // exchange
-			false,      // no-wait
-			nil,        // arguments
-		)
-		if err != nil {
-			return fmt.Errorf("failed to bind queue %s to exchange %s with routing key %s: %w",
-				s.queue, s.exchange, routingKey, err)
+	ch, err := conn.Channel()
+	if err != nil {
+		_ = conn.Close()
+		return fmt.Errorf("failed to open channel: %w", err)
+	}
+
+	if err := ch.ExchangeDeclare(
+		s.exchange,
+		"direct",
+		true,
+		false,
+		false,
+		false,
+		nil,
+	); err != nil {
+		_ = ch.Close()
+		_ = conn.Close()
+		return fmt.Errorf("failed to declare exchange: %w", err)
+	}
+
+	q, err := ch.QueueDeclare(
+		s.queue,
+		true,
+		false,
+		false,
+		false,
+		nil,
+	)
+	if err != nil {
+		_ = ch.Close()
+		_ = conn.Close()
+		return fmt.Errorf("failed to declare queue: %w", err)
+	}
+	s.queue = q.Name
+
+	s.conn = conn
+	s.channel = ch
+	return nil
+}
+
+type consumeSession struct {
+	msgs      <-chan amqp.Delivery
+	connClose <-chan *amqp.Error
+	chClose   <-chan *amqp.Error
+}
+
+func (s *Subscriber) startConsumeSessionLocked(
+	routingKeyCallbacks map[string]CallbackFunc,
+	workers int,
+) (*consumeSession, error) {
+	if s.conn == nil || s.conn.IsClosed() || s.channel == nil {
+		if err := s.reconnectLocked(); err != nil {
+			return nil, err
 		}
 	}
 
-	// Start consuming messages
+	if err := s.channel.Qos(workers, 0, false); err != nil {
+		s.closeLocked()
+		return nil, fmt.Errorf("failed to set QoS: %w", err)
+	}
+
+	// Create bindings for each routing key. Bindings are idempotent, so re-binding is safe.
+	for routingKey := range routingKeyCallbacks {
+		if err := s.channel.QueueBind(s.queue, routingKey, s.exchange, false, nil); err != nil {
+			s.closeLocked()
+			return nil, fmt.Errorf(
+				"failed to bind queue %s to exchange %s with routing key %s: %w",
+				s.queue, s.exchange, routingKey, err,
+			)
+		}
+	}
+
 	msgs, err := s.channel.Consume(
-		s.queue, // queue
-		"",      // consumer
-		false,   // auto-ack (set to false for manual ack)
-		false,   // exclusive
-		false,   // no-local
-		false,   // no-wait
-		nil,     // args
+		s.queue,
+		"",
+		false,
+		false,
+		false,
+		false,
+		nil,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to register consumer: %w", err)
+		s.closeLocked()
+		return nil, fmt.Errorf("failed to register consumer: %w", err)
 	}
 
-	// Check if context is cancelled
-	select {
-	case <-ctx.Done():
-		return fmt.Errorf("context timeout while starting subscriber: %w", ctx.Err())
-	default:
-	}
+	// Buffer=1 ensures the notify channels deliver a single close event without blocking.
+	connClose := s.conn.NotifyClose(make(chan *amqp.Error, 1))
+	chClose := s.channel.NotifyClose(make(chan *amqp.Error, 1))
+	return &consumeSession{msgs: msgs, connClose: connClose, chClose: chClose}, nil
+}
 
-	jobs := make(chan amqp.Delivery, workers)
-	maxRetries := rabbitMQMaxRetries()
-	retryExchange := rabbitMQRetryExchange(s.queue)
+// Start begins consuming messages from the queue with the specified routing key callbacks
+func (s *Subscriber) Start(routingKeyCallbacks map[string]CallbackFunc) error {
+	var startErr error
+	s.startOnce.Do(func() {
+		workers := rabbitMQConcurrency()
+		jobs := make(chan amqp.Delivery, workers)
+		maxRetries := rabbitMQMaxRetries()
+		retryExchange := rabbitMQRetryExchange(s.queue)
 
-	// Worker pool: bounded concurrency, ack/nack is done *after* processing completes.
-	for i := 0; i < workers; i++ {
-		workerID := i + 1
-		go func() {
-			for delivery := range jobs {
-				startedAt := time.Now()
-				log.Printf(
-					"rabbitmq worker_start worker_id=%d exchange=%s queue=%s routing_key=%s delivery_tag=%d redelivered=%t",
-					workerID, delivery.Exchange, s.queue, delivery.RoutingKey, delivery.DeliveryTag, delivery.Redelivered,
-				)
-
-				msg := &Message{
-					Body:        delivery.Body,
-					RoutingKey:  delivery.RoutingKey,
-					Exchange:    delivery.Exchange,
-					ContentType: delivery.ContentType,
-					Timestamp:   delivery.Timestamp,
-					DeliveryTag: delivery.DeliveryTag,
-				}
-
-				// Find callback for this routing key
-				callback, exists := routingKeyCallbacks[delivery.RoutingKey]
-				if !exists {
-					var nackErr error
-					s.opMu.Lock()
-					nackErr = delivery.Nack(false, false) // permanent: no handler
-					s.opMu.Unlock()
+		// Worker pool: bounded concurrency, ack/nack is done *after* processing completes.
+		for i := 0; i < workers; i++ {
+			workerID := i + 1
+			go func() {
+				for delivery := range jobs {
+					startedAt := time.Now()
 					log.Printf(
-						"rabbitmq worker_finish worker_id=%d routing_key=%s delivery_tag=%d duration_ms=%d action=nack requeue=false err=%q nack_err=%v",
-						workerID, delivery.RoutingKey, delivery.DeliveryTag, time.Since(startedAt).Milliseconds(),
-						"no callback for routing key", nackErr,
+						"rabbitmq worker_start worker_id=%d exchange=%s queue=%s routing_key=%s delivery_tag=%d redelivered=%t",
+						workerID, delivery.Exchange, s.queue, delivery.RoutingKey, delivery.DeliveryTag, delivery.Redelivered,
 					)
-					continue
-				}
 
-				var callbackErr error
-				requeue := false
-				panicVal := any(nil)
+					msg := &Message{
+						Body:        delivery.Body,
+						RoutingKey:  delivery.RoutingKey,
+						Exchange:    delivery.Exchange,
+						ContentType: delivery.ContentType,
+						Timestamp:   delivery.Timestamp,
+						DeliveryTag: delivery.DeliveryTag,
+					}
 
-				func() {
-					defer func() {
-						if r := recover(); r != nil {
-							panicVal = r
-						}
+					// Find callback for this routing key
+					callback, exists := routingKeyCallbacks[delivery.RoutingKey]
+					if !exists {
+						var nackErr error
+						s.opMu.Lock()
+						nackErr = delivery.Nack(false, false) // permanent: no handler
+						s.opMu.Unlock()
+						log.Printf(
+							"rabbitmq worker_finish worker_id=%d routing_key=%s delivery_tag=%d duration_ms=%d action=nack requeue=false err=%q nack_err=%v",
+							workerID, delivery.RoutingKey, delivery.DeliveryTag, time.Since(startedAt).Milliseconds(),
+							"no callback for routing key", nackErr,
+						)
+						continue
+					}
+
+					var callbackErr error
+					requeue := false
+					panicVal := any(nil)
+
+					func() {
+						defer func() {
+							if r := recover(); r != nil {
+								panicVal = r
+							}
+						}()
+						callbackErr = callback(msg)
 					}()
-					callbackErr = callback(msg)
-				}()
 
-				action := "ack"
-				var ackErr error
-				var nackErr error
-				var publishErr error
-				if panicVal != nil {
-					action = "nack"
-					requeue = false // treat panics as permanent
-					s.opMu.Lock()
-					nackErr = delivery.Nack(false, requeue)
-					s.opMu.Unlock()
-				} else if callbackErr != nil {
-					requeue = !isPermanent(callbackErr)
-					if requeue {
-						// Transient error: publish to per-queue retry exchange, then ack original.
-						attempts := retryCountFromHeaders(delivery.Headers)
-						if attempts >= maxRetries {
-							action = "nack"
-							requeue = false
-							s.opMu.Lock()
-							nackErr = delivery.Nack(false, requeue)
-							s.opMu.Unlock()
-						} else {
-							action = "retry"
-							next := attempts + 1
-							pub := amqp.Publishing{
-								Headers:      withRetryCountHeader(delivery.Headers, next),
-								ContentType:  delivery.ContentType,
-								Body:         delivery.Body,
-								DeliveryMode: delivery.DeliveryMode,
-								Timestamp:    delivery.Timestamp,
-							}
-							s.opMu.Lock()
-							publishErr = s.channel.Publish(retryExchange, delivery.RoutingKey, false, false, pub)
-							if publishErr == nil {
-								ackErr = delivery.Ack(false)
-							} else {
-								// Fallback if retry exchange isn't set up: requeue original.
-								action = "nack"
-								requeue = true
-								nackErr = delivery.Nack(false, requeue)
-							}
-							s.opMu.Unlock()
-						}
-					} else {
+					action := "ack"
+					var ackErr error
+					var nackErr error
+					var publishErr error
+					if panicVal != nil {
 						action = "nack"
+						requeue = false // treat panics as permanent
 						s.opMu.Lock()
 						nackErr = delivery.Nack(false, requeue)
 						s.opMu.Unlock()
+					} else if callbackErr != nil {
+						requeue = !isPermanent(callbackErr)
+						if requeue {
+							// Transient error: publish to per-queue retry exchange, then ack original.
+							attempts := retryCountFromHeaders(delivery.Headers)
+							if attempts >= maxRetries {
+								action = "nack"
+								requeue = false
+								s.opMu.Lock()
+								nackErr = delivery.Nack(false, requeue)
+								s.opMu.Unlock()
+							} else {
+								action = "retry"
+								next := attempts + 1
+								pub := amqp.Publishing{
+									Headers:      withRetryCountHeader(delivery.Headers, next),
+									ContentType:  delivery.ContentType,
+									Body:         delivery.Body,
+									DeliveryMode: delivery.DeliveryMode,
+									Timestamp:    delivery.Timestamp,
+								}
+								s.opMu.Lock()
+								publishErr = s.channel.Publish(retryExchange, delivery.RoutingKey, false, false, pub)
+								if publishErr == nil {
+									ackErr = delivery.Ack(false)
+								} else {
+									// Fallback if retry exchange isn't set up: requeue original.
+									action = "nack"
+									requeue = true
+									nackErr = delivery.Nack(false, requeue)
+								}
+								s.opMu.Unlock()
+							}
+						} else {
+							action = "nack"
+							s.opMu.Lock()
+							nackErr = delivery.Nack(false, requeue)
+							s.opMu.Unlock()
+						}
+					} else {
+						s.opMu.Lock()
+						ackErr = delivery.Ack(false)
+						s.opMu.Unlock()
 					}
-				} else {
+
+					durationMs := time.Since(startedAt).Milliseconds()
+					if panicVal != nil {
+						log.Printf(
+							"rabbitmq worker_finish worker_id=%d routing_key=%s delivery_tag=%d duration_ms=%d action=%s requeue=%t panic=%v nack_err=%v",
+							workerID, delivery.RoutingKey, delivery.DeliveryTag, durationMs, action, requeue, panicVal, nackErr,
+						)
+						continue
+					}
+
+					if callbackErr != nil {
+						log.Printf(
+							"rabbitmq worker_finish worker_id=%d routing_key=%s delivery_tag=%d duration_ms=%d action=%s requeue=%t err=%v retry_exchange=%s publish_err=%v ack_err=%v nack_err=%v",
+							workerID, delivery.RoutingKey, delivery.DeliveryTag, durationMs, action, requeue, callbackErr,
+							retryExchange, publishErr, ackErr, nackErr,
+						)
+						continue
+					}
+
+					log.Printf(
+						"rabbitmq worker_finish worker_id=%d routing_key=%s delivery_tag=%d duration_ms=%d action=%s retry_exchange=%s publish_err=%v ack_err=%v",
+						workerID, delivery.RoutingKey, delivery.DeliveryTag, durationMs, action, retryExchange, publishErr, ackErr,
+					)
+				}
+			}()
+		}
+
+		// Initial session: fail fast if we can't consume at startup.
+		s.opMu.Lock()
+		initialSession, err := s.startConsumeSessionLocked(routingKeyCallbacks, workers)
+		s.opMu.Unlock()
+		if err != nil {
+			close(jobs)
+			startErr = err
+			return
+		}
+
+		// Consume loop: if the broker restarts, the consumer channel closes; we reconnect and resume.
+		go func() {
+			backoff := 1 * time.Second
+			session := initialSession
+			for {
+				select {
+				case <-s.done:
+					close(jobs)
+					return
+				default:
+				}
+
+				if session == nil {
 					s.opMu.Lock()
-					ackErr = delivery.Ack(false)
+					next, err := s.startConsumeSessionLocked(routingKeyCallbacks, workers)
 					s.opMu.Unlock()
+					if err != nil {
+						log.Printf("rabbitmq consume_start_failed queue=%s exchange=%s err=%v", s.queue, s.exchange, err)
+						time.Sleep(backoff)
+						if backoff < 30*time.Second {
+							backoff *= 2
+						}
+						continue
+					}
+					session = next
+					backoff = 1 * time.Second
 				}
 
-				durationMs := time.Since(startedAt).Milliseconds()
-				if panicVal != nil {
-					log.Printf(
-						"rabbitmq worker_finish worker_id=%d routing_key=%s delivery_tag=%d duration_ms=%d action=%s requeue=%t panic=%v nack_err=%v",
-						workerID, delivery.RoutingKey, delivery.DeliveryTag, durationMs, action, requeue, panicVal, nackErr,
-					)
-					continue
+				for {
+					select {
+					case <-s.done:
+						close(jobs)
+						return
+					case cerr := <-session.connClose:
+						if cerr != nil {
+							log.Printf("rabbitmq conn_closed queue=%s err=%v", s.queue, cerr)
+						} else {
+							log.Printf("rabbitmq conn_closed queue=%s", s.queue)
+						}
+						goto reconnect
+					case cerr := <-session.chClose:
+						if cerr != nil {
+							log.Printf("rabbitmq channel_closed queue=%s err=%v", s.queue, cerr)
+						} else {
+							log.Printf("rabbitmq channel_closed queue=%s", s.queue)
+						}
+						goto reconnect
+					case delivery, ok := <-session.msgs:
+						if !ok {
+							log.Printf("rabbitmq deliveries_closed queue=%s", s.queue)
+							goto reconnect
+						}
+						select {
+						case jobs <- delivery:
+						case <-s.done:
+							close(jobs)
+							return
+						}
+					}
 				}
 
-				if callbackErr != nil {
-					log.Printf(
-						"rabbitmq worker_finish worker_id=%d routing_key=%s delivery_tag=%d duration_ms=%d action=%s requeue=%t err=%v retry_exchange=%s publish_err=%v ack_err=%v nack_err=%v",
-						workerID, delivery.RoutingKey, delivery.DeliveryTag, durationMs, action, requeue, callbackErr,
-						retryExchange, publishErr, ackErr, nackErr,
-					)
-					continue
+			reconnect:
+				s.opMu.Lock()
+				s.closeLocked()
+				s.opMu.Unlock()
+				session = nil
+				time.Sleep(backoff)
+				if backoff < 30*time.Second {
+					backoff *= 2
 				}
-
-				log.Printf(
-					"rabbitmq worker_finish worker_id=%d routing_key=%s delivery_tag=%d duration_ms=%d action=%s retry_exchange=%s publish_err=%v ack_err=%v",
-					workerID, delivery.RoutingKey, delivery.DeliveryTag, durationMs, action, retryExchange, publishErr, ackErr,
-				)
 			}
 		}()
-	}
+	})
 
-	// Dispatcher: read deliveries and hand them to workers (no per-message goroutine).
-	go func() {
-		for delivery := range msgs {
-			jobs <- delivery
-		}
-		close(jobs)
-	}()
-
-	return nil
+	return startErr
 }
 
 // UnmarshalTo unmarshals the message body into the provided interface
@@ -441,11 +590,17 @@ func (m *Message) UnmarshalTo(v interface{}) error {
 func (s *Subscriber) Close() error {
 	var err error
 
+	s.closeOnce.Do(func() { close(s.done) })
+
+	s.opMu.Lock()
+	defer s.opMu.Unlock()
+
 	if s.channel != nil {
 		if channelErr := s.channel.Close(); channelErr != nil {
 			log.Printf("Failed to close channel: %v", channelErr)
 			err = channelErr
 		}
+		s.channel = nil
 	}
 
 	if s.conn != nil {
@@ -455,6 +610,7 @@ func (s *Subscriber) Close() error {
 				err = connErr
 			}
 		}
+		s.conn = nil
 	}
 
 	return err
@@ -462,17 +618,13 @@ func (s *Subscriber) Close() error {
 
 // IsConnected checks if the subscriber is still connected
 func (s *Subscriber) IsConnected() bool {
+	s.opMu.Lock()
+	defer s.opMu.Unlock()
 	if s.conn == nil || s.channel == nil {
 		return false
 	}
 
-	// Check if connection is still alive
-	select {
-	case <-s.conn.NotifyClose(make(chan *amqp.Error)):
-		return false
-	default:
-		return true
-	}
+	return !s.conn.IsClosed()
 }
 
 // GetExchange returns the exchange name

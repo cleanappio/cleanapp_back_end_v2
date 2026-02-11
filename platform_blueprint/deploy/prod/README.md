@@ -23,6 +23,20 @@ Note: keep `cleanapp_service`'s host port mapping (`8079:8080`) in `docker-compo
 
 For deterministic rollouts/rollbacks, prefer `image@sha256:...` pins rather than mutable tags.
 
+### VM Helper (Pins From Pulled Images)
+If you have tag-based compose files on the VM (e.g. `:prod`) and want to pin them deterministically without a
+pre-captured manifest, use:
+
+```bash
+HOST=deployer@34.122.15.16 ./platform_blueprint/deploy/prod/vm/deploy_with_digests.sh
+```
+
+This runs `docker compose pull` on the VM, resolves the locally pulled images to `RepoDigests`, writes:
+- `~/docker-compose.digests.<timestamp>.yml`
+- `~/docker-compose.digests.current.yml` (symlink)
+
+and then deploys with the digest override.
+
 Inputs:
 - A captured digest manifest from xray: `platform_blueprint/manifests/prod/<date>.json`
 - Optionally, a checked-in digest override under: `platform_blueprint/deploy/prod/digests/*.digests.yml`
