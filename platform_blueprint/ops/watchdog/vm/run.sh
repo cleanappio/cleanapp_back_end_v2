@@ -41,8 +41,10 @@ ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo "FAIL rc=${rc}" >>"${LOG}" 2>&1
 
   # Optional webhook alert. Expected payload: { "text": "..." }.
-  if [[ -n "${CLEANAPP_WATCHDOG_WEBHOOK_URL:-}" ]]; then
-    curl -fsS -H "content-type: application/json" -X POST "${CLEANAPP_WATCHDOG_WEBHOOK_URL}" \
+  # Prefer dedicated watchdog URL; fallback to shared observability webhook.
+  webhook_url="${CLEANAPP_WATCHDOG_WEBHOOK_URL:-${CLEANAPP_ALERT_WEBHOOK_URL:-}}"
+  if [[ -n "${webhook_url}" ]]; then
+    curl -fsS -H "content-type: application/json" -X POST "${webhook_url}" \
       -d "{\"text\":\"[cleanapp watchdog] FAIL rc=${rc} at ${err_ts} on $(hostname)\"}" >/dev/null 2>&1 || true
   fi
   exit "${rc}"

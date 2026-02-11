@@ -18,6 +18,7 @@ What it does each run:
 Alerting:
 - Optional webhook support (no secrets committed). If configured, the watchdog will POST failures.
   - `CLEANAPP_WATCHDOG_WEBHOOK_URL=<https://...>` in `~/cleanapp_watchdog/secrets.env`
+  - Fallback supported: `CLEANAPP_ALERT_WEBHOOK_URL=<https://...>` (shared with Alertmanager)
 
 Backup freshness defaults:
 - Max acceptable age: `30h` (`BACKUP_MAX_AGE_HOURS`)

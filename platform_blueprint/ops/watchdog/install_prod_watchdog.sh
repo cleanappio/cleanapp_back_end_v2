@@ -17,6 +17,19 @@ echo "[watchdog] installing on ${HOST}"
 tar -C "${VM_DIR}" -czf - rabbitmq_ensure.sh smoke_local.sh backup_freshness.sh golden_path.sh run.sh | \
   ssh "${HOST}" "bash -lc 'set -euo pipefail; mkdir -p ~/cleanapp_watchdog; chmod 700 ~/cleanapp_watchdog; tar -xzf - -C ~/cleanapp_watchdog; chmod 700 ~/cleanapp_watchdog/*.sh'"
 
+# Optional shared webhook wiring for watchdog alerts.
+if [[ -n "${CLEANAPP_ALERT_WEBHOOK_URL:-}" ]]; then
+  webhook_q="$(printf "%q" "${CLEANAPP_ALERT_WEBHOOK_URL}")"
+  ssh "${HOST}" "CLEANAPP_ALERT_WEBHOOK_URL=${webhook_q} bash -s" <<'__REMOTE__'
+set -euo pipefail
+cat >"$HOME/cleanapp_watchdog/secrets.env" <<EOF
+CLEANAPP_ALERT_WEBHOOK_URL=${CLEANAPP_ALERT_WEBHOOK_URL}
+EOF
+chmod 600 "$HOME/cleanapp_watchdog/secrets.env"
+echo "[watchdog] wrote webhook to ~/cleanapp_watchdog/secrets.env"
+__REMOTE__
+fi
+
 # Install/refresh cron entry (idempotent).
 qcron="$(printf "%q" "${CRON_SCHEDULE}")"
 ssh "${HOST}" "CRON_SCHEDULE=${qcron} bash -s" <<'__REMOTE__'

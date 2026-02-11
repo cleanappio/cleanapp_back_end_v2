@@ -32,6 +32,17 @@ services:
     networks:
       - cleanapp_net
 
+  rabbitmq_exporter:
+    image: kbudde/rabbitmq-exporter:latest
+    container_name: cleanapp_rabbitmq_exporter
+    env_file:
+      - ./rabbitmq-exporter.env
+    ports:
+      - 127.0.0.1:9419:9419
+    restart: unless-stopped
+    networks:
+      - cleanapp_net
+
 volumes:
   prometheus_data:
   alertmanager_data:

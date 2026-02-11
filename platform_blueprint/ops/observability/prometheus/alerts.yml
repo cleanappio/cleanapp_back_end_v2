@@ -9,4 +9,35 @@ groups:
         annotations:
           summary: "Analyzer RabbitMQ disconnected"
           description: "report-analyze-pipeline reports RabbitMQ disconnected for 5+ minutes."
-
+      - alert: ReportAnalysisQueueMissing
+        expr: absent(rabbitmq_queue_state{queue="report-analysis-queue",state="running"}) == 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "report-analysis-queue missing"
+          description: "report-analysis-queue is missing (or not running) for 5+ minutes."
+      - alert: ReportTagsQueueMissing
+        expr: absent(rabbitmq_queue_state{queue="report-tags-queue",state="running"}) == 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "report-tags-queue missing"
+          description: "report-tags-queue is missing (or not running) for 5+ minutes."
+      - alert: ReportRendererQueueMissing
+        expr: absent(rabbitmq_queue_state{queue="report-renderer-queue",state="running"}) == 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "report-renderer-queue missing"
+          description: "report-renderer-queue is missing (or not running) for 5+ minutes."
+      - alert: ReportAnalysisRetryTraffic
+        expr: increase(rabbitmq_queue_messages_published_total{queue="report-analysis-queue.retry"}[15m]) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "report-analysis retries detected"
+          description: "Messages are hitting report-analysis-queue.retry over a sustained period."

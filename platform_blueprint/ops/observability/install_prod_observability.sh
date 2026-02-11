@@ -25,6 +25,28 @@ print(template.replace("__CLEANAPP_ALERT_WEBHOOK_URL__", webhook_url), end="")
 PY
 ssh "$HOST" "cat > \"$REMOTE_DIR/alertmanager/alertmanager.yml\"" < "$tmp_alert_cfg"
 
-ssh "$HOST" "set -euo pipefail; cd \"$REMOTE_DIR\"; sudo -n docker compose -f docker-compose.observability.yml pull; sudo -n docker compose -f docker-compose.observability.yml up -d; curl -fsS -X POST --max-time 5 http://127.0.0.1:9090/-/reload >/dev/null || true; sudo -n docker ps --filter name=cleanapp_prometheus --filter name=cleanapp_alertmanager --format \"table {{.Names}}\\t{{.Status}}\\t{{.Ports}}\""
+remote_dir_q="$(printf "%q" "$REMOTE_DIR")"
+ssh "$HOST" "REMOTE_DIR=${remote_dir_q} bash -s" <<'__REMOTE__'
+set -euo pipefail
+rabbit_user="$(sudo -n docker inspect cleanapp_rabbitmq --format '{{range .Config.Env}}{{println .}}{{end}}' | awk -F= '$1=="RABBITMQ_DEFAULT_USER"{print substr($0,index($0,"=")+1); exit}')"
+rabbit_pass="$(sudo -n docker inspect cleanapp_rabbitmq --format '{{range .Config.Env}}{{println .}}{{end}}' | awk -F= '$1=="RABBITMQ_DEFAULT_PASS"{print substr($0,index($0,"=")+1); exit}')"
+if [[ -z "${rabbit_user}" || -z "${rabbit_pass}" ]]; then
+  echo "failed to detect RabbitMQ credentials from cleanapp_rabbitmq"
+  exit 1
+fi
+cat >"${REMOTE_DIR}/rabbitmq-exporter.env" <<EOF
+RABBIT_URL=http://cleanapp_rabbitmq:15672
+RABBIT_USER=${rabbit_user}
+RABBIT_PASSWORD=${rabbit_pass}
+PUBLISH_PORT=9419
+RABBIT_EXPORTERS=overview,queue
+EOF
+chmod 600 "${REMOTE_DIR}/rabbitmq-exporter.env"
+cd "${REMOTE_DIR}"
+sudo -n docker compose -f docker-compose.observability.yml pull
+sudo -n docker compose -f docker-compose.observability.yml up -d
+curl -fsS -X POST --max-time 5 http://127.0.0.1:9090/-/reload >/dev/null || true
+sudo -n docker ps --filter name=cleanapp_prometheus --filter name=cleanapp_alertmanager --filter name=cleanapp_rabbitmq_exporter --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+__REMOTE__
 
 echo "Done."
