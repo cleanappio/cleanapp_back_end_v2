@@ -164,3 +164,27 @@ curl -s https://live.cleanapp.io/api/v3/reports/health | jq
 sudo docker exec cleanapp_db mysql -u server -p"$PASS" cleanapp \
   -e "SELECT COUNT(*) as connections FROM information_schema.processlist;"
 ```
+
+## Database Backups (Prod)
+
+CleanApp stores full MySQL backups in GCS:
+- Prod bucket: `gs://cleanapp_mysql_backup_prod`
+- Current object key (versioned): `gs://cleanapp_mysql_backup_prod/current/cleanapp_all.sql.gz`
+- Weekly pins (kept ~30 weeks): `gs://cleanapp_mysql_backup_prod/weekly/<ISO_WEEK>/cleanapp_all.sql.gz`
+
+### Restore (One-Liner)
+
+Restore the current backup into the running prod DB container:
+
+```bash
+PASS="$(gcloud secrets versions access latest --secret=MYSQL_ROOT_PASSWORD_PROD)"
+gsutil cat gs://cleanapp_mysql_backup_prod/current/cleanapp_all.sql.gz | gunzip -c | sudo docker exec -i -e MYSQL_PWD="$PASS" cleanapp_db mysql -uroot
+```
+
+### Restore Drill (Recommended)
+
+To prove backups are restorable, run a restore drill into a scratch MySQL container on the prod VM:
+
+```bash
+HOST=deployer@34.122.15.16 ./platform_blueprint/ops/db_backup/restore_drill_prod_vm.sh
+```
