@@ -1,6 +1,11 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
 echo "Starting CleanApp services with report-auth microservice..."
+
+# Repo root from this script location
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+COMPOSE_FILE="${ROOT_DIR}/conf/compose/docker-compose.report-auth.yml"
 
 # Check if Docker is running
 if ! docker info > /dev/null 2>&1; then
@@ -8,9 +13,17 @@ if ! docker info > /dev/null 2>&1; then
     exit 1
 fi
 
+compose() {
+    if docker compose version >/dev/null 2>&1; then
+        docker compose "$@"
+    else
+        docker-compose "$@"
+    fi
+}
+
 # Build and start services
 echo "Building and starting services..."
-docker-compose -f docker-compose.report-auth.yml up --build -d
+compose -f "${COMPOSE_FILE}" up --build -d
 
 echo ""
 echo "Services started successfully!"
@@ -21,7 +34,7 @@ echo "  Report Auth Service: http://localhost:8081"
 echo "  Database: localhost:3306"
 echo ""
 echo "To view logs:"
-echo "  docker-compose -f docker-compose.report-auth.yml logs -f"
+echo "  compose -f ${COMPOSE_FILE} logs -f"
 echo ""
 echo "To stop services:"
-echo "  docker-compose -f docker-compose.report-auth.yml down"
+echo "  compose -f ${COMPOSE_FILE} down"

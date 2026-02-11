@@ -16,6 +16,11 @@ make ci-analyzer
 make hooks
 ```
 
+Legacy root-level scripts/configs have been moved out of the repository root to reduce ambiguity/clutter:
+- Local compose files: `conf/compose/`
+- Nginx configs: `conf/nginx/`
+- One-off/legacy scripts: `scripts/legacy/`
+
 # Environments
 There are three environments:
 *   `local` - a local machine outside cloud
