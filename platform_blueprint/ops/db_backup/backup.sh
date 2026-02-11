@@ -55,6 +55,18 @@ if ! sudo docker ps --format '{{.Names}}' | grep -qx cleanapp_db; then
   exit 1
 fi
 
+# Never pass secrets via `docker exec -e ...` (those end up visible in host `ps` output).
+# Instead, write the secret into a short-lived file inside the container and reference it
+# from inside the container process.
+pwfile="/tmp/cleanapp_mysql_backup_pw.$$.$RANDOM"
+cleanup_pwfile() {
+  sudo docker exec cleanapp_db sh -lc "rm -f '${pwfile}'" >/dev/null 2>&1 || true
+}
+trap cleanup_pwfile EXIT
+
+printf '%s' "${MYSQL_ROOT_PASSWORD}" | sudo docker exec -i cleanapp_db sh -lc \
+  "cat > '${pwfile}' && chmod 600 '${pwfile}'" >/dev/null
+
 if command -v pigz >/dev/null 2>&1; then
   COMPRESS=(pigz -1)
 else
@@ -65,15 +77,15 @@ started_ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 started_epoch="$(date +%s)"
 
 log "INFO mysqldump stream start"
-sudo docker exec -e MYSQL_PWD="${MYSQL_ROOT_PASSWORD}" -i cleanapp_db sh -lc \
-  'exec mysqldump -uroot \
+sudo docker exec -i cleanapp_db sh -lc \
+  "MYSQL_PWD=\"\$(cat '${pwfile}')\" exec mysqldump -uroot \
     --all-databases \
     --single-transaction \
     --quick \
     --lock-tables=false \
     --routines --events --triggers \
     --hex-blob \
-    --set-gtid-purged=OFF' \
+    --set-gtid-purged=OFF" \
   | "${COMPRESS[@]}" \
   | gsutil -q -o GSUtil:parallel_composite_upload_threshold=150M cp - "${CURRENT_KEY}"
 
@@ -85,8 +97,8 @@ size_bytes="$(gsutil ls -l "${CURRENT_KEY}" | awk 'NR==1{print $1}')"
 size_bytes="${size_bytes:-0}"
 
 log "INFO capturing row counts"
-reports_count="$(sudo docker exec -e MYSQL_PWD="${MYSQL_ROOT_PASSWORD}" -i cleanapp_db sh -lc 'mysql -uroot -N -e "SELECT COUNT(*) FROM cleanapp.reports" 2>/dev/null' | tr -d '\r' | tail -n 1 || true)"
-analysis_count="$(sudo docker exec -e MYSQL_PWD="${MYSQL_ROOT_PASSWORD}" -i cleanapp_db sh -lc 'mysql -uroot -N -e "SELECT COUNT(*) FROM cleanapp.report_analysis" 2>/dev/null' | tr -d '\r' | tail -n 1 || true)"
+reports_count="$(sudo docker exec -i cleanapp_db sh -lc "MYSQL_PWD=\"\$(cat '${pwfile}')\" mysql -uroot -N -e \"SELECT COUNT(*) FROM cleanapp.reports\" 2>/dev/null" | tr -d '\r' | tail -n 1 || true)"
+analysis_count="$(sudo docker exec -i cleanapp_db sh -lc "MYSQL_PWD=\"\$(cat '${pwfile}')\" mysql -uroot -N -e \"SELECT COUNT(*) FROM cleanapp.report_analysis\" 2>/dev/null" | tr -d '\r' | tail -n 1 || true)"
 reports_count="${reports_count:-0}"
 analysis_count="${analysis_count:-0}"
 counts_json="{\"reports\":${reports_count},\"report_analysis\":${analysis_count}}"
@@ -120,4 +132,3 @@ if [[ "$(date -u +%u)" == "7" ]]; then
 fi
 
 log "INFO backup complete env=${ENV}"
-

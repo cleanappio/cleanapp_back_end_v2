@@ -56,11 +56,14 @@ name="cleanapp_db_restore_drill_${ts}"
 vol="eko_mysql_restore_drill_${ts}"
 
 root_pw="$(python3 -c 'import secrets; print(secrets.token_hex(16))')"
+envfile="/tmp/${name}.env"
 
 echo "== create scratch mysql container =="
 sudo docker volume create "${vol}" >/dev/null
-sudo docker run -d --name "${name}" \
-  -e MYSQL_ROOT_PASSWORD="${root_pw}" \
+umask 077
+printf 'MYSQL_ROOT_PASSWORD=%s\n' "${root_pw}" >"${envfile}"
+
+sudo docker run -d --name "${name}" --env-file "${envfile}" \
   -p 127.0.0.1:3307:3306 \
   -v "${vol}":/var/lib/mysql \
   mysql:8.0 \
@@ -72,12 +75,14 @@ cleanup() {
   echo "== cleanup =="
   sudo docker rm -f "${name}" >/dev/null 2>&1 || true
   sudo docker volume rm "${vol}" >/dev/null 2>&1 || true
+  rm -f "${envfile}" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
 echo "== wait for mysql ready =="
 for i in $(seq 1 120); do
-  if sudo docker exec -e MYSQL_PWD="${root_pw}" "${name}" mysql -uroot -e "SELECT 1" >/dev/null 2>&1; then
+  # Use container env var to avoid putting secrets in host-visible process args.
+  if sudo docker exec "${name}" sh -lc 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "SELECT 1" >/dev/null 2>&1'; then
     break
   fi
   sleep 2
@@ -88,11 +93,11 @@ for i in $(seq 1 120); do
 done
 
 echo "== stream restore (this can take a long time) =="
-gsutil cat "${obj_sql}" | gunzip -c | sudo docker exec -i -e MYSQL_PWD="${root_pw}" "${name}" mysql -uroot
+gsutil cat "${obj_sql}" | gunzip -c | sudo docker exec -i "${name}" sh -lc 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD"'
 
 echo "== verify counts =="
-got_reports="$(sudo docker exec -e MYSQL_PWD="${root_pw}" "${name}" mysql -uroot -N -e 'SELECT COUNT(*) FROM cleanapp.reports' 2>/dev/null | tr -d '\r' | tail -n 1)"
-got_analysis="$(sudo docker exec -e MYSQL_PWD="${root_pw}" "${name}" mysql -uroot -N -e 'SELECT COUNT(*) FROM cleanapp.report_analysis' 2>/dev/null | tr -d '\r' | tail -n 1)"
+got_reports="$(sudo docker exec "${name}" sh -lc 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -N -e \"SELECT COUNT(*) FROM cleanapp.reports\" 2>/dev/null' | tr -d '\r' | tail -n 1)"
+got_analysis="$(sudo docker exec "${name}" sh -lc 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -N -e \"SELECT COUNT(*) FROM cleanapp.report_analysis\" 2>/dev/null' | tr -d '\r' | tail -n 1)"
 
 echo "restored counts: reports=${got_reports} report_analysis=${got_analysis}"
 
@@ -103,4 +108,3 @@ fi
 
 echo "OK restore drill: counts match metadata"
 REMOTE
-
