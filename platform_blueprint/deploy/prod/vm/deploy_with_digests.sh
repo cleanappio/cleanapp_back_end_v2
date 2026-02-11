@@ -36,9 +36,9 @@ fi
 echo "== docker compose pull =="
 if [[ -n "${SERVICES:-}" ]]; then
   # shellcheck disable=SC2086
-  docker compose "${compose_args[@]}" pull ${SERVICES}
+  sudo docker compose "${compose_args[@]}" pull ${SERVICES}
 else
-  docker compose "${compose_args[@]}" pull
+  sudo docker compose "${compose_args[@]}" pull
 fi
 
 ts="$(date -u +%Y-%m-%dT%H%M%SZ)"
@@ -49,6 +49,7 @@ echo "== generate digest pins =="
 INTERNAL_PREFIX="${INTERNAL_PREFIX:-us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/}" \
 DIGEST_SERVICES="${SERVICES:-}" \
 DIGEST_OUT="${digest_file}" \
+DOCKER_CMD="sudo docker" \
 python3 - << 'PY'
 import json
 import os
@@ -61,6 +62,7 @@ internal_prefix = os.environ.get("INTERNAL_PREFIX", "").strip()
 out_path = os.environ["DIGEST_OUT"]
 services_filter_raw = os.environ.get("DIGEST_SERVICES", "").strip()
 services_filter = set(services_filter_raw.split()) if services_filter_raw else None
+docker_cmd = os.environ.get("DOCKER_CMD", "docker").split()
 
 SERVICE_RE = re.compile(r"^  ([A-Za-z0-9_-]+):\s*$")
 CONTAINER_NAME_RE = re.compile(r"^    container_name:\s*(.+?)\s*$")
@@ -124,7 +126,7 @@ def repo_from_image(img):
     return img
 
 def inspect_repo_digests(img):
-    raw = subprocess.check_output(["docker", "image", "inspect", "--format", "{{json .RepoDigests}}", img], text=True).strip()
+    raw = subprocess.check_output(docker_cmd + ["image", "inspect", "--format", "{{json .RepoDigests}}", img], text=True).strip()
     try:
         v = json.loads(raw)
         if isinstance(v, list):
@@ -197,9 +199,9 @@ ln -sf "${digest_file}" "${current_link}"
 echo "== docker compose up (with digest pins) =="
 if [[ -n "${SERVICES:-}" ]]; then
   # shellcheck disable=SC2086
-  docker compose "${compose_args[@]}" -f "${current_link}" up -d --no-deps ${SERVICES}
+  sudo docker compose "${compose_args[@]}" -f "${current_link}" up -d --no-deps ${SERVICES}
 else
-  docker compose "${compose_args[@]}" -f "${current_link}" up -d --remove-orphans
+  sudo docker compose "${compose_args[@]}" -f "${current_link}" up -d --remove-orphans
 fi
 
 echo "OK: pinned override=${digest_file} (symlinked to ${current_link})"
