@@ -34,6 +34,18 @@ wait_http_200() {
   return 1
 }
 
+wait_rabbit_mgmt() {
+  local tries="${1:-120}"
+  local delay="${2:-2}"
+  for _ in $(seq 1 "$tries"); do
+    if curl -fsS --max-time 3 --netrc-file "$NETRC_FILE" "http://localhost:15672/api/overview" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep "$delay"
+  done
+  return 1
+}
+
 mysql_count() {
   local sql="$1"
   dc exec -T mysql mysql -uroot -proot cleanapp -N -e "$sql"
@@ -94,10 +106,26 @@ echo "== bring up stack =="
 dc up -d --build
 
 echo "== wait services =="
-wait_http_200 "http://localhost:18080/api/v3/health"
-wait_http_200 "http://localhost:19098/health"
-wait_http_200 "http://localhost:19093/health"
-wait_http_200 "http://localhost:15672/api/overview"
+if ! wait_http_200 "http://localhost:18080/api/v3/health" 180 2; then
+  echo "analyzer health did not become ready" >&2
+  dc logs --no-color analyzer || true
+  exit 1
+fi
+if ! wait_http_200 "http://localhost:19098/health" 180 2; then
+  echo "tags health did not become ready" >&2
+  dc logs --no-color tags || true
+  exit 1
+fi
+if ! wait_http_200 "http://localhost:19093/health" 180 2; then
+  echo "renderer health did not become ready" >&2
+  dc logs --no-color renderer || true
+  exit 1
+fi
+if ! wait_rabbit_mgmt 180 2; then
+  echo "rabbitmq management API did not become ready" >&2
+  dc logs --no-color rabbitmq || true
+  exit 1
+fi
 
 echo "== baseline renderer count =="
 base_count="$(renderer_count)"
@@ -128,7 +156,11 @@ fi
 
 echo "== broker restart resilience =="
 dc restart rabbitmq >/dev/null
-wait_http_200 "http://localhost:15672/api/overview" 90 2
+if ! wait_rabbit_mgmt 120 2; then
+  echo "rabbitmq management API did not recover after restart" >&2
+  dc logs --no-color rabbitmq || true
+  exit 1
+fi
 
 for _ in $(seq 1 90); do
   a="$(queue_consumers report-analyze || echo 0)"
