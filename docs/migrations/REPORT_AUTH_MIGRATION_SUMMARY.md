@@ -16,8 +16,8 @@ The `report_auth_service` has been successfully migrated from the `auth-service`
 ### New Files Created:
 
 - `report-auth-service/` - Complete new microservice directory
-- `docker-compose.report-auth.yml` - Docker compose for both services
-- `run_report_auth_services.sh` - Script to run both services
+- `conf/compose/docker-compose.report-auth.yml` - Docker compose for both services
+- `scripts/legacy/run_report_auth_services.sh` - Legacy script to run both services (preferred: `make report-auth-up`)
 
 ## Architecture Changes
 
@@ -113,12 +113,12 @@ The report-auth service relies on the following existing tables in the `cleanapp
 
 ### Option 1: Docker Compose (Recommended)
 ```bash
-./run_report_auth_services.sh
+make report-auth-up
 ```
 
 ### Option 2: Manual Docker Compose
 ```bash
-docker-compose -f docker-compose.report-auth.yml up --build
+docker compose -f conf/compose/docker-compose.report-auth.yml up --build
 ```
 
 ### Option 3: Individual Services
