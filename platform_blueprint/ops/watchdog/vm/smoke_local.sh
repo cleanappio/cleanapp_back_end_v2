@@ -35,4 +35,9 @@ sudo docker exec cleanapp_rabbitmq rabbitmqctl list_queues name consumers --no-t
   | egrep "^report-tags-queue[[:space:]]+[1-9]" >/dev/null
 
 echo
+echo "== rabbitmq report-renderer consumer must be present =="
+sudo docker exec cleanapp_rabbitmq rabbitmqctl list_queues name consumers --no-table-headers \
+  | egrep "^report-renderer-queue[[:space:]]+[1-9]" >/dev/null
+
+echo
 echo "[watchdog smoke] OK"

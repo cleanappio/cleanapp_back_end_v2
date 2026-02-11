@@ -44,6 +44,16 @@ for _ in $(seq 1 60); do
   sleep 2
 done
 
+ANALYSED_TAP_QUEUE="ci-report-analysed-${RANDOM}-${RANDOM}"
+
+echo "== create temporary tap queue for report.analysed =="
+curl -fsS --max-time 10 --netrc-file "$NETRC_FILE" -H "content-type: application/json" -X PUT \
+  -d '{"auto_delete":true,"durable":false,"arguments":{}}' \
+  "http://localhost:15672/api/queues/%2F/${ANALYSED_TAP_QUEUE}" >/dev/null
+curl -fsS --max-time 10 --netrc-file "$NETRC_FILE" -H "content-type: application/json" -X POST \
+  -d '{"routing_key":"report.analysed","arguments":{}}' \
+  "http://localhost:15672/api/bindings/%2F/e/cleanapp/q/${ANALYSED_TAP_QUEUE}" >/dev/null
+
 echo "== insert report into mysql =="
 PNG_B64="iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO5+1WQAAAAASUVORK5CYII="
 DESC="CI golden path report"
@@ -89,6 +99,59 @@ n="$(
 )"
 if [[ "${n:-0}" == "0" ]]; then
   echo "analysis did not complete in time (seq=$SEQ)" >&2
+  dc logs --no-color analyzer || true
+  exit 1
+fi
+
+echo "== wait for report.analysed message =="
+seen_analysed=0
+for _ in $(seq 1 60); do
+  get_resp="$(curl -fsS --max-time 10 --netrc-file "$NETRC_FILE" -H "content-type: application/json" -X POST \
+    -d '{"count":10,"ackmode":"ack_requeue_false","encoding":"auto","truncate":50000}' \
+    "http://localhost:15672/api/queues/%2F/${ANALYSED_TAP_QUEUE}/get")"
+
+  seen_analysed="$(python3 - "$SEQ" "$get_resp" <<'PY'
+import json
+import sys
+
+seq = int(sys.argv[1])
+raw = sys.argv[2].strip()
+msgs = json.loads(raw) if raw else []
+
+def has_seq(payload_text: str, seq: int) -> bool:
+    compact = payload_text.replace(" ", "")
+    if f'"seq":{seq}' in compact:
+        return True
+    try:
+        obj = json.loads(payload_text)
+        return isinstance(obj, dict) and int(obj.get("seq", -1)) == seq
+    except Exception:
+        return False
+
+for m in msgs:
+    payload = m.get("payload")
+    if payload is None:
+        continue
+    if isinstance(payload, (dict, list)):
+        payload_text = json.dumps(payload)
+    else:
+        payload_text = str(payload)
+    if has_seq(payload_text, seq):
+        print("1")
+        sys.exit(0)
+
+print("0")
+PY
+)"
+
+  if [[ "$seen_analysed" == "1" ]]; then
+    break
+  fi
+  sleep 2
+done
+
+if [[ "$seen_analysed" != "1" ]]; then
+  echo "did not observe report.analysed for seq=$SEQ" >&2
   dc logs --no-color analyzer || true
   exit 1
 fi

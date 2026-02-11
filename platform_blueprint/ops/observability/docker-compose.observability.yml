@@ -17,11 +17,26 @@ services:
     networks:
       - cleanapp_net
 
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: cleanapp_alertmanager
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    ports:
+      - 127.0.0.1:9194:9093
+    restart: unless-stopped
+    networks:
+      - cleanapp_net
+
 volumes:
   prometheus_data:
+  alertmanager_data:
 
 networks:
   cleanapp_net:
     external: true
     name: deployer_default
-

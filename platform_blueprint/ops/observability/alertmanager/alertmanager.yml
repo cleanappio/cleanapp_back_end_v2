@@ -1,0 +1,14 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: cleanapp-webhook
+  group_wait: 30s
+  group_interval: 2m
+  repeat_interval: 1h
+
+receivers:
+  - name: cleanapp-webhook
+    webhook_configs:
+      - url: __CLEANAPP_ALERT_WEBHOOK_URL__
+        send_resolved: true

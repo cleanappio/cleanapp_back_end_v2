@@ -701,7 +701,8 @@ CleanApp runs a small VM-local watchdog on production to continuously validate t
 - Schedule: `cron` (default every 5 minutes)
 - Responsibilities:
   - Ensure RabbitMQ invariants via management API (exchanges/queues/bindings/policies, plus retry queues)
-  - Run VM-local smoke checks for core services
+  - Run VM-local smoke checks for core services and required consumers (`report-analysis`, `report-tags`, `report-renderer`)
+  - Verify backup freshness (latest successful prod backup in `/home/deployer/backups/backup.log` is within threshold)
   - Run a golden-path remediation: if a report appears "stuck" (no `report_analysis` row after a minimum age), republish its `seq` to `report.raw` and wait for analysis
 - Outputs:
   - `~/cleanapp_watchdog/watchdog.log`

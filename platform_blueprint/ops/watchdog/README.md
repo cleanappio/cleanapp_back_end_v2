@@ -11,16 +11,23 @@ What it does each run:
 2. Run a local smoke:
    - core localhost health endpoints
    - RabbitMQ must-have bindings
-   - report-analysis consumer must be present
-3. Write logs and a small status file.
+   - report-analysis/report-tags/report-renderer consumers must be present
+3. Verify backup freshness from `/home/deployer/backups/backup.log` (fails if too old)
+4. Write logs and a small status file.
 
 Alerting:
 - Optional webhook support (no secrets committed). If configured, the watchdog will POST failures.
+  - `CLEANAPP_WATCHDOG_WEBHOOK_URL=<https://...>` in `~/cleanapp_watchdog/secrets.env`
+
+Backup freshness defaults:
+- Max acceptable age: `30h` (`BACKUP_MAX_AGE_HOURS`)
+- Log source: `/home/deployer/backups/backup.log` (`BACKUP_LOG_FILE`)
 
 Files installed on VM:
 - `~/cleanapp_watchdog/run.sh`
 - `~/cleanapp_watchdog/rabbitmq_ensure.sh`
 - `~/cleanapp_watchdog/smoke_local.sh`
+- `~/cleanapp_watchdog/backup_freshness.sh`
 - `~/cleanapp_watchdog/secrets.env` (optional, not created by default)
 - `~/cleanapp_watchdog/watchdog.log`
 - `~/cleanapp_watchdog/status.json`
@@ -28,4 +35,3 @@ Files installed on VM:
 Install/uninstall:
 - `platform_blueprint/ops/watchdog/install_prod_watchdog.sh`
 - `platform_blueprint/ops/watchdog/uninstall_prod_watchdog.sh`
-

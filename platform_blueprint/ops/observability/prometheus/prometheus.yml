@@ -5,10 +5,15 @@ global:
 rule_files:
   - /etc/prometheus/alerts.yml
 
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
 scrape_configs:
   - job_name: report-analyze-pipeline
     metrics_path: /metrics
     static_configs:
       - targets:
           - cleanapp_report_analyze_pipeline:8080
-

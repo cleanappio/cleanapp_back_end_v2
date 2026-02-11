@@ -185,7 +185,7 @@ if missing:
     for m in missing:
         lines.append(f"# - {m}")
 
-open(out_path, "w", encoding="utf-8").write("\\n".join(lines) + "\\n")
+open(out_path, "w", encoding="utf-8").write("\n".join(lines) + "\n")
 print(emitted)
 PY
 

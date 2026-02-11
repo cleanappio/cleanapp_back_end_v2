@@ -47,13 +47,50 @@ ensure_exchange() {
 
 ensure_queue() {
   local name="$1"
-  local args_json="${2:-{}}"  # JSON object
+  local args_json="${2:-}"  # JSON object
+  if [[ -z "${args_json}" ]]; then
+    args_json='{}'
+  fi
   local url="${API_BASE}/queues/%2F/${name}"
   if exists "${url}"; then
     return 0
   fi
   echo "rabbitmq_ensure: creating queue=${name}"
-  curl_json PUT "${url}" "{\"durable\":true,\"auto_delete\":false,\"arguments\":${args_json}}" >/dev/null
+  local payload
+  payload="$(
+    python3 - "${args_json}" <<'PY'
+import json
+import sys
+
+args = json.loads(sys.argv[1]) if sys.argv[1].strip() else {}
+print(json.dumps({"durable": True, "auto_delete": False, "arguments": args}, separators=(",", ":")))
+PY
+  )"
+  local http_code
+  http_code="$(
+    curl -sS -u "${USER}:${PASS}" -H "content-type: application/json" \
+      -X PUT "${url}" \
+      -d "${payload}" \
+      -o /tmp/rmq_ensure_queue_create.out -w "%{http_code}" || true
+  )"
+
+  case "${http_code}" in
+    201|204)
+      return 0
+      ;;
+    400)
+      # RabbitMQ may return 400 on precondition/race while the queue still exists;
+      # re-check existence before failing hard.
+      if exists "${url}"; then
+        echo "rabbitmq_ensure: queue=${name} already present after 400; continuing"
+        return 0
+      fi
+      ;;
+  esac
+
+  echo "rabbitmq_ensure: failed creating queue=${name} http=${http_code}" >&2
+  sed -n '1,120p' /tmp/rmq_ensure_queue_create.out >&2 || true
+  exit 1
 }
 
 ensure_binding() {
@@ -92,7 +129,7 @@ ensure_retry_for_queue() {
   local retry_queue="${q}.retry"
 
   ensure_exchange "${retry_exchange}" "topic"
-  ensure_queue "${retry_queue}" "{\"x-message-ttl\":30000,\"x-dead-letter-exchange\":\"cleanapp-exchange\",\"x-queue-type\":\"classic\"}"
+  ensure_queue "${retry_queue}" '{"x-message-ttl":30000,"x-dead-letter-exchange":"cleanapp-exchange","x-queue-type":"classic"}'
   ensure_binding "${retry_exchange}" "${retry_queue}" "#"
 }
 
@@ -101,27 +138,26 @@ ensure_exchange "cleanapp-exchange" "direct"
 ensure_exchange "cleanapp-dlx" "direct"
 
 # Queues + DLQs + policies + bindings
-ensure_queue "report-analysis-queue" "{\"x-queue-type\":\"classic\"}"
-ensure_queue "report-analysis-queue.dlq" "{\"x-queue-type\":\"classic\"}"
+ensure_queue "report-analysis-queue" '{"x-queue-type":"classic"}'
+ensure_queue "report-analysis-queue.dlq" '{"x-queue-type":"classic"}'
 ensure_policy_dlx "dlx-report-analysis-queue" "report-analysis-queue" "report-analysis-queue.dlq"
 ensure_binding "cleanapp-exchange" "report-analysis-queue" "report.raw"
 ensure_retry_for_queue "report-analysis-queue"
 
-ensure_queue "report-tags-queue" "{\"x-queue-type\":\"classic\"}"
-ensure_queue "report-tags-queue.dlq" "{\"x-queue-type\":\"classic\"}"
+ensure_queue "report-tags-queue" '{"x-queue-type":"classic"}'
+ensure_queue "report-tags-queue.dlq" '{"x-queue-type":"classic"}'
 ensure_policy_dlx "dlx-report-tags-queue" "report-tags-queue" "report-tags-queue.dlq"
 ensure_binding "cleanapp-exchange" "report-tags-queue" "report.raw"
 ensure_retry_for_queue "report-tags-queue"
 
-ensure_queue "report-renderer-queue" "{\"x-queue-type\":\"classic\"}"
-ensure_queue "report-renderer-queue.dlq" "{\"x-queue-type\":\"classic\"}"
+ensure_queue "report-renderer-queue" '{"x-queue-type":"classic"}'
+ensure_queue "report-renderer-queue.dlq" '{"x-queue-type":"classic"}'
 ensure_policy_dlx "dlx-report-renderer-queue" "report-renderer-queue" "report-renderer-queue.dlq"
 ensure_binding "cleanapp-exchange" "report-renderer-queue" "report.analysed"
 ensure_retry_for_queue "report-renderer-queue"
 
-ensure_queue "twitter-reply-queue" "{\"x-queue-type\":\"classic\"}"
-ensure_queue "twitter-reply-queue.dlq" "{\"x-queue-type\":\"classic\"}"
+ensure_queue "twitter-reply-queue" '{"x-queue-type":"classic"}'
+ensure_queue "twitter-reply-queue.dlq" '{"x-queue-type":"classic"}'
 ensure_policy_dlx "dlx-twitter-reply-queue" "twitter-reply-queue" "twitter-reply-queue.dlq"
 ensure_binding "cleanapp-exchange" "twitter-reply-queue" "twitter.reply"
 ensure_retry_for_queue "twitter-reply-queue"
-
