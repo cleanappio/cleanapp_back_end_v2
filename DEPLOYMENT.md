@@ -200,3 +200,8 @@ To prove backups are restorable, run a restore drill into a scratch MySQL contai
 ```bash
 HOST=deployer@34.122.15.16 ./platform_blueprint/ops/db_backup/restore_drill_prod_vm.sh
 ```
+
+Notes:
+- The drill compares restored row counts vs backup metadata with a small tolerance (default `0.2%`)
+  to avoid false negatives during high-write windows.
+- Override with `ROW_COUNT_TOLERANCE_PCT=<pct>` when needed.

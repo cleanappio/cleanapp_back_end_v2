@@ -7,6 +7,7 @@ set -euo pipefail
 
 HOST="${HOST:-deployer@34.122.15.16}"
 ENV_NAME="${ENV_NAME:-prod}"
+ROW_COUNT_TOLERANCE_PCT="${ROW_COUNT_TOLERANCE_PCT:-0.2}"
 
 if [[ "${ENV_NAME}" != "prod" && "${ENV_NAME}" != "dev" ]]; then
   echo "ENV_NAME must be prod|dev" >&2
@@ -17,7 +18,7 @@ bucket="gs://cleanapp_mysql_backup_${ENV_NAME}"
 obj_sql="${bucket}/current/cleanapp_all.sql.gz"
 obj_meta="${bucket}/current/cleanapp_all.metadata.json"
 
-ssh "$HOST" "ENV_NAME='${ENV_NAME}' OBJ_SQL='${obj_sql}' OBJ_META='${obj_meta}' bash -s" <<'REMOTE'
+ssh "$HOST" "ENV_NAME='${ENV_NAME}' OBJ_SQL='${obj_sql}' OBJ_META='${obj_meta}' ROW_COUNT_TOLERANCE_PCT='${ROW_COUNT_TOLERANCE_PCT}' bash -s" <<'REMOTE'
 set -euo pipefail
 
 need() { command -v "$1" >/dev/null 2>&1 || { echo "missing $1" >&2; exit 1; }; }
@@ -34,6 +35,7 @@ fi
 env_name="${ENV_NAME}"
 obj_sql="${OBJ_SQL}"
 obj_meta="${OBJ_META}"
+tolerance_pct="${ROW_COUNT_TOLERANCE_PCT}"
 
 echo "== restore drill: env=${env_name} obj=${obj_sql} =="
 
@@ -101,10 +103,31 @@ got_analysis="$(sudo docker exec "${name}" sh -lc 'mysql -uroot -p"$MYSQL_ROOT_P
 
 echo "restored counts: reports=${got_reports} report_analysis=${got_analysis}"
 
-if [[ "${got_reports}" != "${exp_reports}" || "${got_analysis}" != "${exp_analysis}" ]]; then
-  echo "ERROR restore drill mismatch vs metadata" >&2
-  exit 3
-fi
+python3 - <<PY
+import sys
 
-echo "OK restore drill: counts match metadata"
+def exceeds(expected: int, got: int, tolerance_pct: float) -> bool:
+    if expected <= 0:
+        return got != expected
+    return abs(got - expected) / expected * 100.0 > tolerance_pct
+
+exp_reports = int("${exp_reports}")
+got_reports = int("${got_reports}")
+exp_analysis = int("${exp_analysis}")
+got_analysis = int("${got_analysis}")
+tolerance = float("${tolerance_pct}")
+
+bad_reports = exceeds(exp_reports, got_reports, tolerance)
+bad_analysis = exceeds(exp_analysis, got_analysis, tolerance)
+
+if bad_reports or bad_analysis:
+    print("ERROR restore drill mismatch vs metadata outside tolerance", file=sys.stderr)
+    print(f"  tolerance_pct={tolerance}", file=sys.stderr)
+    print(f"  reports: expected={exp_reports} got={got_reports}", file=sys.stderr)
+    print(f"  report_analysis: expected={exp_analysis} got={got_analysis}", file=sys.stderr)
+    sys.exit(3)
+
+print(f"OK restore drill: counts within tolerance {tolerance}%")
+PY
+
 REMOTE
