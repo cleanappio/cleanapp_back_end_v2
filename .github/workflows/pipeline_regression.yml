@@ -6,6 +6,10 @@ on:
     branches:
       - main
 
+concurrency:
+  group: pipeline-regression-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   regression:
     runs-on: ubuntu-latest

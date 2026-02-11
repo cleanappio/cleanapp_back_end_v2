@@ -1,93 +1,81 @@
 # CleanApp Optimization Status (Rolling)
 
 This is the rolling task/status tracker for the “big upgrade push” workstream.
-
-Source of truth inputs:
-- Latest prod xray snapshot: `/Users/anon16/Downloads/cleanapp_back_end_v2/xray/prod/2026-02-09-postdlq2/`
-- Latest prod digest manifest: `/Users/anon16/Downloads/cleanapp_back_end_v2/platform_blueprint/manifests/prod/2026-02-09-postdlq2.json`
+Last updated: 2026-02-11 (UTC).
 
 ## 1) Network Hardening + Surface Area Reduction
 
-Status: **In progress**
+Status: **Mostly complete**
 
 Done:
-- Most internal service ports on prod are now bound to `127.0.0.1` (reduces exposure even if firewall rules are permissive).
-- Prod host ports `3000` (cleanapp_web) and `8090` (cleanapp_pipelines) are now bound to `127.0.0.1` (external access removed even if firewall rules still allow them).
-- Pinned RabbitMQ image in prod compose (stopped relying on `rabbitmq:latest`).
-- Dev VM (`cleanapp-dev`) now binds host ports `3000`/`8080`/`8090` to `127.0.0.1` and its `allow-*` firewall tags have been removed (only `http-server/https-server` remain).
-- `cleanapp-prod2` had `allow-3000/8090/8091` tags removed (it now only retains `allow-8080` + `http-server/https-server`).
-- Deleted unused GCE firewall rules: `allow-3000`, `allow-8090`, `allow-8091`.
+- Internal prod ports are bound to `127.0.0.1` for most backend services.
+- Removed unused world-open firewall rules (`allow-3000`, `allow-8090`, `allow-8091`).
+- Removed matching `allow-*` instance tags from dev/prod2.
 
-Next:
-- Rotate/replace AMQP creds (stop relying on defaults).
-- Reduce GCE firewall tags/rules to only what must be public.
-  - Decide what to do with `allow-8080` long-term (prod currently uses `api.cleanapp.io:8080` and it is actively hit by mobile clients).
+Remaining:
+- Final review/closure plan for legacy `:8080` exposure path after client migration.
 
-Evidence:
-- `xray/prod/2026-02-09-postdlq2/ss_listening.txt`
-- `xray/prod/2026-02-09-postdlq2/gcloud_firewall_rules_relevant.txt`
+## 2) Deterministic Deploys (Digest-Pinned)
 
-## 2) Deterministic Deploys (Digest-Pinned By Default)
-
-Status: **In progress**
+Status: **Complete (operationalized)**
 
 Done:
-- Captured redacted prod deploy config into the blueprint:
-  - `platform_blueprint/deploy/prod/docker-compose.yml`
-  - `platform_blueprint/deploy/prod/nginx_conf_d/`
-- Captured and committed digest pins from prod:
-  - `platform_blueprint/manifests/prod/2026-02-09-postdlq2.json`
-- Generated and committed a digest-pinned compose overlay:
-  - `platform_blueprint/deploy/prod/digests/2026-02-09-postdlq2.digests.yml`
+- Prod deploy blueprint is captured/redacted under `platform_blueprint/deploy/prod/`.
+- VM helper in place and used: `platform_blueprint/deploy/prod/vm/deploy_with_digests.sh`.
+- `docker-compose.digests.current.yml` on prod is valid YAML (no escaped newline artifact) and passes `docker compose config`.
+- Version drift closed for key services via pinned rollout (`/version` endpoints aligned by git SHA).
 
-Next:
-- Decide whether we want the manifest to cover *only running containers* or *all compose services* (including stopped ones), and adjust xray capture accordingly.
+## 3) RabbitMQ Pipeline Reliability
 
-## 3) RabbitMQ Pipeline Reliability (Backpressure, Ack Semantics, DLQs)
-
-Status: **Mostly complete (core safety)**
+Status: **Complete (core path)**
 
 Done:
-- Bounded concurrency + correct ack/nack semantics for key Rust consumers (no per-message goroutine spawning, ack only after success).
-- DLQs enabled on prod (DLX `cleanapp-dlx` + `<queue>.dlq` + policies) for:
-  - `report-tags-queue`
-  - `report-renderer-queue`
-  - `twitter-reply-queue`
-  - `report-analysis-queue` (policy + DLQ queue present for future)
+- Rust consumers: bounded concurrency + ack-after-success + reconnect hardening.
+- Go consumers: same hardening applied on active paths.
+- DLQ + retry topology present in prod (`cleanapp-dlx`, `*.dlq`, `*.retry`).
+- Analyzer reconnect and watchdog self-heal prevent silent post-restart pipeline stalls.
 
-Next:
-- Add retry queues / max redelivery policy (so transient errors don’t spin forever).
-- Add a DLQ replay/runbook (how to inspect + requeue after fixes).
+## 4) Observability -> Alerting
 
-Evidence:
-- `xray/prod/2026-02-09-postdlq2/rabbitmq_policies.txt`
-- `xray/prod/2026-02-09-postdlq2/rabbitmq_queues.tsv`
-
-## 4) Observability + Debuggability (Correlation IDs, Metrics)
-
-Status: **Early**
+Status: **In progress (strong partial)**
 
 Done:
-- `/version` endpoints broadly deployed; xray captures include provenance.
+- Prometheus + Alertmanager installed on prod (localhost-only).
+- Analyzer `/metrics` live and scraped.
+- RabbitMQ exporter added and scraped.
+- Alert rules active for analyzer disconnect and queue-missing/retry-surge signals.
+- Watchdog now supports shared webhook fallback (`CLEANAPP_ALERT_WEBHOOK_URL`).
 
-Next:
-- Standardize structured logs + correlation id propagation.
-- Minimal metrics for queue depth/lag + consumer health.
+Remaining:
+- Wire real external webhook destination in prod (`CLEANAPP_ALERT_WEBHOOK_URL`) and test end-to-end delivery with a synthetic alert.
 
-## 5) Platform Integration Harness (Contracts + Smoke + Golden Paths)
+## 5) Integration Harness / Regression Gate
 
-Status: **In progress**
+Status: **In progress (advanced)**
 
 Done:
-- Public smoke checks exist (nginx endpoints):
-  - `platform_blueprint/tests/smoke/smoke_prod.sh`
-  - `platform_blueprint/tests/smoke/capture_prod_public.sh`
-- v4 OpenAPI contract snapshot is stored:
-  - `platform_blueprint/contracts/openapi/api_v4_openapi.json`
-- Prod VM-local smoke checks exist (localhost ports + RabbitMQ invariants):
-  - `platform_blueprint/tests/smoke/smoke_prod_vm.sh`
-- v4 contract checks (quick) are exercised in the public smoke:
-  - `platform_blueprint/tests/smoke/smoke_prod.sh`
+- Analyzer golden-path CI workflow is passing.
+- New full pipeline CI workflow added:
+  - `platform_blueprint/tests/ci/pipeline/run.sh`
+  - `.github/workflows/pipeline_regression.yml`
+  - Validates analysis + tags + renderer side effects and RabbitMQ restart resilience.
 
-Next:
-- Optionally make the contract smoke OpenAPI-driven (validate endpoint coverage/schema drift).
+Remaining:
+- Keep `pipeline-regression` green on `main` and tune runtime/flakiness as needed.
+
+## 6) Backup Hardening + Restore Confidence
+
+Status: **Mostly complete**
+
+Done:
+- PR #115 merged (backup script + schedule + metadata + docs).
+- Daily backup cron active on prod (`/home/deployer/backup.sh -e prod`).
+- Watchdog verifies backup freshness from `/home/deployer/backups/backup.log`.
+- Restore drill script improved for realistic online-backup drift tolerance:
+  - `platform_blueprint/ops/db_backup/restore_drill_prod_vm.sh`
+  - `ROW_COUNT_TOLERANCE_PCT` (default `0.2%`)
+- Restore drill result captured:
+  - `xray/prod/2026-02-11/restore_drill_result.md`
+
+Remaining:
+- Optional: run another full timed drill during a low-write window to reduce count drift even further.
