@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"report-listener/database"
@@ -25,7 +26,16 @@ import (
 const (
 	// MaxReportsLimit is the maximum number of reports that can be requested in a single query
 	MaxReportsLimit = 100000
+	// brandCountsCacheTTL controls how long by-brand aggregate counts are cached in memory.
+	brandCountsCacheTTL = 10 * time.Minute
 )
+
+type brandCountsCacheEntry struct {
+	Total     int
+	High      int
+	Medium    int
+	ExpiresAt time.Time
+}
 
 // WebSocket upgrader with default configuration
 var upgrader = gorilla.Upgrader{
@@ -40,6 +50,9 @@ type Handlers struct {
 	db                *database.Database
 	rabbitmqPublisher *rabbitmq.Publisher
 	rabbitmqReplier   *rabbitmq.Publisher
+
+	brandCountsMu    sync.RWMutex
+	brandCountsCache map[string]brandCountsCacheEntry
 }
 
 // NewHandlers creates a new handlers instance
@@ -49,7 +62,36 @@ func NewHandlers(hub *ws.Hub, db *database.Database, pub *rabbitmq.Publisher, re
 		db:                db,
 		rabbitmqPublisher: pub,
 		rabbitmqReplier:   replyPub,
+		brandCountsCache:  make(map[string]brandCountsCacheEntry),
 	}
+}
+
+func brandCountsCacheKey(brandName string) string {
+	return strings.ToLower(strings.TrimSpace(brandName))
+}
+
+func (h *Handlers) getBrandCountsCached(brandName string) (brandCountsCacheEntry, bool, bool) {
+	key := brandCountsCacheKey(brandName)
+	h.brandCountsMu.RLock()
+	entry, ok := h.brandCountsCache[key]
+	h.brandCountsMu.RUnlock()
+	if !ok {
+		return brandCountsCacheEntry{}, false, false
+	}
+	fresh := time.Now().Before(entry.ExpiresAt)
+	return entry, true, fresh
+}
+
+func (h *Handlers) setBrandCountsCached(brandName string, total, high, medium int) {
+	key := brandCountsCacheKey(brandName)
+	h.brandCountsMu.Lock()
+	h.brandCountsCache[key] = brandCountsCacheEntry{
+		Total:     total,
+		High:      high,
+		Medium:    medium,
+		ExpiresAt: time.Now().Add(brandCountsCacheTTL),
+	}
+	h.brandCountsMu.Unlock()
 }
 
 // DB exposes the underlying database handle for wiring
@@ -981,20 +1023,36 @@ func (h *Handlers) GetReportsByBrand(c *gin.Context) {
 	}
 
 	// Get counts with a bounded timeout to avoid slow/full-table scans blocking UI.
-	// For n=1 (digital search flow), skip aggregate counts entirely.
 	totalCount := len(reports)
 	highPriorityCount := 0
 	mediumPriorityCount := 0
-	if limit > 1 {
-		countCtx, cancelCounts := context.WithTimeout(c.Request.Context(), 1200*time.Millisecond)
-		defer cancelCounts()
+
+	if cached, ok, fresh := h.getBrandCountsCached(brandName); ok && fresh {
+		totalCount = cached.Total
+		highPriorityCount = cached.High
+		mediumPriorityCount = cached.Medium
+	} else {
+		countTimeout := 1200 * time.Millisecond
+		if limit <= 1 {
+			// Keep search dropdown (n=1) snappy while still attempting accurate totals.
+			countTimeout = 250 * time.Millisecond
+		}
+
+		countCtx, cancelCounts := context.WithTimeout(c.Request.Context(), countTimeout)
 		t, hpc, mpc, err := h.db.GetBrandPriorityCountsByBrandName(countCtx, brandName)
+		cancelCounts()
 		if err != nil {
-			log.Printf("Failed to get aggregated counts for brand '%s' (fallbacking to partial): %v", brandName, err)
+			log.Printf("Failed to get aggregated counts for brand '%s' (fallbacking to cache/partial): %v", brandName, err)
+			if cached, ok, _ := h.getBrandCountsCached(brandName); ok {
+				totalCount = cached.Total
+				highPriorityCount = cached.High
+				mediumPriorityCount = cached.Medium
+			}
 		} else {
 			totalCount = t
 			highPriorityCount = hpc
 			mediumPriorityCount = mpc
+			h.setBrandCountsCached(brandName, t, hpc, mpc)
 		}
 	}
 
