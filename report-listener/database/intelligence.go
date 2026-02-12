@@ -530,7 +530,7 @@ func (d *Database) GetFallbackReportSnippets(ctx context.Context, org string, li
 		WHERE ra.brand_name = ?
 		AND ra.is_valid = TRUE
 		AND ra.seq > 0
-		ORDER BY COALESCE(ra.updated_at, ra.created_at) DESC, ra.severity_level DESC
+		ORDER BY ra.seq DESC
 		LIMIT ?
 	`, strings.ToLower(strings.TrimSpace(org)), limit)
 	if err != nil {
