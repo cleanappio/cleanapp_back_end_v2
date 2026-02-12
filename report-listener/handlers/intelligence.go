@@ -241,7 +241,17 @@ func (h *Handlers) loadIntentContext(ctx context.Context, orgID, question string
 	ctxRead, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
-	intelCtx, err := h.db.GetIntelligenceContextWithOptions(ctxRead, orgID, question, database.IntelligenceContextOptions{
+	// Intent-driven prompts like "what should we fix first?" are broad executive asks,
+	// not keyword searches; avoid over-filtering evidence/context by the literal prompt.
+	contextQuestion := question
+	priorityQuestion := question
+	switch intent {
+	case IntentFixFirst, IntentComplaintsSummary, IntentSecurityRisks, IntentTrends:
+		contextQuestion = ""
+		priorityQuestion = ""
+	}
+
+	intelCtx, err := h.db.GetIntelligenceContextWithOptions(ctxRead, orgID, contextQuestion, database.IntelligenceContextOptions{
 		Intent:           string(intent),
 		ExcludeReportIDs: excludeIDs,
 	})
@@ -253,7 +263,7 @@ func (h *Handlers) loadIntentContext(ctx context.Context, orgID, question string
 	if intent == IntentFixFirst {
 		prioCtx, cancelPrio := context.WithTimeout(ctx, 2200*time.Millisecond)
 		defer cancelPrio()
-		rows, prioErr := h.db.GetFixPriorities(prioCtx, orgID, question, excludeIDs, 3)
+		rows, prioErr := h.db.GetFixPriorities(prioCtx, orgID, priorityQuestion, excludeIDs, 3)
 		if prioErr != nil {
 			log.Printf("fix priority query failed org=%s: %v", orgID, prioErr)
 		} else {
@@ -800,8 +810,12 @@ func (h *Handlers) enforceIntentFormat(intent IntelligenceIntent, answer string,
 		}
 	}
 
-	if intent == IntentFixFirst && !strings.Contains(lower, "top 3 fix plan") {
-		return h.buildIntentFallbackAnswer(intent, ctx, question, baseURL, priorities)
+	if intent == IntentFixFirst {
+		if !strings.Contains(lower, "top 3 fix plan") ||
+			!strings.Contains(lower, "priority 1") ||
+			!strings.Contains(lower, "success metric") {
+			return h.buildIntentFallbackAnswer(intent, ctx, question, baseURL, priorities)
+		}
 	}
 
 	requiredLinks := 3
