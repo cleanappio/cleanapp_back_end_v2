@@ -981,18 +981,21 @@ func (h *Handlers) GetReportsByBrand(c *gin.Context) {
 	}
 
 	// Get counts with a bounded timeout to avoid slow/full-table scans blocking UI.
+	// For n=1 (digital search flow), skip aggregate counts entirely.
 	totalCount := len(reports)
 	highPriorityCount := 0
 	mediumPriorityCount := 0
-	countCtx, cancelCounts := context.WithTimeout(c.Request.Context(), 4*time.Second)
-	defer cancelCounts()
-	t, hpc, mpc, err := h.db.GetBrandPriorityCountsByBrandName(countCtx, brandName)
-	if err != nil {
-		log.Printf("Failed to get aggregated counts for brand '%s' (fallbacking to partial): %v", brandName, err)
-	} else {
-		totalCount = t
-		highPriorityCount = hpc
-		mediumPriorityCount = mpc
+	if limit > 1 {
+		countCtx, cancelCounts := context.WithTimeout(c.Request.Context(), 1200*time.Millisecond)
+		defer cancelCounts()
+		t, hpc, mpc, err := h.db.GetBrandPriorityCountsByBrandName(countCtx, brandName)
+		if err != nil {
+			log.Printf("Failed to get aggregated counts for brand '%s' (fallbacking to partial): %v", brandName, err)
+		} else {
+			totalCount = t
+			highPriorityCount = hpc
+			mediumPriorityCount = mpc
+		}
 	}
 
 	// Create the response in the same format as other endpoints

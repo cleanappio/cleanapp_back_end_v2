@@ -1472,14 +1472,15 @@ func (d *Database) GetReportsByLatLngLite(ctx context.Context, latitude, longitu
 // PERFORMANCE: Skip report_status and reports_owners checks for speed
 // These tables are sparsely populated and add 40+ seconds to large brand queries
 func (d *Database) GetReportsByBrandName(ctx context.Context, brandName string, limit int) ([]models.ReportWithAnalysis, error) {
-	// FAST PATH: Query directly on report_analysis index, skip rarely-used status/owner tables
+	// FAST PATH: Drive from report_analysis with the brand+valid+seq index and
+	// order by ra.seq to avoid slow join/order plans on reports for high-volume brands.
 	reportsQuery := `
-		SELECT r.seq, r.ts, r.id, r.latitude, r.longitude
-		FROM reports r
-		INNER JOIN report_analysis ra ON r.seq = ra.seq
+		SELECT ra.seq, r.ts, r.id, r.latitude, r.longitude
+		FROM report_analysis ra FORCE INDEX (idx_ra_brand_valid_seq)
+		INNER JOIN reports r ON r.seq = ra.seq
 		WHERE ra.brand_name = ? 
 		AND ra.is_valid = TRUE
-		ORDER BY r.seq DESC
+		ORDER BY ra.seq DESC
 		LIMIT ?
 	`
 
