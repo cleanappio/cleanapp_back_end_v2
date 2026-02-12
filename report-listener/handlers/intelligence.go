@@ -53,8 +53,8 @@ type IntelligenceQueryResponse struct {
 var (
 	exportPromptRegex = regexp.MustCompile(`(?i)(show all reports|export|csv|json|pdf|download|full database|full dataset|dump|list all|raw report text|exhaustive list)`)
 	linkRegex         = regexp.MustCompile(`https?://[^\s)]+`)
-	oosGlobalRegex    = regexp.MustCompile(`(?i)\b(eth|btc|bitcoin|ethereum|price|weather|sports|nba|nfl|mlb|nhl|epl|stock|stocks|nasdaq|dow|crypto|gold price|president|prime minister|celebrity|movie times|lottery)\b`)
-	issueTermsRegex   = regexp.MustCompile(`(?i)\b(bug|error|errors|issue|issues|incident|incidents|outage|outages|login|password|security|spam|phishing|abuse|crash|latency|downtime|complain|complaints|ux|ui|fix|priority|risk|risks|report|reports|alert|alerts)\b`)
+	oosGlobalRegex    = regexp.MustCompile(`(?i)\b(eth|btc|bitcoin|ethereum|doge|crypto|price|weather|sports|nba|nfl|mlb|nhl|epl|stock|stocks|nasdaq|dow|gold price|president|prime minister|celebrity|movie times|lottery|horoscope)\b`)
+	issueTermsRegex   = regexp.MustCompile(`(?i)\b(bug|bugs|error|errors|issue|issues|incident|incidents|outage|outages|login|password|security|spam|phishing|abuse|crash|latency|downtime|complain|complaints|ux|ui|fix|priority|risk|risks|report|reports|alert|alerts|feedback|support|billing|feature|trend|trends|fehler|problem|probleme|ausfall|sicherheit|risiko|risiken|bericht|berichte|beschwerde|beschwerden|problema|problemas|incidencia|incidencias|seguridad|riesgo|riesgos|incidentes|rapport|rapports|sécurité|risque|risques|panne|pannes|problème|problèmes|ошибк|проблем|сбо|инцидент|безопасност|отчет|отчёт|жалоб|риск|риски|otchet|otchety|otchetov)\b`)
 )
 
 var promptSuggestions = []string{
@@ -314,12 +314,9 @@ func classifyIntelligenceIntent(orgID, question string) IntelligenceIntent {
 }
 
 func isOutOfScopeQuery(orgID, lowerQuestion string) bool {
-	if oosGlobalRegex.MatchString(lowerQuestion) {
-		return true
-	}
-
 	hasIssueSignal := issueTermsRegex.MatchString(lowerQuestion)
 	hasOrgSignal := false
+	hasCleanAppSignal := strings.Contains(lowerQuestion, "cleanapp") || strings.Contains(lowerQuestion, "clean ai") || strings.Contains(lowerQuestion, "cleanai")
 	org := strings.ToLower(strings.TrimSpace(orgID))
 	if org != "" && strings.Contains(lowerQuestion, org) {
 		hasOrgSignal = true
@@ -337,7 +334,14 @@ func isOutOfScopeQuery(orgID, lowerQuestion string) bool {
 		}
 	}
 
-	return !hasIssueSignal && !hasOrgSignal
+	// Be permissive by default: only classify as OOS when the ask is clearly
+	// global/trivia and has no product/report scope signals.
+	hasScopeSignal := hasIssueSignal || hasOrgSignal || hasCleanAppSignal
+	if oosGlobalRegex.MatchString(lowerQuestion) && !hasScopeSignal {
+		return true
+	}
+
+	return false
 }
 
 func cloneSuggestedPrompts() []string {
@@ -354,6 +358,7 @@ Hard constraints:
 - Do not invent incidents, counts, trends, or links.
 - If evidence is insufficient, say so explicitly.
 - Keep output crisp, strategic, and action-oriented.
+- Respond in the same language as the user's question when possible.
 
 Required response format (exact section headings):
 1) Executive takeaway
