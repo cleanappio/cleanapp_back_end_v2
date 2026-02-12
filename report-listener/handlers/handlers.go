@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"encoding/base64"
 	"fmt"
@@ -965,28 +966,19 @@ func (h *Handlers) GetReportsByBrand(c *gin.Context) {
 		return
 	}
 
-	// Get the total count (without limit)
-	totalCount, err := h.db.GetReportsCountByBrandName(c.Request.Context(), brandName)
+	// Get counts with a bounded timeout to avoid slow/full-table scans blocking UI.
+	totalCount := len(reports)
+	highPriorityCount := 0
+	mediumPriorityCount := 0
+	countCtx, cancelCounts := context.WithTimeout(c.Request.Context(), 4*time.Second)
+	defer cancelCounts()
+	t, hpc, mpc, err := h.db.GetBrandPriorityCountsByBrandName(countCtx, brandName)
 	if err != nil {
-		log.Printf("Failed to get total count for brand '%s': %v", brandName, err)
-		// Don't fail the request, just use the fetched count
-		totalCount = len(reports)
-	}
-
-	// Get the high priority count (severity >= 0.7)
-	highPriorityCount, err := h.db.GetHighPriorityCountByBrandName(c.Request.Context(), brandName)
-	if err != nil {
-		log.Printf("Failed to get high priority count for brand '%s': %v", brandName, err)
-		// Don't fail the request, use 0 as fallback
-		highPriorityCount = 0
-	}
-
-	// Get the medium priority count (0.4 <= severity < 0.7)
-	mediumPriorityCount, err := h.db.GetMediumPriorityCountByBrandName(c.Request.Context(), brandName)
-	if err != nil {
-		log.Printf("Failed to get medium priority count for brand '%s': %v", brandName, err)
-		// Don't fail the request, use 0 as fallback
-		mediumPriorityCount = 0
+		log.Printf("Failed to get aggregated counts for brand '%s' (fallbacking to partial): %v", brandName, err)
+	} else {
+		totalCount = t
+		highPriorityCount = hpc
+		mediumPriorityCount = mpc
 	}
 
 	// Create the response in the same format as other endpoints

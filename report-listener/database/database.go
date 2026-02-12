@@ -1422,7 +1422,7 @@ func (d *Database) GetReportsByLatLngLite(ctx context.Context, latitude, longitu
 func (d *Database) GetReportsByBrandName(ctx context.Context, brandName string, limit int) ([]models.ReportWithAnalysis, error) {
 	// FAST PATH: Query directly on report_analysis index, skip rarely-used status/owner tables
 	reportsQuery := `
-		SELECT r.seq, r.ts, r.id, r.latitude, r.longitude, r.image
+		SELECT r.seq, r.ts, r.id, r.latitude, r.longitude
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		WHERE ra.brand_name = ? 
@@ -1448,7 +1448,6 @@ func (d *Database) GetReportsByBrandName(ctx context.Context, brandName string, 
 			&report.ID,
 			&report.Latitude,
 			&report.Longitude,
-			&report.Image,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan report: %w", err)
@@ -1539,6 +1538,26 @@ func (d *Database) GetReportsByBrandName(ctx context.Context, brandName string, 
 	}
 
 	return result, nil
+}
+
+// GetBrandPriorityCountsByBrandName returns total/high/medium counts in one query.
+func (d *Database) GetBrandPriorityCountsByBrandName(ctx context.Context, brandName string) (int, int, int, error) {
+	query := `
+		SELECT
+			COUNT(*) AS total_count,
+			COALESCE(SUM(CASE WHEN severity_level >= 0.7 THEN 1 ELSE 0 END), 0) AS high_count,
+			COALESCE(SUM(CASE WHEN severity_level >= 0.4 AND severity_level < 0.7 THEN 1 ELSE 0 END), 0) AS medium_count
+		FROM report_analysis
+		WHERE brand_name = ?
+		AND is_valid = TRUE
+	`
+
+	var total, high, medium int
+	err := d.db.QueryRowContext(ctx, query, brandName).Scan(&total, &high, &medium)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("failed to get priority counts by brand: %w", err)
+	}
+	return total, high, medium, nil
 }
 
 // GetImageBySeq gets the image for a specific report by sequence number
