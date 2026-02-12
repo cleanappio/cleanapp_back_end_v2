@@ -232,12 +232,12 @@ func (h *Handlers) getIntelligenceCounts(ctx context.Context, orgID string) (int
 	if cached, ok, fresh := h.getBrandCountsCached(orgID); ok && fresh {
 		return cached.Total, cached.High, cached.Medium
 	}
-	countCtx, cancel := context.WithTimeout(ctx, 3500*time.Millisecond)
+	countCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
 	defer cancel()
 	total, high, medium, err := h.db.GetBrandPriorityCountsByBrandName(countCtx, orgID)
 	if err != nil {
 		// Best-effort fallback to total-only count so UI/chat can still show real scale.
-		totalOnlyCtx, cancelTotal := context.WithTimeout(ctx, 2*time.Second)
+		totalOnlyCtx, cancelTotal := context.WithTimeout(ctx, 8*time.Second)
 		totalOnly, countErr := h.db.GetReportsCountByBrandName(totalOnlyCtx, orgID)
 		cancelTotal()
 		if countErr == nil && totalOnly > 0 {
@@ -256,7 +256,7 @@ func (h *Handlers) getIntelligenceCounts(ctx context.Context, orgID string) (int
 }
 
 func (h *Handlers) loadIntentContext(ctx context.Context, orgID, question string, intent IntelligenceIntent, excludeIDs []int) (*database.IntelligenceContext, []database.FixPriority, error) {
-	ctxRead, cancel := context.WithTimeout(ctx, 7*time.Second)
+	ctxRead, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
 	// Intent-driven prompts like "what should we fix first?" are broad executive asks,

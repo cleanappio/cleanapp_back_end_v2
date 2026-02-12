@@ -1046,7 +1046,7 @@ func (h *Handlers) GetReportsByBrand(c *gin.Context) {
 		highPriorityCount = cached.High
 		mediumPriorityCount = cached.Medium
 	} else {
-		countTimeout := 5 * time.Second
+		countTimeout := 15 * time.Second
 		if limit <= 1 {
 			// Keep search dropdown (n=1) snappy while still attempting accurate totals.
 			countTimeout = 900 * time.Millisecond
@@ -1063,7 +1063,7 @@ func (h *Handlers) GetReportsByBrand(c *gin.Context) {
 				mediumPriorityCount = cached.Medium
 			} else {
 				// Total-only fallback so UI can still show the real corpus size.
-				totalOnlyCtx, cancelTotalOnly := context.WithTimeout(c.Request.Context(), 3*time.Second)
+				totalOnlyCtx, cancelTotalOnly := context.WithTimeout(c.Request.Context(), 12*time.Second)
 				tOnly, totalErr := h.db.GetReportsCountByBrandName(totalOnlyCtx, brandName)
 				cancelTotalOnly()
 				if totalErr != nil {

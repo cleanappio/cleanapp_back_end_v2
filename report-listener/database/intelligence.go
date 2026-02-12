@@ -277,7 +277,7 @@ func (d *Database) GetIntelligenceContextWithOptions(ctx context.Context, orgID,
 		if parent.Err() != nil {
 			parent = context.Background()
 		}
-		fallbackCtx, cancel := context.WithTimeout(parent, 2*time.Second)
+		fallbackCtx, cancel := context.WithTimeout(parent, 8*time.Second)
 		defer cancel()
 		if tOnly, countErr := d.GetReportsCountByBrandName(fallbackCtx, org); countErr == nil {
 			total = tOnly
