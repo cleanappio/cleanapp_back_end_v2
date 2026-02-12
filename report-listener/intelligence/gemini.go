@@ -89,7 +89,7 @@ func (c *Client) GenerateAnswerWithQuality(ctx context.Context, systemPrompt, us
 		},
 		GenerationConfig: geminiGenerationConfig{
 			Temperature:     0.25,
-			MaxOutputTokens: 700,
+			MaxOutputTokens: 1200,
 		},
 	}
 

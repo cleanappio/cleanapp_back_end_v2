@@ -40,6 +40,7 @@ type IntelligenceContext struct {
 	ReportsLast7Days      int
 	ReportsPrev7Days      int
 	GrowthLast7VsPrev7    float64
+	LastReportAt          *time.Time
 	HighPriorityCount     int
 	MediumPriorityCount   int
 	SeverityDistribution  SeverityDistribution
@@ -291,6 +292,7 @@ func (d *Database) GetIntelligenceContextWithOptions(ctx context.Context, orgID,
 		MediumPriorityCount: medium,
 	}
 
+	var lastReportAt sql.NullTime
 	_ = d.db.QueryRowContext(ctx, `
 		SELECT
 			COALESCE(SUM(CASE WHEN r.ts >= DATE_FORMAT(UTC_TIMESTAMP(), '%Y-%m-01 00:00:00') THEN 1 ELSE 0 END), 0) AS month_count,
@@ -300,7 +302,8 @@ func (d *Database) GetIntelligenceContextWithOptions(ctx context.Context, orgID,
 			COALESCE(SUM(CASE WHEN ra.severity_level >= 0.85 THEN 1 ELSE 0 END), 0) AS critical_count,
 			COALESCE(SUM(CASE WHEN ra.severity_level >= 0.70 AND ra.severity_level < 0.85 THEN 1 ELSE 0 END), 0) AS high_count,
 			COALESCE(SUM(CASE WHEN ra.severity_level >= 0.40 AND ra.severity_level < 0.70 THEN 1 ELSE 0 END), 0) AS medium_count,
-			COALESCE(SUM(CASE WHEN ra.severity_level < 0.40 THEN 1 ELSE 0 END), 0) AS low_count
+			COALESCE(SUM(CASE WHEN ra.severity_level < 0.40 THEN 1 ELSE 0 END), 0) AS low_count,
+			MAX(COALESCE(ra.updated_at, ra.created_at, r.ts)) AS last_report_at
 		FROM report_analysis ra
 		INNER JOIN reports r ON ra.seq = r.seq
 		WHERE ra.brand_name = ?
@@ -314,7 +317,12 @@ func (d *Database) GetIntelligenceContextWithOptions(ctx context.Context, orgID,
 		&result.SeverityDistribution.High,
 		&result.SeverityDistribution.Medium,
 		&result.SeverityDistribution.Low,
+		&lastReportAt,
 	)
+	if lastReportAt.Valid {
+		t := lastReportAt.Time.UTC()
+		result.LastReportAt = &t
+	}
 
 	if result.ReportsPrev7Days > 0 {
 		result.GrowthLast7VsPrev7 = (float64(result.ReportsLast7Days-result.ReportsPrev7Days) / float64(result.ReportsPrev7Days)) * 100.0

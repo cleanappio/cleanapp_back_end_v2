@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,8 +24,18 @@ const (
 	IntentFixFirst          IntelligenceIntent = "fix_first"
 	IntentSecurityRisks     IntelligenceIntent = "security_risks"
 	IntentTrends            IntelligenceIntent = "trends"
+	IntentSampleReports     IntelligenceIntent = "sample_reports"
+	IntentReportsLastWeek   IntelligenceIntent = "reports_last_week"
 	IntentGenericInScope    IntelligenceIntent = "generic_in_scope"
 	IntentOutOfScope        IntelligenceIntent = "oos"
+)
+
+type IntelligenceResponseMode string
+
+const (
+	ResponseModeFull        IntelligenceResponseMode = "full"
+	ResponseModePartialFree IntelligenceResponseMode = "partial_free"
+	ResponseModeBlocked     IntelligenceResponseMode = "blocked"
 )
 
 type IntelligenceQueryRequest struct {
@@ -42,7 +53,62 @@ type IntelligenceEvidenceItem struct {
 	Permalink string `json:"permalink"`
 }
 
+type IntelligenceCategoryAggregate struct {
+	Name     string  `json:"name"`
+	Count    int     `json:"count"`
+	SharePct float64 `json:"share_pct"`
+}
+
+type IntelligenceSeverityAggregate struct {
+	Name  string `json:"name"`
+	Count int    `json:"count"`
+}
+
+type IntelligenceAggregates struct {
+	TotalReports       int                             `json:"total_reports"`
+	ReportsThisMonth   int                             `json:"reports_this_month"`
+	ReportsLast30Days  int                             `json:"reports_last_30_days"`
+	ReportsLast7Days   int                             `json:"reports_last_7_days"`
+	ReportsPrev7Days   int                             `json:"reports_prev_7_days"`
+	GrowthLast7VsPrev7 float64                         `json:"growth_last_7_vs_prev_7"`
+	TopCategories      []IntelligenceCategoryAggregate `json:"top_categories,omitempty"`
+	SeverityBreakdown  []IntelligenceSeverityAggregate `json:"severity_breakdown,omitempty"`
+}
+
+type IntelligenceExample struct {
+	ID        int     `json:"id"`
+	CreatedAt string  `json:"created_at"`
+	Channel   string  `json:"channel"`
+	Severity  float64 `json:"severity"`
+	Category  string  `json:"category"`
+	Title     string  `json:"title"`
+	Snippet   string  `json:"snippet"`
+	URL       string  `json:"url,omitempty"`
+}
+
+type IntelligenceCitation struct {
+	Label string `json:"label"`
+	Value string `json:"value"`
+}
+
+type IntelligenceResponseData struct {
+	Aggregates *IntelligenceAggregates `json:"aggregates,omitempty"`
+	Examples   []IntelligenceExample   `json:"examples,omitempty"`
+	Citations  []IntelligenceCitation  `json:"citations,omitempty"`
+}
+
+type IntelligenceUpsell struct {
+	Text string `json:"text"`
+	CTA  string `json:"cta"`
+}
+
 type IntelligenceQueryResponse struct {
+	Mode           IntelligenceResponseMode `json:"mode"`
+	AnswerMarkdown string                   `json:"answer_markdown"`
+	Data           IntelligenceResponseData `json:"data"`
+	Upsell         *IntelligenceUpsell      `json:"upsell,omitempty"`
+
+	// Legacy fields for backward compatibility.
 	Answer           string                     `json:"answer"`
 	ReportsAnalyzed  int                        `json:"reports_analyzed"`
 	PaywallTriggered bool                       `json:"paywall_triggered"`
@@ -51,11 +117,26 @@ type IntelligenceQueryResponse struct {
 	SuggestedPrompts []string                   `json:"suggested_prompts,omitempty"`
 }
 
+type intelligenceComputedResult struct {
+	Mode             IntelligenceResponseMode
+	AnswerMarkdown   string
+	Data             IntelligenceResponseData
+	Upsell           *IntelligenceUpsell
+	SuggestedPrompts []string
+	PaywallTriggered bool
+}
+
+type entitlementOptions struct {
+	ExportRequested bool
+}
+
 var (
 	exportPromptRegex = regexp.MustCompile(`(?i)(show all reports|export|csv|json|pdf|download|full database|full dataset|dump|list all|raw report text|exhaustive list)`)
-	linkRegex         = regexp.MustCompile(`https?://[^\s)]+`)
 	oosGlobalRegex    = regexp.MustCompile(`(?i)\b(eth|btc|bitcoin|ethereum|doge|crypto|price|weather|sports|nba|nfl|mlb|nhl|epl|stock|stocks|nasdaq|dow|gold price|president|prime minister|celebrity|movie times|lottery|horoscope)\b`)
-	issueTermsRegex   = regexp.MustCompile(`(?i)\b(bug|bugs|error|errors|issue|issues|incident|incidents|outage|outages|login|password|security|spam|phishing|abuse|crash|latency|downtime|complain|complaints|ux|ui|fix|priority|risk|risks|report|reports|alert|alerts|feedback|support|billing|feature|trend|trends|fehler|problem|probleme|ausfall|sicherheit|risiko|risiken|bericht|berichte|beschwerde|beschwerden|problema|problemas|incidencia|incidencias|seguridad|riesgo|riesgos|incidentes|rapport|rapports|sécurité|risque|risques|panne|pannes|problème|problèmes|ошибк|проблем|сбо|инцидент|безопасност|отчет|отчёт|жалоб|риск|риски|otchet|otchety|otchetov)\b`)
+	issueTermsRegex   = regexp.MustCompile(`(?i)\b(bug|bugs|error|errors|issue|issues|incident|incidents|outage|outages|login|password|security|spam|phishing|abuse|crash|latency|downtime|complain|complaints|ux|ui|fix|priority|risk|risks|report|reports|alert|alerts|feedback|support|billing|feature|trend|trends|sample|examples|dataset|fehler|problem|probleme|ausfall|sicherheit|risiko|risiken|bericht|berichte|beschwerde|beschwerden|problema|problemas|incidencia|incidencias|seguridad|riesgo|riesgos|incidentes|rapport|rapports|sécurité|risque|risques|panne|pannes|problème|problèmes|ошибк|проблем|сбо|инцидент|безопасност|отчет|отчёт|жалоб|риск|риски|otchet|otchety|otchetov)\b`)
+	emailRegex        = regexp.MustCompile(`(?i)\b[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}\b`)
+	phoneRegex        = regexp.MustCompile(`\+?[0-9][0-9\-\s]{7,}[0-9]`)
+	idRegex           = regexp.MustCompile(`\b[0-9]{9,}\b`)
 )
 
 var promptSuggestions = []string{
@@ -64,17 +145,7 @@ var promptSuggestions = []string{
 	"Are there any security risks?",
 }
 
-const freeTierPaywallMessage = `You’ve reached the free intelligence limit.
-
-Upgrade to access:
-• Unlimited questions
-• Full report details
-• Raw data & exports
-• Trend analysis and alerts
-
-[Upgrade to Pro]`
-
-const freeTierUpgradeNudge = "\n\nUpgrade to Pro for unlimited intelligence queries, full report detail, and exports."
+const freeTierUpsellText = "Pro unlocks deeper drill-down, unredacted detail, exports, and unlimited intelligence queries."
 
 func (h *Handlers) QueryIntelligence(c *gin.Context) {
 	var req IntelligenceQueryRequest
@@ -104,9 +175,8 @@ func (h *Handlers) QueryIntelligence(c *gin.Context) {
 	}
 
 	totalCount, highCount, mediumCount := h.getIntelligenceCounts(c.Request.Context(), orgID)
-
 	if !isPro && !signedIn {
-		allowed, _, usageErr := h.db.GetAndIncrementIntelligenceUsage(
+		allowed, turnsUsed, usageErr := h.db.GetAndIncrementIntelligenceUsage(
 			c.Request.Context(),
 			sessionID,
 			h.cfg.IntelligenceFreeTierMaxTurn,
@@ -118,24 +188,36 @@ func (h *Handlers) QueryIntelligence(c *gin.Context) {
 			return
 		}
 		if !allowed {
-			c.JSON(http.StatusOK, IntelligenceQueryResponse{
-				Answer:           freeTierPaywallMessage,
-				ReportsAnalyzed:  totalCount,
+			blocked := intelligenceComputedResult{
+				Mode:           ResponseModeBlocked,
+				AnswerMarkdown: fmt.Sprintf("You’ve reached the free intelligence limit for this session (%d turns).", turnsUsed),
+				Upsell: &IntelligenceUpsell{
+					Text: freeTierUpsellText,
+					CTA:  "Upgrade to Pro",
+				},
 				PaywallTriggered: true,
-			})
+			}
+			resp := h.toAPIResponse(blocked, totalCount)
+			h.logIntelligenceMetrics(orgID, tier, qualityMode, IntentGenericInScope, resp)
+			c.JSON(http.StatusOK, resp)
 			return
 		}
 	}
 
 	intent := classifyIntelligenceIntent(orgID, question)
 	if intent == IntentOutOfScope {
-		answer := fmt.Sprintf("I’m CleanApp Intelligence for %s. I answer questions about %s issues/reports (bugs, outages, UX, security). I can’t answer that here.", orgID, orgID)
-		c.JSON(http.StatusOK, IntelligenceQueryResponse{
-			Answer:           answer,
-			ReportsAnalyzed:  totalCount,
-			PaywallTriggered: false,
+		out := intelligenceComputedResult{
+			Mode: ResponseModeBlocked,
+			AnswerMarkdown: fmt.Sprintf(
+				"I’m Live CleanApp Intelligence for %s. I answer questions about %s issues and reports (bugs, outages, UX, security). I can’t answer that here.",
+				orgID,
+				orgID,
+			),
 			SuggestedPrompts: cloneSuggestedPrompts(),
-		})
+		}
+		resp := h.toAPIResponse(out, totalCount)
+		h.logIntelligenceMetrics(orgID, tier, qualityMode, intent, resp)
+		c.JSON(http.StatusOK, resp)
 		return
 	}
 
@@ -169,44 +251,20 @@ func (h *Handlers) QueryIntelligence(c *gin.Context) {
 	}
 
 	baseURL := h.cfg.IntelligenceBaseURL
-	answer := h.buildIntentFallbackAnswer(intent, intelCtx, question, baseURL, priorities)
+	computed := h.buildComputedResult(intent, intelCtx, question, baseURL, priorities)
 
-	if !isPro && exportPromptRegex.MatchString(question) {
-		answer = "I can provide a summary of key findings.\n\nFull report access and exports are available with a Pro subscription.\n\n" + answer
+	if h.geminiClient != nil && h.geminiClient.Enabled() && isPro {
+		computed.AnswerMarkdown = h.maybeRefineAnswerWithGemini(c.Request.Context(), computed.AnswerMarkdown, computed.Data, question, intent, tier, qualityMode)
 	}
 
-	if h.geminiClient != nil && h.geminiClient.Enabled() {
-		systemPrompt := buildSystemPrompt(tier, intent)
-		userPrompt := buildUserPrompt(intelCtx, question, baseURL, intent, priorities)
+	computed = applyEntitlements(tier, computed, entitlementOptions{ExportRequested: exportPromptRegex.MatchString(question)})
+	computed = h.ensureConcreteNonBlockedAnswer(computed, intelCtx)
 
-		queryCtx, cancel := context.WithTimeout(c.Request.Context(), 18*time.Second)
-		generated, genErr := h.geminiClient.GenerateAnswerWithQuality(queryCtx, systemPrompt, userPrompt, qualityMode)
-		cancel()
-		if genErr != nil {
-			log.Printf("intelligence gemini generation failed org=%s intent=%s tier=%s: %v", orgID, intent, tier, genErr)
-		} else if strings.TrimSpace(generated) != "" {
-			answer = strings.TrimSpace(generated)
-		}
-	}
+	resp := h.toAPIResponse(computed, intelCtx.ReportsAnalyzed)
 
-	answer = h.enforceIntentFormat(intent, answer, intelCtx, question, baseURL, priorities)
-	if !isPro {
-		answer = sanitizeFreeTierAnswer(answer)
-		// Keep upgrade nudges for anonymous users, but avoid over-nudging
-		// signed-in debugging sessions.
-		if !signedIn {
-			answer = ensureUpgradeNudge(answer)
-		}
-	}
-
-	evidenceItems := h.buildIntentEvidenceItems(intent, intelCtx, baseURL, priorities)
-	if len(evidenceItems) > 6 {
-		evidenceItems = evidenceItems[:6]
-	}
-
-	if sessionID != "" && len(evidenceItems) > 0 {
-		used := make([]int, 0, len(evidenceItems))
-		for _, item := range evidenceItems {
+	if sessionID != "" && len(resp.Evidence) > 0 {
+		used := make([]int, 0, len(resp.Evidence))
+		for _, item := range resp.Evidence {
 			if item.Seq > 0 {
 				used = append(used, item.Seq)
 			}
@@ -219,13 +277,602 @@ func (h *Handlers) QueryIntelligence(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, IntelligenceQueryResponse{
+	h.logIntelligenceMetrics(orgID, tier, qualityMode, intent, resp)
+	c.JSON(http.StatusOK, resp)
+}
+
+func (h *Handlers) ensureConcreteNonBlockedAnswer(result intelligenceComputedResult, ctx *database.IntelligenceContext) intelligenceComputedResult {
+	if result.Mode == ResponseModeBlocked {
+		return result
+	}
+	if hasConcreteAnswer(result.AnswerMarkdown, result.Data.Examples) {
+		return result
+	}
+
+	result.AnswerMarkdown = fmt.Sprintf(
+		"We analyzed %d reports for %s. Last 30 days: %d reports; last 7 days: %d (vs %d previous week, %.1f%%).",
+		ctx.ReportsAnalyzed,
+		ctx.OrgID,
+		ctx.ReportsLast30Days,
+		ctx.ReportsLast7Days,
+		ctx.ReportsPrev7Days,
+		ctx.GrowthLast7VsPrev7,
+	)
+	return result
+}
+
+func (h *Handlers) maybeRefineAnswerWithGemini(
+	ctx context.Context,
+	baseAnswer string,
+	data IntelligenceResponseData,
+	question string,
+	intent IntelligenceIntent,
+	tier string,
+	qualityMode string,
+) string {
+	if strings.TrimSpace(baseAnswer) == "" {
+		return baseAnswer
+	}
+
+	systemPrompt := `You are rewriting a CleanApp Intelligence answer.
+- Keep all numbers, facts, and report references accurate.
+- Do not invent claims or links.
+- Keep it concise and executive-grade.
+- Do not append any upsell or CTA lines.
+- Keep language aligned with the user's language.`
+
+	var b strings.Builder
+	b.WriteString("Intent: ")
+	b.WriteString(string(intent))
+	b.WriteString("\nTier: ")
+	b.WriteString(tier)
+	b.WriteString("\nQuestion: ")
+	b.WriteString(question)
+	b.WriteString("\n\nCurrent answer:\n")
+	b.WriteString(baseAnswer)
+	if data.Aggregates != nil {
+		b.WriteString("\n\nGrounding aggregates:\n")
+		b.WriteString(fmt.Sprintf("total=%d, last30=%d, last7=%d, prev7=%d, growth=%.1f%%\n",
+			data.Aggregates.TotalReports,
+			data.Aggregates.ReportsLast30Days,
+			data.Aggregates.ReportsLast7Days,
+			data.Aggregates.ReportsPrev7Days,
+			data.Aggregates.GrowthLast7VsPrev7,
+		))
+	}
+	if len(data.Examples) > 0 {
+		b.WriteString("Examples (do not invent beyond these):\n")
+		for _, ex := range data.Examples {
+			b.WriteString(fmt.Sprintf("- Report #%d | %s | sev=%.2f | %s\n", ex.ID, ex.Title, ex.Severity, ex.URL))
+		}
+	}
+
+	queryCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
+	defer cancel()
+	refined, err := h.geminiClient.GenerateAnswerWithQuality(queryCtx, systemPrompt, b.String(), qualityMode)
+	if err != nil {
+		return baseAnswer
+	}
+	refined = strings.TrimSpace(refined)
+	if !hasConcreteAnswer(refined, data.Examples) {
+		return baseAnswer
+	}
+	if strings.Contains(strings.ToLower(refined), "substantial corpus") {
+		return baseAnswer
+	}
+	return refined
+}
+
+func (h *Handlers) toAPIResponse(result intelligenceComputedResult, reportsAnalyzed int) IntelligenceQueryResponse {
+	answer := strings.TrimSpace(result.AnswerMarkdown)
+	if answer == "" {
+		answer = "I couldn’t analyze that right now."
+	}
+
+	evidence := make([]IntelligenceEvidenceItem, 0, len(result.Data.Examples))
+	for _, ex := range result.Data.Examples {
+		if ex.ID <= 0 {
+			continue
+		}
+		evidence = append(evidence, IntelligenceEvidenceItem{
+			Seq:       ex.ID,
+			Title:     strings.TrimSpace(ex.Title),
+			Permalink: strings.TrimSpace(ex.URL),
+		})
+	}
+
+	return IntelligenceQueryResponse{
+		Mode:             result.Mode,
+		AnswerMarkdown:   answer,
+		Data:             result.Data,
+		Upsell:           result.Upsell,
 		Answer:           answer,
-		ReportsAnalyzed:  intelCtx.ReportsAnalyzed,
-		PaywallTriggered: false,
-		EvidenceCount:    len(evidenceItems),
-		Evidence:         evidenceItems,
-	})
+		ReportsAnalyzed:  reportsAnalyzed,
+		PaywallTriggered: result.PaywallTriggered,
+		EvidenceCount:    len(evidence),
+		Evidence:         evidence,
+		SuggestedPrompts: result.SuggestedPrompts,
+	}
+}
+
+func (h *Handlers) buildComputedResult(
+	intent IntelligenceIntent,
+	ctx *database.IntelligenceContext,
+	question string,
+	baseURL string,
+	priorities []database.FixPriority,
+) intelligenceComputedResult {
+	agg := buildAggregatesPayload(ctx)
+	examples := h.buildExamplesForIntent(intent, ctx, baseURL, priorities, 8)
+	citations := buildCitations(ctx, examples)
+
+	result := intelligenceComputedResult{
+		Mode: ResponseModeFull,
+		Data: IntelligenceResponseData{
+			Aggregates: agg,
+			Examples:   examples,
+			Citations:  citations,
+		},
+	}
+
+	switch intent {
+	case IntentComplaintsSummary:
+		result.AnswerMarkdown = buildComplaintsAnswer(ctx, agg, examples)
+	case IntentFixFirst:
+		result.AnswerMarkdown = buildFixFirstAnswer(ctx, priorities, examples)
+	case IntentSecurityRisks:
+		result.AnswerMarkdown = buildSecurityAnswer(ctx, agg, examples)
+	case IntentTrends:
+		result.AnswerMarkdown = buildTrendsAnswer(ctx, agg, examples)
+	case IntentSampleReports:
+		result.AnswerMarkdown = buildSampleReportsAnswer(ctx, agg, examples)
+	case IntentReportsLastWeek:
+		result.AnswerMarkdown = buildLastWeekAnswer(ctx, agg, examples)
+	default:
+		result.AnswerMarkdown = buildGenericInScopeAnswer(ctx, question, agg, examples)
+	}
+
+	return result
+}
+
+func buildAggregatesPayload(ctx *database.IntelligenceContext) *IntelligenceAggregates {
+	if ctx == nil {
+		return nil
+	}
+
+	topCategories := make([]IntelligenceCategoryAggregate, 0, len(ctx.TopClassifications))
+	for _, item := range ctx.TopClassifications {
+		if strings.TrimSpace(item.Name) == "" || item.Count <= 0 {
+			continue
+		}
+		share := 0.0
+		if ctx.ReportsAnalyzed > 0 {
+			share = (float64(item.Count) / float64(ctx.ReportsAnalyzed)) * 100.0
+		}
+		topCategories = append(topCategories, IntelligenceCategoryAggregate{
+			Name:     item.Name,
+			Count:    item.Count,
+			SharePct: share,
+		})
+	}
+
+	severity := []IntelligenceSeverityAggregate{
+		{Name: "critical", Count: ctx.SeverityDistribution.Critical},
+		{Name: "high", Count: ctx.SeverityDistribution.High},
+		{Name: "medium", Count: ctx.SeverityDistribution.Medium},
+		{Name: "low", Count: ctx.SeverityDistribution.Low},
+	}
+
+	return &IntelligenceAggregates{
+		TotalReports:       ctx.ReportsAnalyzed,
+		ReportsThisMonth:   ctx.ReportsThisMonth,
+		ReportsLast30Days:  ctx.ReportsLast30Days,
+		ReportsLast7Days:   ctx.ReportsLast7Days,
+		ReportsPrev7Days:   ctx.ReportsPrev7Days,
+		GrowthLast7VsPrev7: ctx.GrowthLast7VsPrev7,
+		TopCategories:      topCategories,
+		SeverityBreakdown:  severity,
+	}
+}
+
+func (h *Handlers) buildExamplesForIntent(
+	intent IntelligenceIntent,
+	ctx *database.IntelligenceContext,
+	baseURL string,
+	priorities []database.FixPriority,
+	max int,
+) []IntelligenceExample {
+	if max <= 0 {
+		max = 5
+	}
+
+	pick := make([]database.ReportSnippet, 0, max)
+	switch intent {
+	case IntentFixFirst:
+		for _, p := range priorities {
+			pick = append(pick, p.Reports...)
+		}
+		if len(pick) == 0 {
+			pick = append(pick, collectEvidenceReports(ctx)...)
+		}
+	case IntentSecurityRisks:
+		for _, r := range collectEvidenceReports(ctx) {
+			if isSecurityReportSnippet(r) {
+				pick = append(pick, r)
+			}
+		}
+		if len(pick) == 0 {
+			pick = append(pick, collectEvidenceReports(ctx)...)
+		}
+	case IntentTrends, IntentReportsLastWeek:
+		pick = append(pick, collectEvidenceReports(ctx)...)
+		sort.SliceStable(pick, func(i, j int) bool { return pick[i].UpdatedAt.After(pick[j].UpdatedAt) })
+	default:
+		pick = append(pick, collectEvidenceReports(ctx)...)
+	}
+
+	examples := make([]IntelligenceExample, 0, max)
+	seen := make(map[int]struct{}, max)
+	for _, r := range pick {
+		if len(examples) >= max {
+			break
+		}
+		if r.Seq <= 0 {
+			continue
+		}
+		if _, ok := seen[r.Seq]; ok {
+			continue
+		}
+		seen[r.Seq] = struct{}{}
+
+		title := strings.TrimSpace(r.Title)
+		if title == "" {
+			title = fmt.Sprintf("Report #%d", r.Seq)
+		}
+		snippet := strings.TrimSpace(r.Summary)
+		if snippet == "" {
+			snippet = "No summary available."
+		}
+		channel := strings.TrimSpace(r.Classification)
+		if channel == "" {
+			channel = "unknown"
+		}
+
+		examples = append(examples, IntelligenceExample{
+			ID:        r.Seq,
+			CreatedAt: r.UpdatedAt.UTC().Format(time.RFC3339),
+			Channel:   channel,
+			Severity:  r.SeverityLevel,
+			Category:  channel,
+			Title:     truncateText(title, 140),
+			Snippet:   truncateText(snippet, 220),
+			URL:       buildReportPermalink(baseURL, ctx.OrgID, r.Seq),
+		})
+	}
+	return examples
+}
+
+func buildCitations(ctx *database.IntelligenceContext, examples []IntelligenceExample) []IntelligenceCitation {
+	citations := make([]IntelligenceCitation, 0, 8)
+	citations = append(citations,
+		IntelligenceCitation{Label: "Total reports", Value: strconv.Itoa(ctx.ReportsAnalyzed)},
+		IntelligenceCitation{Label: "Last 7 days", Value: strconv.Itoa(ctx.ReportsLast7Days)},
+		IntelligenceCitation{Label: "Previous 7 days", Value: strconv.Itoa(ctx.ReportsPrev7Days)},
+	)
+	if len(ctx.TopClassifications) > 0 {
+		citations = append(citations, IntelligenceCitation{
+			Label: "Top category",
+			Value: fmt.Sprintf("%s (%d)", ctx.TopClassifications[0].Name, ctx.TopClassifications[0].Count),
+		})
+	}
+	for _, ex := range examples {
+		if ex.ID <= 0 {
+			continue
+		}
+		citations = append(citations, IntelligenceCitation{
+			Label: fmt.Sprintf("Report #%d", ex.ID),
+			Value: ex.URL,
+		})
+		if len(citations) >= 8 {
+			break
+		}
+	}
+	return citations
+}
+
+func buildComplaintsAnswer(ctx *database.IntelligenceContext, agg *IntelligenceAggregates, examples []IntelligenceExample) string {
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("%s has %d valid reports in CleanApp. In the last 30 days, %d reports were logged; last 7 days were %d versus %d in the prior week (%+.1f%%).\n\n", ctx.OrgID, agg.TotalReports, agg.ReportsLast30Days, agg.ReportsLast7Days, agg.ReportsPrev7Days, agg.GrowthLast7VsPrev7))
+	if len(agg.TopCategories) > 0 {
+		b.WriteString("Top issue categories right now:\n")
+		for i, c := range agg.TopCategories {
+			if i >= 3 {
+				break
+			}
+			b.WriteString(fmt.Sprintf("- %s: %d reports (%.1f%% of total)\n", c.Name, c.Count, c.SharePct))
+		}
+	}
+	b.WriteString(fmt.Sprintf("Severity mix: critical %d, high %d, medium %d, low %d.\n", ctx.SeverityDistribution.Critical, ctx.SeverityDistribution.High, ctx.SeverityDistribution.Medium, ctx.SeverityDistribution.Low))
+	appendExampleBullets(&b, examples, 3)
+	return strings.TrimSpace(b.String())
+}
+
+func buildFixFirstAnswer(ctx *database.IntelligenceContext, priorities []database.FixPriority, examples []IntelligenceExample) string {
+	var b strings.Builder
+	if len(priorities) == 0 {
+		b.WriteString(fmt.Sprintf("%s has %d valid reports. The highest-value next step is to prioritize the top recurring issue cluster and reduce recurrence over the next 14 days.\n", ctx.OrgID, ctx.ReportsAnalyzed))
+		appendExampleBullets(&b, examples, 3)
+		return strings.TrimSpace(b.String())
+	}
+
+	b.WriteString("Here is the highest-impact fix sequence right now:\n")
+	for i, p := range priorities {
+		if i >= 3 {
+			break
+		}
+		line := fmt.Sprintf("- Priority %d: %s (score %.2f; freq %d; avg severity %.2f; recent7 %d)", i+1, p.Issue, p.Score, p.Frequency, p.AvgSeverity, p.Recent7Days)
+		if len(p.Reports) > 0 {
+			line += fmt.Sprintf(" (Report #%d)", p.Reports[0].Seq)
+		}
+		b.WriteString(line + "\n")
+	}
+	b.WriteString("\nQuick win (48h): patch the top-severity recurring issue and publish a status update tied to linked reports.\n")
+	b.WriteString("Big rock (2-4w): remove root-cause recurrence for Priority 1 and track week-over-week incident reduction.\n")
+	appendExampleBullets(&b, examples, 3)
+	return strings.TrimSpace(b.String())
+}
+
+func buildSecurityAnswer(ctx *database.IntelligenceContext, agg *IntelligenceAggregates, examples []IntelligenceExample) string {
+	securityExamples := make([]IntelligenceExample, 0, len(examples))
+	for _, ex := range examples {
+		if isSecurityText(ex.Title + " " + ex.Snippet) {
+			securityExamples = append(securityExamples, ex)
+		}
+	}
+	if len(securityExamples) == 0 {
+		securityExamples = examples
+	}
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("Security posture snapshot for %s: high+critical signals total %d (%d critical, %d high). Last 30 days: %d reports; week-over-week trend: %d vs %d (%+.1f%%).\n",
+		ctx.OrgID,
+		ctx.SeverityDistribution.Critical+ctx.SeverityDistribution.High,
+		ctx.SeverityDistribution.Critical,
+		ctx.SeverityDistribution.High,
+		agg.ReportsLast30Days,
+		agg.ReportsLast7Days,
+		agg.ReportsPrev7Days,
+		agg.GrowthLast7VsPrev7,
+	))
+	appendExampleBullets(&b, securityExamples, 4)
+	return strings.TrimSpace(b.String())
+}
+
+func buildTrendsAnswer(ctx *database.IntelligenceContext, agg *IntelligenceAggregates, examples []IntelligenceExample) string {
+	var b strings.Builder
+	delta := agg.ReportsLast7Days - agg.ReportsPrev7Days
+	b.WriteString(fmt.Sprintf("Trend view: %d reports in the last 7 days versus %d in the previous 7-day window (%+.1f%%, delta %d). Last 30 days total: %d reports.\n",
+		agg.ReportsLast7Days,
+		agg.ReportsPrev7Days,
+		agg.GrowthLast7VsPrev7,
+		delta,
+		agg.ReportsLast30Days,
+	))
+	if len(agg.TopCategories) > 0 {
+		b.WriteString("The largest current driver is ")
+		b.WriteString(fmt.Sprintf("%s (%d reports, %.1f%% share).\n", agg.TopCategories[0].Name, agg.TopCategories[0].Count, agg.TopCategories[0].SharePct))
+	}
+	appendExampleBullets(&b, examples, 3)
+	return strings.TrimSpace(b.String())
+}
+
+func buildSampleReportsAnswer(ctx *database.IntelligenceContext, agg *IntelligenceAggregates, examples []IntelligenceExample) string {
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("Here is a representative sample from %s: %d total valid reports in dataset, %d reports in the last 30 days.\n", ctx.OrgID, agg.TotalReports, agg.ReportsLast30Days))
+	if len(examples) == 0 {
+		b.WriteString("No representative examples were available right now.")
+		return b.String()
+	}
+	appendExampleBullets(&b, examples, 5)
+	return strings.TrimSpace(b.String())
+}
+
+func buildLastWeekAnswer(ctx *database.IntelligenceContext, agg *IntelligenceAggregates, examples []IntelligenceExample) string {
+	var b strings.Builder
+	if agg.ReportsLast7Days > 0 {
+		b.WriteString(fmt.Sprintf("%s has %d reports in the last 7 days (%d in the previous 7-day window, %+.1f%%).\n", ctx.OrgID, agg.ReportsLast7Days, agg.ReportsPrev7Days, agg.GrowthLast7VsPrev7))
+	} else {
+		b.WriteString(fmt.Sprintf("%s has 0 reports in the last 7 days.", ctx.OrgID))
+		if ctx.LastReportAt != nil {
+			b.WriteString(fmt.Sprintf(" Last report was on %s UTC.", ctx.LastReportAt.UTC().Format("2006-01-02")))
+		}
+		b.WriteString("\n")
+	}
+	appendExampleBullets(&b, examples, 3)
+	return strings.TrimSpace(b.String())
+}
+
+func buildGenericInScopeAnswer(ctx *database.IntelligenceContext, question string, agg *IntelligenceAggregates, examples []IntelligenceExample) string {
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("For %s, we currently have %d valid reports. Last 30 days: %d. Last 7 days: %d vs %d in the prior week (%+.1f%%).\n",
+		ctx.OrgID,
+		agg.TotalReports,
+		agg.ReportsLast30Days,
+		agg.ReportsLast7Days,
+		agg.ReportsPrev7Days,
+		agg.GrowthLast7VsPrev7,
+	))
+	if len(agg.TopCategories) > 0 {
+		b.WriteString("Most frequent categories now: ")
+		for i, c := range agg.TopCategories {
+			if i >= 3 {
+				break
+			}
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			b.WriteString(fmt.Sprintf("%s (%d)", c.Name, c.Count))
+		}
+		b.WriteString(".\n")
+	}
+	appendExampleBullets(&b, examples, 3)
+	_ = question
+	return strings.TrimSpace(b.String())
+}
+
+func appendExampleBullets(b *strings.Builder, examples []IntelligenceExample, max int) {
+	if len(examples) == 0 {
+		return
+	}
+	if max <= 0 {
+		max = 3
+	}
+	b.WriteString("\nRepresentative evidence:\n")
+	for i, ex := range examples {
+		if i >= max {
+			break
+		}
+		b.WriteString(fmt.Sprintf("- %s (%s, severity %.2f, %s) (Report #%d)\n", ex.Title, ex.Channel, ex.Severity, formatShortDate(ex.CreatedAt), ex.ID))
+	}
+}
+
+func formatShortDate(raw string) string {
+	t, err := time.Parse(time.RFC3339, strings.TrimSpace(raw))
+	if err != nil {
+		return "recent"
+	}
+	return t.UTC().Format("2006-01-02")
+}
+
+func applyEntitlements(plan string, result intelligenceComputedResult, opts entitlementOptions) intelligenceComputedResult {
+	plan = strings.ToLower(strings.TrimSpace(plan))
+	if result.Mode == ResponseModeBlocked {
+		result.AnswerMarkdown = stripUpgradeLines(result.AnswerMarkdown)
+		if result.Upsell != nil {
+			result.Upsell.Text = stripDuplicateUpgradeMentions(result.Upsell.Text)
+		}
+		return result
+	}
+
+	if plan == "pro" {
+		result.Mode = ResponseModeFull
+		result.AnswerMarkdown = stripUpgradeLines(result.AnswerMarkdown)
+		result.Upsell = nil
+		return result
+	}
+
+	result.Mode = ResponseModePartialFree
+	result.AnswerMarkdown = stripUpgradeLines(result.AnswerMarkdown)
+
+	if len(result.Data.Examples) > 5 {
+		result.Data.Examples = result.Data.Examples[:5]
+	}
+	for i := range result.Data.Examples {
+		result.Data.Examples[i].Snippet = redactPII(result.Data.Examples[i].Snippet)
+		result.Data.Examples[i].Title = redactPII(result.Data.Examples[i].Title)
+	}
+
+	upsellText := freeTierUpsellText
+	if opts.ExportRequested {
+		upsellText = "Raw exports and exhaustive listings are Pro-only. This preview includes representative findings you can act on now."
+	}
+	result.Upsell = &IntelligenceUpsell{Text: upsellText, CTA: "Upgrade to Pro"}
+	result.Upsell.Text = stripDuplicateUpgradeMentions(result.Upsell.Text)
+
+	return result
+}
+
+func stripUpgradeLines(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return s
+	}
+	lines := strings.Split(s, "\n")
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		l := strings.ToLower(strings.TrimSpace(line))
+		if strings.Contains(l, "upgrade to pro") || strings.Contains(l, "pro unlock") || strings.Contains(l, "full report detail") {
+			continue
+		}
+		out = append(out, line)
+	}
+	return strings.TrimSpace(strings.Join(out, "\n"))
+}
+
+func stripDuplicateUpgradeMentions(s string) string {
+	trimmed := strings.TrimSpace(s)
+	if trimmed == "" {
+		return trimmed
+	}
+	lower := strings.ToLower(trimmed)
+	if strings.Count(lower, "upgrade to pro") <= 1 {
+		return trimmed
+	}
+	first := strings.Index(lower, "upgrade to pro")
+	if first < 0 {
+		return trimmed
+	}
+	return strings.TrimSpace(trimmed[:first+len("Upgrade to Pro")])
+}
+
+func hasConcreteAnswer(answer string, examples []IntelligenceExample) bool {
+	if len(examples) > 0 {
+		return true
+	}
+	if strings.TrimSpace(answer) == "" {
+		return false
+	}
+	if strings.Contains(strings.ToLower(answer), "substantial corpus") {
+		return false
+	}
+	for _, r := range answer {
+		if r >= '0' && r <= '9' {
+			return true
+		}
+	}
+	return false
+}
+
+func redactPII(s string) string {
+	out := strings.TrimSpace(s)
+	if out == "" {
+		return out
+	}
+	out = emailRegex.ReplaceAllString(out, "[redacted-email]")
+	out = phoneRegex.ReplaceAllString(out, "[redacted-phone]")
+	out = idRegex.ReplaceAllString(out, "[redacted-id]")
+	return truncateText(out, 220)
+}
+
+func isSecurityReportSnippet(item database.ReportSnippet) bool {
+	return isSecurityText(item.Title + " " + item.Summary)
+}
+
+func isSecurityText(text string) bool {
+	lower := strings.ToLower(text)
+	securityTerms := []string{"security", "phishing", "spam", "fraud", "abuse", "vuln", "malware", "attack", "credential"}
+	for _, term := range securityTerms {
+		if strings.Contains(lower, term) {
+			return true
+		}
+	}
+	return false
+}
+
+func (h *Handlers) logIntelligenceMetrics(orgID, tier, quality string, intent IntelligenceIntent, resp IntelligenceQueryResponse) {
+	hasAgg := resp.Data.Aggregates != nil
+	exampleCount := len(resp.Data.Examples)
+	nonAnswer := resp.Mode != ResponseModeBlocked && !hasConcreteAnswer(resp.AnswerMarkdown, resp.Data.Examples)
+	log.Printf(
+		"intelligence_metrics org=%s tier=%s quality=%s intent=%s mode=%s aggregates=%t examples=%d non_answer=%t",
+		orgID,
+		tier,
+		quality,
+		intent,
+		resp.Mode,
+		hasAgg,
+		exampleCount,
+		nonAnswer,
+	)
 }
 
 func (h *Handlers) getIntelligenceCounts(ctx context.Context, orgID string) (int, int, int) {
@@ -259,12 +906,11 @@ func (h *Handlers) loadIntentContext(ctx context.Context, orgID, question string
 	ctxRead, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
-	// Intent-driven prompts like "what should we fix first?" are broad executive asks,
-	// not keyword searches; avoid over-filtering evidence/context by the literal prompt.
+	// Broad executive prompts should not be keyword-overfiltered.
 	contextQuestion := question
 	priorityQuestion := question
 	switch intent {
-	case IntentFixFirst, IntentComplaintsSummary, IntentSecurityRisks, IntentTrends:
+	case IntentFixFirst, IntentComplaintsSummary, IntentSecurityRisks, IntentTrends, IntentSampleReports, IntentReportsLastWeek:
 		contextQuestion = ""
 		priorityQuestion = ""
 	}
@@ -302,14 +948,27 @@ func classifyIntelligenceIntent(orgID, question string) IntelligenceIntent {
 		return IntentOutOfScope
 	}
 
+	sampleTerms := []string{"sample", "examples", "what i'm buying", "what im buying", "show me reports", "some reports", "representative"}
+	for _, term := range sampleTerms {
+		if strings.Contains(q, term) {
+			return IntentSampleReports
+		}
+	}
+
+	if strings.Contains(q, "last week") || strings.Contains(q, "past week") || strings.Contains(q, "last 7 days") || strings.Contains(q, "how many reports") {
+		return IntentReportsLastWeek
+	}
+
 	switch {
 	case strings.Contains(q, "fix first"),
 		strings.Contains(q, "what should we fix"),
 		strings.Contains(q, "prioritize"),
 		strings.Contains(q, "priority plan"):
 		return IntentFixFirst
-	case strings.Contains(q, "complain"),
-		strings.Contains(q, "users complain"),
+	case strings.Contains(q, "top issues"),
+		strings.Contains(q, "biggest issues"),
+		strings.Contains(q, "top complaints"),
+		strings.Contains(q, "complain"),
 		strings.Contains(q, "complaints"):
 		return IntentComplaintsSummary
 	case strings.Contains(q, "security"),
@@ -352,8 +1011,6 @@ func isOutOfScopeQuery(orgID, lowerQuestion string) bool {
 		}
 	}
 
-	// Be permissive by default: only classify as OOS when the ask is clearly
-	// global/trivia and has no product/report scope signals.
 	hasScopeSignal := hasIssueSignal || hasOrgSignal || hasCleanAppSignal
 	if oosGlobalRegex.MatchString(lowerQuestion) && !hasScopeSignal {
 		return true
@@ -379,406 +1036,6 @@ func normalizeQualityMode(raw string) string {
 	}
 }
 
-func buildSystemPrompt(tier string, intent IntelligenceIntent) string {
-	base := `You are CleanApp Intelligence, an executive intelligence analyst for CEOs/CTOs.
-
-Hard constraints:
-- Ground every concrete claim in the provided evidence pack.
-- Do not invent incidents, counts, trends, or links.
-- If evidence is insufficient, say so explicitly.
-- Keep output crisp, strategic, and action-oriented.
-- Respond in the same language as the user's question when possible.
-- Write in natural narrative form for executive readers, not a rigid template.
-- Prefer short paragraphs plus selective bullets where they improve clarity.
-- Include inline citations in prose/bullets using this style: (Report #12345).
-- Sound like a sharp operator: direct, contextual, and practical. Avoid robotic section headers unless explicitly requested.
-- If the user asks in a different language, answer in that language.
-- For broad/ambiguous prompts, provide the best in-scope interpretation first, then suggest one focused follow-up question.
-
-Evidence rules:
-- Include 3-6 report permalinks when available.
-- Prioritize: most recent relevant, highest severity relevant, representative recurring issue.
-- Avoid near-duplicate incidents.`
-
-	if intent == IntentFixFirst {
-		base += `
-
-For this question intent:
-- Provide a ranked Top 3 fix plan.
-- For each priority include: why now (severity×frequency×recency), success metric, and 1-2 inline citations.
-- Include one "Quick win (48h)" and one "Big rock (2-4w)".`
-	}
-
-	if strings.EqualFold(strings.TrimSpace(tier), "pro") {
-		return base + `
-
-For Pro users:
-- You may provide deeper analysis and tradeoffs.
-- Still avoid dumping massive raw data.`
-	}
-
-	return base + `
-
-For free-tier users:
-- Provide summary-level insights only.
-- Never provide full report dumps or exhaustive lists.
-- Never output export formats (PDF/CSV/JSON).
-- If asked for full data/exports, provide summary and mention Pro upgrade.`
-}
-
-func buildUserPrompt(ctx *database.IntelligenceContext, question, baseURL string, intent IntelligenceIntent, priorities []database.FixPriority) string {
-	var b strings.Builder
-	b.WriteString("Intent: ")
-	b.WriteString(string(intent))
-	b.WriteString("\n")
-	b.WriteString("Organization: ")
-	b.WriteString(ctx.OrgID)
-	b.WriteString("\n")
-	b.WriteString(fmt.Sprintf("Page dataset total (all-time valid): %d\n", ctx.ReportsAnalyzed))
-	b.WriteString(fmt.Sprintf("Analysis window last 30 days: %d\n", ctx.ReportsLast30Days))
-	b.WriteString(fmt.Sprintf("This month: %d\n", ctx.ReportsThisMonth))
-	b.WriteString(fmt.Sprintf("Last 7 days: %d | Previous 7 days: %d | Growth: %.1f%%\n", ctx.ReportsLast7Days, ctx.ReportsPrev7Days, ctx.GrowthLast7VsPrev7))
-	b.WriteString(fmt.Sprintf("Priority counts: high=%d medium=%d\n", ctx.HighPriorityCount, ctx.MediumPriorityCount))
-	b.WriteString(fmt.Sprintf("Severity distribution: critical=%d high=%d medium=%d low=%d\n", ctx.SeverityDistribution.Critical, ctx.SeverityDistribution.High, ctx.SeverityDistribution.Medium, ctx.SeverityDistribution.Low))
-	if ctx.ReportsAnalyzed >= 50000 {
-		b.WriteString("Large corpus note: this org has a very large report corpus. It's valid to acknowledge scale (e.g. 50K+ reports), present representative evidence, and suggest Pro for full interactive drill-down.\n")
-	}
-
-	if len(ctx.TopClassifications) > 0 {
-		b.WriteString("Top categories:\n")
-		for _, item := range ctx.TopClassifications {
-			b.WriteString(fmt.Sprintf("- %s: %d\n", item.Name, item.Count))
-		}
-	}
-	if len(ctx.TopEntities) > 0 {
-		b.WriteString("Top entities:\n")
-		for _, item := range ctx.TopEntities {
-			b.WriteString(fmt.Sprintf("- %s: %d\n", item.Name, item.Count))
-		}
-	}
-	if len(ctx.TopTags) > 0 {
-		b.WriteString("Top tags:\n")
-		for _, item := range ctx.TopTags {
-			b.WriteString(fmt.Sprintf("- %s: %d\n", item.Name, item.Count))
-		}
-	}
-	if len(ctx.Keywords) > 0 {
-		b.WriteString("Question keywords inferred: ")
-		b.WriteString(strings.Join(ctx.Keywords, ", "))
-		b.WriteString("\n")
-	}
-
-	if len(priorities) > 0 {
-		b.WriteString("Fix priorities (pre-ranked):\n")
-		for i, p := range priorities {
-			b.WriteString(fmt.Sprintf("%d) %s | freq=%d avg_severity=%.2f recent7=%d score=%.2f\n", i+1, p.Issue, p.Frequency, p.AvgSeverity, p.Recent7Days, p.Score))
-			for _, r := range p.Reports {
-				b.WriteString(fmt.Sprintf("   - seq=%d title=%q class=%q sev=%.2f updated=%s\n", r.Seq, r.Title, r.Classification, r.SeverityLevel, r.UpdatedAt.Format(time.RFC3339)))
-				b.WriteString(fmt.Sprintf("     snippet=%q\n", truncateText(r.Summary, 220)))
-				b.WriteString(fmt.Sprintf("     permalink=%s\n", buildReportPermalink(baseURL, ctx.OrgID, r.Seq)))
-			}
-		}
-	}
-
-	evidence := collectEvidenceReports(ctx)
-	if len(evidence) > 0 {
-		b.WriteString("Evidence pack (ground your answer on these reports):\n")
-		for _, item := range evidence {
-			b.WriteString(fmt.Sprintf("- seq=%d title=%q class=%q severity=%.2f updated=%s\n", item.Seq, item.Title, item.Classification, item.SeverityLevel, item.UpdatedAt.Format(time.RFC3339)))
-			b.WriteString(fmt.Sprintf("  snippet=%q\n", truncateText(item.Summary, 220)))
-			b.WriteString(fmt.Sprintf("  permalink=%s\n", buildReportPermalink(baseURL, ctx.OrgID, item.Seq)))
-		}
-	}
-
-	b.WriteString("\nUser question:\n")
-	b.WriteString(question)
-	return b.String()
-}
-
-func (h *Handlers) buildIntentFallbackAnswer(intent IntelligenceIntent, ctx *database.IntelligenceContext, question, baseURL string, priorities []database.FixPriority) string {
-	switch intent {
-	case IntentFixFirst:
-		return buildFixFirstSummary(ctx, baseURL, priorities)
-	case IntentComplaintsSummary:
-		return buildComplaintsSummary(ctx, baseURL)
-	case IntentSecurityRisks:
-		return buildSecuritySummary(ctx, baseURL)
-	case IntentTrends:
-		return buildTrendsSummary(ctx, baseURL)
-	default:
-		return buildExecutiveSummary(ctx, question, baseURL)
-	}
-}
-
-func buildExecutiveSummary(ctx *database.IntelligenceContext, question, baseURL string) string {
-	evidence := collectEvidenceReports(ctx)
-	links := buildEvidenceItemsFromReports(ctx.OrgID, baseURL, evidence, 6)
-
-	var b strings.Builder
-	b.WriteString("Executive takeaway: ")
-	if len(ctx.TopIssues) > 0 {
-		top := ctx.TopIssues[0]
-		b.WriteString(fmt.Sprintf("%s has recurring pressure around \"%s\" (%d reports), with %d high-priority signals requiring active ownership.\n", ctx.OrgID, top.Name, top.Count, ctx.HighPriorityCount))
-	} else {
-		b.WriteString(fmt.Sprintf("%s has %d analyzed reports with recurring issue patterns that require focused execution.\n", ctx.OrgID, ctx.ReportsAnalyzed))
-	}
-
-	b.WriteString("\n\nWhat’s changing:\n")
-	b.WriteString(fmt.Sprintf("Page dataset total (all-time valid): %d reports. Analysis window (last 30 days): %d reports.\n", ctx.ReportsAnalyzed, ctx.ReportsLast30Days))
-	b.WriteString(fmt.Sprintf("Last 7 days: %d vs previous 7 days: %d (%.1f%%).\n", ctx.ReportsLast7Days, ctx.ReportsPrev7Days, ctx.GrowthLast7VsPrev7))
-	if len(ctx.TopClassifications) > 0 {
-		b.WriteString(fmt.Sprintf("Dominant category: %s (%d).\n", ctx.TopClassifications[0].Name, ctx.TopClassifications[0].Count))
-	}
-
-	b.WriteString("\nQualitative context (user voice):\n")
-	appendUserVoice(&b, evidence)
-
-	b.WriteString("\nRecommended actions:\n")
-	b.WriteString("1. Assign one accountable owner for the top recurring issue and set a 14-day remediation target.\n")
-	b.WriteString("2. Prioritize high-severity incidents first, then bundle medium-severity repeats into one execution stream.\n")
-	b.WriteString("3. Review the linked incidents in weekly leadership triage and convert recurring patterns into roadmap commitments.\n")
-	if ctx.ReportsAnalyzed >= 50000 {
-		b.WriteString("\nThis org has a large corpus (50K+ reports). The summary above uses representative evidence; Pro unlocks full interactive drill-down across the full dataset.\n")
-	}
-
-	b.WriteString("\nSupporting evidence:\n")
-	appendEvidenceLinks(&b, links)
-
-	_ = question
-	return strings.TrimSpace(b.String())
-}
-
-func buildComplaintsSummary(ctx *database.IntelligenceContext, baseURL string) string {
-	evidence := collectEvidenceReports(ctx)
-	links := buildEvidenceItemsFromReports(ctx.OrgID, baseURL, evidence, 6)
-
-	var b strings.Builder
-	b.WriteString("Executive takeaway: ")
-	if len(ctx.TopIssues) > 0 {
-		b.WriteString(fmt.Sprintf("User complaints cluster around \"%s\" and adjacent recurring themes.\n", ctx.TopIssues[0].Name))
-	} else {
-		b.WriteString("User complaints are concentrated in a small set of recurring issue themes.\n")
-	}
-
-	b.WriteString("\n\nWhat’s changing:\n")
-	b.WriteString(fmt.Sprintf("Page dataset total: %d reports. Last 30 days: %d reports. Last 7 vs previous 7: %d vs %d (%.1f%%).\n", ctx.ReportsAnalyzed, ctx.ReportsLast30Days, ctx.ReportsLast7Days, ctx.ReportsPrev7Days, ctx.GrowthLast7VsPrev7))
-	if len(ctx.TopClassifications) > 0 {
-		b.WriteString("Top complaint buckets: ")
-		for i, item := range ctx.TopClassifications {
-			if i >= 3 {
-				break
-			}
-			if i > 0 {
-				b.WriteString(", ")
-			}
-			b.WriteString(fmt.Sprintf("%s (%d)", item.Name, item.Count))
-		}
-		b.WriteString(".\n")
-	}
-
-	b.WriteString("\nQualitative context (user voice):\n")
-	appendUserVoice(&b, evidence)
-
-	b.WriteString("\nRecommended actions:\n")
-	b.WriteString("1. Convert top complaint theme into a visible 2-week fix initiative with clear owner.\n")
-	b.WriteString("2. Publish a short customer-facing update for the highest-frequency complaint category.\n")
-	b.WriteString("3. Track complaint recurrence weekly and stop new regressions before adding new feature scope.\n")
-	if ctx.ReportsAnalyzed >= 50000 {
-		b.WriteString("\nThere are 50K+ reports in this corpus; this is a representative preview. Pro provides full interactive exploration across all matching reports.\n")
-	}
-
-	b.WriteString("\nSupporting evidence:\n")
-	appendEvidenceLinks(&b, links)
-	return strings.TrimSpace(b.String())
-}
-
-func buildSecuritySummary(ctx *database.IntelligenceContext, baseURL string) string {
-	evidence := collectEvidenceReports(ctx)
-	links := buildEvidenceItemsFromReports(ctx.OrgID, baseURL, evidence, 6)
-
-	var b strings.Builder
-	b.WriteString("Executive takeaway: ")
-	b.WriteString(fmt.Sprintf("Security-relevant signals are present with %d high-priority reports in the current dataset.\n", ctx.HighPriorityCount))
-
-	b.WriteString("\n\nWhat’s changing:\n")
-	b.WriteString(fmt.Sprintf("Page dataset total: %d reports. Last 30 days: %d. Last 7 vs previous 7: %d vs %d (%.1f%%).\n", ctx.ReportsAnalyzed, ctx.ReportsLast30Days, ctx.ReportsLast7Days, ctx.ReportsPrev7Days, ctx.GrowthLast7VsPrev7))
-	b.WriteString(fmt.Sprintf("Severity mix: critical=%d high=%d medium=%d low=%d.\n", ctx.SeverityDistribution.Critical, ctx.SeverityDistribution.High, ctx.SeverityDistribution.Medium, ctx.SeverityDistribution.Low))
-
-	b.WriteString("\nQualitative context (user voice):\n")
-	appendUserVoice(&b, evidence)
-
-	b.WriteString("\nRecommended actions:\n")
-	b.WriteString("1. Triage highest-severity security incidents first and assign incident owners with 24h updates.\n")
-	b.WriteString("2. Add preventive controls for recurring abuse/phishing vectors and measure recurrence weekly.\n")
-	b.WriteString("3. Publish internal security notes tying each mitigation to linked incident evidence.\n")
-	if ctx.ReportsAnalyzed >= 50000 {
-		b.WriteString("\nGiven the 50K+ report corpus, this is a representative security preview. Pro unlocks deeper interactive investigation across the full set.\n")
-	}
-
-	b.WriteString("\nSupporting evidence:\n")
-	appendEvidenceLinks(&b, links)
-	return strings.TrimSpace(b.String())
-}
-
-func buildTrendsSummary(ctx *database.IntelligenceContext, baseURL string) string {
-	evidence := collectEvidenceReports(ctx)
-	links := buildEvidenceItemsFromReports(ctx.OrgID, baseURL, evidence, 6)
-
-	var b strings.Builder
-	b.WriteString("Executive takeaway: ")
-	if ctx.GrowthLast7VsPrev7 > 0 {
-		b.WriteString(fmt.Sprintf("Issue velocity is increasing (+%.1f%% week-over-week), indicating growing operational pressure.\n", ctx.GrowthLast7VsPrev7))
-	} else {
-		b.WriteString(fmt.Sprintf("Issue velocity is stable-to-down (%+.1f%% week-over-week), but recurring themes still persist.\n", ctx.GrowthLast7VsPrev7))
-	}
-
-	b.WriteString("\n\nWhat’s changing:\n")
-	b.WriteString(fmt.Sprintf("Page dataset total: %d reports. Analysis window (last 30 days): %d reports.\n", ctx.ReportsAnalyzed, ctx.ReportsLast30Days))
-	b.WriteString(fmt.Sprintf("Last 7 days: %d vs previous 7 days: %d (%.1f%%).\n", ctx.ReportsLast7Days, ctx.ReportsPrev7Days, ctx.GrowthLast7VsPrev7))
-	if len(ctx.TopIssues) > 0 {
-		b.WriteString(fmt.Sprintf("Top recurring trend driver: %s (%d reports).\n", ctx.TopIssues[0].Name, ctx.TopIssues[0].Count))
-	}
-
-	b.WriteString("\nQualitative context (user voice):\n")
-	appendUserVoice(&b, evidence)
-
-	b.WriteString("\nRecommended actions:\n")
-	b.WriteString("1. Put trend-driving issue into weekly leadership KPI review with explicit reduction targets.\n")
-	b.WriteString("2. Assign a prevention owner for each recurring trend driver and review recurrence after each release.\n")
-	b.WriteString("3. Treat rising-week trend spikes as release gates for impacted areas.\n")
-	if ctx.ReportsAnalyzed >= 50000 {
-		b.WriteString("\nThis org has a 50K+ report corpus. The trend view here is intentionally representative; Pro enables full interactive slicing across all reports.\n")
-	}
-
-	b.WriteString("\nSupporting evidence:\n")
-	appendEvidenceLinks(&b, links)
-	return strings.TrimSpace(b.String())
-}
-
-func buildFixFirstSummary(ctx *database.IntelligenceContext, baseURL string, priorities []database.FixPriority) string {
-	var b strings.Builder
-	b.WriteString("Executive takeaway: ")
-	if len(priorities) > 0 {
-		b.WriteString(fmt.Sprintf("The fastest path to risk reduction is a ranked Top 3 fix plan led by \"%s\" and two adjacent recurring issues.\n", priorities[0].Issue))
-	} else {
-		b.WriteString("The fastest path to risk reduction is to focus on the top recurring issue clusters and execute a ranked fix plan.\n")
-	}
-
-	b.WriteString("\n\nWhat’s changing:\n")
-	b.WriteString(fmt.Sprintf("Page dataset total (all-time valid): %d reports. Analysis window (last 30 days): %d reports.\n", ctx.ReportsAnalyzed, ctx.ReportsLast30Days))
-	b.WriteString(fmt.Sprintf("Last 7 days: %d vs previous 7 days: %d (%.1f%%).\n", ctx.ReportsLast7Days, ctx.ReportsPrev7Days, ctx.GrowthLast7VsPrev7))
-	b.WriteString(fmt.Sprintf("Severity mix: critical=%d high=%d medium=%d low=%d.\n", ctx.SeverityDistribution.Critical, ctx.SeverityDistribution.High, ctx.SeverityDistribution.Medium, ctx.SeverityDistribution.Low))
-
-	b.WriteString("\nQualitative context (user voice):\n")
-	voice := flattenPriorityReports(priorities)
-	if len(voice) == 0 {
-		voice = collectEvidenceReports(ctx)
-	}
-	appendUserVoice(&b, voice)
-
-	b.WriteString("\nRecommended actions:\n")
-	b.WriteString("Top 3 Fix Plan\n")
-	if len(priorities) == 0 {
-		b.WriteString("1. Prioritize the highest-frequency issue theme and assign a single owner this week.\n")
-		b.WriteString("2. Triage high-severity repeats first, then batch medium-severity recurrences.\n")
-		b.WriteString("3. Track weekly recurrence and stop regressions before additional scope.\n")
-	} else {
-		for i, p := range priorities {
-			if i >= 3 {
-				break
-			}
-			b.WriteString(fmt.Sprintf("\nPriority %d — %s\n", i+1, p.Issue))
-			b.WriteString(fmt.Sprintf("Why now: severity×frequency×recency score %.2f (avg severity %.2f × frequency %d × recent7 %d).\n", p.Score, p.AvgSeverity, p.Frequency, p.Recent7Days))
-			metricTarget := 25 + (i * 5)
-			b.WriteString(fmt.Sprintf("Success metric: reduce new '%s' reports by %d%% over the next 14 days; keep high-severity additions near zero.\n", p.Issue, metricTarget))
-			if len(p.Reports) > 0 {
-				links := buildEvidenceItemsFromReports(ctx.OrgID, baseURL, p.Reports, 2)
-				if len(links) > 0 {
-					b.WriteString("Evidence:\n")
-					for _, item := range links {
-						b.WriteString(fmt.Sprintf("- %s\n", item.Permalink))
-					}
-				}
-			}
-		}
-	}
-
-	b.WriteString("\nQuick win (48h): patch the top-severity recurring defect and publish a visible status update tied to the linked incidents.\n")
-	b.WriteString("Big rock (2-4w): remove root-cause recurrence for the #1 priority issue via owner-led remediation and regression guardrails.\n")
-	if ctx.ReportsAnalyzed >= 50000 {
-		b.WriteString("\nThis plan is based on representative evidence from a 50K+ report corpus. Pro unlocks full interactive prioritization across the entire dataset.\n")
-	}
-
-	b.WriteString("\nSupporting evidence:\n")
-	links := hqUniqueEvidenceForFixFirst(ctx, baseURL, priorities)
-	appendEvidenceLinks(&b, links)
-
-	return strings.TrimSpace(b.String())
-}
-
-func appendUserVoice(b *strings.Builder, evidence []database.ReportSnippet) {
-	if len(evidence) == 0 {
-		b.WriteString("- No recent qualitative snippets are available for this brand right now.\n")
-		return
-	}
-	shown := 0
-	seen := make(map[string]struct{}, 3)
-	for _, item := range evidence {
-		if shown >= 3 {
-			break
-		}
-		snippet := strings.TrimSpace(item.Summary)
-		if snippet == "" {
-			continue
-		}
-		key := strings.ToLower(strings.TrimSpace(item.Title + "|" + snippet))
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-		b.WriteString(fmt.Sprintf("- \"%s\" (%s, severity %.2f)\n", truncateText(snippet, 170), item.Classification, item.SeverityLevel))
-		shown++
-	}
-	if shown == 0 {
-		b.WriteString("- No recent qualitative snippets are available for this brand right now.\n")
-	}
-}
-
-func appendEvidenceLinks(b *strings.Builder, links []IntelligenceEvidenceItem) {
-	if len(links) == 0 {
-		b.WriteString("- No report links available.\n")
-		return
-	}
-	max := len(links)
-	if max > 6 {
-		max = 6
-	}
-	for i := 0; i < max; i++ {
-		b.WriteString(fmt.Sprintf("- Report #%d: %s — %s\n", links[i].Seq, links[i].Title, links[i].Permalink))
-	}
-	b.WriteString(fmt.Sprintf("\nEvidence: %d reports\n", max))
-}
-
-func flattenPriorityReports(priorities []database.FixPriority) []database.ReportSnippet {
-	out := make([]database.ReportSnippet, 0, 6)
-	for _, p := range priorities {
-		out = append(out, p.Reports...)
-	}
-	return out
-}
-
-func hqUniqueEvidenceForFixFirst(ctx *database.IntelligenceContext, baseURL string, priorities []database.FixPriority) []IntelligenceEvidenceItem {
-	reports := flattenPriorityReports(priorities)
-	if len(reports) == 0 {
-		reports = collectEvidenceReports(ctx)
-	}
-	items := buildEvidenceItemsFromReports(ctx.OrgID, baseURL, reports, 6)
-	if len(items) > 6 {
-		return items[:6]
-	}
-	return items
-}
-
 func collectEvidenceReports(ctx *database.IntelligenceContext) []database.ReportSnippet {
 	if len(ctx.EvidencePack) > 0 {
 		return ctx.EvidencePack
@@ -789,139 +1046,12 @@ func collectEvidenceReports(ctx *database.IntelligenceContext) []database.Report
 	return ctx.RepresentativeReports
 }
 
-func buildEvidenceItemsFromReports(orgID, baseURL string, reports []database.ReportSnippet, max int) []IntelligenceEvidenceItem {
-	if max <= 0 {
-		max = 6
-	}
-	if len(reports) == 0 {
-		return nil
-	}
-
-	items := make([]IntelligenceEvidenceItem, 0, max)
-	seen := make(map[int]struct{}, max)
-	for _, r := range reports {
-		if len(items) >= max {
-			break
-		}
-		if r.Seq <= 0 {
-			continue
-		}
-		if _, exists := seen[r.Seq]; exists {
-			continue
-		}
-		seen[r.Seq] = struct{}{}
-		title := strings.TrimSpace(r.Title)
-		if title == "" {
-			title = fmt.Sprintf("Report #%d", r.Seq)
-		}
-		items = append(items, IntelligenceEvidenceItem{
-			Seq:       r.Seq,
-			Title:     title,
-			Permalink: buildReportPermalink(baseURL, orgID, r.Seq),
-		})
-	}
-	sort.SliceStable(items, func(i, j int) bool { return items[i].Seq > items[j].Seq })
-	return items
-}
-
-func (h *Handlers) buildIntentEvidenceItems(intent IntelligenceIntent, ctx *database.IntelligenceContext, baseURL string, priorities []database.FixPriority) []IntelligenceEvidenceItem {
-	switch intent {
-	case IntentFixFirst:
-		return hqUniqueEvidenceForFixFirst(ctx, baseURL, priorities)
-	default:
-		return buildEvidenceItemsFromReports(ctx.OrgID, baseURL, collectEvidenceReports(ctx), 6)
-	}
-}
-
 func buildReportPermalink(baseURL, orgID string, seq int) string {
 	if strings.TrimSpace(baseURL) == "" {
 		baseURL = "https://cleanapp.io"
 	}
 	org := url.PathEscape(strings.ToLower(strings.TrimSpace(orgID)))
 	return fmt.Sprintf("%s/digital/%s/report/%d", strings.TrimRight(baseURL, "/"), org, seq)
-}
-
-func (h *Handlers) enforceIntentFormat(intent IntelligenceIntent, answer string, ctx *database.IntelligenceContext, question, baseURL string, priorities []database.FixPriority) string {
-	trimmed := strings.TrimSpace(answer)
-	if trimmed == "" {
-		return h.buildIntentFallbackAnswer(intent, ctx, question, baseURL, priorities)
-	}
-
-	if intent == IntentFixFirst {
-		lower := strings.ToLower(trimmed)
-		if !strings.Contains(lower, "top 3") && !strings.Contains(lower, "priority") {
-			return h.buildIntentFallbackAnswer(intent, ctx, question, baseURL, priorities)
-		}
-	}
-
-	requiredLinks := 3
-	evidenceAvailable := len(h.buildIntentEvidenceItems(intent, ctx, baseURL, priorities))
-	if evidenceAvailable < requiredLinks {
-		requiredLinks = evidenceAvailable
-	}
-	if countHTTPLinks(trimmed) < requiredLinks {
-		trimmed = h.appendEvidenceLinksSection(intent, trimmed, ctx, baseURL, priorities, 6)
-	}
-
-	return strings.TrimSpace(trimmed)
-}
-
-func (h *Handlers) appendEvidenceLinksSection(intent IntelligenceIntent, answer string, ctx *database.IntelligenceContext, baseURL string, priorities []database.FixPriority, maxLinks int) string {
-	items := h.buildIntentEvidenceItems(intent, ctx, baseURL, priorities)
-	if len(items) == 0 {
-		return answer
-	}
-
-	var b strings.Builder
-	b.WriteString(strings.TrimSpace(answer))
-	if !strings.Contains(strings.ToLower(answer), "evidence") {
-		b.WriteString("\n\nSupporting evidence:\n")
-	} else {
-		b.WriteString("\n")
-	}
-	for i, item := range items {
-		if i >= maxLinks {
-			break
-		}
-		b.WriteString(fmt.Sprintf("- Report #%d: %s — %s\n", item.Seq, item.Title, item.Permalink))
-	}
-	b.WriteString(fmt.Sprintf("\nEvidence: %d reports\n", minInt(len(items), maxLinks)))
-	return strings.TrimSpace(b.String())
-}
-
-func countHTTPLinks(text string) int {
-	if strings.TrimSpace(text) == "" {
-		return 0
-	}
-	return len(linkRegex.FindAllString(text, -1))
-}
-
-func sanitizeFreeTierAnswer(answer string) string {
-	out := strings.TrimSpace(answer)
-	if out == "" {
-		return out
-	}
-	lower := strings.ToLower(out)
-	if strings.Contains(lower, "```") ||
-		strings.Contains(lower, "\"reports\"") ||
-		strings.Contains(lower, ".csv") ||
-		strings.Contains(lower, ".pdf") ||
-		strings.Contains(lower, "{\"") {
-		return "I can provide a summary of key findings.\n\nFull report access and exports are available with a Pro subscription."
-	}
-	return out
-}
-
-func ensureUpgradeNudge(answer string) string {
-	trimmed := strings.TrimSpace(answer)
-	if trimmed == "" {
-		return trimmed
-	}
-	lower := strings.ToLower(trimmed)
-	if strings.Contains(lower, "upgrade to pro") || strings.Contains(lower, "pro subscription") {
-		return trimmed
-	}
-	return trimmed + freeTierUpgradeNudge
 }
 
 func truncateText(s string, max int) string {
@@ -933,11 +1063,4 @@ func truncateText(s string, max int) string {
 		return text[:max]
 	}
 	return text[:max-3] + "..."
-}
-
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
