@@ -524,32 +524,59 @@ func (h *Handlers) buildExamplesForIntent(
 			continue
 		}
 		seen[r.Seq] = struct{}{}
+		examples = append(examples, reportSnippetToExample(r, baseURL, ctx.OrgID))
+	}
 
-		title := strings.TrimSpace(r.Title)
-		if title == "" {
-			title = fmt.Sprintf("Report #%d", r.Seq)
-		}
-		snippet := strings.TrimSpace(r.Summary)
-		if snippet == "" {
-			snippet = "No summary available."
-		}
-		channel := strings.TrimSpace(r.Classification)
-		if channel == "" {
-			channel = "unknown"
-		}
+	// Safety fallback: always provide representative examples for answer quality.
+	if len(examples) == 0 {
+		fallbackCtx, cancel := context.WithTimeout(context.Background(), 3500*time.Millisecond)
+		defer cancel()
 
-		examples = append(examples, IntelligenceExample{
-			ID:        r.Seq,
-			CreatedAt: r.UpdatedAt.UTC().Format(time.RFC3339),
-			Channel:   channel,
-			Severity:  r.SeverityLevel,
-			Category:  channel,
-			Title:     truncateText(title, 140),
-			Snippet:   truncateText(snippet, 220),
-			URL:       buildReportPermalink(baseURL, ctx.OrgID, r.Seq),
-		})
+		fallbackRows, err := h.db.GetFallbackReportSnippets(fallbackCtx, ctx.OrgID, max)
+		if err != nil {
+			log.Printf("intelligence_examples_fallback_failed org=%s err=%v", ctx.OrgID, err)
+			return examples
+		}
+		for _, r := range fallbackRows {
+			if len(examples) >= max {
+				break
+			}
+			if r.Seq <= 0 {
+				continue
+			}
+			if _, ok := seen[r.Seq]; ok {
+				continue
+			}
+			seen[r.Seq] = struct{}{}
+			examples = append(examples, reportSnippetToExample(r, baseURL, ctx.OrgID))
+		}
 	}
 	return examples
+}
+
+func reportSnippetToExample(r database.ReportSnippet, baseURL, orgID string) IntelligenceExample {
+	title := strings.TrimSpace(r.Title)
+	if title == "" {
+		title = fmt.Sprintf("Report #%d", r.Seq)
+	}
+	snippet := strings.TrimSpace(r.Summary)
+	if snippet == "" {
+		snippet = "No summary available."
+	}
+	channel := strings.TrimSpace(r.Classification)
+	if channel == "" {
+		channel = "unknown"
+	}
+	return IntelligenceExample{
+		ID:        r.Seq,
+		CreatedAt: r.UpdatedAt.UTC().Format(time.RFC3339),
+		Channel:   channel,
+		Severity:  r.SeverityLevel,
+		Category:  channel,
+		Title:     truncateText(title, 140),
+		Snippet:   truncateText(snippet, 220),
+		URL:       buildReportPermalink(baseURL, orgID, r.Seq),
+	}
 }
 
 func buildCitations(ctx *database.IntelligenceContext, examples []IntelligenceExample) []IntelligenceCitation {

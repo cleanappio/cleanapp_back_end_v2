@@ -511,6 +511,47 @@ func (d *Database) getReportSnippets(ctx context.Context, org string, keywords [
 	return result, nil
 }
 
+// GetFallbackReportSnippets returns representative rows with a minimal query shape.
+// This is used as a safety fallback when keyword-scoped evidence collection yields no rows.
+func (d *Database) GetFallbackReportSnippets(ctx context.Context, org string, limit int) ([]ReportSnippet, error) {
+	if limit <= 0 {
+		limit = 5
+	}
+
+	rows, err := d.db.QueryContext(ctx, `
+		SELECT
+			ra.seq,
+			COALESCE(NULLIF(ra.title, ''), '(untitled report)') AS title,
+			COALESCE(NULLIF(ra.summary, ''), COALESCE(NULLIF(ra.description, ''), '(no summary available)')) AS summary,
+			COALESCE(NULLIF(ra.classification, ''), 'unknown') AS classification,
+			COALESCE(ra.severity_level, 0) AS severity_level,
+			COALESCE(ra.updated_at, ra.created_at, UTC_TIMESTAMP()) AS updated_at
+		FROM report_analysis ra
+		WHERE ra.brand_name = ?
+		AND ra.is_valid = TRUE
+		AND ra.seq > 0
+		ORDER BY COALESCE(ra.updated_at, ra.created_at) DESC, ra.severity_level DESC
+		LIMIT ?
+	`, strings.ToLower(strings.TrimSpace(org)), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]ReportSnippet, 0, limit)
+	for rows.Next() {
+		var item ReportSnippet
+		if scanErr := rows.Scan(&item.Seq, &item.Title, &item.Summary, &item.Classification, &item.SeverityLevel, &item.UpdatedAt); scanErr != nil {
+			return nil, scanErr
+		}
+		out = append(out, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (d *Database) getRecurringSnippets(ctx context.Context, org string, keywords []string, topIssues []NamedCount, excludeSeq []int, limit int) ([]ReportSnippet, error) {
 	if limit <= 0 {
 		limit = 3
