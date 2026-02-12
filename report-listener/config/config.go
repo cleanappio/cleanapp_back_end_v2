@@ -32,6 +32,11 @@ type Config struct {
 	RabbitExchange                 string
 	RabbitAnalysedReportRoutingKey string
 	RabbitTwitterReplyRoutingKey   string
+
+	// Intelligence chat configuration
+	GeminiAPIKey                string
+	GeminiModel                 string
+	IntelligenceFreeTierMaxTurn int
 }
 
 // Load loads configuration from environment variables
@@ -61,6 +66,11 @@ func Load() *Config {
 		RabbitExchange:                 getEnv("RABBITMQ_EXCHANGE", "cleanapp"),
 		RabbitAnalysedReportRoutingKey: getEnv("RABBITMQ_ANALYSED_REPORT_ROUTING_KEY", "report.analysed"),
 		RabbitTwitterReplyRoutingKey:   getEnv("RABBITMQ_TWITTER_REPLY_ROUTING_KEY", "twitter.reply"),
+
+		// Intelligence defaults
+		GeminiAPIKey:                getEnv("GEMINI_API_KEY", ""),
+		GeminiModel:                 getEnv("GEMINI_MODEL", "gemini-2.5-flash"),
+		IntelligenceFreeTierMaxTurn: getIntEnv("INTELLIGENCE_FREE_MAX_TURNS", 5),
 	}
 
 	return config

@@ -13,7 +13,9 @@ import (
 	"sync"
 	"time"
 
+	"report-listener/config"
 	"report-listener/database"
+	"report-listener/intelligence"
 	"report-listener/models"
 	"report-listener/rabbitmq"
 	brandutil "report-listener/utils"
@@ -50,18 +52,30 @@ type Handlers struct {
 	db                *database.Database
 	rabbitmqPublisher *rabbitmq.Publisher
 	rabbitmqReplier   *rabbitmq.Publisher
+	cfg               *config.Config
+	geminiClient      *intelligence.Client
 
 	brandCountsMu    sync.RWMutex
 	brandCountsCache map[string]brandCountsCacheEntry
 }
 
 // NewHandlers creates a new handlers instance
-func NewHandlers(hub *ws.Hub, db *database.Database, pub *rabbitmq.Publisher, replyPub *rabbitmq.Publisher) *Handlers {
+func NewHandlers(
+	cfg *config.Config,
+	hub *ws.Hub,
+	db *database.Database,
+	pub *rabbitmq.Publisher,
+	replyPub *rabbitmq.Publisher,
+) *Handlers {
+	geminiClient := intelligence.NewClient(cfg.GeminiAPIKey, cfg.GeminiModel)
+
 	return &Handlers{
 		hub:               hub,
 		db:                db,
 		rabbitmqPublisher: pub,
 		rabbitmqReplier:   replyPub,
+		cfg:               cfg,
+		geminiClient:      geminiClient,
 		brandCountsCache:  make(map[string]brandCountsCacheEntry),
 	}
 }

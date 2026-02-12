@@ -62,7 +62,7 @@ func NewService(cfg *config.Config) (*Service, error) {
 	}
 
 	// Initialize handlers
-	handlers := handlers.NewHandlers(hub, db, pub, replyPub)
+	handlers := handlers.NewHandlers(cfg, hub, db, pub, replyPub)
 
 	service := &Service{
 		config:                cfg,
@@ -88,6 +88,11 @@ func (s *Service) Start() error {
 
 	// Ensure report_details table
 	if err := s.db.EnsureReportDetailsTable(context.Background()); err != nil {
+		return err
+	}
+
+	// Ensure intelligence usage table
+	if err := s.db.EnsureIntelligenceTables(context.Background()); err != nil {
 		return err
 	}
 

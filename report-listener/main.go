@@ -127,6 +127,7 @@ func setupRouter(svc *service.Service) *gin.Engine {
 	api := router.Group("/api/v3")
 	{
 		api.GET("/version", versionHandler)
+		api.POST("/intelligence/query", h.QueryIntelligence)
 
 		// WebSocket endpoint for report listening
 		api.GET("/reports/listen", h.ListenReports)
@@ -173,6 +174,7 @@ func setupRouter(svc *service.Service) *gin.Engine {
 	apiV4 := router.Group("/api/v4")
 	{
 		apiV4.GET("/version", versionHandler)
+		apiV4.POST("/intelligence/query", h.QueryIntelligence)
 
 		// WebSocket endpoint for report listening
 		apiV4.GET("/reports/listen", h.ListenReports)
@@ -214,6 +216,9 @@ func setupRouter(svc *service.Service) *gin.Engine {
 			protectedV4.POST("/bulk_ingest", h.BulkIngest)
 		}
 	}
+
+	// Canonical intelligence endpoint
+	router.POST("/api/intelligence/query", h.QueryIntelligence)
 
 	// Root health check
 	router.GET("/health", func(c *gin.Context) {
