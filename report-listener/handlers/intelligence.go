@@ -359,13 +359,9 @@ Hard constraints:
 - If evidence is insufficient, say so explicitly.
 - Keep output crisp, strategic, and action-oriented.
 - Respond in the same language as the user's question when possible.
-
-Required response format (exact section headings):
-1) Executive takeaway
-2) What’s changing
-3) Qualitative context (user voice)
-4) Recommended actions
-5) Evidence links
+- Write in natural narrative form for executive readers, not a rigid template.
+- Prefer short paragraphs plus selective bullets where they improve clarity.
+- Include inline citations in prose/bullets using this style: (Report #12345).
 
 Evidence rules:
 - Include 3-6 report permalinks when available.
@@ -375,10 +371,10 @@ Evidence rules:
 	if intent == IntentFixFirst {
 		base += `
 
-For this question intent, section 4 must include:
-- "Top 3 Fix Plan" with ranked priorities.
-- For each priority: why now (severity×frequency×recency), success metric, and 1-2 report links.
-- "Quick win (48h)" and "Big rock (2-4w)".`
+For this question intent:
+- Provide a ranked Top 3 fix plan.
+- For each priority include: why now (severity×frequency×recency), success metric, and 1-2 inline citations.
+- Include one "Quick win (48h)" and one "Big rock (2-4w)".`
 	}
 
 	if strings.EqualFold(strings.TrimSpace(tier), "pro") {
@@ -484,7 +480,7 @@ func buildExecutiveSummary(ctx *database.IntelligenceContext, question, baseURL 
 	links := buildEvidenceItemsFromReports(ctx.OrgID, baseURL, evidence, 6)
 
 	var b strings.Builder
-	b.WriteString("1) Executive takeaway\n")
+	b.WriteString("Executive takeaway: ")
 	if len(ctx.TopIssues) > 0 {
 		top := ctx.TopIssues[0]
 		b.WriteString(fmt.Sprintf("%s has recurring pressure around \"%s\" (%d reports), with %d high-priority signals requiring active ownership.\n", ctx.OrgID, top.Name, top.Count, ctx.HighPriorityCount))
@@ -492,22 +488,22 @@ func buildExecutiveSummary(ctx *database.IntelligenceContext, question, baseURL 
 		b.WriteString(fmt.Sprintf("%s has %d analyzed reports with recurring issue patterns that require focused execution.\n", ctx.OrgID, ctx.ReportsAnalyzed))
 	}
 
-	b.WriteString("\n2) What’s changing\n")
+	b.WriteString("\n\nWhat’s changing:\n")
 	b.WriteString(fmt.Sprintf("Page dataset total (all-time valid): %d reports. Analysis window (last 30 days): %d reports.\n", ctx.ReportsAnalyzed, ctx.ReportsLast30Days))
 	b.WriteString(fmt.Sprintf("Last 7 days: %d vs previous 7 days: %d (%.1f%%).\n", ctx.ReportsLast7Days, ctx.ReportsPrev7Days, ctx.GrowthLast7VsPrev7))
 	if len(ctx.TopClassifications) > 0 {
 		b.WriteString(fmt.Sprintf("Dominant category: %s (%d).\n", ctx.TopClassifications[0].Name, ctx.TopClassifications[0].Count))
 	}
 
-	b.WriteString("\n3) Qualitative context (user voice)\n")
+	b.WriteString("\nQualitative context (user voice):\n")
 	appendUserVoice(&b, evidence)
 
-	b.WriteString("\n4) Recommended actions\n")
+	b.WriteString("\nRecommended actions:\n")
 	b.WriteString("1. Assign one accountable owner for the top recurring issue and set a 14-day remediation target.\n")
 	b.WriteString("2. Prioritize high-severity incidents first, then bundle medium-severity repeats into one execution stream.\n")
 	b.WriteString("3. Review the linked incidents in weekly leadership triage and convert recurring patterns into roadmap commitments.\n")
 
-	b.WriteString("\n5) Evidence links\n")
+	b.WriteString("\nSupporting evidence:\n")
 	appendEvidenceLinks(&b, links)
 
 	_ = question
@@ -519,14 +515,14 @@ func buildComplaintsSummary(ctx *database.IntelligenceContext, baseURL string) s
 	links := buildEvidenceItemsFromReports(ctx.OrgID, baseURL, evidence, 6)
 
 	var b strings.Builder
-	b.WriteString("1) Executive takeaway\n")
+	b.WriteString("Executive takeaway: ")
 	if len(ctx.TopIssues) > 0 {
 		b.WriteString(fmt.Sprintf("User complaints cluster around \"%s\" and adjacent recurring themes.\n", ctx.TopIssues[0].Name))
 	} else {
 		b.WriteString("User complaints are concentrated in a small set of recurring issue themes.\n")
 	}
 
-	b.WriteString("\n2) What’s changing\n")
+	b.WriteString("\n\nWhat’s changing:\n")
 	b.WriteString(fmt.Sprintf("Page dataset total: %d reports. Last 30 days: %d reports. Last 7 vs previous 7: %d vs %d (%.1f%%).\n", ctx.ReportsAnalyzed, ctx.ReportsLast30Days, ctx.ReportsLast7Days, ctx.ReportsPrev7Days, ctx.GrowthLast7VsPrev7))
 	if len(ctx.TopClassifications) > 0 {
 		b.WriteString("Top complaint buckets: ")
@@ -542,15 +538,15 @@ func buildComplaintsSummary(ctx *database.IntelligenceContext, baseURL string) s
 		b.WriteString(".\n")
 	}
 
-	b.WriteString("\n3) Qualitative context (user voice)\n")
+	b.WriteString("\nQualitative context (user voice):\n")
 	appendUserVoice(&b, evidence)
 
-	b.WriteString("\n4) Recommended actions\n")
+	b.WriteString("\nRecommended actions:\n")
 	b.WriteString("1. Convert top complaint theme into a visible 2-week fix initiative with clear owner.\n")
 	b.WriteString("2. Publish a short customer-facing update for the highest-frequency complaint category.\n")
 	b.WriteString("3. Track complaint recurrence weekly and stop new regressions before adding new feature scope.\n")
 
-	b.WriteString("\n5) Evidence links\n")
+	b.WriteString("\nSupporting evidence:\n")
 	appendEvidenceLinks(&b, links)
 	return strings.TrimSpace(b.String())
 }
@@ -560,22 +556,22 @@ func buildSecuritySummary(ctx *database.IntelligenceContext, baseURL string) str
 	links := buildEvidenceItemsFromReports(ctx.OrgID, baseURL, evidence, 6)
 
 	var b strings.Builder
-	b.WriteString("1) Executive takeaway\n")
+	b.WriteString("Executive takeaway: ")
 	b.WriteString(fmt.Sprintf("Security-relevant signals are present with %d high-priority reports in the current dataset.\n", ctx.HighPriorityCount))
 
-	b.WriteString("\n2) What’s changing\n")
+	b.WriteString("\n\nWhat’s changing:\n")
 	b.WriteString(fmt.Sprintf("Page dataset total: %d reports. Last 30 days: %d. Last 7 vs previous 7: %d vs %d (%.1f%%).\n", ctx.ReportsAnalyzed, ctx.ReportsLast30Days, ctx.ReportsLast7Days, ctx.ReportsPrev7Days, ctx.GrowthLast7VsPrev7))
 	b.WriteString(fmt.Sprintf("Severity mix: critical=%d high=%d medium=%d low=%d.\n", ctx.SeverityDistribution.Critical, ctx.SeverityDistribution.High, ctx.SeverityDistribution.Medium, ctx.SeverityDistribution.Low))
 
-	b.WriteString("\n3) Qualitative context (user voice)\n")
+	b.WriteString("\nQualitative context (user voice):\n")
 	appendUserVoice(&b, evidence)
 
-	b.WriteString("\n4) Recommended actions\n")
+	b.WriteString("\nRecommended actions:\n")
 	b.WriteString("1. Triage highest-severity security incidents first and assign incident owners with 24h updates.\n")
 	b.WriteString("2. Add preventive controls for recurring abuse/phishing vectors and measure recurrence weekly.\n")
 	b.WriteString("3. Publish internal security notes tying each mitigation to linked incident evidence.\n")
 
-	b.WriteString("\n5) Evidence links\n")
+	b.WriteString("\nSupporting evidence:\n")
 	appendEvidenceLinks(&b, links)
 	return strings.TrimSpace(b.String())
 }
@@ -585,55 +581,55 @@ func buildTrendsSummary(ctx *database.IntelligenceContext, baseURL string) strin
 	links := buildEvidenceItemsFromReports(ctx.OrgID, baseURL, evidence, 6)
 
 	var b strings.Builder
-	b.WriteString("1) Executive takeaway\n")
+	b.WriteString("Executive takeaway: ")
 	if ctx.GrowthLast7VsPrev7 > 0 {
 		b.WriteString(fmt.Sprintf("Issue velocity is increasing (+%.1f%% week-over-week), indicating growing operational pressure.\n", ctx.GrowthLast7VsPrev7))
 	} else {
 		b.WriteString(fmt.Sprintf("Issue velocity is stable-to-down (%+.1f%% week-over-week), but recurring themes still persist.\n", ctx.GrowthLast7VsPrev7))
 	}
 
-	b.WriteString("\n2) What’s changing\n")
+	b.WriteString("\n\nWhat’s changing:\n")
 	b.WriteString(fmt.Sprintf("Page dataset total: %d reports. Analysis window (last 30 days): %d reports.\n", ctx.ReportsAnalyzed, ctx.ReportsLast30Days))
 	b.WriteString(fmt.Sprintf("Last 7 days: %d vs previous 7 days: %d (%.1f%%).\n", ctx.ReportsLast7Days, ctx.ReportsPrev7Days, ctx.GrowthLast7VsPrev7))
 	if len(ctx.TopIssues) > 0 {
 		b.WriteString(fmt.Sprintf("Top recurring trend driver: %s (%d reports).\n", ctx.TopIssues[0].Name, ctx.TopIssues[0].Count))
 	}
 
-	b.WriteString("\n3) Qualitative context (user voice)\n")
+	b.WriteString("\nQualitative context (user voice):\n")
 	appendUserVoice(&b, evidence)
 
-	b.WriteString("\n4) Recommended actions\n")
+	b.WriteString("\nRecommended actions:\n")
 	b.WriteString("1. Put trend-driving issue into weekly leadership KPI review with explicit reduction targets.\n")
 	b.WriteString("2. Assign a prevention owner for each recurring trend driver and review recurrence after each release.\n")
 	b.WriteString("3. Treat rising-week trend spikes as release gates for impacted areas.\n")
 
-	b.WriteString("\n5) Evidence links\n")
+	b.WriteString("\nSupporting evidence:\n")
 	appendEvidenceLinks(&b, links)
 	return strings.TrimSpace(b.String())
 }
 
 func buildFixFirstSummary(ctx *database.IntelligenceContext, baseURL string, priorities []database.FixPriority) string {
 	var b strings.Builder
-	b.WriteString("1) Executive takeaway\n")
+	b.WriteString("Executive takeaway: ")
 	if len(priorities) > 0 {
 		b.WriteString(fmt.Sprintf("The fastest path to risk reduction is a ranked Top 3 fix plan led by \"%s\" and two adjacent recurring issues.\n", priorities[0].Issue))
 	} else {
 		b.WriteString("The fastest path to risk reduction is to focus on the top recurring issue clusters and execute a ranked fix plan.\n")
 	}
 
-	b.WriteString("\n2) What’s changing\n")
+	b.WriteString("\n\nWhat’s changing:\n")
 	b.WriteString(fmt.Sprintf("Page dataset total (all-time valid): %d reports. Analysis window (last 30 days): %d reports.\n", ctx.ReportsAnalyzed, ctx.ReportsLast30Days))
 	b.WriteString(fmt.Sprintf("Last 7 days: %d vs previous 7 days: %d (%.1f%%).\n", ctx.ReportsLast7Days, ctx.ReportsPrev7Days, ctx.GrowthLast7VsPrev7))
 	b.WriteString(fmt.Sprintf("Severity mix: critical=%d high=%d medium=%d low=%d.\n", ctx.SeverityDistribution.Critical, ctx.SeverityDistribution.High, ctx.SeverityDistribution.Medium, ctx.SeverityDistribution.Low))
 
-	b.WriteString("\n3) Qualitative context (user voice)\n")
+	b.WriteString("\nQualitative context (user voice):\n")
 	voice := flattenPriorityReports(priorities)
 	if len(voice) == 0 {
 		voice = collectEvidenceReports(ctx)
 	}
 	appendUserVoice(&b, voice)
 
-	b.WriteString("\n4) Recommended actions\n")
+	b.WriteString("\nRecommended actions:\n")
 	b.WriteString("Top 3 Fix Plan\n")
 	if len(priorities) == 0 {
 		b.WriteString("1. Prioritize the highest-frequency issue theme and assign a single owner this week.\n")
@@ -663,7 +659,7 @@ func buildFixFirstSummary(ctx *database.IntelligenceContext, baseURL string, pri
 	b.WriteString("\nQuick win (48h): patch the top-severity recurring defect and publish a visible status update tied to the linked incidents.\n")
 	b.WriteString("Big rock (2-4w): remove root-cause recurrence for the #1 priority issue via owner-led remediation and regression guardrails.\n")
 
-	b.WriteString("\n5) Evidence links\n")
+	b.WriteString("\nSupporting evidence:\n")
 	links := hqUniqueEvidenceForFixFirst(ctx, baseURL, priorities)
 	appendEvidenceLinks(&b, links)
 
@@ -708,7 +704,7 @@ func appendEvidenceLinks(b *strings.Builder, links []IntelligenceEvidenceItem) {
 		max = 6
 	}
 	for i := 0; i < max; i++ {
-		b.WriteString(fmt.Sprintf("- %s — %s\n", links[i].Title, links[i].Permalink))
+		b.WriteString(fmt.Sprintf("- Report #%d: %s — %s\n", links[i].Seq, links[i].Title, links[i].Permalink))
 	}
 	b.WriteString(fmt.Sprintf("\nEvidence: %d reports\n", max))
 }
@@ -801,24 +797,9 @@ func (h *Handlers) enforceIntentFormat(intent IntelligenceIntent, answer string,
 		return h.buildIntentFallbackAnswer(intent, ctx, question, baseURL, priorities)
 	}
 
-	lower := strings.ToLower(trimmed)
-	requiredHeadings := []string{
-		"1) executive takeaway",
-		"2) what’s changing",
-		"3) qualitative context",
-		"4) recommended actions",
-		"5) evidence links",
-	}
-	for _, heading := range requiredHeadings {
-		if !strings.Contains(lower, heading) {
-			return h.buildIntentFallbackAnswer(intent, ctx, question, baseURL, priorities)
-		}
-	}
-
 	if intent == IntentFixFirst {
-		if !strings.Contains(lower, "top 3 fix plan") ||
-			!strings.Contains(lower, "priority 1") ||
-			!strings.Contains(lower, "success metric") {
+		lower := strings.ToLower(trimmed)
+		if !strings.Contains(lower, "top 3") && !strings.Contains(lower, "priority") {
 			return h.buildIntentFallbackAnswer(intent, ctx, question, baseURL, priorities)
 		}
 	}
@@ -843,8 +824,8 @@ func (h *Handlers) appendEvidenceLinksSection(intent IntelligenceIntent, answer 
 
 	var b strings.Builder
 	b.WriteString(strings.TrimSpace(answer))
-	if !strings.Contains(strings.ToLower(answer), "evidence links") {
-		b.WriteString("\n\n5) Evidence links\n")
+	if !strings.Contains(strings.ToLower(answer), "evidence") {
+		b.WriteString("\n\nSupporting evidence:\n")
 	} else {
 		b.WriteString("\n")
 	}
@@ -852,7 +833,7 @@ func (h *Handlers) appendEvidenceLinksSection(intent IntelligenceIntent, answer 
 		if i >= maxLinks {
 			break
 		}
-		b.WriteString(fmt.Sprintf("- %s — %s\n", item.Title, item.Permalink))
+		b.WriteString(fmt.Sprintf("- Report #%d: %s — %s\n", item.Seq, item.Title, item.Permalink))
 	}
 	b.WriteString(fmt.Sprintf("\nEvidence: %d reports\n", minInt(len(items), maxLinks)))
 	return strings.TrimSpace(b.String())
