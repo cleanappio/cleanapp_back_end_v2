@@ -1,7 +1,6 @@
 package server
 
 import (
-	"cleanapp/common"
 	"cleanapp/common/disburse"
 	"net/http"
 
@@ -29,12 +28,11 @@ func Report(c *gin.Context) {
 		return
 	}
 
-	dbc, err := common.DBConnect()
+	dbc, err := getServerDB()
 	if err != nil {
 		log.Errorf("Error connecting to DB: %w", err)
 		return
 	}
-	defer dbc.Close()
 
 	// Add report to the database.
 	savedReport, err := db.SaveReport(dbc, report)

@@ -4,8 +4,6 @@ import (
 	"flag"
 	"net/http"
 
-	"cleanapp/common"
-
 	"cleanapp/backend/db"
 	"cleanapp/backend/server/api"
 	"cleanapp/backend/stxn"
@@ -54,12 +52,11 @@ func CreateOrUpdateUser(c *gin.Context) {
 		return
 	}
 
-	dbc, err := common.DBConnect()
+	dbc, err := getServerDB()
 	if err != nil {
 		log.Errorf("Error connecting to DB: %v", err)
 		return
 	}
-	defer dbc.Close()
 
 	mainDisburser, err := disburse.NewDisburser(*ethNetworkUrlMain, *privateKeyMain, *contractAddressMain)
 	if err != nil {

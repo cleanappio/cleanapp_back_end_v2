@@ -5,7 +5,6 @@ import (
 
 	"cleanapp/backend/db"
 	"cleanapp/backend/server/api"
-	"cleanapp/common"
 
 	"github.com/apex/log"
 	"github.com/gin-gonic/gin"
@@ -18,12 +17,11 @@ func ReadReferral(c *gin.Context) {
 		return
 	}
 
-	dbc, err := common.DBConnect()
+	dbc, err := getServerDB()
 	if err != nil {
 		log.Errorf("%v", err)
 		return
 	}
-	defer dbc.Close()
 
 	refValue, err := db.ReadReferral(dbc, refQuery.RefKey)
 	if err != nil {
@@ -47,12 +45,11 @@ func WriteReferral(c *gin.Context) {
 		return
 	}
 
-	dbc, err := common.DBConnect()
+	dbc, err := getServerDB()
 	if err != nil {
 		log.Errorf("%v", err)
 		return
 	}
-	defer dbc.Close()
 
 	if err := db.WriteReferral(dbc, refData.RefKey, refData.RefValue); err != nil {
 		c.Error(err)
@@ -79,12 +76,11 @@ func GenerateReferral(c *gin.Context) {
 		return
 	}
 
-	dbc, err := common.DBConnect()
+	dbc, err := getServerDB()
 	if err != nil {
 		log.Errorf("%v", err)
 		return
 	}
-	defer dbc.Close()
 
 	ref, err := db.GenerateReferral(dbc, req, randRefGen)
 	if err != nil {

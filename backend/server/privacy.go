@@ -1,7 +1,6 @@
 package server
 
 import (
-	"cleanapp/common"
 	"net/http"
 
 	"cleanapp/backend/db"
@@ -25,12 +24,11 @@ func UpdatePrivacyAndTOC(c *gin.Context) {
 		return
 	}
 
-	dbc, err := common.DBConnect()
+	dbc, err := getServerDB()
 	if err != nil {
 		log.Errorf("DB connection error: %w", err)
 		return
 	}
-	defer dbc.Close()
 
 	err = db.UpdatePrivacyAndTOC(dbc, &args)
 	if err != nil {

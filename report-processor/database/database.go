@@ -61,13 +61,41 @@ func NewDatabase(cfg *config.Config) (*Database, error) {
 	}
 
 	// Set connection pool settings
-	db.SetMaxOpenConns(25)
-	db.SetMaxIdleConns(5)
-	db.SetConnMaxLifetime(5 * time.Minute)
+	applyDBPoolSettings(db)
 
 	log.Printf("Database connected successfully to %s:%s/%s", cfg.DBHost, cfg.DBPort, cfg.DBName)
 
 	return &Database{db: db}, nil
+}
+
+func applyDBPoolSettings(db *sql.DB) {
+	maxOpen := envInt([]string{"REPORT_PROCESSOR_DB_MAX_OPEN_CONNS", "DB_MAX_OPEN_CONNS"}, 20)
+	maxIdle := envInt([]string{"REPORT_PROCESSOR_DB_MAX_IDLE_CONNS", "DB_MAX_IDLE_CONNS"}, 10)
+	maxLifetimeMin := envInt([]string{"REPORT_PROCESSOR_DB_CONN_MAX_LIFETIME_MIN", "DB_CONN_MAX_LIFETIME_MIN"}, 5)
+
+	if maxOpen > 0 {
+		db.SetMaxOpenConns(maxOpen)
+	}
+	if maxIdle > 0 {
+		db.SetMaxIdleConns(maxIdle)
+	}
+	if maxLifetimeMin > 0 {
+		db.SetConnMaxLifetime(time.Duration(maxLifetimeMin) * time.Minute)
+	}
+}
+
+func envInt(keys []string, def int) int {
+	for _, key := range keys {
+		v := os.Getenv(key)
+		if v == "" {
+			continue
+		}
+		n, err := strconv.Atoi(v)
+		if err == nil && n > 0 {
+			return n
+		}
+	}
+	return def
 }
 
 // Close closes the database connection
