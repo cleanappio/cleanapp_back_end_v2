@@ -3,8 +3,10 @@ package database
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -52,6 +54,20 @@ type IntelligenceContext struct {
 	Keywords              []string
 }
 
+type IntelligenceContextOptions struct {
+	Intent           string
+	ExcludeReportIDs []int
+}
+
+type FixPriority struct {
+	Issue       string
+	Frequency   int
+	AvgSeverity float64
+	Recent7Days int
+	Score       float64
+	Reports     []ReportSnippet
+}
+
 var keywordSplitRegex = regexp.MustCompile(`[^\p{L}\p{N}]+`)
 var issueNormalizeRegex = regexp.MustCompile(`[^\p{L}\p{N}]+`)
 
@@ -76,6 +92,104 @@ func (d *Database) EnsureIntelligenceTables(ctx context.Context) error {
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to ensure intelligence_usage table: %w", err)
+	}
+	_, err = d.db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS intelligence_session_state (
+			session_id VARCHAR(128) PRIMARY KEY,
+			last_report_ids_json TEXT NULL,
+			expires_at TIMESTAMP NOT NULL,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to ensure intelligence_session_state table: %w", err)
+	}
+	return nil
+}
+
+func (d *Database) GetLastReportIDsForSession(ctx context.Context, sessionID string) ([]int, error) {
+	if strings.TrimSpace(sessionID) == "" {
+		return nil, nil
+	}
+
+	var raw sql.NullString
+	var expiresAt time.Time
+	err := d.db.QueryRowContext(ctx, `
+		SELECT last_report_ids_json, expires_at
+		FROM intelligence_session_state
+		WHERE session_id = ?
+	`, sessionID).Scan(&raw, &expiresAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to read intelligence session state: %w", err)
+	}
+
+	if !expiresAt.After(time.Now().UTC()) || !raw.Valid || strings.TrimSpace(raw.String) == "" {
+		return nil, nil
+	}
+
+	var ids []int
+	if unmarshalErr := json.Unmarshal([]byte(raw.String), &ids); unmarshalErr != nil {
+		return nil, nil
+	}
+
+	seen := make(map[int]struct{}, len(ids))
+	out := make([]int, 0, len(ids))
+	for _, id := range ids {
+		if id <= 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out, nil
+}
+
+func (d *Database) SaveLastReportIDsForSession(ctx context.Context, sessionID string, ids []int, ttl time.Duration) error {
+	if strings.TrimSpace(sessionID) == "" {
+		return nil
+	}
+	if ttl <= 0 {
+		ttl = 24 * time.Hour
+	}
+
+	seen := make(map[int]struct{}, len(ids))
+	clean := make([]int, 0, len(ids))
+	for _, id := range ids {
+		if id <= 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		clean = append(clean, id)
+		if len(clean) >= 24 {
+			break
+		}
+	}
+
+	raw, err := json.Marshal(clean)
+	if err != nil {
+		return fmt.Errorf("failed to marshal intelligence session ids: %w", err)
+	}
+	expiresAt := time.Now().UTC().Add(ttl)
+
+	_, err = d.db.ExecContext(ctx, `
+		INSERT INTO intelligence_session_state (session_id, last_report_ids_json, expires_at)
+		VALUES (?, ?, ?)
+		ON DUPLICATE KEY UPDATE
+			last_report_ids_json = VALUES(last_report_ids_json),
+			expires_at = VALUES(expires_at)
+	`, sessionID, string(raw), expiresAt)
+	if err != nil {
+		return fmt.Errorf("failed to upsert intelligence session state: %w", err)
 	}
 	return nil
 }
@@ -144,6 +258,10 @@ func (d *Database) GetAndIncrementIntelligenceUsage(ctx context.Context, session
 }
 
 func (d *Database) GetIntelligenceContext(ctx context.Context, orgID, question string) (*IntelligenceContext, error) {
+	return d.GetIntelligenceContextWithOptions(ctx, orgID, question, IntelligenceContextOptions{})
+}
+
+func (d *Database) GetIntelligenceContextWithOptions(ctx context.Context, orgID, question string, opts IntelligenceContextOptions) (*IntelligenceContext, error) {
 	org := strings.ToLower(strings.TrimSpace(orgID))
 	if org == "" {
 		return nil, fmt.Errorf("org_id is required")
@@ -266,13 +384,24 @@ func (d *Database) GetIntelligenceContext(ctx context.Context, orgID, question s
 	keywords := extractKeywords(question)
 	result.Keywords = keywords
 
-	recentRelevant, _ := d.getReportSnippets(ctx, org, keywords, 6, "recent")
-	severeRelevant, _ := d.getReportSnippets(ctx, org, keywords, 6, "severity")
-	recurringRelevant, _ := d.getRecurringSnippets(ctx, org, keywords, result.TopIssues, 6)
-	representative, _ := d.getReportSnippets(ctx, org, nil, 8, "severity")
+	recentRelevant, _ := d.getReportSnippets(ctx, org, keywords, opts.ExcludeReportIDs, 8, "recent")
+	severeRelevant, _ := d.getReportSnippets(ctx, org, keywords, opts.ExcludeReportIDs, 8, "severity")
+	recurringRelevant, _ := d.getRecurringSnippets(ctx, org, keywords, result.TopIssues, opts.ExcludeReportIDs, 8)
+	representative, _ := d.getReportSnippets(ctx, org, nil, opts.ExcludeReportIDs, 10, "severity")
 
 	result.RepresentativeReports = representative
-	result.EvidencePack = mergeEvidenceWithRules(recentRelevant, severeRelevant, recurringRelevant, representative, 6)
+	switch strings.ToLower(strings.TrimSpace(opts.Intent)) {
+	case "complaints_summary":
+		result.EvidencePack = mergeEvidenceWithRules(recurringRelevant, recentRelevant, severeRelevant, representative, 6)
+	case "fix_first":
+		result.EvidencePack = mergeEvidenceWithRules(severeRelevant, recurringRelevant, recentRelevant, representative, 6)
+	case "security_risks":
+		result.EvidencePack = mergeEvidenceWithRules(severeRelevant, recentRelevant, recurringRelevant, representative, 6)
+	case "trends":
+		result.EvidencePack = mergeEvidenceWithRules(recentRelevant, recurringRelevant, severeRelevant, representative, 6)
+	default:
+		result.EvidencePack = mergeEvidenceWithRules(recentRelevant, severeRelevant, recurringRelevant, representative, 6)
+	}
 	result.MatchedReports = result.EvidencePack
 
 	return result, nil
@@ -303,7 +432,7 @@ func (d *Database) getNamedCounts(ctx context.Context, query string, args ...int
 	return out, nil
 }
 
-func (d *Database) getReportSnippets(ctx context.Context, org string, keywords []string, limit int, sortMode string) ([]ReportSnippet, error) {
+func (d *Database) getReportSnippets(ctx context.Context, org string, keywords []string, excludeSeq []int, limit int, sortMode string) ([]ReportSnippet, error) {
 	if limit <= 0 {
 		limit = 3
 	}
@@ -336,6 +465,10 @@ func (d *Database) getReportSnippets(ctx context.Context, org string, keywords [
 		query += clause
 		args = append(args, clauseArgs...)
 	}
+	if clause, clauseArgs := buildExcludeSeqClause(excludeSeq); clause != "" {
+		query += clause
+		args = append(args, clauseArgs...)
+	}
 
 	query += " ORDER BY " + orderBy + " LIMIT ?"
 	args = append(args, limit)
@@ -360,7 +493,7 @@ func (d *Database) getReportSnippets(ctx context.Context, org string, keywords [
 	return result, nil
 }
 
-func (d *Database) getRecurringSnippets(ctx context.Context, org string, keywords []string, topIssues []NamedCount, limit int) ([]ReportSnippet, error) {
+func (d *Database) getRecurringSnippets(ctx context.Context, org string, keywords []string, topIssues []NamedCount, excludeSeq []int, limit int) ([]ReportSnippet, error) {
 	if limit <= 0 {
 		limit = 3
 	}
@@ -409,6 +542,10 @@ func (d *Database) getRecurringSnippets(ctx context.Context, org string, keyword
 		query += clause
 		args = append(args, clauseArgs...)
 	}
+	if clause, clauseArgs := buildExcludeSeqClause(excludeSeq); clause != "" {
+		query += clause
+		args = append(args, clauseArgs...)
+	}
 
 	query += " ORDER BY updated_at DESC, ra.severity_level DESC LIMIT ?"
 	args = append(args, limit)
@@ -452,6 +589,33 @@ func buildKeywordFilterClause(keywords []string) (string, []interface{}) {
 		return "", nil
 	}
 	return " AND (" + strings.Join(clauses, " OR ") + ")", args
+}
+
+func buildExcludeSeqClause(excludeSeq []int) (string, []interface{}) {
+	if len(excludeSeq) == 0 {
+		return "", nil
+	}
+	parts := make([]string, 0, len(excludeSeq))
+	args := make([]interface{}, 0, len(excludeSeq))
+	seen := make(map[int]struct{}, len(excludeSeq))
+	for _, seq := range excludeSeq {
+		if seq <= 0 {
+			continue
+		}
+		if _, ok := seen[seq]; ok {
+			continue
+		}
+		seen[seq] = struct{}{}
+		parts = append(parts, "?")
+		args = append(args, seq)
+		if len(parts) >= 64 {
+			break
+		}
+	}
+	if len(parts) == 0 {
+		return "", nil
+	}
+	return " AND ra.seq NOT IN (" + strings.Join(parts, ",") + ")", args
 }
 
 func extractKeywords(question string) []string {
@@ -536,6 +700,143 @@ func mergeEvidenceWithRules(recent, severe, recurring, fallback []ReportSnippet,
 	}
 
 	return out
+}
+
+func (d *Database) GetFixPriorities(ctx context.Context, orgID, question string, excludeSeq []int, limit int) ([]FixPriority, error) {
+	org := strings.ToLower(strings.TrimSpace(orgID))
+	if org == "" {
+		return nil, fmt.Errorf("org_id is required")
+	}
+	if limit <= 0 {
+		limit = 3
+	}
+
+	keywords := extractKeywords(question)
+	query := `
+		SELECT
+			COALESCE(NULLIF(ra.title, ''), '(untitled report)') AS issue_title,
+			COUNT(*) AS freq,
+			COALESCE(AVG(ra.severity_level), 0) AS avg_sev,
+			COALESCE(SUM(CASE WHEN COALESCE(ra.updated_at, ra.created_at, r.ts) >= UTC_TIMESTAMP() - INTERVAL 7 DAY THEN 1 ELSE 0 END), 0) AS recent7
+		FROM report_analysis ra
+		INNER JOIN reports r ON r.seq = ra.seq
+		WHERE ra.brand_name = ?
+		AND ra.is_valid = TRUE
+	`
+	args := make([]interface{}, 0, 1+len(keywords)*3+len(excludeSeq)+1)
+	args = append(args, org)
+
+	if clause, clauseArgs := buildKeywordFilterClause(keywords); clause != "" {
+		query += clause
+		args = append(args, clauseArgs...)
+	}
+	if clause, clauseArgs := buildExcludeSeqClause(excludeSeq); clause != "" {
+		query += clause
+		args = append(args, clauseArgs...)
+	}
+
+	query += `
+		GROUP BY issue_title
+		HAVING issue_title != ''
+		ORDER BY (
+			(COALESCE(AVG(ra.severity_level), 0) + 0.1)
+			* LOG(2 + COUNT(*))
+			* (1 + COALESCE(SUM(CASE WHEN COALESCE(ra.updated_at, ra.created_at, r.ts) >= UTC_TIMESTAMP() - INTERVAL 7 DAY THEN 1 ELSE 0 END), 0) * 0.2)
+		) DESC,
+		MAX(COALESCE(ra.updated_at, ra.created_at, r.ts)) DESC
+		LIMIT ?
+	`
+	args = append(args, limit)
+
+	rows, err := d.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query fix priorities: %w", err)
+	}
+	defer rows.Close()
+
+	priorities := make([]FixPriority, 0, limit)
+	for rows.Next() {
+		var p FixPriority
+		if scanErr := rows.Scan(&p.Issue, &p.Frequency, &p.AvgSeverity, &p.Recent7Days); scanErr != nil {
+			return nil, scanErr
+		}
+		if strings.TrimSpace(p.Issue) == "" {
+			continue
+		}
+		recencyFactor := 1.0 + (float64(p.Recent7Days) * 0.2)
+		if recencyFactor < 1.0 {
+			recencyFactor = 1.0
+		}
+		p.Score = (p.AvgSeverity + 0.1) * float64(p.Frequency) * recencyFactor
+		priorities = append(priorities, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	for i := range priorities {
+		reports, repErr := d.getReportsForIssue(ctx, org, priorities[i].Issue, excludeSeq, 2)
+		if repErr == nil {
+			priorities[i].Reports = reports
+		}
+	}
+
+	sort.SliceStable(priorities, func(i, j int) bool {
+		if priorities[i].Score == priorities[j].Score {
+			return priorities[i].Recent7Days > priorities[j].Recent7Days
+		}
+		return priorities[i].Score > priorities[j].Score
+	})
+	if len(priorities) > limit {
+		priorities = priorities[:limit]
+	}
+	return priorities, nil
+}
+
+func (d *Database) getReportsForIssue(ctx context.Context, org, issue string, excludeSeq []int, limit int) ([]ReportSnippet, error) {
+	if limit <= 0 {
+		limit = 2
+	}
+	query := `
+		SELECT
+			ra.seq,
+			COALESCE(NULLIF(ra.title, ''), '(untitled report)') AS title,
+			COALESCE(NULLIF(ra.summary, ''), COALESCE(NULLIF(ra.description, ''), '(no summary available)')) AS summary,
+			COALESCE(NULLIF(ra.classification, ''), 'unknown') AS classification,
+			COALESCE(ra.severity_level, 0) AS severity_level,
+			COALESCE(ra.updated_at, ra.created_at, r.ts) AS updated_at
+		FROM report_analysis ra
+		INNER JOIN reports r ON r.seq = ra.seq
+		WHERE ra.brand_name = ?
+		AND ra.is_valid = TRUE
+		AND COALESCE(NULLIF(ra.title, ''), '(untitled report)') = ?
+	`
+	args := []interface{}{org, issue}
+	if clause, clauseArgs := buildExcludeSeqClause(excludeSeq); clause != "" {
+		query += clause
+		args = append(args, clauseArgs...)
+	}
+	query += ` ORDER BY ra.severity_level DESC, COALESCE(ra.updated_at, ra.created_at, r.ts) DESC LIMIT ?`
+	args = append(args, limit)
+
+	rows, err := d.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]ReportSnippet, 0, limit)
+	for rows.Next() {
+		var item ReportSnippet
+		if scanErr := rows.Scan(&item.Seq, &item.Title, &item.Summary, &item.Classification, &item.SeverityLevel, &item.UpdatedAt); scanErr != nil {
+			return nil, scanErr
+		}
+		out = append(out, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func normalizeIssueKey(item ReportSnippet) string {
