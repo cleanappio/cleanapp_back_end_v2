@@ -89,19 +89,21 @@ func (h *Handlers) QueryIntelligence(c *gin.Context) {
 	if tier == "" {
 		tier = "anonymous"
 	}
+	signedIn := req.UserID != nil && strings.TrimSpace(*req.UserID) != ""
+	isPro := tier == "pro"
 
 	if orgID == "" || question == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "org_id and question are required"})
 		return
 	}
-	if tier != "pro" && sessionID == "" {
+	if !isPro && !signedIn && sessionID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "session_id is required for non-pro usage"})
 		return
 	}
 
 	totalCount, highCount, mediumCount := h.getIntelligenceCounts(c.Request.Context(), orgID)
 
-	if tier != "pro" {
+	if !isPro && !signedIn {
 		allowed, _, usageErr := h.db.GetAndIncrementIntelligenceUsage(
 			c.Request.Context(),
 			sessionID,
@@ -167,7 +169,7 @@ func (h *Handlers) QueryIntelligence(c *gin.Context) {
 	baseURL := h.cfg.IntelligenceBaseURL
 	answer := h.buildIntentFallbackAnswer(intent, intelCtx, question, baseURL, priorities)
 
-	if tier != "pro" && exportPromptRegex.MatchString(question) {
+	if !isPro && exportPromptRegex.MatchString(question) {
 		answer = "I can provide a summary of key findings.\n\nFull report access and exports are available with a Pro subscription.\n\n" + answer
 	}
 
@@ -186,9 +188,13 @@ func (h *Handlers) QueryIntelligence(c *gin.Context) {
 	}
 
 	answer = h.enforceIntentFormat(intent, answer, intelCtx, question, baseURL, priorities)
-	if tier != "pro" {
+	if !isPro {
 		answer = sanitizeFreeTierAnswer(answer)
-		answer = ensureUpgradeNudge(answer)
+		// Keep upgrade nudges for anonymous users, but avoid over-nudging
+		// signed-in debugging sessions.
+		if !signedIn {
+			answer = ensureUpgradeNudge(answer)
+		}
 	}
 
 	evidenceItems := h.buildIntentEvidenceItems(intent, intelCtx, baseURL, priorities)
@@ -362,6 +368,9 @@ Hard constraints:
 - Write in natural narrative form for executive readers, not a rigid template.
 - Prefer short paragraphs plus selective bullets where they improve clarity.
 - Include inline citations in prose/bullets using this style: (Report #12345).
+- Sound like a sharp operator: direct, contextual, and practical. Avoid robotic section headers unless explicitly requested.
+- If the user asks in a different language, answer in that language.
+- For broad/ambiguous prompts, provide the best in-scope interpretation first, then suggest one focused follow-up question.
 
 Evidence rules:
 - Include 3-6 report permalinks when available.
@@ -408,6 +417,9 @@ func buildUserPrompt(ctx *database.IntelligenceContext, question, baseURL string
 	b.WriteString(fmt.Sprintf("Last 7 days: %d | Previous 7 days: %d | Growth: %.1f%%\n", ctx.ReportsLast7Days, ctx.ReportsPrev7Days, ctx.GrowthLast7VsPrev7))
 	b.WriteString(fmt.Sprintf("Priority counts: high=%d medium=%d\n", ctx.HighPriorityCount, ctx.MediumPriorityCount))
 	b.WriteString(fmt.Sprintf("Severity distribution: critical=%d high=%d medium=%d low=%d\n", ctx.SeverityDistribution.Critical, ctx.SeverityDistribution.High, ctx.SeverityDistribution.Medium, ctx.SeverityDistribution.Low))
+	if ctx.ReportsAnalyzed >= 50000 {
+		b.WriteString("Large corpus note: this org has a very large report corpus. It's valid to acknowledge scale (e.g. 50K+ reports), present representative evidence, and suggest Pro for full interactive drill-down.\n")
+	}
 
 	if len(ctx.TopClassifications) > 0 {
 		b.WriteString("Top categories:\n")
@@ -502,6 +514,9 @@ func buildExecutiveSummary(ctx *database.IntelligenceContext, question, baseURL 
 	b.WriteString("1. Assign one accountable owner for the top recurring issue and set a 14-day remediation target.\n")
 	b.WriteString("2. Prioritize high-severity incidents first, then bundle medium-severity repeats into one execution stream.\n")
 	b.WriteString("3. Review the linked incidents in weekly leadership triage and convert recurring patterns into roadmap commitments.\n")
+	if ctx.ReportsAnalyzed >= 50000 {
+		b.WriteString("\nThis org has a large corpus (50K+ reports). The summary above uses representative evidence; Pro unlocks full interactive drill-down across the full dataset.\n")
+	}
 
 	b.WriteString("\nSupporting evidence:\n")
 	appendEvidenceLinks(&b, links)
@@ -545,6 +560,9 @@ func buildComplaintsSummary(ctx *database.IntelligenceContext, baseURL string) s
 	b.WriteString("1. Convert top complaint theme into a visible 2-week fix initiative with clear owner.\n")
 	b.WriteString("2. Publish a short customer-facing update for the highest-frequency complaint category.\n")
 	b.WriteString("3. Track complaint recurrence weekly and stop new regressions before adding new feature scope.\n")
+	if ctx.ReportsAnalyzed >= 50000 {
+		b.WriteString("\nThere are 50K+ reports in this corpus; this is a representative preview. Pro provides full interactive exploration across all matching reports.\n")
+	}
 
 	b.WriteString("\nSupporting evidence:\n")
 	appendEvidenceLinks(&b, links)
@@ -570,6 +588,9 @@ func buildSecuritySummary(ctx *database.IntelligenceContext, baseURL string) str
 	b.WriteString("1. Triage highest-severity security incidents first and assign incident owners with 24h updates.\n")
 	b.WriteString("2. Add preventive controls for recurring abuse/phishing vectors and measure recurrence weekly.\n")
 	b.WriteString("3. Publish internal security notes tying each mitigation to linked incident evidence.\n")
+	if ctx.ReportsAnalyzed >= 50000 {
+		b.WriteString("\nGiven the 50K+ report corpus, this is a representative security preview. Pro unlocks deeper interactive investigation across the full set.\n")
+	}
 
 	b.WriteString("\nSupporting evidence:\n")
 	appendEvidenceLinks(&b, links)
@@ -602,6 +623,9 @@ func buildTrendsSummary(ctx *database.IntelligenceContext, baseURL string) strin
 	b.WriteString("1. Put trend-driving issue into weekly leadership KPI review with explicit reduction targets.\n")
 	b.WriteString("2. Assign a prevention owner for each recurring trend driver and review recurrence after each release.\n")
 	b.WriteString("3. Treat rising-week trend spikes as release gates for impacted areas.\n")
+	if ctx.ReportsAnalyzed >= 50000 {
+		b.WriteString("\nThis org has a 50K+ report corpus. The trend view here is intentionally representative; Pro enables full interactive slicing across all reports.\n")
+	}
 
 	b.WriteString("\nSupporting evidence:\n")
 	appendEvidenceLinks(&b, links)
@@ -658,6 +682,9 @@ func buildFixFirstSummary(ctx *database.IntelligenceContext, baseURL string, pri
 
 	b.WriteString("\nQuick win (48h): patch the top-severity recurring defect and publish a visible status update tied to the linked incidents.\n")
 	b.WriteString("Big rock (2-4w): remove root-cause recurrence for the #1 priority issue via owner-led remediation and regression guardrails.\n")
+	if ctx.ReportsAnalyzed >= 50000 {
+		b.WriteString("\nThis plan is based on representative evidence from a 50K+ report corpus. Pro unlocks full interactive prioritization across the entire dataset.\n")
+	}
 
 	b.WriteString("\nSupporting evidence:\n")
 	links := hqUniqueEvidenceForFixFirst(ctx, baseURL, priorities)
