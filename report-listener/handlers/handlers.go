@@ -629,6 +629,20 @@ func (h *Handlers) GetSearchReports(c *gin.Context) {
 		return
 	}
 
+	// Get the max result limit. Keep default low for predictable latency.
+	limit := 50
+	if nStr := strings.TrimSpace(c.Query("n")); nStr != "" {
+		parsedN, err := strconv.Atoi(nStr)
+		if err != nil || parsedN <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'n' parameter. Must be a positive integer."})
+			return
+		}
+		if parsedN > 200 {
+			parsedN = 200
+		}
+		limit = parsedN
+	}
+
 	// Transform search query: replace "-" with "+" and add "+" before each word for boolean mode
 	// First, replace any minus signs with plus signs
 	searchQuery = strings.ReplaceAll(searchQuery, "-", "+")
@@ -654,7 +668,7 @@ func (h *Handlers) GetSearchReports(c *gin.Context) {
 	}
 
 	// Get the reports from the database
-	reportsInterface, err := h.db.SearchReports(c.Request.Context(), transformedQuery, classification, fullData)
+	reportsInterface, err := h.db.SearchReports(c.Request.Context(), transformedQuery, classification, fullData, limit)
 	if err != nil {
 		log.Printf("Failed to search reports: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve reports"})

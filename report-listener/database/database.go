@@ -654,7 +654,7 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int, class
 // If full_data is true, returns reports with analysis. If false, returns only reports.
 // Only returns reports that are not resolved and are not privately owned
 // If classification is empty, returns both physical and digital reports
-func (d *Database) SearchReports(ctx context.Context, searchQuery string, classification string, full_data bool) (interface{}, error) {
+func (d *Database) SearchReports(ctx context.Context, searchQuery string, classification string, full_data bool, limit int) (interface{}, error) {
 	// OPTIMIZED 2-PHASE SEARCH:
 	// Phase 1: Fast FULLTEXT-only query to get seq IDs (no expensive JOINs)
 	// Phase 2: Fetch report details only for matching IDs
@@ -679,18 +679,18 @@ func (d *Database) SearchReports(ctx context.Context, searchQuery string, classi
 				WHERE is_valid = TRUE
 				AND classification = ?
 				AND brand_name LIKE ?
-				LIMIT 200
+				LIMIT ?
 			`
-			fastArgs = []interface{}{classification, prefixTerm}
+			fastArgs = []interface{}{classification, prefixTerm, limit}
 		} else {
 			fastQuery = `
 				SELECT DISTINCT seq
 				FROM report_analysis
 				WHERE is_valid = TRUE
 				AND brand_name LIKE ?
-				LIMIT 200
+				LIMIT ?
 			`
-			fastArgs = []interface{}{prefixTerm}
+			fastArgs = []interface{}{prefixTerm, limit}
 		}
 
 		fastRows, err := d.db.QueryContext(ctx, fastQuery, fastArgs...)
@@ -729,18 +729,18 @@ func (d *Database) SearchReports(ctx context.Context, searchQuery string, classi
 				WHERE is_valid = TRUE 
 				AND classification = ?
 				AND MATCH(title, description, brand_name, brand_display_name, summary) AGAINST (? IN BOOLEAN MODE)
-				LIMIT 200
+				LIMIT ?
 			`
-			seqArgs = []interface{}{classification, searchQuery}
+			seqArgs = []interface{}{classification, searchQuery, limit}
 		} else {
 			seqQuery = `
 				SELECT DISTINCT seq 
 				FROM report_analysis 
 				WHERE is_valid = TRUE 
 				AND MATCH(title, description, brand_name, brand_display_name, summary) AGAINST (? IN BOOLEAN MODE)
-				LIMIT 200
+				LIMIT ?
 			`
-			seqArgs = []interface{}{searchQuery}
+			seqArgs = []interface{}{searchQuery, limit}
 		}
 
 		// Phase 1 fallback: FULLTEXT search for seq IDs
