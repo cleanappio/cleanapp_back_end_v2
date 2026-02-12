@@ -295,17 +295,16 @@ func (d *Database) GetIntelligenceContextWithOptions(ctx context.Context, orgID,
 	var lastReportAt sql.NullTime
 	_ = d.db.QueryRowContext(ctx, `
 		SELECT
-			COALESCE(SUM(CASE WHEN r.ts >= DATE_FORMAT(UTC_TIMESTAMP(), '%Y-%m-01 00:00:00') THEN 1 ELSE 0 END), 0) AS month_count,
-			COALESCE(SUM(CASE WHEN r.ts >= UTC_TIMESTAMP() - INTERVAL 30 DAY THEN 1 ELSE 0 END), 0) AS last_30d_count,
-			COALESCE(SUM(CASE WHEN r.ts >= UTC_TIMESTAMP() - INTERVAL 7 DAY THEN 1 ELSE 0 END), 0) AS last_7d_count,
-			COALESCE(SUM(CASE WHEN r.ts < UTC_TIMESTAMP() - INTERVAL 7 DAY AND r.ts >= UTC_TIMESTAMP() - INTERVAL 14 DAY THEN 1 ELSE 0 END), 0) AS prev_7d_count,
+			COALESCE(SUM(CASE WHEN COALESCE(ra.updated_at, ra.created_at) >= DATE_FORMAT(UTC_TIMESTAMP(), '%Y-%m-01 00:00:00') THEN 1 ELSE 0 END), 0) AS month_count,
+			COALESCE(SUM(CASE WHEN COALESCE(ra.updated_at, ra.created_at) >= UTC_TIMESTAMP() - INTERVAL 30 DAY THEN 1 ELSE 0 END), 0) AS last_30d_count,
+			COALESCE(SUM(CASE WHEN COALESCE(ra.updated_at, ra.created_at) >= UTC_TIMESTAMP() - INTERVAL 7 DAY THEN 1 ELSE 0 END), 0) AS last_7d_count,
+			COALESCE(SUM(CASE WHEN COALESCE(ra.updated_at, ra.created_at) < UTC_TIMESTAMP() - INTERVAL 7 DAY AND COALESCE(ra.updated_at, ra.created_at) >= UTC_TIMESTAMP() - INTERVAL 14 DAY THEN 1 ELSE 0 END), 0) AS prev_7d_count,
 			COALESCE(SUM(CASE WHEN ra.severity_level >= 0.85 THEN 1 ELSE 0 END), 0) AS critical_count,
 			COALESCE(SUM(CASE WHEN ra.severity_level >= 0.70 AND ra.severity_level < 0.85 THEN 1 ELSE 0 END), 0) AS high_count,
 			COALESCE(SUM(CASE WHEN ra.severity_level >= 0.40 AND ra.severity_level < 0.70 THEN 1 ELSE 0 END), 0) AS medium_count,
 			COALESCE(SUM(CASE WHEN ra.severity_level < 0.40 THEN 1 ELSE 0 END), 0) AS low_count,
-			MAX(COALESCE(ra.updated_at, ra.created_at, r.ts)) AS last_report_at
+			MAX(COALESCE(ra.updated_at, ra.created_at)) AS last_report_at
 		FROM report_analysis ra
-		INNER JOIN reports r ON ra.seq = r.seq
 		WHERE ra.brand_name = ?
 		AND ra.is_valid = TRUE
 	`, org).Scan(
@@ -472,9 +471,8 @@ func (d *Database) getReportSnippets(ctx context.Context, org string, keywords [
 			COALESCE(NULLIF(ra.summary, ''), COALESCE(NULLIF(ra.description, ''), '(no summary available)')) AS summary,
 			COALESCE(NULLIF(ra.classification, ''), 'unknown') AS classification,
 			COALESCE(ra.severity_level, 0) AS severity_level,
-			COALESCE(ra.updated_at, ra.created_at, r.ts) AS updated_at
+			COALESCE(ra.updated_at, ra.created_at) AS updated_at
 		FROM report_analysis ra
-		INNER JOIN reports r ON r.seq = ra.seq
 		WHERE ra.brand_name = ?
 		AND ra.is_valid = TRUE
 	`
@@ -546,9 +544,8 @@ func (d *Database) getRecurringSnippets(ctx context.Context, org string, keyword
 			COALESCE(NULLIF(ra.summary, ''), COALESCE(NULLIF(ra.description, ''), '(no summary available)')) AS summary,
 			COALESCE(NULLIF(ra.classification, ''), 'unknown') AS classification,
 			COALESCE(ra.severity_level, 0) AS severity_level,
-			COALESCE(ra.updated_at, ra.created_at, r.ts) AS updated_at
+			COALESCE(ra.updated_at, ra.created_at) AS updated_at
 		FROM report_analysis ra
-		INNER JOIN reports r ON r.seq = ra.seq
 		WHERE ra.brand_name = ?
 		AND ra.is_valid = TRUE
 		AND ra.title IN (` + strings.Join(placeholders, ",") + `)
@@ -737,9 +734,8 @@ func (d *Database) GetFixPriorities(ctx context.Context, orgID, question string,
 			COALESCE(NULLIF(ra.title, ''), '(untitled report)') AS issue_title,
 			COUNT(*) AS freq,
 			COALESCE(AVG(ra.severity_level), 0) AS avg_sev,
-			COALESCE(SUM(CASE WHEN COALESCE(ra.updated_at, ra.created_at, r.ts) >= UTC_TIMESTAMP() - INTERVAL 7 DAY THEN 1 ELSE 0 END), 0) AS recent7
+			COALESCE(SUM(CASE WHEN COALESCE(ra.updated_at, ra.created_at) >= UTC_TIMESTAMP() - INTERVAL 7 DAY THEN 1 ELSE 0 END), 0) AS recent7
 		FROM report_analysis ra
-		INNER JOIN reports r ON r.seq = ra.seq
 		WHERE ra.brand_name = ?
 		AND ra.is_valid = TRUE
 	`
@@ -761,9 +757,9 @@ func (d *Database) GetFixPriorities(ctx context.Context, orgID, question string,
 		ORDER BY (
 			(COALESCE(AVG(ra.severity_level), 0) + 0.1)
 			* LOG(2 + COUNT(*))
-			* (1 + COALESCE(SUM(CASE WHEN COALESCE(ra.updated_at, ra.created_at, r.ts) >= UTC_TIMESTAMP() - INTERVAL 7 DAY THEN 1 ELSE 0 END), 0) * 0.2)
+			* (1 + COALESCE(SUM(CASE WHEN COALESCE(ra.updated_at, ra.created_at) >= UTC_TIMESTAMP() - INTERVAL 7 DAY THEN 1 ELSE 0 END), 0) * 0.2)
 		) DESC,
-		MAX(COALESCE(ra.updated_at, ra.created_at, r.ts)) DESC
+		MAX(COALESCE(ra.updated_at, ra.created_at)) DESC
 		LIMIT ?
 	`
 	args = append(args, limit)
@@ -824,9 +820,8 @@ func (d *Database) getReportsForIssue(ctx context.Context, org, issue string, ex
 			COALESCE(NULLIF(ra.summary, ''), COALESCE(NULLIF(ra.description, ''), '(no summary available)')) AS summary,
 			COALESCE(NULLIF(ra.classification, ''), 'unknown') AS classification,
 			COALESCE(ra.severity_level, 0) AS severity_level,
-			COALESCE(ra.updated_at, ra.created_at, r.ts) AS updated_at
+			COALESCE(ra.updated_at, ra.created_at) AS updated_at
 		FROM report_analysis ra
-		INNER JOIN reports r ON r.seq = ra.seq
 		WHERE ra.brand_name = ?
 		AND ra.is_valid = TRUE
 		AND COALESCE(NULLIF(ra.title, ''), '(untitled report)') = ?
@@ -836,7 +831,7 @@ func (d *Database) getReportsForIssue(ctx context.Context, org, issue string, ex
 		query += clause
 		args = append(args, clauseArgs...)
 	}
-	query += ` ORDER BY ra.severity_level DESC, COALESCE(ra.updated_at, ra.created_at, r.ts) DESC LIMIT ?`
+	query += ` ORDER BY ra.severity_level DESC, COALESCE(ra.updated_at, ra.created_at) DESC LIMIT ?`
 	args = append(args, limit)
 
 	rows, err := d.db.QueryContext(ctx, query, args...)
