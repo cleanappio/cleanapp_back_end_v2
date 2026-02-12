@@ -660,10 +660,68 @@ func (d *Database) SearchReports(ctx context.Context, searchQuery string, classi
 	// Phase 2: Fetch report details only for matching IDs
 	// This approach is ~5x faster than joining all tables for FULLTEXT match
 
-	var seqArgs []interface{}
-	var seqQuery string
+	var seqs []int
 
-	if searchQuery != "" {
+	// Fast path for common single-word brand searches (e.g. "google"):
+	// use indexed brand columns first and only fall back to FULLTEXT when needed.
+	term := strings.TrimSpace(searchQuery)
+	if strings.HasPrefix(term, "+") {
+		term = strings.TrimPrefix(term, "+")
+	}
+	if term != "" && !strings.Contains(term, " ") && !strings.ContainsAny(term, "\"*~()<>") {
+		prefixTerm := strings.ToLower(term) + "%"
+		var fastQuery string
+		var fastArgs []interface{}
+		if classification != "" {
+			fastQuery = `
+				SELECT DISTINCT seq
+				FROM report_analysis
+				WHERE is_valid = TRUE
+				AND classification = ?
+				AND brand_name LIKE ?
+				LIMIT 200
+			`
+			fastArgs = []interface{}{classification, prefixTerm}
+		} else {
+			fastQuery = `
+				SELECT DISTINCT seq
+				FROM report_analysis
+				WHERE is_valid = TRUE
+				AND brand_name LIKE ?
+				LIMIT 200
+			`
+			fastArgs = []interface{}{prefixTerm}
+		}
+
+		fastRows, err := d.db.QueryContext(ctx, fastQuery, fastArgs...)
+		if err != nil {
+			log.Printf("SearchReports brand fast path failed, falling back to FULLTEXT: %v", err)
+		} else {
+			defer fastRows.Close()
+			for fastRows.Next() {
+				var seq int
+				if err := fastRows.Scan(&seq); err != nil {
+					return nil, fmt.Errorf("failed to scan fast-path seq: %w", err)
+				}
+				seqs = append(seqs, seq)
+			}
+			if err := fastRows.Err(); err != nil {
+				return nil, fmt.Errorf("error iterating fast-path seqs: %w", err)
+			}
+		}
+	}
+
+	if len(seqs) == 0 {
+		if searchQuery == "" {
+			// No search query - just return empty
+			if !full_data {
+				return []models.ReportWithMinimalAnalysis{}, nil
+			}
+			return []models.ReportWithAnalysis{}, nil
+		}
+
+		var seqArgs []interface{}
+		var seqQuery string
 		if classification != "" {
 			seqQuery = `
 				SELECT DISTINCT seq 
@@ -671,7 +729,6 @@ func (d *Database) SearchReports(ctx context.Context, searchQuery string, classi
 				WHERE is_valid = TRUE 
 				AND classification = ?
 				AND MATCH(title, description, brand_name, brand_display_name, summary) AGAINST (? IN BOOLEAN MODE)
-				ORDER BY seq DESC
 				LIMIT 200
 			`
 			seqArgs = []interface{}{classification, searchQuery}
@@ -681,33 +738,28 @@ func (d *Database) SearchReports(ctx context.Context, searchQuery string, classi
 				FROM report_analysis 
 				WHERE is_valid = TRUE 
 				AND MATCH(title, description, brand_name, brand_display_name, summary) AGAINST (? IN BOOLEAN MODE)
-				ORDER BY seq DESC
 				LIMIT 200
 			`
 			seqArgs = []interface{}{searchQuery}
 		}
-	} else {
-		// No search query - just return empty
-		if !full_data {
-			return []models.ReportWithMinimalAnalysis{}, nil
-		}
-		return []models.ReportWithAnalysis{}, nil
-	}
 
-	// Phase 1: Get matching seq IDs (fast - uses FULLTEXT index only)
-	seqRows, err := d.db.QueryContext(ctx, seqQuery, seqArgs...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query search seq IDs: %w", err)
-	}
-	defer seqRows.Close()
-
-	var seqs []int
-	for seqRows.Next() {
-		var seq int
-		if err := seqRows.Scan(&seq); err != nil {
-			return nil, fmt.Errorf("failed to scan seq: %w", err)
+		// Phase 1 fallback: FULLTEXT search for seq IDs
+		seqRows, err := d.db.QueryContext(ctx, seqQuery, seqArgs...)
+		if err != nil {
+			return nil, fmt.Errorf("failed to query search seq IDs: %w", err)
 		}
-		seqs = append(seqs, seq)
+		defer seqRows.Close()
+
+		for seqRows.Next() {
+			var seq int
+			if err := seqRows.Scan(&seq); err != nil {
+				return nil, fmt.Errorf("failed to scan seq: %w", err)
+			}
+			seqs = append(seqs, seq)
+		}
+		if err := seqRows.Err(); err != nil {
+			return nil, fmt.Errorf("error iterating search seq IDs: %w", err)
+		}
 	}
 
 	if len(seqs) == 0 {
@@ -938,7 +990,7 @@ func (d *Database) GetReportBySeq(ctx context.Context, seq int) (*models.ReportW
 	// Then, get all analyses for this report
 	analysesQuery := `
 		SELECT 
-			ra.seq, ra.source, ra.analysis_text, ra.analysis_image,
+			ra.seq, ra.source, ra.analysis_text, NULL as analysis_image,
 			ra.title, ra.description, ra.brand_name, ra.brand_display_name,
 			ra.litter_probability, ra.hazard_probability, ra.digital_bug_probability,
 			ra.severity_level, ra.summary, ra.language, ra.classification,
