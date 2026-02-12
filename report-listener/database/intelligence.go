@@ -14,6 +14,13 @@ type NamedCount struct {
 	Count int
 }
 
+type SeverityDistribution struct {
+	Critical int
+	High     int
+	Medium   int
+	Low      int
+}
+
 type ReportSnippet struct {
 	Seq            int
 	Title          string
@@ -33,15 +40,20 @@ type IntelligenceContext struct {
 	GrowthLast7VsPrev7    float64
 	HighPriorityCount     int
 	MediumPriorityCount   int
+	SeverityDistribution  SeverityDistribution
 	TopClassifications    []NamedCount
 	TopIssues             []NamedCount
+	TopEntities           []NamedCount
+	TopTags               []NamedCount
 	RecentSummaries       []string
 	RepresentativeReports []ReportSnippet
 	MatchedReports        []ReportSnippet
+	EvidencePack          []ReportSnippet
 	Keywords              []string
 }
 
 var keywordSplitRegex = regexp.MustCompile(`[^\p{L}\p{N}]+`)
+var issueNormalizeRegex = regexp.MustCompile(`[^\p{L}\p{N}]+`)
 
 var intelligenceStopWords = map[string]struct{}{
 	"what": {}, "which": {}, "this": {}, "that": {}, "with": {}, "from": {}, "about": {},
@@ -154,7 +166,11 @@ func (d *Database) GetIntelligenceContext(ctx context.Context, orgID, question s
 			COALESCE(SUM(CASE WHEN r.ts >= DATE_FORMAT(UTC_TIMESTAMP(), '%Y-%m-01 00:00:00') THEN 1 ELSE 0 END), 0) AS month_count,
 			COALESCE(SUM(CASE WHEN r.ts >= UTC_TIMESTAMP() - INTERVAL 30 DAY THEN 1 ELSE 0 END), 0) AS last_30d_count,
 			COALESCE(SUM(CASE WHEN r.ts >= UTC_TIMESTAMP() - INTERVAL 7 DAY THEN 1 ELSE 0 END), 0) AS last_7d_count,
-			COALESCE(SUM(CASE WHEN r.ts < UTC_TIMESTAMP() - INTERVAL 7 DAY AND r.ts >= UTC_TIMESTAMP() - INTERVAL 14 DAY THEN 1 ELSE 0 END), 0) AS prev_7d_count
+			COALESCE(SUM(CASE WHEN r.ts < UTC_TIMESTAMP() - INTERVAL 7 DAY AND r.ts >= UTC_TIMESTAMP() - INTERVAL 14 DAY THEN 1 ELSE 0 END), 0) AS prev_7d_count,
+			COALESCE(SUM(CASE WHEN ra.severity_level >= 0.85 THEN 1 ELSE 0 END), 0) AS critical_count,
+			COALESCE(SUM(CASE WHEN ra.severity_level >= 0.70 AND ra.severity_level < 0.85 THEN 1 ELSE 0 END), 0) AS high_count,
+			COALESCE(SUM(CASE WHEN ra.severity_level >= 0.40 AND ra.severity_level < 0.70 THEN 1 ELSE 0 END), 0) AS medium_count,
+			COALESCE(SUM(CASE WHEN ra.severity_level < 0.40 THEN 1 ELSE 0 END), 0) AS low_count
 		FROM report_analysis ra
 		INNER JOIN reports r ON ra.seq = r.seq
 		WHERE ra.brand_name = ?
@@ -164,6 +180,10 @@ func (d *Database) GetIntelligenceContext(ctx context.Context, orgID, question s
 		&result.ReportsLast30Days,
 		&result.ReportsLast7Days,
 		&result.ReportsPrev7Days,
+		&result.SeverityDistribution.Critical,
+		&result.SeverityDistribution.High,
+		&result.SeverityDistribution.Medium,
+		&result.SeverityDistribution.Low,
 	)
 
 	if result.ReportsPrev7Days > 0 {
@@ -172,8 +192,8 @@ func (d *Database) GetIntelligenceContext(ctx context.Context, orgID, question s
 		result.GrowthLast7VsPrev7 = 100.0
 	}
 
-	classRows, err := d.db.QueryContext(ctx, `
-		SELECT COALESCE(NULLIF(classification, ''), 'unknown') AS classification, COUNT(*) AS cnt
+	result.TopClassifications, _ = d.getNamedCounts(ctx, `
+		SELECT COALESCE(NULLIF(classification, ''), 'unknown') AS label, COUNT(*) AS cnt
 		FROM report_analysis
 		WHERE brand_name = ?
 		AND is_valid = TRUE
@@ -181,18 +201,9 @@ func (d *Database) GetIntelligenceContext(ctx context.Context, orgID, question s
 		ORDER BY cnt DESC
 		LIMIT 6
 	`, org)
-	if err == nil {
-		defer classRows.Close()
-		for classRows.Next() {
-			var item NamedCount
-			if scanErr := classRows.Scan(&item.Name, &item.Count); scanErr == nil {
-				result.TopClassifications = append(result.TopClassifications, item)
-			}
-		}
-	}
 
-	issueRows, err := d.db.QueryContext(ctx, `
-		SELECT title, COUNT(*) AS cnt
+	result.TopIssues, _ = d.getNamedCounts(ctx, `
+		SELECT title AS label, COUNT(*) AS cnt
 		FROM report_analysis
 		WHERE brand_name = ?
 		AND is_valid = TRUE
@@ -202,15 +213,35 @@ func (d *Database) GetIntelligenceContext(ctx context.Context, orgID, question s
 		ORDER BY cnt DESC
 		LIMIT 6
 	`, org)
-	if err == nil {
-		defer issueRows.Close()
-		for issueRows.Next() {
-			var item NamedCount
-			if scanErr := issueRows.Scan(&item.Name, &item.Count); scanErr == nil {
-				result.TopIssues = append(result.TopIssues, item)
-			}
-		}
-	}
+
+	result.TopEntities, _ = d.getNamedCounts(ctx, `
+		SELECT entity AS label, COUNT(*) AS cnt
+		FROM (
+			SELECT LOWER(TRIM(rd.company_name)) AS entity
+			FROM report_details rd
+			INNER JOIN report_analysis ra ON ra.seq = rd.seq
+			WHERE ra.brand_name = ? AND ra.is_valid = TRUE AND rd.company_name IS NOT NULL AND rd.company_name != ''
+			UNION ALL
+			SELECT LOWER(TRIM(rd.product_name)) AS entity
+			FROM report_details rd
+			INNER JOIN report_analysis ra ON ra.seq = rd.seq
+			WHERE ra.brand_name = ? AND ra.is_valid = TRUE AND rd.product_name IS NOT NULL AND rd.product_name != ''
+		) t
+		GROUP BY entity
+		ORDER BY cnt DESC
+		LIMIT 6
+	`, org, org)
+
+	result.TopTags, _ = d.getNamedCounts(ctx, `
+		SELECT COALESCE(NULLIF(rt.tag, ''), 'unknown') AS label, COUNT(*) AS cnt
+		FROM report_tags rt
+		INNER JOIN report_analysis ra ON ra.seq = rt.report_seq
+		WHERE ra.brand_name = ?
+		AND ra.is_valid = TRUE
+		GROUP BY rt.tag
+		ORDER BY cnt DESC
+		LIMIT 6
+	`, org)
 
 	summaryRows, err := d.db.QueryContext(ctx, `
 		SELECT summary
@@ -232,26 +263,57 @@ func (d *Database) GetIntelligenceContext(ctx context.Context, orgID, question s
 		}
 	}
 
-	representative, repErr := d.getReportSnippets(ctx, org, nil, 6)
-	if repErr == nil {
-		result.RepresentativeReports = representative
-	}
-
 	keywords := extractKeywords(question)
 	result.Keywords = keywords
-	if len(keywords) > 0 {
-		matched, matchErr := d.getReportSnippets(ctx, org, keywords, 5)
-		if matchErr == nil {
-			result.MatchedReports = mergeUniqueSnippets(matched, representative, 5)
-		}
-	}
+
+	recentRelevant, _ := d.getReportSnippets(ctx, org, keywords, 6, "recent")
+	severeRelevant, _ := d.getReportSnippets(ctx, org, keywords, 6, "severity")
+	recurringRelevant, _ := d.getRecurringSnippets(ctx, org, keywords, result.TopIssues, 6)
+	representative, _ := d.getReportSnippets(ctx, org, nil, 8, "severity")
+
+	result.RepresentativeReports = representative
+	result.EvidencePack = mergeEvidenceWithRules(recentRelevant, severeRelevant, recurringRelevant, representative, 6)
+	result.MatchedReports = result.EvidencePack
 
 	return result, nil
 }
 
-func (d *Database) getReportSnippets(ctx context.Context, org string, keywords []string, limit int) ([]ReportSnippet, error) {
+func (d *Database) getNamedCounts(ctx context.Context, query string, args ...interface{}) ([]NamedCount, error) {
+	rows, err := d.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]NamedCount, 0, 6)
+	for rows.Next() {
+		var item NamedCount
+		if scanErr := rows.Scan(&item.Name, &item.Count); scanErr != nil {
+			return nil, scanErr
+		}
+		item.Name = strings.TrimSpace(item.Name)
+		if item.Name == "" {
+			continue
+		}
+		out = append(out, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (d *Database) getReportSnippets(ctx context.Context, org string, keywords []string, limit int, sortMode string) ([]ReportSnippet, error) {
 	if limit <= 0 {
 		limit = 3
+	}
+
+	orderBy := "updated_at DESC, ra.severity_level DESC"
+	switch strings.ToLower(strings.TrimSpace(sortMode)) {
+	case "severity":
+		orderBy = "ra.severity_level DESC, updated_at DESC"
+	case "recent":
+		orderBy = "updated_at DESC, ra.severity_level DESC"
 	}
 
 	query := `
@@ -270,21 +332,12 @@ func (d *Database) getReportSnippets(ctx context.Context, org string, keywords [
 
 	args := make([]interface{}, 0, 1+len(keywords)*3+1)
 	args = append(args, org)
-
-	if len(keywords) > 0 {
-		clauses := make([]string, 0, len(keywords))
-		for _, kw := range keywords {
-			clauses = append(clauses, `(LOWER(ra.title) LIKE ? OR LOWER(ra.summary) LIKE ? OR LOWER(ra.description) LIKE ?)`)
-			pattern := "%" + strings.ToLower(strings.TrimSpace(kw)) + "%"
-			args = append(args, pattern, pattern, pattern)
-		}
-		query += " AND (" + strings.Join(clauses, " OR ") + ")"
+	if clause, clauseArgs := buildKeywordFilterClause(keywords); clause != "" {
+		query += clause
+		args = append(args, clauseArgs...)
 	}
 
-	query += `
-		ORDER BY ra.severity_level DESC, updated_at DESC
-		LIMIT ?
-	`
+	query += " ORDER BY " + orderBy + " LIMIT ?"
 	args = append(args, limit)
 
 	rows, err := d.db.QueryContext(ctx, query, args...)
@@ -305,6 +358,100 @@ func (d *Database) getReportSnippets(ctx context.Context, org string, keywords [
 		return nil, err
 	}
 	return result, nil
+}
+
+func (d *Database) getRecurringSnippets(ctx context.Context, org string, keywords []string, topIssues []NamedCount, limit int) ([]ReportSnippet, error) {
+	if limit <= 0 {
+		limit = 3
+	}
+
+	titles := make([]string, 0, 3)
+	for _, issue := range topIssues {
+		t := strings.TrimSpace(issue.Name)
+		if t == "" {
+			continue
+		}
+		titles = append(titles, t)
+		if len(titles) == 3 {
+			break
+		}
+	}
+	if len(titles) == 0 {
+		return nil, nil
+	}
+
+	placeholders := make([]string, len(titles))
+	args := make([]interface{}, 0, 1+len(titles)+len(keywords)*3+1)
+	for i := range titles {
+		placeholders[i] = "?"
+	}
+
+	query := `
+		SELECT
+			ra.seq,
+			COALESCE(NULLIF(ra.title, ''), '(untitled report)') AS title,
+			COALESCE(NULLIF(ra.summary, ''), COALESCE(NULLIF(ra.description, ''), '(no summary available)')) AS summary,
+			COALESCE(NULLIF(ra.classification, ''), 'unknown') AS classification,
+			COALESCE(ra.severity_level, 0) AS severity_level,
+			COALESCE(ra.updated_at, ra.created_at, r.ts) AS updated_at
+		FROM report_analysis ra
+		INNER JOIN reports r ON r.seq = ra.seq
+		WHERE ra.brand_name = ?
+		AND ra.is_valid = TRUE
+		AND ra.title IN (` + strings.Join(placeholders, ",") + `)
+	`
+	args = append(args, org)
+	for _, title := range titles {
+		args = append(args, title)
+	}
+
+	if clause, clauseArgs := buildKeywordFilterClause(keywords); clause != "" {
+		query += clause
+		args = append(args, clauseArgs...)
+	}
+
+	query += " ORDER BY updated_at DESC, ra.severity_level DESC LIMIT ?"
+	args = append(args, limit)
+
+	rows, err := d.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make([]ReportSnippet, 0, limit)
+	for rows.Next() {
+		var item ReportSnippet
+		if scanErr := rows.Scan(&item.Seq, &item.Title, &item.Summary, &item.Classification, &item.SeverityLevel, &item.UpdatedAt); scanErr != nil {
+			return nil, scanErr
+		}
+		result = append(result, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func buildKeywordFilterClause(keywords []string) (string, []interface{}) {
+	if len(keywords) == 0 {
+		return "", nil
+	}
+	clauses := make([]string, 0, len(keywords))
+	args := make([]interface{}, 0, len(keywords)*3)
+	for _, kw := range keywords {
+		t := strings.ToLower(strings.TrimSpace(kw))
+		if t == "" {
+			continue
+		}
+		clauses = append(clauses, `(LOWER(ra.title) LIKE ? OR LOWER(ra.summary) LIKE ? OR LOWER(ra.description) LIKE ?)`)
+		pattern := "%" + t + "%"
+		args = append(args, pattern, pattern, pattern)
+	}
+	if len(clauses) == 0 {
+		return "", nil
+	}
+	return " AND (" + strings.Join(clauses, " OR ") + ")", args
 }
 
 func extractKeywords(question string) []string {
@@ -336,25 +483,73 @@ func extractKeywords(question string) []string {
 	return keywords
 }
 
-func mergeUniqueSnippets(primary, secondary []ReportSnippet, max int) []ReportSnippet {
+func mergeEvidenceWithRules(recent, severe, recurring, fallback []ReportSnippet, max int) []ReportSnippet {
 	if max <= 0 {
-		max = 3
+		max = 6
 	}
+
 	out := make([]ReportSnippet, 0, max)
-	seen := make(map[int]struct{}, max)
-	appendUnique := func(items []ReportSnippet) {
+	seenSeq := make(map[int]struct{}, max)
+	seenIssue := make(map[string]struct{}, max)
+
+	addOne := func(item ReportSnippet) bool {
+		if len(out) >= max {
+			return false
+		}
+		if _, exists := seenSeq[item.Seq]; exists {
+			return false
+		}
+		key := normalizeIssueKey(item)
+		if key != "" {
+			if _, exists := seenIssue[key]; exists {
+				return false
+			}
+			seenIssue[key] = struct{}{}
+		}
+		seenSeq[item.Seq] = struct{}{}
+		out = append(out, item)
+		return true
+	}
+
+	addFirstUnique := func(items []ReportSnippet) {
 		for _, item := range items {
-			if len(out) >= max {
+			if addOne(item) {
 				return
 			}
-			if _, exists := seen[item.Seq]; exists {
-				continue
-			}
-			seen[item.Seq] = struct{}{}
-			out = append(out, item)
 		}
 	}
-	appendUnique(primary)
-	appendUnique(secondary)
+
+	// Required selection priority:
+	// (a) most recent relevant, (b) highest severity relevant, (c) representative recurring issue.
+	addFirstUnique(recent)
+	addFirstUnique(severe)
+	addFirstUnique(recurring)
+
+	all := [][]ReportSnippet{recent, severe, recurring, fallback}
+	for _, bucket := range all {
+		for _, item := range bucket {
+			if len(out) >= max {
+				return out
+			}
+			addOne(item)
+		}
+	}
+
 	return out
+}
+
+func normalizeIssueKey(item ReportSnippet) string {
+	base := strings.TrimSpace(item.Title)
+	if base == "" || strings.EqualFold(base, "(untitled report)") {
+		base = strings.TrimSpace(item.Summary)
+	}
+	if base == "" {
+		return ""
+	}
+	base = strings.ToLower(issueNormalizeRegex.ReplaceAllString(base, " "))
+	base = strings.TrimSpace(strings.Join(strings.Fields(base), " "))
+	if len(base) > 96 {
+		base = base[:96]
+	}
+	return base
 }
