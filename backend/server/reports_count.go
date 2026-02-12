@@ -6,8 +6,6 @@ import (
 	"sync"
 	"time"
 
-	"cleanapp/common"
-
 	"github.com/apex/log"
 	"github.com/gin-gonic/gin"
 )
@@ -66,12 +64,11 @@ func StartCounterCacheUpdater() {
 func updateCounterCache() {
 	startTime := time.Now()
 
-	dbc, err := common.DBConnect()
+	dbc, err := getServerDB()
 	if err != nil {
 		log.Errorf("Counter cache: failed to connect to DB: %v", err)
 		return
 	}
-	defer dbc.Close()
 
 	// Get current max seq
 	var maxSeq int
@@ -108,39 +105,27 @@ func updateCounterCache() {
 // fullUpdateCounterCache does a full count of all valid reports
 // This is slow (~30-60s on 1M+ rows) but only runs once on startup
 func fullUpdateCounterCache(dbc *sql.DB, maxSeq int) {
-	// Count total valid reports
-	var total int
+	// Single grouped scan instead of three COUNT(DISTINCT ...) full scans.
+	// Semantics preserved: totals are distinct by seq; physical/digital count
+	// a seq if it has at least one valid row with that classification.
+	var total, physical, digital int
 	err := dbc.QueryRow(`
-		SELECT COUNT(DISTINCT seq) 
-		FROM report_analysis 
-		WHERE is_valid = TRUE
-	`).Scan(&total)
+		SELECT
+			COUNT(*) AS total_reports,
+			COALESCE(SUM(has_physical), 0) AS physical_reports,
+			COALESCE(SUM(has_digital), 0) AS digital_reports
+		FROM (
+			SELECT
+				seq,
+				MAX(CASE WHEN classification = 'physical' THEN 1 ELSE 0 END) AS has_physical,
+				MAX(CASE WHEN classification = 'digital' THEN 1 ELSE 0 END) AS has_digital
+			FROM report_analysis
+			WHERE is_valid = TRUE
+			GROUP BY seq
+		) grouped
+	`).Scan(&total, &physical, &digital)
 	if err != nil {
-		log.Errorf("Counter cache: failed to count total: %v", err)
-		return
-	}
-
-	// Count physical valid reports
-	var physical int
-	err = dbc.QueryRow(`
-		SELECT COUNT(DISTINCT seq) 
-		FROM report_analysis 
-		WHERE classification = 'physical' AND is_valid = TRUE
-	`).Scan(&physical)
-	if err != nil {
-		log.Errorf("Counter cache: failed to count physical: %v", err)
-		return
-	}
-
-	// Count digital valid reports
-	var digital int
-	err = dbc.QueryRow(`
-		SELECT COUNT(DISTINCT seq) 
-		FROM report_analysis 
-		WHERE classification = 'digital' AND is_valid = TRUE
-	`).Scan(&digital)
-	if err != nil {
-		log.Errorf("Counter cache: failed to count digital: %v", err)
+		log.Errorf("Counter cache: failed to count full totals: %v", err)
 		return
 	}
 
@@ -160,39 +145,25 @@ func fullUpdateCounterCache(dbc *sql.DB, maxSeq int) {
 // incrementalUpdateCounterCache only counts new reports since lastSeq
 // This is much faster (<5s) since it only processes new rows
 func incrementalUpdateCounterCache(dbc *sql.DB, lastSeq, maxSeq int) {
-	// Count new valid reports since lastSeq
-	var newTotal int
+	// Single grouped incremental scan instead of three distinct scans.
+	var newTotal, newPhysical, newDigital int
 	err := dbc.QueryRow(`
-		SELECT COUNT(DISTINCT seq) 
-		FROM report_analysis 
-		WHERE seq > ? AND is_valid = TRUE
-	`, lastSeq).Scan(&newTotal)
+		SELECT
+			COUNT(*) AS total_reports,
+			COALESCE(SUM(has_physical), 0) AS physical_reports,
+			COALESCE(SUM(has_digital), 0) AS digital_reports
+		FROM (
+			SELECT
+				seq,
+				MAX(CASE WHEN classification = 'physical' THEN 1 ELSE 0 END) AS has_physical,
+				MAX(CASE WHEN classification = 'digital' THEN 1 ELSE 0 END) AS has_digital
+			FROM report_analysis
+			WHERE seq > ? AND is_valid = TRUE
+			GROUP BY seq
+		) grouped
+	`, lastSeq).Scan(&newTotal, &newPhysical, &newDigital)
 	if err != nil {
-		log.Errorf("Counter cache: failed to count new total: %v", err)
-		return
-	}
-
-	// Count new physical valid reports since lastSeq
-	var newPhysical int
-	err = dbc.QueryRow(`
-		SELECT COUNT(DISTINCT seq) 
-		FROM report_analysis 
-		WHERE seq > ? AND classification = 'physical' AND is_valid = TRUE
-	`, lastSeq).Scan(&newPhysical)
-	if err != nil {
-		log.Errorf("Counter cache: failed to count new physical: %v", err)
-		return
-	}
-
-	// Count new digital valid reports since lastSeq
-	var newDigital int
-	err = dbc.QueryRow(`
-		SELECT COUNT(DISTINCT seq) 
-		FROM report_analysis 
-		WHERE seq > ? AND classification = 'digital' AND is_valid = TRUE
-	`, lastSeq).Scan(&newDigital)
-	if err != nil {
-		log.Errorf("Counter cache: failed to count new digital: %v", err)
+		log.Errorf("Counter cache: failed to count incremental totals: %v", err)
 		return
 	}
 

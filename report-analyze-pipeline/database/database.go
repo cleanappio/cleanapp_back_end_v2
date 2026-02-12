@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
+	"strconv"
 	"time"
 
 	"report-analyze-pipeline/config"
@@ -63,23 +65,60 @@ func NewDatabase(cfg *config.Config) (*Database, error) {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	// Test connection with exponential backoff retry
+	// Test connection with exponential backoff retry (bounded)
+	maxWaitSec := envInt([]string{"REPORT_ANALYZE_PIPELINE_DB_PING_MAX_WAIT_SEC", "DB_PING_MAX_WAIT_SEC"}, 60)
+	deadline := time.Now().Add(time.Duration(maxWaitSec) * time.Second)
 	var waitInterval time.Duration = 1 * time.Second
 	for {
-		if err := db.Ping(); err == nil {
+		pingErr := db.Ping()
+		if pingErr == nil {
 			break // Connection successful
 		}
-		log.Printf("Database connection failed, retrying in %v: %v", waitInterval, err)
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("database ping timeout after %ds: %w", maxWaitSec, pingErr)
+		}
+		log.Printf("Database connection failed, retrying in %v: %v", waitInterval, pingErr)
 		time.Sleep(waitInterval)
 		waitInterval *= 2 // Exponential backoff: 1s, 2s, 4s, 8s, ...
+		if waitInterval > 30*time.Second {
+			waitInterval = 30 * time.Second
+		}
 	}
 
 	// Set connection pool settings
-	db.SetMaxOpenConns(25)
-	db.SetMaxIdleConns(25)
-	db.SetConnMaxLifetime(5 * time.Minute)
+	applyDBPoolSettings(db)
 
 	return &Database{db: db}, nil
+}
+
+func applyDBPoolSettings(db *sql.DB) {
+	maxOpen := envInt([]string{"REPORT_ANALYZE_PIPELINE_DB_MAX_OPEN_CONNS", "DB_MAX_OPEN_CONNS"}, 20)
+	maxIdle := envInt([]string{"REPORT_ANALYZE_PIPELINE_DB_MAX_IDLE_CONNS", "DB_MAX_IDLE_CONNS"}, 10)
+	maxLifetimeMin := envInt([]string{"REPORT_ANALYZE_PIPELINE_DB_CONN_MAX_LIFETIME_MIN", "DB_CONN_MAX_LIFETIME_MIN"}, 5)
+
+	if maxOpen > 0 {
+		db.SetMaxOpenConns(maxOpen)
+	}
+	if maxIdle > 0 {
+		db.SetMaxIdleConns(maxIdle)
+	}
+	if maxLifetimeMin > 0 {
+		db.SetConnMaxLifetime(time.Duration(maxLifetimeMin) * time.Minute)
+	}
+}
+
+func envInt(keys []string, def int) int {
+	for _, key := range keys {
+		v := os.Getenv(key)
+		if v == "" {
+			continue
+		}
+		n, err := strconv.Atoi(v)
+		if err == nil && n > 0 {
+			return n
+		}
+	}
+	return def
 }
 
 // Close closes the database connection

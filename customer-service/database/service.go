@@ -1171,9 +1171,23 @@ func (s *CustomerService) AddCustomerAreas(ctx context.Context, customerID strin
 		return fmt.Errorf("failed to ensure customer exists: %w", err)
 	}
 
-	// Add each area
+	// Resolve existing area IDs in one query to avoid per-item existence checks.
+	areaIDs := make([]int, 0, len(areas))
 	for _, area := range areas {
-		if err := s.insertCustomerAreaIfNotExists(ctx, tx, customerID, area.AreaID, area.IsPublic); err != nil {
+		areaIDs = append(areaIDs, area.AreaID)
+	}
+	existingAreaIDs, err := s.getExistingCustomerAreaIDs(ctx, tx, customerID, areaIDs)
+	if err != nil {
+		log.Printf("ERROR: Failed to fetch existing customer areas for customer %s: %v", customerID, err)
+		return fmt.Errorf("failed to fetch existing customer areas: %w", err)
+	}
+
+	// Add only missing areas
+	for _, area := range areas {
+		if _, exists := existingAreaIDs[area.AreaID]; exists {
+			continue
+		}
+		if err := s.insertCustomerArea(ctx, tx, customerID, area.AreaID, area.IsPublic); err != nil {
 			log.Printf("ERROR: Failed to add area %d to customer %s: %v", area.AreaID, customerID, err)
 			return fmt.Errorf("failed to add area %d: %w", area.AreaID, err)
 		}
@@ -1286,6 +1300,44 @@ func (s *CustomerService) insertCustomerAreaIfNotExists(ctx context.Context, tx 
 	// Area already exists, skip insertion
 	log.Printf("DEBUG: Area %d already exists for customer %s, skipping", areaID, customerID)
 	return nil
+}
+
+func (s *CustomerService) getExistingCustomerAreaIDs(ctx context.Context, tx *sql.Tx, customerID string, areaIDs []int) (map[int]struct{}, error) {
+	existing := make(map[int]struct{})
+	if len(areaIDs) == 0 {
+		return existing, nil
+	}
+
+	placeholders := make([]string, len(areaIDs))
+	args := make([]interface{}, 0, len(areaIDs)+1)
+	args = append(args, customerID)
+	for i, id := range areaIDs {
+		placeholders[i] = "?"
+		args = append(args, id)
+	}
+
+	query := fmt.Sprintf(
+		"SELECT area_id FROM customer_areas WHERE customer_id = ? AND area_id IN (%s)",
+		strings.Join(placeholders, ","),
+	)
+	rows, err := tx.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id int
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		existing[id] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return existing, nil
 }
 
 func (s *CustomerService) deleteAllCustomerAreas(ctx context.Context, tx *sql.Tx, customerID string) error {

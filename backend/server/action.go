@@ -5,7 +5,6 @@ import (
 
 	"cleanapp/backend/db"
 	"cleanapp/backend/server/api"
-	"cleanapp/common"
 
 	"github.com/apex/log"
 	"github.com/gin-gonic/gin"
@@ -27,12 +26,11 @@ func CreateAction(c *gin.Context) {
 
 	args.Record.Id = randRefGen()
 
-	dbc, err := common.DBConnect()
+	dbc, err := getServerDB()
 	if err != nil {
 		log.Errorf("DB connection error: %w", err)
 		return
 	}
-	defer dbc.Close()
 
 	response, err := db.CreateAction(dbc, args)
 	if err != nil {
@@ -58,12 +56,11 @@ func UpdateAction(c *gin.Context) {
 		return
 	}
 
-	dbc, err := common.DBConnect()
+	dbc, err := getServerDB()
 	if err != nil {
 		log.Errorf("DB connection error: %w", err)
 		return
 	}
-	defer dbc.Close()
 
 	response, err := db.UpdateAction(dbc, args)
 	if err != nil {
@@ -89,12 +86,11 @@ func DeleteAction(c *gin.Context) {
 		return
 	}
 
-	dbc, err := common.DBConnect()
+	dbc, err := getServerDB()
 	if err != nil {
 		log.Errorf("DB connection error: %w", err)
 		return
 	}
-	defer dbc.Close()
 
 	err = db.DeleteAction(dbc, args)
 	if err != nil {
@@ -115,12 +111,11 @@ func GetAction(c *gin.Context) {
 		return
 	}
 
-	dbc, err := common.DBConnect()
+	dbc, err := getServerDB()
 	if err != nil {
 		log.Errorf("DB connection error: %w", err)
 		return
 	}
-	defer dbc.Close()
 
 	response, err := db.GetActions(dbc, id)
 	if err != nil {
@@ -133,12 +128,11 @@ func GetAction(c *gin.Context) {
 }
 
 func GetActions(c *gin.Context) {
-	dbc, err := common.DBConnect()
+	dbc, err := getServerDB()
 	if err != nil {
 		log.Errorf("DB connection error: %w", err)
 		return
 	}
-	defer dbc.Close()
 
 	response, err := db.GetActions(dbc, "")
 	if err != nil {
@@ -164,12 +158,11 @@ func UpdateUserAction(c *gin.Context) {
 		return
 	}
 
-	dbc, err := common.DBConnect()
+	dbc, err := getServerDB()
 	if err != nil {
 		log.Errorf("DB connection error: %w", err)
 		return
 	}
-	defer dbc.Close()
 
 	if err = db.UpdateUserAction(dbc, args); err != nil {
 		log.Errorf("Failed to update user actions with %w", err)

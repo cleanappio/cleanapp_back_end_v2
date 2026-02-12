@@ -130,6 +130,9 @@ func closePublisher() {
 func StartService() {
 	log.Info("Starting the service...")
 
+	// Ensure the shared DB pool is closed on service shutdown.
+	defer closeServerDB()
+
 	// Initialize RabbitMQ publisher for reports and user events
 	err := initializePublisher()
 	if err != nil {

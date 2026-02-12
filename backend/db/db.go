@@ -23,39 +23,30 @@ import (
 
 func CreateOrUpdateUser(db *sql.DB, u *api.UserArgs, teamGen func(string) util.TeamColor, disbursers []*disburse.Disburser) (*api.UserResp, error) {
 	{
-		avRows, err := db.Query("SELECT id FROM users WHERE avatar = ?", u.Avatar)
-		if err != nil {
+		var existingID string
+		err := db.QueryRow("SELECT id FROM users WHERE avatar = ? LIMIT 1", u.Avatar).Scan(&existingID)
+		if err != nil && err != sql.ErrNoRows {
 			log.Errorf("Error getting user with avatar %s, %w", u.Avatar, err)
 			return nil, err
 		}
-		defer avRows.Close()
-
-		if avRows.Next() {
-			// Check for duplication.
-			var id string
-			if err := avRows.Scan(&id); err != nil {
-				return nil, err
-			}
-			if id != u.Id {
-				return &api.UserResp{
-						DupAvatar: true,
-					}, fmt.Errorf("duplicated avatar %s for the user %s: avatar already exists for the user %s",
-						u.Avatar,
-						u.Id,
-						id)
-			}
+		if err == nil && existingID != u.Id {
+			return &api.UserResp{
+					DupAvatar: true,
+				}, fmt.Errorf("duplicated avatar %s for the user %s: avatar already exists for the user %s",
+					u.Avatar,
+					u.Id,
+					existingID)
 		}
 	}
 	var initialKitn = 0
 	{
-		idRows, err := db.Query("SELECT id FROM users WHERE id = ?", u.Id)
-		if err != nil {
+		var existingID string
+		err := db.QueryRow("SELECT id FROM users WHERE id = ? LIMIT 1", u.Id).Scan(&existingID)
+		if err != nil && err != sql.ErrNoRows {
 			log.Errorf("Error getting user with id %s, %w", u.Id, err)
 			return nil, err
 		}
-		defer idRows.Close()
-
-		if !idRows.Next() {
+		if err == sql.ErrNoRows {
 			initialKitn = 1
 			// No existing user yet, it's a user creation. Sending 1 KITN to the user.
 			for _, disburser := range disbursers {
@@ -147,11 +138,12 @@ func SaveReport(db *sql.DB, r *api.ReportArgs) (*api.Report, error) {
 		return nil, err
 	}
 
-	var seq int
-	if err := tx.QueryRowContext(ctx, `SELECT MAX(seq) FROM reports`).Scan(&seq); err != nil {
+	lastInsertID, err := result.LastInsertId()
+	if err != nil {
 		log.Errorf("Error getting last insert id: %w", err)
 		return nil, err
 	}
+	seq := int(lastInsertID)
 	r.Image = compressedImage
 
 	result, err = tx.ExecContext(ctx, `UPDATE users SET kitns_daily = kitns_daily + 1 WHERE id = ?`, r.Id)
