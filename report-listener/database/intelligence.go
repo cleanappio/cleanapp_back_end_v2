@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -13,15 +14,42 @@ type NamedCount struct {
 	Count int
 }
 
+type ReportSnippet struct {
+	Seq            int
+	Title          string
+	Summary        string
+	Classification string
+	SeverityLevel  float64
+	UpdatedAt      time.Time
+}
+
 type IntelligenceContext struct {
-	OrgID               string
-	ReportsAnalyzed     int
-	ReportsThisMonth    int
-	HighPriorityCount   int
-	MediumPriorityCount int
-	TopClassifications  []NamedCount
-	TopIssues           []NamedCount
-	RecentSummaries     []string
+	OrgID                 string
+	ReportsAnalyzed       int
+	ReportsThisMonth      int
+	ReportsLast30Days     int
+	ReportsLast7Days      int
+	ReportsPrev7Days      int
+	GrowthLast7VsPrev7    float64
+	HighPriorityCount     int
+	MediumPriorityCount   int
+	TopClassifications    []NamedCount
+	TopIssues             []NamedCount
+	RecentSummaries       []string
+	RepresentativeReports []ReportSnippet
+	MatchedReports        []ReportSnippet
+	Keywords              []string
+}
+
+var keywordSplitRegex = regexp.MustCompile(`[^\p{L}\p{N}]+`)
+
+var intelligenceStopWords = map[string]struct{}{
+	"what": {}, "which": {}, "this": {}, "that": {}, "with": {}, "from": {}, "about": {},
+	"show": {}, "give": {}, "please": {}, "could": {}, "would": {}, "there": {}, "their": {},
+	"are": {}, "is": {}, "the": {}, "and": {}, "for": {}, "you": {}, "our": {}, "your": {},
+	"have": {}, "has": {}, "were": {}, "been": {}, "into": {}, "over": {}, "under": {},
+	"most": {}, "least": {}, "risks": {}, "risk": {}, "issues": {}, "issue": {}, "reports": {},
+	"problem": {}, "problems": {}, "month": {}, "week": {}, "today": {}, "recent": {},
 }
 
 func (d *Database) EnsureIntelligenceTables(ctx context.Context) error {
@@ -103,7 +131,7 @@ func (d *Database) GetAndIncrementIntelligenceUsage(ctx context.Context, session
 	return true, turnsUsed, nil
 }
 
-func (d *Database) GetIntelligenceContext(ctx context.Context, orgID string) (*IntelligenceContext, error) {
+func (d *Database) GetIntelligenceContext(ctx context.Context, orgID, question string) (*IntelligenceContext, error) {
 	org := strings.ToLower(strings.TrimSpace(orgID))
 	if org == "" {
 		return nil, fmt.Errorf("org_id is required")
@@ -122,22 +150,36 @@ func (d *Database) GetIntelligenceContext(ctx context.Context, orgID string) (*I
 	}
 
 	_ = d.db.QueryRowContext(ctx, `
-		SELECT COUNT(*)
-		FROM reports r
-		INNER JOIN report_analysis ra ON ra.seq = r.seq
+		SELECT
+			COALESCE(SUM(CASE WHEN r.ts >= DATE_FORMAT(UTC_TIMESTAMP(), '%Y-%m-01 00:00:00') THEN 1 ELSE 0 END), 0) AS month_count,
+			COALESCE(SUM(CASE WHEN r.ts >= UTC_TIMESTAMP() - INTERVAL 30 DAY THEN 1 ELSE 0 END), 0) AS last_30d_count,
+			COALESCE(SUM(CASE WHEN r.ts >= UTC_TIMESTAMP() - INTERVAL 7 DAY THEN 1 ELSE 0 END), 0) AS last_7d_count,
+			COALESCE(SUM(CASE WHEN r.ts < UTC_TIMESTAMP() - INTERVAL 7 DAY AND r.ts >= UTC_TIMESTAMP() - INTERVAL 14 DAY THEN 1 ELSE 0 END), 0) AS prev_7d_count
+		FROM report_analysis ra
+		INNER JOIN reports r ON ra.seq = r.seq
 		WHERE ra.brand_name = ?
 		AND ra.is_valid = TRUE
-		AND r.ts >= DATE_FORMAT(UTC_TIMESTAMP(), '%Y-%m-01 00:00:00')
-	`, org).Scan(&result.ReportsThisMonth)
+	`, org).Scan(
+		&result.ReportsThisMonth,
+		&result.ReportsLast30Days,
+		&result.ReportsLast7Days,
+		&result.ReportsPrev7Days,
+	)
+
+	if result.ReportsPrev7Days > 0 {
+		result.GrowthLast7VsPrev7 = (float64(result.ReportsLast7Days-result.ReportsPrev7Days) / float64(result.ReportsPrev7Days)) * 100.0
+	} else if result.ReportsLast7Days > 0 {
+		result.GrowthLast7VsPrev7 = 100.0
+	}
 
 	classRows, err := d.db.QueryContext(ctx, `
-		SELECT COALESCE(classification, 'unknown') AS classification, COUNT(*) AS cnt
+		SELECT COALESCE(NULLIF(classification, ''), 'unknown') AS classification, COUNT(*) AS cnt
 		FROM report_analysis
 		WHERE brand_name = ?
 		AND is_valid = TRUE
 		GROUP BY classification
 		ORDER BY cnt DESC
-		LIMIT 5
+		LIMIT 6
 	`, org)
 	if err == nil {
 		defer classRows.Close()
@@ -158,7 +200,7 @@ func (d *Database) GetIntelligenceContext(ctx context.Context, orgID string) (*I
 		AND title != ''
 		GROUP BY title
 		ORDER BY cnt DESC
-		LIMIT 5
+		LIMIT 6
 	`, org)
 	if err == nil {
 		defer issueRows.Close()
@@ -178,7 +220,7 @@ func (d *Database) GetIntelligenceContext(ctx context.Context, orgID string) (*I
 		AND summary IS NOT NULL
 		AND summary != ''
 		ORDER BY created_at DESC
-		LIMIT 5
+		LIMIT 8
 	`, org)
 	if err == nil {
 		defer summaryRows.Close()
@@ -190,5 +232,129 @@ func (d *Database) GetIntelligenceContext(ctx context.Context, orgID string) (*I
 		}
 	}
 
+	representative, repErr := d.getReportSnippets(ctx, org, nil, 6)
+	if repErr == nil {
+		result.RepresentativeReports = representative
+	}
+
+	keywords := extractKeywords(question)
+	result.Keywords = keywords
+	if len(keywords) > 0 {
+		matched, matchErr := d.getReportSnippets(ctx, org, keywords, 5)
+		if matchErr == nil {
+			result.MatchedReports = mergeUniqueSnippets(matched, representative, 5)
+		}
+	}
+
 	return result, nil
+}
+
+func (d *Database) getReportSnippets(ctx context.Context, org string, keywords []string, limit int) ([]ReportSnippet, error) {
+	if limit <= 0 {
+		limit = 3
+	}
+
+	query := `
+		SELECT
+			ra.seq,
+			COALESCE(NULLIF(ra.title, ''), '(untitled report)') AS title,
+			COALESCE(NULLIF(ra.summary, ''), COALESCE(NULLIF(ra.description, ''), '(no summary available)')) AS summary,
+			COALESCE(NULLIF(ra.classification, ''), 'unknown') AS classification,
+			COALESCE(ra.severity_level, 0) AS severity_level,
+			COALESCE(ra.updated_at, ra.created_at, r.ts) AS updated_at
+		FROM report_analysis ra
+		INNER JOIN reports r ON r.seq = ra.seq
+		WHERE ra.brand_name = ?
+		AND ra.is_valid = TRUE
+	`
+
+	args := make([]interface{}, 0, 1+len(keywords)*3+1)
+	args = append(args, org)
+
+	if len(keywords) > 0 {
+		clauses := make([]string, 0, len(keywords))
+		for _, kw := range keywords {
+			clauses = append(clauses, `(LOWER(ra.title) LIKE ? OR LOWER(ra.summary) LIKE ? OR LOWER(ra.description) LIKE ?)`)
+			pattern := "%" + strings.ToLower(strings.TrimSpace(kw)) + "%"
+			args = append(args, pattern, pattern, pattern)
+		}
+		query += " AND (" + strings.Join(clauses, " OR ") + ")"
+	}
+
+	query += `
+		ORDER BY ra.severity_level DESC, updated_at DESC
+		LIMIT ?
+	`
+	args = append(args, limit)
+
+	rows, err := d.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make([]ReportSnippet, 0, limit)
+	for rows.Next() {
+		var item ReportSnippet
+		if scanErr := rows.Scan(&item.Seq, &item.Title, &item.Summary, &item.Classification, &item.SeverityLevel, &item.UpdatedAt); scanErr != nil {
+			return nil, scanErr
+		}
+		result = append(result, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func extractKeywords(question string) []string {
+	q := strings.ToLower(strings.TrimSpace(question))
+	if q == "" {
+		return nil
+	}
+
+	raw := keywordSplitRegex.Split(q, -1)
+	seen := make(map[string]struct{}, len(raw))
+	keywords := make([]string, 0, 4)
+	for _, token := range raw {
+		t := strings.TrimSpace(token)
+		if len(t) < 4 {
+			continue
+		}
+		if _, stop := intelligenceStopWords[t]; stop {
+			continue
+		}
+		if _, dup := seen[t]; dup {
+			continue
+		}
+		seen[t] = struct{}{}
+		keywords = append(keywords, t)
+		if len(keywords) == 4 {
+			break
+		}
+	}
+	return keywords
+}
+
+func mergeUniqueSnippets(primary, secondary []ReportSnippet, max int) []ReportSnippet {
+	if max <= 0 {
+		max = 3
+	}
+	out := make([]ReportSnippet, 0, max)
+	seen := make(map[int]struct{}, max)
+	appendUnique := func(items []ReportSnippet) {
+		for _, item := range items {
+			if len(out) >= max {
+				return
+			}
+			if _, exists := seen[item.Seq]; exists {
+				continue
+			}
+			seen[item.Seq] = struct{}{}
+			out = append(out, item)
+		}
+	}
+	appendUnique(primary)
+	appendUnique(secondary)
+	return out
 }

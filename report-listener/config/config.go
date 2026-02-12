@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -37,6 +38,7 @@ type Config struct {
 	GeminiAPIKey                string
 	GeminiModel                 string
 	IntelligenceFreeTierMaxTurn int
+	IntelligenceBaseURL         string
 }
 
 // Load loads configuration from environment variables
@@ -71,6 +73,7 @@ func Load() *Config {
 		GeminiAPIKey:                getEnv("GEMINI_API_KEY", ""),
 		GeminiModel:                 getEnv("GEMINI_MODEL", "gemini-2.5-flash"),
 		IntelligenceFreeTierMaxTurn: getIntEnv("INTELLIGENCE_FREE_MAX_TURNS", 5),
+		IntelligenceBaseURL:         strings.TrimRight(getEnv("INTELLIGENCE_BASE_URL", "https://cleanapp.io"), "/"),
 	}
 
 	return config

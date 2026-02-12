@@ -157,6 +157,10 @@ services:
       - RABBITMQ_EXCHANGE=cleanapp-exchange
       - RABBITMQ_ANALYSED_REPORT_ROUTING_KEY=report.analysed
       - RABBITMQ_TWITTER_REPLY_ROUTING_KEY=twitter.reply
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=gemini-2.5-flash
+      - INTELLIGENCE_FREE_MAX_TURNS=5
+      - INTELLIGENCE_BASE_URL=https://cleanapp.io
     ports:
       - 9081:8080
     depends_on:
