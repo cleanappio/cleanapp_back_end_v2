@@ -33,6 +33,7 @@ type IntelligenceQueryRequest struct {
 	SessionID        string  `json:"session_id"`
 	UserID           *string `json:"user_id"`
 	SubscriptionTier string  `json:"subscription_tier"`
+	QualityMode      string  `json:"quality_mode"`
 }
 
 type IntelligenceEvidenceItem struct {
@@ -89,6 +90,7 @@ func (h *Handlers) QueryIntelligence(c *gin.Context) {
 	if tier == "" {
 		tier = "anonymous"
 	}
+	qualityMode := normalizeQualityMode(req.QualityMode)
 	signedIn := req.UserID != nil && strings.TrimSpace(*req.UserID) != ""
 	isPro := tier == "pro"
 
@@ -178,7 +180,7 @@ func (h *Handlers) QueryIntelligence(c *gin.Context) {
 		userPrompt := buildUserPrompt(intelCtx, question, baseURL, intent, priorities)
 
 		queryCtx, cancel := context.WithTimeout(c.Request.Context(), 18*time.Second)
-		generated, genErr := h.geminiClient.GenerateAnswer(queryCtx, systemPrompt, userPrompt)
+		generated, genErr := h.geminiClient.GenerateAnswerWithQuality(queryCtx, systemPrompt, userPrompt, qualityMode)
 		cancel()
 		if genErr != nil {
 			log.Printf("intelligence gemini generation failed org=%s intent=%s tier=%s: %v", orgID, intent, tier, genErr)
@@ -230,10 +232,20 @@ func (h *Handlers) getIntelligenceCounts(ctx context.Context, orgID string) (int
 	if cached, ok, fresh := h.getBrandCountsCached(orgID); ok && fresh {
 		return cached.Total, cached.High, cached.Medium
 	}
-	countCtx, cancel := context.WithTimeout(ctx, 1200*time.Millisecond)
+	countCtx, cancel := context.WithTimeout(ctx, 3500*time.Millisecond)
 	defer cancel()
 	total, high, medium, err := h.db.GetBrandPriorityCountsByBrandName(countCtx, orgID)
 	if err != nil {
+		// Best-effort fallback to total-only count so UI/chat can still show real scale.
+		totalOnlyCtx, cancelTotal := context.WithTimeout(ctx, 2*time.Second)
+		totalOnly, countErr := h.db.GetReportsCountByBrandName(totalOnlyCtx, orgID)
+		cancelTotal()
+		if countErr == nil && totalOnly > 0 {
+			if cached, ok, _ := h.getBrandCountsCached(orgID); ok {
+				return totalOnly, cached.High, cached.Medium
+			}
+			return totalOnly, 0, 0
+		}
 		if cached, ok, _ := h.getBrandCountsCached(orgID); ok {
 			return cached.Total, cached.High, cached.Medium
 		}
@@ -244,7 +256,7 @@ func (h *Handlers) getIntelligenceCounts(ctx context.Context, orgID string) (int
 }
 
 func (h *Handlers) loadIntentContext(ctx context.Context, orgID, question string, intent IntelligenceIntent, excludeIDs []int) (*database.IntelligenceContext, []database.FixPriority, error) {
-	ctxRead, cancel := context.WithTimeout(ctx, 3*time.Second)
+	ctxRead, cancel := context.WithTimeout(ctx, 7*time.Second)
 	defer cancel()
 
 	// Intent-driven prompts like "what should we fix first?" are broad executive asks,
@@ -354,6 +366,17 @@ func cloneSuggestedPrompts() []string {
 	out := make([]string, len(promptSuggestions))
 	copy(out, promptSuggestions)
 	return out
+}
+
+func normalizeQualityMode(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "fast":
+		return "fast"
+	case "deep":
+		return "deep"
+	default:
+		return "deep"
+	}
 }
 
 func buildSystemPrompt(tier string, intent IntelligenceIntent) string {

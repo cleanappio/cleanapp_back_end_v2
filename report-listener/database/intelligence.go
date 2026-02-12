@@ -267,9 +267,21 @@ func (d *Database) GetIntelligenceContextWithOptions(ctx context.Context, orgID,
 		return nil, fmt.Errorf("org_id is required")
 	}
 
-	total, high, medium, err := d.GetBrandPriorityCountsByBrandName(ctx, org)
-	if err != nil {
-		return nil, err
+	total, high, medium := 0, 0, 0
+	if t, h, m, err := d.GetBrandPriorityCountsByBrandName(ctx, org); err == nil {
+		total, high, medium = t, h, m
+	} else {
+		// Do not fail intelligence requests for large brands if priority-count query times out.
+		// Fall back to total-only count with a short bounded timeout.
+		parent := ctx
+		if parent.Err() != nil {
+			parent = context.Background()
+		}
+		fallbackCtx, cancel := context.WithTimeout(parent, 2*time.Second)
+		defer cancel()
+		if tOnly, countErr := d.GetReportsCountByBrandName(fallbackCtx, org); countErr == nil {
+			total = tOnly
+		}
 	}
 
 	result := &IntelligenceContext{

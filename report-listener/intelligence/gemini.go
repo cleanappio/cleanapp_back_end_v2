@@ -67,18 +67,15 @@ type geminiResponse struct {
 }
 
 func (c *Client) GenerateAnswer(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	return c.GenerateAnswerWithQuality(ctx, systemPrompt, userPrompt, "")
+}
+
+func (c *Client) GenerateAnswerWithQuality(ctx context.Context, systemPrompt, userPrompt, qualityMode string) (string, error) {
 	if !c.Enabled() {
 		return "", fmt.Errorf("gemini api key not configured")
 	}
 
-	models := dedupeNonEmpty(
-		c.model,
-		"gemini-2.5-pro",
-		"gemini-2.5-flash",
-		"gemini-2.5-flash-lite",
-		"gemini-2.0-flash",
-		"gemini-flash-latest",
-	)
+	models := c.modelsForQualityMode(qualityMode)
 
 	reqBody := geminiRequest{
 		SystemInstruction: &geminiSystemInstruction{
@@ -120,6 +117,30 @@ func (c *Client) GenerateAnswer(ctx context.Context, systemPrompt, userPrompt st
 		lastErr = fmt.Errorf("gemini returned empty response")
 	}
 	return "", lastErr
+}
+
+func (c *Client) modelsForQualityMode(mode string) []string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "fast":
+		return dedupeNonEmpty(
+			"gemini-2.5-flash",
+			"gemini-2.0-flash",
+			"gemini-flash-latest",
+			c.model,
+			"gemini-2.5-pro",
+		)
+	case "deep":
+		fallthrough
+	default:
+		return dedupeNonEmpty(
+			c.model,
+			"gemini-2.5-pro",
+			"gemini-2.5-flash",
+			"gemini-2.5-flash-lite",
+			"gemini-2.0-flash",
+			"gemini-flash-latest",
+		)
+	}
 }
 
 func (c *Client) call(ctx context.Context, url string, payload []byte) (string, error) {
