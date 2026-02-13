@@ -31,6 +31,14 @@ type Config struct {
 	// Spam prevention configuration
 	DryRun                 bool // If true, log emails but don't actually send them
 	MaxDailyEmailsPerBrand int  // Maximum emails to send per brand per day (default: 10)
+
+	// Physical contact discovery flow:
+	// - When a physical report has no recipients yet (no inferred emails + no area emails),
+	//   we can defer processing for a short period to allow background contact discovery
+	//   (OSM/web enrichment, email-fetcher, etc) to populate inferred_contact_emails.
+	UseInferredEmailsForPhysical bool // If true, allow sending to inferred_contact_emails for physical reports
+	ContactDiscoveryMaxRetries   int  // Max defer/retry attempts before marking as processed (default: 3)
+	ContactDiscoveryRetryMinutes int  // Base retry delay in minutes (exponential backoff) (default: 30)
 }
 
 // Load loads configuration from environment variables and flags
@@ -68,6 +76,21 @@ func Load() *Config {
 		maxDaily = 10 // Default: max 10 emails per brand per day
 	}
 	cfg.MaxDailyEmailsPerBrand = maxDaily
+
+	// Physical contact discovery flow defaults
+	cfg.UseInferredEmailsForPhysical = getEnv("EMAIL_USE_INFERRED_EMAILS_FOR_PHYSICAL", "true") == "true"
+
+	maxRetries, err := strconv.Atoi(getEnv("EMAIL_CONTACT_DISCOVERY_MAX_RETRIES", "3"))
+	if err != nil || maxRetries < 0 {
+		maxRetries = 3
+	}
+	cfg.ContactDiscoveryMaxRetries = maxRetries
+
+	retryMinutes, err := strconv.Atoi(getEnv("EMAIL_CONTACT_DISCOVERY_RETRY_MINUTES", "30"))
+	if err != nil || retryMinutes <= 0 {
+		retryMinutes = 30
+	}
+	cfg.ContactDiscoveryRetryMinutes = retryMinutes
 
 	return cfg
 }

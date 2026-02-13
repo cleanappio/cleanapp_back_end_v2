@@ -463,8 +463,9 @@ func (s *Service) enrichPhysicalReportEmails(report *database.Report, analysis *
 	log.Printf("Report %d: %d valid emails after filtering (from %d total)",
 		report.Seq, len(validEmails), len(allEmails))
 
-	// Step 7: If we found enough emails, save them
-	if len(validEmails) >= 2 {
+	// Step 7: If we found at least one usable mailbox, save it. Physical contact discovery is often sparse;
+	// a single official address is still valuable, and downstream can throttle/opt-out as needed.
+	if len(validEmails) >= 1 {
 		// Limit to top 5
 		if len(validEmails) > 5 {
 			validEmails = validEmails[:5]
