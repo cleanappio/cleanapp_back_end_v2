@@ -234,7 +234,27 @@ impl Subscriber {
         exchange_name: &str,
         queue_name: &str,
     ) -> Result<Self, SubscriberError> {
-        let (channel, queue) = Self::connect_channel(amqp_url, exchange_name, queue_name).await?;
+        // Retry initial connection with backoff.
+        //
+        // In CI and during deployments, RabbitMQ can become "healthy" slightly before it accepts
+        // TCP connections on 5672. Without retry, services can crashloop on a transient refusal.
+        let mut backoff = Duration::from_millis(250);
+        let (channel, queue) = loop {
+            match Self::connect_channel(amqp_url, exchange_name, queue_name).await {
+                Ok(v) => break v,
+                Err(e) => {
+                    log::warn!(
+                        "rabbitmq: initial connect failed; exchange={} queue={} err={} retry_in_ms={}",
+                        exchange_name,
+                        queue_name,
+                        e,
+                        backoff.as_millis()
+                    );
+                    sleep(backoff).await;
+                    backoff = std::cmp::min(backoff.saturating_mul(2), Duration::from_secs(10));
+                }
+            }
+        };
         Ok(Subscriber {
             amqp_url: amqp_url.to_string(),
             channel,
