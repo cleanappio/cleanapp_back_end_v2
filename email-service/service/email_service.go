@@ -568,8 +568,9 @@ func (s *EmailService) processReport(ctx context.Context, report models.Report) 
 // findAreasForReport finds areas that contain the report point and their associated emails
 func (s *EmailService) findAreasForReport(ctx context.Context, report models.Report) (map[uint64]*geojson.Feature, map[uint64][]string, error) {
 	// Convert point to WKT format
-	// WKT POINT is "x y" => "lon lat" for SRID 4326.
-	ptWKT := fmt.Sprintf("POINT(%g %g)", report.Longitude, report.Latitude)
+	// IMPORTANT: MySQL follows the SRID axis order for geographic SRS. For EPSG:4326 the axis order
+	// is latitude, then longitude. So we intentionally build `POINT(lat lon)` here.
+	ptWKT := fmt.Sprintf("POINT(%g %g)", report.Latitude, report.Longitude)
 
 	// Find areas that contain this point
 	qStart := time.Now()

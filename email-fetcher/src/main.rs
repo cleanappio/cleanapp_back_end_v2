@@ -478,8 +478,9 @@ async fn lookup_physical_contact_emails(
     longitude: f64,
     max_contacts: usize,
 ) -> Result<(usize, Vec<String>)> {
-    // WKT POINT is "x y" => "lon lat" for SRID 4326.
-    let pt_wkt = format!("POINT({} {})", longitude, latitude);
+    // IMPORTANT: MySQL follows the SRID axis order for geographic SRS. For EPSG:4326 the axis order
+    // is latitude, then longitude. So we intentionally build `POINT(lat lon)` here.
+    let pt_wkt = format!("POINT({} {})", latitude, longitude);
 
     let area_count = conn
         .exec_first::<u64, _, _>(
