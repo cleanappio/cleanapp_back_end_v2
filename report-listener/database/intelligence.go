@@ -552,6 +552,69 @@ func (d *Database) GetFallbackReportSnippets(ctx context.Context, org string, li
 	return out, nil
 }
 
+// GetPreferredReportSnippetBySeq returns a single snippet for a report sequence,
+// preferring the requested language when available.
+func (d *Database) GetPreferredReportSnippetBySeq(ctx context.Context, org string, seq int, preferredLanguage string) (*ReportSnippet, error) {
+	if seq <= 0 {
+		return nil, nil
+	}
+
+	org = strings.ToLower(strings.TrimSpace(org))
+	preferredLanguage = strings.ToLower(strings.TrimSpace(preferredLanguage))
+
+	scanOne := func(query string, args ...interface{}) (*ReportSnippet, error) {
+		var item ReportSnippet
+		err := d.db.QueryRowContext(ctx, query, args...).Scan(
+			&item.Seq,
+			&item.Title,
+			&item.Summary,
+			&item.Classification,
+			&item.SeverityLevel,
+			&item.UpdatedAt,
+		)
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		return &item, nil
+	}
+
+	baseSelect := `
+		SELECT
+			ra.seq,
+			COALESCE(NULLIF(ra.title, ''), '(untitled report)') AS title,
+			COALESCE(NULLIF(ra.summary, ''), COALESCE(NULLIF(ra.description, ''), '(no summary available)')) AS summary,
+			COALESCE(NULLIF(ra.classification, ''), 'unknown') AS classification,
+			COALESCE(ra.severity_level, 0) AS severity_level,
+			COALESCE(ra.updated_at, ra.created_at, UTC_TIMESTAMP()) AS updated_at
+		FROM report_analysis ra
+		WHERE ra.brand_name = ?
+		AND ra.seq = ?
+		AND ra.is_valid = TRUE
+	`
+
+	if preferredLanguage != "" {
+		item, err := scanOne(baseSelect+`
+		AND ra.language = ?
+		ORDER BY COALESCE(ra.updated_at, ra.created_at) DESC
+		LIMIT 1
+	`, org, seq, preferredLanguage)
+		if err != nil {
+			return nil, err
+		}
+		if item != nil {
+			return item, nil
+		}
+	}
+
+	return scanOne(baseSelect+`
+		ORDER BY COALESCE(ra.updated_at, ra.created_at) DESC
+		LIMIT 1
+	`, org, seq)
+}
+
 func (d *Database) getRecurringSnippets(ctx context.Context, org string, keywords []string, topIssues []NamedCount, excludeSeq []int, limit int) ([]ReportSnippet, error) {
 	if limit <= 0 {
 		limit = 3

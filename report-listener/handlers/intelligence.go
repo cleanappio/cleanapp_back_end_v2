@@ -511,6 +511,31 @@ func (h *Handlers) buildExamplesForIntent(
 		pick = append(pick, collectEvidenceReports(ctx)...)
 	}
 
+	preferredLanguage := preferredEvidenceLanguageForOrg(ctx.OrgID)
+	preferredBySeq := make(map[int]database.ReportSnippet, max)
+	resolveSnippet := func(r database.ReportSnippet) database.ReportSnippet {
+		if h.db == nil || preferredLanguage == "" || r.Seq <= 0 {
+			return r
+		}
+		if cached, ok := preferredBySeq[r.Seq]; ok {
+			return cached
+		}
+		qctx, cancel := context.WithTimeout(context.Background(), 1200*time.Millisecond)
+		defer cancel()
+		preferred, err := h.db.GetPreferredReportSnippetBySeq(qctx, ctx.OrgID, r.Seq, preferredLanguage)
+		if err != nil {
+			log.Printf("intelligence_preferred_language_lookup_failed org=%s seq=%d err=%v", ctx.OrgID, r.Seq, err)
+			preferredBySeq[r.Seq] = r
+			return r
+		}
+		if preferred == nil {
+			preferredBySeq[r.Seq] = r
+			return r
+		}
+		preferredBySeq[r.Seq] = *preferred
+		return *preferred
+	}
+
 	examples := make([]IntelligenceExample, 0, max)
 	seen := make(map[int]struct{}, max)
 	for _, r := range pick {
@@ -524,7 +549,7 @@ func (h *Handlers) buildExamplesForIntent(
 			continue
 		}
 		seen[r.Seq] = struct{}{}
-		examples = append(examples, reportSnippetToExample(r, baseURL, ctx.OrgID))
+		examples = append(examples, reportSnippetToExample(resolveSnippet(r), baseURL, ctx.OrgID))
 	}
 
 	// Safety fallback: always provide representative examples for answer quality.
@@ -548,10 +573,22 @@ func (h *Handlers) buildExamplesForIntent(
 				continue
 			}
 			seen[r.Seq] = struct{}{}
-			examples = append(examples, reportSnippetToExample(r, baseURL, ctx.OrgID))
+			examples = append(examples, reportSnippetToExample(resolveSnippet(r), baseURL, ctx.OrgID))
 		}
 	}
 	return examples
+}
+
+func preferredEvidenceLanguageForOrg(orgID string) string {
+	org := strings.ToLower(strings.TrimSpace(orgID))
+	if org == "" {
+		return ""
+	}
+	// Keep native-language rendering for Montenegro-specific dashboard context.
+	if strings.Contains(org, "montenegro") {
+		return ""
+	}
+	return "en"
 }
 
 func reportSnippetToExample(r database.ReportSnippet, baseURL, orgID string) IntelligenceExample {
