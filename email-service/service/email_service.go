@@ -27,11 +27,11 @@ type EmailService struct {
 }
 
 const (
-	retryReasonDailyLimit       = "daily_limit"
-	retryReasonAllThrottled     = "all_throttled"
-	retryReasonNoValidEmails    = "no_valid_emails"
-	retryReasonAggregateFailure = "aggregate_send_failed"
-	retryReasonThrottleError    = "throttle_check_error"
+	retryReasonDailyLimit            = "daily_limit"
+	retryReasonAllThrottled          = "all_throttled"
+	retryReasonNoValidEmails         = "no_valid_emails"
+	retryReasonAggregateFailure      = "aggregate_send_failed"
+	retryReasonThrottleError         = "throttle_check_error"
 	retryReasonAwaitContactDiscovery = "await_contact_discovery"
 )
 
