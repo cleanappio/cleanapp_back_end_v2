@@ -26,6 +26,14 @@ type EmailService struct {
 	email  *email.EmailSender
 }
 
+const (
+	retryReasonDailyLimit       = "daily_limit"
+	retryReasonAllThrottled     = "all_throttled"
+	retryReasonNoValidEmails    = "no_valid_emails"
+	retryReasonAggregateFailure = "aggregate_send_failed"
+	retryReasonThrottleError    = "throttle_check_error"
+)
+
 // isValidEmail checks if a string is a valid email address
 func (s *EmailService) isValidEmail(email string) bool {
 	// Updated regex to prevent consecutive dots and ensure proper email format
@@ -83,9 +91,9 @@ func (s *EmailService) recordEmailSent(ctx context.Context, email string) error 
 	return nil
 }
 
-// shouldThrottleEmail checks if we should throttle sending email to this brand+email pair
-// Returns true if we've already sent an email to this pair within the throttle period
-func (s *EmailService) shouldThrottleEmail(ctx context.Context, brandName, email string) (bool, error) {
+// getThrottleDecision checks whether this brand+email pair should be throttled and returns
+// the earliest re-attempt time when throttled.
+func (s *EmailService) getThrottleDecision(ctx context.Context, brandName, email string) (bool, *time.Time, error) {
 	throttleDays := s.config.ThrottleDays
 	if throttleDays <= 0 {
 		throttleDays = 7 // Default fallback
@@ -98,19 +106,26 @@ func (s *EmailService) shouldThrottleEmail(ctx context.Context, brandName, email
 	`, brandName, email).Scan(&lastSentAt)
 
 	if err == sql.ErrNoRows {
-		return false, nil // Never sent to this pair, don't throttle
+		return false, nil, nil // Never sent to this pair, don't throttle
 	}
 	if err != nil {
-		return false, fmt.Errorf("failed to check throttle for brand %s, email %s: %w", brandName, email, err)
+		return false, nil, fmt.Errorf("failed to check throttle for brand %s, email %s: %w", brandName, email, err)
 	}
 
 	if lastSentAt.Valid {
 		throttlePeriod := time.Duration(throttleDays) * 24 * time.Hour
-		if time.Since(lastSentAt.Time) < throttlePeriod {
-			return true, nil // Recently sent, throttle this email
+		nextAttempt := lastSentAt.Time.Add(throttlePeriod)
+		if time.Now().Before(nextAttempt) {
+			return true, &nextAttempt, nil // Recently sent, throttle this email
 		}
 	}
-	return false, nil
+	return false, nil, nil
+}
+
+// shouldThrottleEmail checks if we should throttle sending email to this brand+email pair.
+func (s *EmailService) shouldThrottleEmail(ctx context.Context, brandName, email string) (bool, error) {
+	throttled, _, err := s.getThrottleDecision(ctx, brandName, email)
+	return throttled, err
 }
 
 // recordBrandEmailSent records that an email was sent for a specific brand
@@ -219,8 +234,10 @@ func (s *EmailService) getUnprocessedReports(ctx context.Context) ([]models.Repo
         FROM reports r
         INNER JOIN report_analysis ra ON r.seq = ra.seq
         LEFT JOIN sent_reports_emails sre ON r.seq = sre.seq
+		LEFT JOIN email_report_retry erry ON r.seq = erry.seq
         WHERE sre.seq IS NULL
         AND ra.language = 'en'
+		AND (erry.seq IS NULL OR erry.next_attempt_at <= NOW())
         ORDER BY r.seq DESC
         LIMIT 500
     `
@@ -263,9 +280,11 @@ func (s *EmailService) getUnprocessedReportsByBrand(ctx context.Context) ([]mode
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
 		LEFT JOIN sent_reports_emails sre ON r.seq = sre.seq
+		LEFT JOIN email_report_retry erry ON r.seq = erry.seq
 		WHERE sre.seq IS NULL
 		  AND ra.brand_name != ''
 		  AND ra.language = 'en'
+		  AND (erry.seq IS NULL OR erry.next_attempt_at <= NOW())
 		GROUP BY ra.brand_name, ra.brand_display_name
 		ORDER BY new_count DESC
 		LIMIT 100
@@ -335,7 +354,7 @@ func (s *EmailService) ProcessBrandNotifications() error {
 
 	log.Infof("Found %d brands with new reports (in %s)", len(brandSummaries), time.Since(start))
 
-	var processedBrands, skippedBrands, emailsSent, dailyLimitHits int
+	var processedBrands, skippedBrands, emailsSent, dailyLimitHits, scheduledRetries int
 
 	for _, summary := range brandSummaries {
 		// SAFETY CHECK: Daily email limit per brand
@@ -345,12 +364,8 @@ func (s *EmailService) ProcessBrandNotifications() error {
 		} else if dailyCount >= s.config.MaxDailyEmailsPerBrand {
 			log.Warnf("⚠️ DAILY LIMIT REACHED for brand %s (%d/%d), skipping",
 				summary.BrandName, dailyCount, s.config.MaxDailyEmailsPerBrand)
-			// Mark reports as processed so we don't keep retrying tomorrow
-			for _, seq := range summary.ReportSeqs {
-				if err := s.markReportAsProcessed(ctx, seq); err != nil {
-					log.Warnf("Failed to mark report %d as processed: %v", seq, err)
-				}
-			}
+			nextAttempt := nextDailyRetryWindow(time.Now())
+			scheduledRetries += s.scheduleReportsRetry(ctx, summary.ReportSeqs, retryReasonDailyLimit, nextAttempt)
 			dailyLimitHits++
 			skippedBrands++
 			continue
@@ -359,52 +374,66 @@ func (s *EmailService) ProcessBrandNotifications() error {
 		// Get contact emails for this brand
 		emails := strings.Split(strings.TrimSpace(summary.InferredContactEmails), ",")
 		var cleanEmails []string
+		throttledCount := 0
+		throttleCheckErrors := 0
+		earliestRetry := time.Time{}
+		hasRetryTime := false
+
 		for _, email := range emails {
 			cleanEmail := strings.TrimSpace(email)
-			if cleanEmail != "" && s.isValidEmail(cleanEmail) {
-				// Check opt-out
-				optedOut, err := s.isEmailOptedOut(ctx, cleanEmail)
-				if err != nil {
-					log.Warnf("Failed to check opt-out for %s: %v", cleanEmail, err)
-					continue
-				}
-				if optedOut {
-					log.Infof("Skipping opted-out email: %s", cleanEmail)
-					continue
-				}
-
-				// Check per-brand throttle
-				throttled, err := s.shouldThrottleEmail(ctx, summary.BrandName, cleanEmail)
-				if err != nil {
-					log.Warnf("Failed to check throttle for %s/%s: %v, skipping to be safe", summary.BrandName, cleanEmail, err)
-					continue // CHANGED: Skip on error instead of proceeding
-				}
-				if throttled {
-					log.Infof("Throttling email to %s for brand %s (already sent recently)", cleanEmail, summary.BrandName)
-					continue
-				}
-
-				cleanEmails = append(cleanEmails, cleanEmail)
+			if cleanEmail == "" || !s.isValidEmail(cleanEmail) {
+				continue
 			}
+
+			// Check opt-out
+			optedOut, err := s.isEmailOptedOut(ctx, cleanEmail)
+			if err != nil {
+				log.Warnf("Failed to check opt-out for %s: %v", cleanEmail, err)
+				continue
+			}
+			if optedOut {
+				log.Infof("Skipping opted-out email: %s", cleanEmail)
+				continue
+			}
+
+			// Check per-brand throttle
+			throttled, nextAttempt, err := s.getThrottleDecision(ctx, summary.BrandName, cleanEmail)
+			if err != nil {
+				log.Warnf("Failed to check throttle for %s/%s: %v", summary.BrandName, cleanEmail, err)
+				throttleCheckErrors++
+				continue
+			}
+			if throttled {
+				throttledCount++
+				if nextAttempt != nil && (!hasRetryTime || nextAttempt.Before(earliestRetry)) {
+					earliestRetry = *nextAttempt
+					hasRetryTime = true
+				}
+				log.Infof("Throttling email to %s for brand %s (already sent recently)", cleanEmail, summary.BrandName)
+				continue
+			}
+
+			cleanEmails = append(cleanEmails, cleanEmail)
 		}
 
 		if len(cleanEmails) == 0 {
-			log.Infof("Brand %s: no valid/non-throttled emails, marking %d reports as processed", summary.BrandName, len(summary.ReportSeqs))
-			// Still mark reports as processed so we don't keep retrying
-			for _, seq := range summary.ReportSeqs {
-				if err := s.markReportAsProcessed(ctx, seq); err != nil {
-					log.Warnf("Failed to mark report %d as processed: %v", seq, err)
+			reason := retryReasonNoValidEmails
+			nextAttempt := time.Now().Add(6 * time.Hour)
+			if throttledCount > 0 {
+				reason = retryReasonAllThrottled
+				if hasRetryTime {
+					nextAttempt = earliestRetry
 				}
+			} else if throttleCheckErrors > 0 {
+				reason = retryReasonThrottleError
+				nextAttempt = time.Now().Add(30 * time.Minute)
 			}
+
+			log.Infof("Brand %s: no sendable emails (throttled=%d, throttle_check_errors=%d); scheduling retry for %d reports at %s (reason=%s)",
+				summary.BrandName, throttledCount, throttleCheckErrors, len(summary.ReportSeqs), nextAttempt.Format(time.RFC3339), reason)
+			scheduledRetries += s.scheduleReportsRetry(ctx, summary.ReportSeqs, reason, nextAttempt)
 			skippedBrands++
 			continue
-		}
-
-		// CRITICAL: Mark ALL reports BEFORE sending (prevents race condition on restart)
-		for _, seq := range summary.ReportSeqs {
-			if err := s.markReportAsProcessed(ctx, seq); err != nil {
-				log.Warnf("Failed to mark report %d as processed: %v", seq, err)
-			}
 		}
 
 		// DRY RUN MODE: Log what would be sent but don't actually send
@@ -412,6 +441,11 @@ func (s *EmailService) ProcessBrandNotifications() error {
 			log.Infof("🔒 DRY RUN: Would send to %d recipients for brand %s (%d new, %d total reports)",
 				len(cleanEmails), summary.BrandName, summary.NewReportCount, summary.TotalReportCount)
 			log.Infof("🔒 DRY RUN: Recipients: %v", cleanEmails)
+			for _, seq := range summary.ReportSeqs {
+				if err := s.markReportAsProcessed(ctx, seq); err != nil {
+					log.Warnf("Failed to mark report %d as processed in dry-run: %v", seq, err)
+				}
+			}
 			processedBrands++
 			emailsSent += len(cleanEmails)
 			continue
@@ -423,7 +457,8 @@ func (s *EmailService) ProcessBrandNotifications() error {
 
 		if err := s.sendAggregateNotification(ctx, &summary, cleanEmails); err != nil {
 			log.Errorf("Failed to send aggregate notification for brand %s: %v", summary.BrandName, err)
-			// Reports already marked as processed, continue to next brand
+			nextAttempt := time.Now().Add(30 * time.Minute)
+			scheduledRetries += s.scheduleReportsRetry(ctx, summary.ReportSeqs, retryReasonAggregateFailure, nextAttempt)
 			continue
 		}
 
@@ -437,12 +472,18 @@ func (s *EmailService) ProcessBrandNotifications() error {
 			}
 		}
 
+		for _, seq := range summary.ReportSeqs {
+			if err := s.markReportAsProcessed(ctx, seq); err != nil {
+				log.Warnf("Failed to mark report %d as processed after successful send: %v", seq, err)
+			}
+		}
+
 		processedBrands++
 		emailsSent += len(cleanEmails)
 	}
 
-	log.Infof("Aggregate notification cycle complete: %d brands processed, %d skipped (%d daily limit hits), %d emails sent (took %s)",
-		processedBrands, skippedBrands, dailyLimitHits, emailsSent, time.Since(start))
+	log.Infof("Aggregate notification cycle complete: %d brands processed, %d skipped (%d daily limit hits), %d emails sent, %d reports scheduled for retry (took %s)",
+		processedBrands, skippedBrands, dailyLimitHits, emailsSent, scheduledRetries, time.Since(start))
 	return nil
 }
 
@@ -875,8 +916,54 @@ func (s *EmailService) markReportAsProcessed(ctx context.Context, seq int64) err
 		log.Errorf("markReportAsProcessed error for seq %d (in %s): %v", seq, time.Since(start), err)
 		return err
 	}
+	if err := s.clearReportRetry(ctx, seq); err != nil {
+		log.Warnf("Failed to clear retry state for seq %d: %v", seq, err)
+	}
 	log.Infof("Report %d marked as processed (in %s)", seq, time.Since(start))
 	return nil
+}
+
+func (s *EmailService) clearReportRetry(ctx context.Context, seq int64) error {
+	_, err := s.db.ExecContext(ctx, "DELETE FROM email_report_retry WHERE seq = ?", seq)
+	return err
+}
+
+func (s *EmailService) scheduleReportRetry(ctx context.Context, seq int64, reason string, nextAttempt time.Time) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO email_report_retry (seq, reason, next_attempt_at, retry_count, created_at, updated_at)
+		VALUES (?, ?, ?, 1, NOW(), NOW())
+		ON DUPLICATE KEY UPDATE
+			reason = VALUES(reason),
+			next_attempt_at = VALUES(next_attempt_at),
+			retry_count = retry_count + 1,
+			updated_at = NOW()
+	`, seq, reason, nextAttempt)
+	if err != nil {
+		return fmt.Errorf("failed to schedule retry for seq %d (%s): %w", seq, reason, err)
+	}
+	return nil
+}
+
+func (s *EmailService) scheduleReportsRetry(ctx context.Context, seqs []int64, reason string, nextAttempt time.Time) int {
+	scheduled := 0
+	for _, seq := range seqs {
+		if err := s.scheduleReportRetry(ctx, seq, reason, nextAttempt); err != nil {
+			log.Warnf("Failed to schedule retry for seq %d: %v", seq, err)
+			continue
+		}
+		scheduled++
+	}
+	return scheduled
+}
+
+func nextDailyRetryWindow(now time.Time) time.Time {
+	n := now
+	if n.IsZero() {
+		n = time.Now()
+	}
+	y, m, d := n.Date()
+	loc := n.Location()
+	return time.Date(y, m, d+1, 0, 5, 0, 0, loc)
 }
 
 // verifyAndCreateTables ensures all required tables exist with proper structure
@@ -1054,6 +1141,42 @@ func verifyAndCreateTables(db *sql.DB) error {
 		log.Info("brand_email_throttle table created successfully")
 	} else {
 		log.Info("brand_email_throttle table already exists")
+	}
+
+	// Check if email_report_retry table exists (retry state for unsent reports)
+	var retryTableExists int
+	err = db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM information_schema.tables
+		WHERE table_schema = DATABASE()
+		AND table_name = 'email_report_retry'
+	`).Scan(&retryTableExists)
+	if err != nil {
+		return fmt.Errorf("failed to check if email_report_retry table exists: %w", err)
+	}
+
+	if retryTableExists == 0 {
+		log.Info("Creating email_report_retry table...")
+		createRetryTableSQL := `
+			CREATE TABLE email_report_retry (
+				seq INT PRIMARY KEY,
+				reason VARCHAR(64) NOT NULL,
+				next_attempt_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				retry_count INT NOT NULL DEFAULT 1,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+				INDEX idx_retry_next_attempt (next_attempt_at),
+				INDEX idx_retry_reason (reason),
+				INDEX idx_retry_updated_at (updated_at)
+			) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+		`
+		_, err = db.ExecContext(ctx, createRetryTableSQL)
+		if err != nil {
+			return fmt.Errorf("failed to create email_report_retry table: %w", err)
+		}
+		log.Info("email_report_retry table created successfully")
+	} else {
+		log.Info("email_report_retry table already exists")
 	}
 
 	// Verify that required tables exist
