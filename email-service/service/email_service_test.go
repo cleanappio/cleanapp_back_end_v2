@@ -1,7 +1,6 @@
 package service
 
 import (
-	"regexp"
 	"strings"
 	"testing"
 )
@@ -14,9 +13,10 @@ func TestIsValidEmail(t *testing.T) {
 		expected    bool
 		description string
 	}{
-		{"test@example.com", true, "valid email"},
+		{"user@acme.com", true, "valid email"},
 		{"user.name@domain.co.uk", true, "valid email with dots and country code"},
 		{"user+tag@example.org", true, "valid email with plus sign"},
+		{"test@example.com", false, "placeholder/example domain should be rejected"},
 		{"invalid-email", false, "invalid email without domain"},
 		{"@example.com", false, "invalid email without local part"},
 		{"user@", false, "invalid email without domain"},
@@ -37,6 +37,8 @@ func TestIsValidEmail(t *testing.T) {
 }
 
 func TestProcessInferredEmails(t *testing.T) {
+	service := &EmailService{}
+
 	// Test the email processing logic
 	testCases := []struct {
 		input       string
@@ -44,18 +46,18 @@ func TestProcessInferredEmails(t *testing.T) {
 		description string
 	}{
 		{
-			"test@example.com,user@domain.org",
-			[]string{"test@example.com", "user@domain.org"},
+			"alpha@acme.com,user@domain.org",
+			[]string{"alpha@acme.com", "user@domain.org"},
 			"two valid emails",
 		},
 		{
-			"test@example.com, invalid-email, user@domain.org",
-			[]string{"test@example.com", "user@domain.org"},
+			"alpha@acme.com, invalid-email, user@domain.org",
+			[]string{"alpha@acme.com", "user@domain.org"},
 			"mixed valid and invalid emails",
 		},
 		{
-			"  test@example.com  ,  user@domain.org  ",
-			[]string{"test@example.com", "user@domain.org"},
+			"  alpha@acme.com  ,  user@domain.org  ",
+			[]string{"alpha@acme.com", "user@domain.org"},
 			"emails with whitespace",
 		},
 		{
@@ -78,7 +80,7 @@ func TestProcessInferredEmails(t *testing.T) {
 
 			for _, email := range parts {
 				cleanEmail := strings.TrimSpace(email)
-				if cleanEmail != "" && isValidEmail(cleanEmail) {
+				if cleanEmail != "" && service.isValidEmail(cleanEmail) {
 					emails = append(emails, cleanEmail)
 				}
 			}
@@ -95,11 +97,4 @@ func TestProcessInferredEmails(t *testing.T) {
 			}
 		})
 	}
-}
-
-// Helper function for testing (copy of the service method)
-func isValidEmail(email string) bool {
-	// Updated regex to prevent consecutive dots and ensure proper email format
-	emailRegex := regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$`)
-	return emailRegex.MatchString(email)
 }

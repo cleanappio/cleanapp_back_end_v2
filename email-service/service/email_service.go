@@ -27,18 +27,42 @@ type EmailService struct {
 }
 
 const (
-	retryReasonDailyLimit       = "daily_limit"
-	retryReasonAllThrottled     = "all_throttled"
-	retryReasonNoValidEmails    = "no_valid_emails"
-	retryReasonAggregateFailure = "aggregate_send_failed"
-	retryReasonThrottleError    = "throttle_check_error"
+	retryReasonDailyLimit            = "daily_limit"
+	retryReasonAllThrottled          = "all_throttled"
+	retryReasonNoValidEmails         = "no_valid_emails"
+	retryReasonAggregateFailure      = "aggregate_send_failed"
+	retryReasonThrottleError         = "throttle_check_error"
+	retryReasonAwaitContactDiscovery = "await_contact_discovery"
 )
 
 // isValidEmail checks if a string is a valid email address
 func (s *EmailService) isValidEmail(email string) bool {
+	email = strings.TrimSpace(email)
+	if email == "" {
+		return false
+	}
+
 	// Updated regex to prevent consecutive dots and ensure proper email format
 	emailRegex := regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$`)
-	return emailRegex.MatchString(email)
+	if !emailRegex.MatchString(email) {
+		return false
+	}
+
+	// Filter obvious placeholders
+	lower := strings.ToLower(email)
+	placeholders := []string{
+		"test@", "example@", "sample@", "demo@",
+		"noreply@", "no-reply@", "donotreply@",
+		"admin@localhost", "user@localhost",
+		"@example.com", "@test.com", "@localhost",
+	}
+	for _, p := range placeholders {
+		if strings.Contains(lower, p) {
+			return false
+		}
+	}
+
+	return true
 }
 
 // isEmailOptedOut checks if an email address has opted out from receiving emails
@@ -502,9 +526,10 @@ func (s *EmailService) processReport(ctx context.Context, report models.Report) 
 	}
 
 	// Check if we have inferred contact emails
-	if analysis.Classification == "digital" && analysis.InferredContactEmails != "" {
+	inferredStr := strings.TrimSpace(analysis.InferredContactEmails)
+	if inferredStr != "" && (analysis.Classification == "digital" || s.config.UseInferredEmailsForPhysical) {
 		// Split the comma-separated emails and send to each
-		emails := strings.Split(strings.TrimSpace(analysis.InferredContactEmails), ",")
+		emails := strings.Split(inferredStr, ",")
 		var cleanEmails []string
 
 		// Clean up each email (remove whitespace) and validate
@@ -532,8 +557,10 @@ func (s *EmailService) processReport(ctx context.Context, report models.Report) 
 		} else {
 			log.Infof("Report %d: No valid inferred contact emails found after validation", report.Seq)
 		}
+	} else if inferredStr != "" && analysis.Classification != "digital" && !s.config.UseInferredEmailsForPhysical {
+		log.Infof("Report %d: Inferred contact emails present but physical inferred-email sending disabled; falling back to area-based logic", report.Seq)
 	} else {
-		log.Infof("Report %d: No inferred contact emails field found", report.Seq)
+		log.Infof("Report %d: No inferred contact emails present (classification=%s); falling back to area-based logic", report.Seq, analysis.Classification)
 	}
 
 	// Fall back to area-based email logic if no inferred emails
@@ -547,6 +574,18 @@ func (s *EmailService) processReport(ctx context.Context, report models.Report) 
 
 	// If no areas found, mark as processed and return
 	if len(emails) == 0 {
+		// Physical reports may get inferred_contact_emails populated asynchronously (OSM/web enrichment, email-fetcher, etc).
+		// If we mark processed immediately, we lose the chance to send when those contacts arrive.
+		if analysis.Classification != "digital" {
+			deferred, derr := s.deferReportForContactDiscovery(ctx, report.Seq)
+			if derr != nil {
+				return derr
+			}
+			if deferred {
+				return nil
+			}
+		}
+
 		log.Infof("Report %d: No areas found, marking as processed", report.Seq)
 		return s.markReportAsProcessed(ctx, report.Seq)
 	}
@@ -563,6 +602,65 @@ func (s *EmailService) processReport(ctx context.Context, report models.Report) 
 
 	// Mark report as processed
 	return s.markReportAsProcessed(ctx, report.Seq)
+}
+
+func (s *EmailService) getReportRetryCount(ctx context.Context, seq int64) (int, error) {
+	var retryCount int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT retry_count
+		FROM email_report_retry
+		WHERE seq = ?
+		LIMIT 1
+	`, seq).Scan(&retryCount)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	if retryCount < 0 {
+		return 0, nil
+	}
+	return retryCount, nil
+}
+
+func (s *EmailService) deferReportForContactDiscovery(ctx context.Context, seq int64) (bool, error) {
+	maxRetries := s.config.ContactDiscoveryMaxRetries
+	if maxRetries <= 0 {
+		return false, nil
+	}
+
+	retryCount, err := s.getReportRetryCount(ctx, seq)
+	if err != nil {
+		return false, fmt.Errorf("failed to get retry_count for seq %d: %w", seq, err)
+	}
+
+	if retryCount >= maxRetries {
+		log.Infof("Report %d: No recipients found; contact-discovery retries exhausted (%d/%d), will mark as processed",
+			seq, retryCount, maxRetries)
+		return false, nil
+	}
+
+	baseMinutes := s.config.ContactDiscoveryRetryMinutes
+	if baseMinutes <= 0 {
+		baseMinutes = 30
+	}
+	base := time.Duration(baseMinutes) * time.Minute
+
+	// Exponential backoff: base * 2^retryCount, capped to 24h.
+	backoff := base * time.Duration(1<<retryCount)
+	if backoff > 24*time.Hour {
+		backoff = 24 * time.Hour
+	}
+	nextAttempt := time.Now().Add(backoff)
+
+	log.Infof("Report %d: No recipients found yet; deferring processing for contact discovery (retry %d/%d, next in %s at %s)",
+		seq, retryCount+1, maxRetries, backoff, nextAttempt.Format(time.RFC3339))
+
+	if err := s.scheduleReportRetry(ctx, seq, retryReasonAwaitContactDiscovery, nextAttempt); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // findAreasForReport finds areas that contain the report point and their associated emails
