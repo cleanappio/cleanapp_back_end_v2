@@ -431,7 +431,11 @@ services:
       - LOOP_DELAY_MS=10000
       - SEQ_RANGE=85474-283747
       - BATCH_LIMIT=100
+      - PHYSICAL_BATCH_LIMIT=25
+      - PHYSICAL_MAX_CONTACTS=5
       - ENABLE_EMAIL_FETCHER=true
+      - ENABLE_DIGITAL_EMAIL_FETCHER=true
+      - ENABLE_PHYSICAL_EMAIL_FETCHER=true
     depends_on:
       cleanapp_db:
         condition: service_healthy
