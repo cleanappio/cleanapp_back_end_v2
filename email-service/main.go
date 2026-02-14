@@ -88,6 +88,27 @@ func main() {
 		}
 	}()
 
+	// Brandless physical pipeline (bounded).
+	// This fills the gap where physical reports have recipients but no brand_name, so
+	// they don't get picked up by aggregate brand grouping.
+	if cfg.BrandlessPhysicalEnabled {
+		go func() {
+			interval := cfg.GetBrandlessPhysicalPollInterval()
+			log.Printf("Email service started (brandless physical). Polling every %v (limit=%d)", interval, cfg.BrandlessPhysicalBatchLimit)
+			for {
+				iterStart := time.Now()
+				log.Printf("Brandless physical tick started at %s", iterStart.Format(time.RFC3339))
+				if err := emailService.ProcessBrandlessPhysicalReports(cfg.BrandlessPhysicalBatchLimit); err != nil {
+					log.Printf("Error processing brandless physical reports: %v", err)
+				}
+				log.Printf("Brandless physical tick finished in %s; sleeping %v", time.Since(iterStart), interval)
+				time.Sleep(interval)
+			}
+		}()
+	} else {
+		log.Printf("Brandless physical pipeline disabled (EMAIL_BRANDLESS_PHYSICAL_ENABLED=false)")
+	}
+
 	// Wait for interrupt signal to gracefully shutdown the server
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)

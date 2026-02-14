@@ -286,6 +286,104 @@ func (s *EmailService) getUnprocessedReports(ctx context.Context) ([]models.Repo
 	return reports, nil
 }
 
+// getUnprocessedBrandlessPhysicalReports returns physical reports that have no brand_name set.
+// These are not picked up by aggregate brand notifications and would otherwise be dropped.
+func (s *EmailService) getUnprocessedBrandlessPhysicalReports(ctx context.Context, limit int) ([]models.Report, error) {
+	if limit <= 0 {
+		limit = 5
+	}
+	qStart := time.Now()
+	query := `
+        SELECT r.seq, r.id, r.latitude, r.longitude, r.image, r.ts
+        FROM reports r
+        INNER JOIN report_analysis ra ON r.seq = ra.seq
+        LEFT JOIN sent_reports_emails sre ON r.seq = sre.seq
+        LEFT JOIN email_report_retry erry ON r.seq = erry.seq
+        WHERE sre.seq IS NULL
+          AND ra.is_valid = TRUE
+          AND ra.classification = 'physical'
+          AND (ra.brand_name IS NULL OR ra.brand_name = '')
+          AND ra.language = 'en'
+          AND (erry.seq IS NULL OR erry.next_attempt_at <= NOW())
+        ORDER BY r.seq DESC
+        LIMIT ?
+    `
+
+	rows, err := s.db.QueryContext(ctx, query, limit)
+	if err != nil {
+		log.Errorf("getUnprocessedBrandlessPhysicalReports query error (in %s): %v", time.Since(qStart), err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	var reports []models.Report
+	for rows.Next() {
+		var report models.Report
+		if err := rows.Scan(&report.Seq, &report.ID, &report.Latitude, &report.Longitude, &report.Image, &report.Timestamp); err != nil {
+			return nil, err
+		}
+		reports = append(reports, report)
+	}
+
+	log.Infof("getUnprocessedBrandlessPhysicalReports returned %d rows (in %s)", len(reports), time.Since(qStart))
+	return reports, nil
+}
+
+// ProcessBrandlessPhysicalReports processes physical reports with empty brand_name.
+// Bounded by `limit` to avoid bursty catch-up sends.
+func (s *EmailService) ProcessBrandlessPhysicalReports(limit int) error {
+	ctx := context.Background()
+	start := time.Now()
+	log.Info("Brandless physical cycle started: fetching unprocessed physical reports with empty brand_name")
+
+	reports, err := s.getUnprocessedBrandlessPhysicalReports(ctx, limit)
+	if err != nil {
+		return fmt.Errorf("failed to get brandless physical reports: %w", err)
+	}
+
+	log.Infof("Found %d brandless physical reports (in %s)", len(reports), time.Since(start))
+
+	processed := 0
+	for _, report := range reports {
+		// Avoid futile discovery loops for missing coordinates when there are no inferred emails.
+		if report.Latitude == 0 && report.Longitude == 0 {
+			analysis, aerr := s.getReportAnalysis(ctx, report.Seq)
+			if aerr != nil {
+				log.Warnf("Brandless physical: failed to load analysis for seq %d: %v", report.Seq, aerr)
+				continue
+			}
+			if strings.TrimSpace(analysis.InferredContactEmails) == "" {
+				log.Infof("Brandless physical: seq %d has (0,0) coordinates and no inferred contacts; marking processed", report.Seq)
+				if err := s.markReportAsProcessed(ctx, report.Seq); err != nil {
+					log.Warnf("Brandless physical: failed to mark seq %d processed: %v", report.Seq, err)
+					continue
+				}
+				processed++
+				continue
+			}
+		}
+
+		if s.config.DryRun {
+			log.Infof("🔒 DRY RUN: Would process brandless physical seq=%d; marking processed without sending", report.Seq)
+			if err := s.markReportAsProcessed(ctx, report.Seq); err != nil {
+				log.Warnf("Brandless physical: failed to mark seq %d processed in dry-run: %v", report.Seq, err)
+				continue
+			}
+			processed++
+			continue
+		}
+
+		if err := s.processReport(ctx, report); err != nil {
+			log.Errorf("Brandless physical: failed to process report %d: %v", report.Seq, err)
+			continue
+		}
+		processed++
+	}
+
+	log.Infof("Brandless physical cycle complete: %d/%d processed (took %s)", processed, len(reports), time.Since(start))
+	return nil
+}
+
 // getUnprocessedReportsByBrand gets unprocessed reports grouped by brand for aggregate notifications
 func (s *EmailService) getUnprocessedReportsByBrand(ctx context.Context) ([]models.BrandReportSummary, error) {
 	qStart := time.Now()
@@ -577,6 +675,10 @@ func (s *EmailService) processReport(ctx context.Context, report models.Report) 
 		// Physical reports may get inferred_contact_emails populated asynchronously (OSM/web enrichment, email-fetcher, etc).
 		// If we mark processed immediately, we lose the chance to send when those contacts arrive.
 		if analysis.Classification != "digital" {
+			if report.Latitude == 0 && report.Longitude == 0 {
+				log.Infof("Report %d: No areas found and location is (0,0); cannot do location-based contact discovery. Marking processed.", report.Seq)
+				return s.markReportAsProcessed(ctx, report.Seq)
+			}
 			deferred, derr := s.deferReportForContactDiscovery(ctx, report.Seq)
 			if derr != nil {
 				return derr
@@ -804,7 +906,7 @@ func (s *EmailService) sendEmailsToInferredContacts(ctx context.Context, report 
 
 	brandName := analysis.BrandName
 	if brandName == "" {
-		brandName = "unknown"
+		brandName = "__missing_brand__"
 	}
 
 	// Filter out opted-out emails AND throttled emails

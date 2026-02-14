@@ -39,6 +39,14 @@ type Config struct {
 	UseInferredEmailsForPhysical bool // If true, allow sending to inferred_contact_emails for physical reports
 	ContactDiscoveryMaxRetries   int  // Max defer/retry attempts before marking as processed (default: 3)
 	ContactDiscoveryRetryMinutes int  // Base retry delay in minutes (exponential backoff) (default: 30)
+
+	// Brandless physical pipeline:
+	// Some physical reports have no brand name but still have location-based recipients.
+	// This pipeline processes those seqs separately (bounded + configurable) so they don't get
+	// dropped on the floor by aggregate brand grouping.
+	BrandlessPhysicalEnabled      bool
+	BrandlessPhysicalPollInterval string // duration string (default: 1m)
+	BrandlessPhysicalBatchLimit   int    // max reports per tick (default: 5)
 }
 
 // Load loads configuration from environment variables and flags
@@ -92,6 +100,15 @@ func Load() *Config {
 	}
 	cfg.ContactDiscoveryRetryMinutes = retryMinutes
 
+	// Brandless physical pipeline defaults
+	cfg.BrandlessPhysicalEnabled = getEnv("EMAIL_BRANDLESS_PHYSICAL_ENABLED", "true") == "true"
+	cfg.BrandlessPhysicalPollInterval = getEnv("EMAIL_BRANDLESS_PHYSICAL_POLL_INTERVAL", "1m")
+	batchLimit, err := strconv.Atoi(getEnv("EMAIL_BRANDLESS_PHYSICAL_BATCH_LIMIT", "5"))
+	if err != nil || batchLimit <= 0 {
+		batchLimit = 5
+	}
+	cfg.BrandlessPhysicalBatchLimit = batchLimit
+
 	return cfg
 }
 
@@ -101,6 +118,17 @@ func (c *Config) GetPollInterval() time.Duration {
 	if err != nil {
 		// Fallback to default 30 seconds if parsing fails
 		return 30 * time.Second
+	}
+	return duration
+}
+
+func (c *Config) GetBrandlessPhysicalPollInterval() time.Duration {
+	duration, err := time.ParseDuration(c.BrandlessPhysicalPollInterval)
+	if err != nil {
+		return 1 * time.Minute
+	}
+	if duration <= 0 {
+		return 1 * time.Minute
 	}
 	return duration
 }
