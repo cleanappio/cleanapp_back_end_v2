@@ -49,6 +49,11 @@ mysql_q() {
   sudo -n docker exec -e MYSQL_PWD="${root_pw}" "${db}" mysql -uroot -D cleanapp -e "${q}"
 }
 
+mysql_val() {
+  local q="$1"
+  sudo -n docker exec -e MYSQL_PWD="${root_pw}" "${db}" mysql -uroot -D cleanapp -N -s -e "${q}" 2>/dev/null | head -n 1 || true
+}
+
 mask_emails() {
   sed -E 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}/[redacted-email]/g'
 }
@@ -56,12 +61,16 @@ mask_emails() {
 echo "== trace seq=${seq} =="
 echo
 
+brand_name="$(mysql_val "SELECT brand_name FROM report_analysis WHERE seq=${seq} AND language='en' LIMIT 1;")"
+brand_display="$(mysql_val "SELECT COALESCE(NULLIF(brand_display_name,''), brand_name) FROM report_analysis WHERE seq=${seq} AND language='en' LIMIT 1;")"
+processed_at="$(mysql_val "SELECT DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s') FROM sent_reports_emails WHERE seq=${seq} LIMIT 1;")"
+
 echo "== reports =="
 mysql_q "SELECT seq,id,ts,latitude,longitude FROM reports WHERE seq=${seq} LIMIT 1;"
 echo
 
 echo "== report_analysis (summary) =="
-mysql_q "SELECT seq,is_valid,classification,language,brand_display_name,severity_level,CHAR_LENGTH(inferred_contact_emails) AS inferred_len,LEFT(inferred_contact_emails,64) AS inferred_preview FROM report_analysis WHERE seq=${seq} LIMIT 1;" | mask_emails
+mysql_q "SELECT seq,is_valid,classification,language,brand_name,brand_display_name,severity_level,CHAR_LENGTH(inferred_contact_emails) AS inferred_len,LEFT(inferred_contact_emails,64) AS inferred_preview FROM report_analysis WHERE seq=${seq} LIMIT 1;" | mask_emails
 echo
 
 echo "== email_report_retry =="
@@ -71,6 +80,29 @@ echo
 echo "== sent_reports_emails (processed marker) =="
 mysql_q "SELECT seq,created_at FROM sent_reports_emails WHERE seq=${seq} LIMIT 5;"
 echo
+
+if [[ -n "${brand_name}" ]]; then
+  echo "== brand context =="
+  echo "brand_name=${brand_name}"
+  echo "brand_display=${brand_display}"
+  if [[ -n "${processed_at}" ]]; then
+    echo "processed_at=${processed_at}"
+  fi
+  echo
+
+  echo "== brand_emails (known, redacted) =="
+  mysql_q "SELECT brand_name,CONCAT(LEFT(email_address,2),'***@',SUBSTRING_INDEX(email_address,'@',-1)) AS email_redacted,create_timestamp FROM brand_emails WHERE brand_name='${brand_name}' ORDER BY create_timestamp DESC LIMIT 20;"
+  echo
+
+  echo "== brand_email_throttle (recent, redacted) =="
+  if [[ -n "${processed_at}" ]]; then
+    # Match the send that likely caused this report to be marked processed.
+    mysql_q "SELECT brand_name,CONCAT(LEFT(email,2),'***@',SUBSTRING_INDEX(email,'@',-1)) AS email_redacted,last_sent_at,email_count FROM brand_email_throttle WHERE brand_name='${brand_name}' AND last_sent_at BETWEEN DATE_SUB('${processed_at}', INTERVAL 10 MINUTE) AND DATE_ADD('${processed_at}', INTERVAL 10 MINUTE) ORDER BY last_sent_at DESC;"
+  else
+    mysql_q "SELECT brand_name,CONCAT(LEFT(email,2),'***@',SUBSTRING_INDEX(email,'@',-1)) AS email_redacted,last_sent_at,email_count FROM brand_email_throttle WHERE brand_name='${brand_name}' ORDER BY last_sent_at DESC LIMIT 20;"
+  fi
+  echo
+fi
 
 echo "== physical_contact_lookup_state =="
 mysql_q "SELECT seq,status,attempt_count,next_attempt_at,claimed_at,claimed_by,selected_by_version,selected_reason,CHAR_LENGTH(selected_emails) AS selected_len,LEFT(selected_emails,64) AS selected_preview FROM physical_contact_lookup_state WHERE seq=${seq} LIMIT 5;" | mask_emails
@@ -93,6 +125,12 @@ if [[ -n "${email_svc}" ]]; then
   echo "== email-service logs (last 24h, seq=${seq}) =="
   sudo -n docker logs --since 24h "${email_svc}" 2>/dev/null | grep -E "Report[[:space:]]+${seq}\\b" | tail -n 120 | mask_emails || true
   echo
+
+  if [[ -n "${brand_name}" ]]; then
+    echo "== email-service logs (last 24h, brand=${brand_name}) =="
+    sudo -n docker logs --since 24h "${email_svc}" 2>/dev/null | grep -F "Brand ${brand_name}:" | tail -n 160 | mask_emails || true
+    echo
+  fi
 fi
 
 fetcher_svc="cleanapp_email_fetcher"
