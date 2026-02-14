@@ -172,6 +172,12 @@
 
       <div class="grid">
         <section class="card">
+          <h2>Activity</h2>
+          <div id="metricsRoot">
+            <div class="error">Loading…</div>
+          </div>
+        </section>
+        <section class="card">
           <h2>Checks</h2>
           <div id="checksRoot">
             <div class="error">Loading…</div>
@@ -197,8 +203,10 @@
 
       function renderChecks(payload) {
         const root = document.getElementById("checksRoot");
+        const metricsRoot = document.getElementById("metricsRoot");
         if (!payload || !Array.isArray(payload.checks)) {
           root.innerHTML = '<div class="error">Invalid status payload.</div>';
+          metricsRoot.innerHTML = '<div class="error">Invalid status payload.</div>';
           return;
         }
 
@@ -246,6 +254,34 @@
             <tbody>${rows}</tbody>
           </table>
         `;
+
+        const m = payload.metrics || {};
+        const email = (m && m.email) || {};
+        const rows2 = [
+          ["Last report ingested", m.last_report_ingested || "—"],
+          ["Last report analyzed", m.last_report_analyzed || "—"],
+          ["DB backup (last)", m.backup_last_complete || "—"],
+          ["DB backup age (hours)", m.backup_age_hours ?? "—"],
+          ["Email recipients sent (1h)", email.recipients_sent_1h ?? "—"],
+          ["Email recipients sent (24h)", email.recipients_sent_24h ?? "—"],
+          ["Email reports processed (1h)", email.reports_processed_1h ?? "—"],
+          ["Email reports processed (24h)", email.reports_processed_24h ?? "—"],
+          ["Email due retries (now)", email.due_retries ?? "—"],
+          ["Brandless physical pending", email.brandless_pending_with_inferred ?? "—"],
+        ]
+          .map(([k, v]) => `<tr><td class="muted">${k}</td><td>${String(v)}</td></tr>`)
+          .join("");
+        metricsRoot.innerHTML = `
+          <table>
+            <thead>
+              <tr>
+                <th>Metric</th>
+                <th>Value</th>
+              </tr>
+            </thead>
+            <tbody>${rows2}</tbody>
+          </table>
+        `;
       }
 
       async function refresh() {
@@ -269,4 +305,3 @@
     </script>
   </body>
 </html>
-

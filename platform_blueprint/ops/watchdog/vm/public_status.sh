@@ -171,13 +171,34 @@ else
 fi
 add_check "email_activity" "Email Pipeline (activity)" "${email_status}" "${email_details}" ""
 
+# Export metrics for the JSON payload (python formats/escapes safely).
+export METRIC_BACKUP_LAST_TS="${backup_last_ts}"
+export METRIC_BACKUP_AGE_HOURS="${backup_age_hours}"
+export METRIC_LAST_INGESTED_TS="${last_ingested}"
+export METRIC_LAST_ANALYZED_TS="${last_analyzed}"
+export METRIC_EMAIL_STALE_MIN="${stale_min}"
+export METRIC_EMAIL_DUE_RETRIES="${due_retries}"
+export METRIC_EMAIL_BRANDLESS_PENDING="${brandless_physical_with_inferred}"
+export METRIC_EMAIL_RECIPIENTS_1H="${recipients_1h}"
+export METRIC_EMAIL_RECIPIENTS_24H="${recipients_24h}"
+export METRIC_EMAIL_REPORTS_PROCESSED_1H="${processed_1h}"
+export METRIC_EMAIL_REPORTS_PROCESSED_24H="${processed_24h}"
+
 # --- Build JSON (python does safe escaping/encoding) ---
 python3 - "${checks_file}" <<'PY' >"${out_tmp}"
 import json
+import os
 import sys
 from datetime import datetime, timezone
 
 checks_path = sys.argv[1]
+
+def env_int(k: str):
+    v = os.environ.get(k, "")
+    try:
+        return int(v)
+    except Exception:
+        return None
 
 def now_utc_iso():
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -212,6 +233,21 @@ payload = {
     "generated_at": now_utc_iso(),
     "overall_status": overall,
     "checks": checks,
+    "metrics": {
+        "backup_last_complete": os.environ.get("METRIC_BACKUP_LAST_TS") or None,
+        "backup_age_hours": env_int("METRIC_BACKUP_AGE_HOURS"),
+        "last_report_ingested": os.environ.get("METRIC_LAST_INGESTED_TS") or None,
+        "last_report_analyzed": os.environ.get("METRIC_LAST_ANALYZED_TS") or None,
+        "email": {
+            "stale_min": env_int("METRIC_EMAIL_STALE_MIN"),
+            "due_retries": env_int("METRIC_EMAIL_DUE_RETRIES"),
+            "brandless_pending_with_inferred": env_int("METRIC_EMAIL_BRANDLESS_PENDING"),
+            "recipients_sent_1h": env_int("METRIC_EMAIL_RECIPIENTS_1H"),
+            "recipients_sent_24h": env_int("METRIC_EMAIL_RECIPIENTS_24H"),
+            "reports_processed_1h": env_int("METRIC_EMAIL_REPORTS_PROCESSED_1H"),
+            "reports_processed_24h": env_int("METRIC_EMAIL_REPORTS_PROCESSED_24H"),
+        },
+    },
     "notes": {
         "refresh_seconds": 300,
         "source": "vm_watchdog",
