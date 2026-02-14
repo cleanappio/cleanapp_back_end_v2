@@ -44,18 +44,8 @@ reg_resp="$(
     -d '{"name":"ci-ingest-v1","owner_type":"openclaw"}' \
     "http://localhost:18082/v1/fetchers/register"
 )"
-api_key="$(python3 - <<PY
-import json,sys
-obj=json.loads(sys.stdin.read())
-print(obj["api_key"])
-PY
-<<<"$reg_resp")"
-fetcher_id="$(python3 - <<PY
-import json,sys
-obj=json.loads(sys.stdin.read())
-print(obj["fetcher_id"])
-PY
-<<<"$reg_resp")"
+api_key="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read())["api_key"])' <<<"$reg_resp")"
+fetcher_id="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read())["fetcher_id"])' <<<"$reg_resp")"
 echo "fetcher_id=$fetcher_id"
 
 echo "== fetcher me =="
@@ -63,12 +53,7 @@ me_resp="$(
   curl -fsS --max-time 10 -H "Authorization: Bearer ${api_key}" \
     "http://localhost:18082/v1/fetchers/me"
 )"
-me_id="$(python3 - <<PY
-import json,sys
-obj=json.loads(sys.stdin.read())
-print(obj["fetcher_id"])
-PY
-<<<"$me_resp")"
+me_id="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read())["fetcher_id"])' <<<"$me_resp")"
 if [[ "$me_id" != "$fetcher_id" ]]; then
   echo "fetcher_id mismatch: register=$fetcher_id me=$me_id" >&2
   exit 1
@@ -98,15 +83,7 @@ bulk_resp="$(
     -d "$bulk_body" \
     "http://localhost:18082/v1/reports:bulkIngest"
 )"
-seq="$(python3 - <<PY
-import json,sys
-obj=json.loads(sys.stdin.read())
-items=obj.get("items") or []
-if not items:
-  raise SystemExit("no items in response")
-print(int(items[0]["report_seq"]))
-PY
-<<<"$bulk_resp")"
+seq="$(python3 -c 'import json,sys; obj=json.loads(sys.stdin.read()); items=obj.get("items") or []; assert items, "no items in response"; print(int(items[0]["report_seq"]))' <<<"$bulk_resp")"
 echo "seq=$seq"
 
 echo "== verify report_raw visibility=shadow =="
@@ -151,4 +128,3 @@ if [[ "$code" != "200" ]]; then
 fi
 
 echo "OK"
-
