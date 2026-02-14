@@ -14,8 +14,11 @@ VM_DIR="${ROOT_DIR}/vm"
 
 echo "[watchdog] installing on ${HOST}"
 
-tar -C "${VM_DIR}" -czf - rabbitmq_ensure.sh smoke_local.sh email_pipeline.sh backup_freshness.sh golden_path.sh run.sh | \
+tar -C "${VM_DIR}" -czf - rabbitmq_ensure.sh smoke_local.sh email_pipeline.sh backup_freshness.sh golden_path.sh public_status.sh run.sh uptime.html | \
   ssh "${HOST}" "bash -lc 'set -euo pipefail; mkdir -p ~/cleanapp_watchdog; chmod 700 ~/cleanapp_watchdog; tar -xzf - -C ~/cleanapp_watchdog; chmod 700 ~/cleanapp_watchdog/*.sh'"
+
+# Install the public /uptime assets (secrets-safe) to a root-owned path nginx can read.
+ssh "${HOST}" "bash -lc 'set -euo pipefail; sudo -n mkdir -p /var/www/cleanapp_status; sudo -n chmod 755 /var/www/cleanapp_status; sudo -n install -m 0644 \"$HOME/cleanapp_watchdog/uptime.html\" /var/www/cleanapp_status/uptime.html; if [[ ! -f /var/www/cleanapp_status/uptime.json ]]; then echo \"{}\" | sudo -n tee /var/www/cleanapp_status/uptime.json >/dev/null; sudo -n chmod 644 /var/www/cleanapp_status/uptime.json; fi'"
 
 # Optional shared webhook wiring for watchdog alerts.
 if [[ -n "${CLEANAPP_ALERT_WEBHOOK_URL:-}" ]]; then
