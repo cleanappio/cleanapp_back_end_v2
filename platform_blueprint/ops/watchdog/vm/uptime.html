@@ -189,6 +189,68 @@
     <script>
       const STATUS_URL = "/uptime.json";
 
+      const CET_TZ = "Europe/Zurich";
+      const MONTHS = ["Jan.", "Feb.", "Mar.", "Apr.", "May", "Jun.", "Jul.", "Aug.", "Sep.", "Oct.", "Nov.", "Dec."];
+
+      function tzOffsetMinutes(date, timeZone) {
+        try {
+          const dtf = new Intl.DateTimeFormat("en-GB", {
+            timeZone,
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+            hour12: false,
+          });
+          const parts = dtf.formatToParts(date);
+          const map = {};
+          for (const p of parts) map[p.type] = p.value;
+          const asUTC = Date.UTC(
+            parseInt(map.year, 10),
+            parseInt(map.month, 10) - 1,
+            parseInt(map.day, 10),
+            parseInt(map.hour, 10),
+            parseInt(map.minute, 10),
+            parseInt(map.second, 10),
+          );
+          return Math.round((asUTC - date.getTime()) / 60000);
+        } catch {
+          return null;
+        }
+      }
+
+      function formatCET(iso) {
+        if (!iso || typeof iso !== "string") return "—";
+        const d = new Date(iso);
+        if (Number.isNaN(d.getTime())) return iso;
+
+        const dtf = new Intl.DateTimeFormat("en-GB", {
+          timeZone: CET_TZ,
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          hour12: false,
+        });
+        const parts = dtf.formatToParts(d);
+        const map = {};
+        for (const p of parts) map[p.type] = p.value;
+
+        const monthIdx = Math.max(1, Math.min(12, parseInt(map.month, 10))) - 1;
+        const mon = MONTHS[monthIdx] || map.month;
+        const day = String(parseInt(map.day, 10));
+        const year = map.year;
+        const time = `${map.hour}:${map.minute}:${map.second}`;
+
+        const off = tzOffsetMinutes(d, CET_TZ);
+        const tz = off === 60 ? "CET" : off === 120 ? "CEST" : "CET";
+        return `${mon} ${day}, ${year} ${time} ${tz}`;
+      }
+
       function statusClass(s) {
         if (s === "ok") return "ok";
         if (s === "warn") return "warn";
@@ -210,7 +272,7 @@
           return;
         }
 
-        const generatedAt = payload.generated_at || "";
+        const generatedAt = formatCET(payload.generated_at || "");
         const overall = payload.overall_status || "down";
 
         const badgeText = document.getElementById("overallText");
@@ -258,9 +320,9 @@
         const m = payload.metrics || {};
         const email = (m && m.email) || {};
         const rows2 = [
-          ["Last report ingested", m.last_report_ingested || "—"],
-          ["Last report analyzed", m.last_report_analyzed || "—"],
-          ["DB backup (last)", m.backup_last_complete || "—"],
+          ["Last report ingested", formatCET(m.last_report_ingested || "")],
+          ["Last report analyzed", formatCET(m.last_report_analyzed || "")],
+          ["DB backup (last)", formatCET(m.backup_last_complete || "")],
           ["DB backup age (hours)", m.backup_age_hours ?? "—"],
           ["Email recipients sent (1h)", email.recipients_sent_1h ?? "—"],
           ["Email recipients sent (24h)", email.recipients_sent_24h ?? "—"],
