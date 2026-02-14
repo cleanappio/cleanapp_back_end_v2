@@ -1167,15 +1167,49 @@ func (s *EmailService) clearReportRetry(ctx context.Context, seq int64) error {
 }
 
 func (s *EmailService) scheduleReportRetry(ctx context.Context, seq int64, reason string, nextAttempt time.Time) error {
+	// `no_valid_emails` can churn forever for brands without any discoverable contacts.
+	// We cap retries and apply exponential backoff (up to a max) at the DB level so the
+	// aggregate loop doesn't hot-spin.
+	baseHours := s.config.NoValidEmailsBaseHours
+	if baseHours <= 0 {
+		baseHours = 6
+	}
+	maxBackoffHours := s.config.NoValidEmailsMaxBackoffHours
+	if maxBackoffHours <= 0 {
+		maxBackoffHours = 168 // 7 days
+	}
+	maxRetries := s.config.NoValidEmailsMaxRetries
+	if maxRetries <= 0 {
+		maxRetries = 10
+	}
+
+	// Cap the exponent so baseHours*2^expCap >= maxBackoffHours (and avoid POW blowups).
+	expCap := 0
+	for expCap < 30 {
+		if baseHours*(1<<expCap) >= maxBackoffHours {
+			break
+		}
+		expCap++
+	}
+
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO email_report_retry (seq, reason, next_attempt_at, retry_count, created_at, updated_at)
 		VALUES (?, ?, ?, 1, NOW(), NOW())
 		ON DUPLICATE KEY UPDATE
 			reason = VALUES(reason),
-			next_attempt_at = VALUES(next_attempt_at),
-			retry_count = retry_count + 1,
+			next_attempt_at = CASE
+				WHEN VALUES(reason) = ? THEN DATE_ADD(NOW(), INTERVAL LEAST(? * POW(2, LEAST(retry_count, ?)), ?) HOUR)
+				ELSE VALUES(next_attempt_at)
+			END,
+			retry_count = CASE
+				WHEN VALUES(reason) = ? AND retry_count >= ? THEN retry_count
+				ELSE retry_count + 1
+			END,
 			updated_at = NOW()
-	`, seq, reason, nextAttempt)
+	`, seq, reason, nextAttempt,
+		retryReasonNoValidEmails, baseHours, expCap, maxBackoffHours,
+		retryReasonNoValidEmails, maxRetries,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to schedule retry for seq %d (%s): %w", seq, reason, err)
 	}
