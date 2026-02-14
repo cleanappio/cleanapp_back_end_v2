@@ -5,7 +5,7 @@
 When a **physical** report is submitted (office park, museum, campus, train station, etc), CleanApp should:
 
 1. Determine the most likely responsible entity for that location (operator/owner/department).
-2. Discover *plausible, actionable* contact mailboxes (prefer role-based: `facilities@`, `security@`, `support@`, etc).
+2. Discover *plausible, actionable* contact mailboxes. Role-based addresses (`facilities@`, `security@`, `support@`, etc) are great, but **personal mailboxes are allowed** too.
 3. Send a notification via the email pipeline **only when we have a reasonable target** and can do so safely (throttled, opt-out capable).
 
 This plan is incremental: each phase can ship independently and improves coverage without destabilizing core ingestion/analysis.
@@ -67,6 +67,16 @@ This avoids "giving up" before enrichment finishes.
 
 This phase is about *unit/department/facility* targeting (UCLA, Stanford, etc).
 
+## Pre-Phase 2 Hardening (Required)
+
+Before widening discovery (crawling/heuristics), we need stronger **auditability** and **idempotency** so this doesn't become an uncontrolled "scrape the internet / spam pipeline".
+
+Deliverables:
+- Canonical per-report discovery state (`seq`-anchored): status + attempts + next_attempt + who/when claimed.
+- Per-report candidate storage with provenance (where did this email come from?).
+- Provenance/version fields for whatever ends up in `report_analysis.inferred_contact_emails`.
+- Safe evidence storage (hash + source URL / small excerpt), not full page dumps.
+
 ### 1) Better org hierarchy extraction (OSM/Wikidata)
 Input:
 - Nominatim fields: `operator`, `brand`, `name`, `website`, `contact:*`
@@ -88,6 +98,7 @@ For each candidate entity:
   - accessibility
   - sustainability/cleanup
   - support/help
+  - Note: personal mailboxes are allowed, but we still filter obvious placeholders (`noreply@`, `test@`, etc).
 
 ### 3) Cache + dedupe
 Cache discovered mailboxes by:
@@ -132,4 +143,3 @@ Deliverables:
   - inferred emails before/after enrichment
   - email-service decision path and send/no-send reason
   - SendGrid response (redacted)
-
