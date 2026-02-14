@@ -1,6 +1,6 @@
 # CleanApp Backend version 2+
 
-This repository is for CleanApp (http://cleanapp.io) backend development. CleanApp is a global observability network that turns real-world + digital problems into structured signals and routes them to the organizations that can fix them.
+This repository is for CleanApp (http://cleanapp.io) backend development. CleanApp is a global observability network that turns real-world + digital problems into structured signals and **automatically** routes them to the organizations that can fix them.
 
 **If you want to understand CleanApp as a system, start here:**  
 [WHY](./WHY.md) → [THEORY](./THEORY.md) → [INVARIANTS](./INVARIANTS.md) → [ARCHITECTURE](./ARCHITECTURE.md)
