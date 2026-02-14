@@ -41,7 +41,7 @@ func main() {
 	}
 
 	// Setup HTTP server
-	router := setupRouter(svc)
+	router := setupRouter(cfg, svc)
 
 	// Create HTTP server
 	srv := &http.Server{
@@ -81,7 +81,7 @@ func main() {
 	log.Println("Server exited")
 }
 
-func setupRouter(svc *service.Service) *gin.Engine {
+func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 	router := gin.Default()
 
 	// Add gzip compression middleware
@@ -106,7 +106,7 @@ func setupRouter(svc *service.Service) *gin.Engine {
 	router.Use(func(c *gin.Context) {
 		c.Header("Access-Control-Allow-Origin", "*")
 		c.Header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Accept")
+		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Accept, Authorization, X-Request-Id, X-Internal-Admin-Token")
 
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
@@ -219,6 +219,34 @@ func setupRouter(svc *service.Service) *gin.Engine {
 
 	// Canonical intelligence endpoint
 	router.POST("/api/intelligence/query", h.QueryIntelligence)
+
+	// Public ingest v1 (Fetcher Key System + quarantine lane)
+	v1 := router.Group("/v1")
+	{
+		v1.GET("/openapi.yaml", h.ServeIngestOpenAPI)
+		v1.GET("/docs", h.ServeIngestSwaggerUI)
+
+		v1.POST("/fetchers/register", h.RegisterFetcherV1)
+		v1Auth := v1.Group("/")
+		v1Auth.Use(middleware.FetcherKeyAuthV1(h.Db(), cfg.FetcherKeyEnv, "fetcher:read"))
+		{
+			v1Auth.GET("/fetchers/me", h.GetFetcherMeV1)
+		}
+		v1Ingest := v1.Group("/")
+		v1Ingest.Use(middleware.FetcherKeyAuthV1(h.Db(), cfg.FetcherKeyEnv, "report:submit"))
+		{
+			v1Ingest.POST("/reports:bulkIngest", h.BulkIngestV1)
+		}
+	}
+
+	// Internal admin (kill switches / promotion hooks).
+	internal := router.Group("/internal")
+	internal.Use(middleware.InternalAdminToken(cfg.InternalAdminToken))
+	{
+		internal.POST("/reports/:seq/promote", h.InternalPromoteReport)
+		internal.POST("/fetchers/:fetcher_id/suspend", h.InternalSuspendFetcher)
+		internal.POST("/fetchers/keys/:key_id/revoke", h.InternalRevokeFetcherKey)
+	}
 
 	// Root health check
 	router.GET("/health", func(c *gin.Context) {

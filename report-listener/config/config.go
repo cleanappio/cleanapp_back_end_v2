@@ -31,6 +31,7 @@ type Config struct {
 	AMQPUser                       string
 	AMQPPassword                   string
 	RabbitExchange                 string
+	RabbitRawReportRoutingKey      string
 	RabbitAnalysedReportRoutingKey string
 	RabbitTwitterReplyRoutingKey   string
 
@@ -39,6 +40,13 @@ type Config struct {
 	GeminiModel                 string
 	IntelligenceFreeTierMaxTurn int
 	IntelligenceBaseURL         string
+
+	// Fetcher key system (public ingest v1)
+	FetcherKeyEnv                  string // "live" or "test" (affects API key prefix)
+	FetcherRegisterMaxPerHourPerIP int
+	FetcherIngestMaxBatchItems     int
+	FetcherIngestMaxBodyBytes      int64
+	InternalAdminToken             string // protects /internal/* endpoints
 }
 
 // Load loads configuration from environment variables
@@ -66,6 +74,7 @@ func Load() *Config {
 		AMQPUser:                       getEnv("AMQP_USER", "guest"),
 		AMQPPassword:                   getEnv("AMQP_PASSWORD", "guest"),
 		RabbitExchange:                 getEnv("RABBITMQ_EXCHANGE", "cleanapp"),
+		RabbitRawReportRoutingKey:      getEnv("RABBITMQ_RAW_REPORT_ROUTING_KEY", "report.raw"),
 		RabbitAnalysedReportRoutingKey: getEnv("RABBITMQ_ANALYSED_REPORT_ROUTING_KEY", "report.analysed"),
 		RabbitTwitterReplyRoutingKey:   getEnv("RABBITMQ_TWITTER_REPLY_ROUTING_KEY", "twitter.reply"),
 
@@ -74,6 +83,13 @@ func Load() *Config {
 		GeminiModel:                 getEnv("GEMINI_MODEL", "gemini-2.5-flash"),
 		IntelligenceFreeTierMaxTurn: getIntEnv("INTELLIGENCE_FREE_MAX_TURNS", 5),
 		IntelligenceBaseURL:         strings.TrimRight(getEnv("INTELLIGENCE_BASE_URL", "https://cleanapp.io"), "/"),
+
+		// Fetcher key system defaults
+		FetcherKeyEnv:                  strings.ToLower(getEnv("FETCHER_KEY_ENV", "live")),
+		FetcherRegisterMaxPerHourPerIP: getIntEnv("FETCHER_REGISTER_MAX_PER_HOUR_PER_IP", 5),
+		FetcherIngestMaxBatchItems:     getIntEnv("FETCHER_INGEST_MAX_BATCH_ITEMS", 100),
+		FetcherIngestMaxBodyBytes:      int64(getIntEnv("FETCHER_INGEST_MAX_BODY_BYTES", 2*1024*1024)),
+		InternalAdminToken:             getEnv("INTERNAL_ADMIN_TOKEN", ""),
 	}
 
 	return config
