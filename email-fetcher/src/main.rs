@@ -523,8 +523,79 @@ async fn fetch_physical_candidates(
     conn: &mut my::Conn,
     cfg: &Config,
 ) -> Result<Vec<PhysicalCandidateRow>> {
-    if let Some((start, end)) = cfg.seq_range {
-        let sql = r#"
+    // Prefer the email-service retry queue (await_contact_discovery) so we only do work
+    // when the sender is explicitly waiting for location-based contacts.
+    //
+    // Fall back to a broader scan if there are no retry-queue candidates (useful in dev
+    // or if retry scheduling is temporarily disabled).
+    let rows: Vec<(i64, f64, f64)> = if let Some((start, end)) = cfg.seq_range {
+        conn.exec(
+            r#"
+            SELECT ra.seq, r.latitude, r.longitude
+            FROM email_report_retry er
+            INNER JOIN report_analysis ra ON ra.seq = er.seq
+            INNER JOIN reports r ON r.seq = er.seq
+            LEFT JOIN physical_contact_lookup_state pls ON pls.seq = ra.seq
+            WHERE er.reason = 'await_contact_discovery'
+              AND er.next_attempt_at <= NOW()
+              AND ra.is_valid = TRUE
+              AND ra.classification = 'physical'
+              AND ra.language = 'en'
+              AND ra.seq BETWEEN :start AND :end
+              AND (ra.inferred_contact_emails IS NULL OR ra.inferred_contact_emails = '')
+              AND r.latitude BETWEEN -90 AND 90
+              AND r.longitude BETWEEN -180 AND 180
+              AND NOT (r.latitude = 0 AND r.longitude = 0)
+              AND (pls.seq IS NULL OR pls.next_attempt_at <= NOW())
+              AND (pls.status IS NULL OR pls.status != 'resolved')
+            ORDER BY er.next_attempt_at ASC, ra.seq DESC
+            LIMIT :limit
+            "#,
+            params! {"start" => start, "end" => end, "limit" => cfg.physical_batch_limit},
+        )
+        .await?
+    } else {
+        conn.exec(
+            r#"
+            SELECT ra.seq, r.latitude, r.longitude
+            FROM email_report_retry er
+            INNER JOIN report_analysis ra ON ra.seq = er.seq
+            INNER JOIN reports r ON r.seq = er.seq
+            LEFT JOIN physical_contact_lookup_state pls ON pls.seq = ra.seq
+            WHERE er.reason = 'await_contact_discovery'
+              AND er.next_attempt_at <= NOW()
+              AND ra.is_valid = TRUE
+              AND ra.classification = 'physical'
+              AND ra.language = 'en'
+              AND (ra.inferred_contact_emails IS NULL OR ra.inferred_contact_emails = '')
+              AND r.latitude BETWEEN -90 AND 90
+              AND r.longitude BETWEEN -180 AND 180
+              AND NOT (r.latitude = 0 AND r.longitude = 0)
+              AND (pls.seq IS NULL OR pls.next_attempt_at <= NOW())
+              AND (pls.status IS NULL OR pls.status != 'resolved')
+            ORDER BY er.next_attempt_at ASC, ra.seq DESC
+            LIMIT :limit
+            "#,
+            params! {"limit" => cfg.physical_batch_limit},
+        )
+        .await?
+    };
+
+    if !rows.is_empty() {
+        return Ok(rows
+            .into_iter()
+            .map(|(seq, latitude, longitude)| PhysicalCandidateRow {
+                seq,
+                latitude,
+                longitude,
+            })
+            .collect());
+    }
+
+    // Fallback scan path.
+    let scan_rows: Vec<(i64, f64, f64)> = if let Some((start, end)) = cfg.seq_range {
+        conn.exec(
+            r#"
             SELECT ra.seq, r.latitude, r.longitude
             FROM report_analysis ra
             INNER JOIN reports r ON r.seq = ra.seq
@@ -536,27 +607,18 @@ async fn fetch_physical_candidates(
               AND (ra.inferred_contact_emails IS NULL OR ra.inferred_contact_emails = '')
               AND r.latitude BETWEEN -90 AND 90
               AND r.longitude BETWEEN -180 AND 180
+              AND NOT (r.latitude = 0 AND r.longitude = 0)
               AND (pls.seq IS NULL OR pls.next_attempt_at <= NOW())
               AND (pls.status IS NULL OR pls.status != 'resolved')
-            ORDER BY COALESCE(pls.updated_at, ra.updated_at) ASC
+            ORDER BY ra.seq DESC
             LIMIT :limit
-        "#;
-        let rows: Vec<(i64, f64, f64)> = conn
-            .exec(
-                sql,
-                params! {"start" => start, "end" => end, "limit" => cfg.physical_batch_limit},
-            )
-            .await?;
-        Ok(rows
-            .into_iter()
-            .map(|(seq, latitude, longitude)| PhysicalCandidateRow {
-                seq,
-                latitude,
-                longitude,
-            })
-            .collect())
+            "#,
+            params! {"start" => start, "end" => end, "limit" => cfg.physical_batch_limit},
+        )
+        .await?
     } else {
-        let sql = r#"
+        conn.exec(
+            r#"
             SELECT ra.seq, r.latitude, r.longitude
             FROM report_analysis ra
             INNER JOIN reports r ON r.seq = ra.seq
@@ -567,25 +629,28 @@ async fn fetch_physical_candidates(
               AND (ra.inferred_contact_emails IS NULL OR ra.inferred_contact_emails = '')
               AND r.latitude BETWEEN -90 AND 90
               AND r.longitude BETWEEN -180 AND 180
+              AND NOT (r.latitude = 0 AND r.longitude = 0)
               AND (pls.seq IS NULL OR pls.next_attempt_at <= NOW())
               AND (pls.status IS NULL OR pls.status != 'resolved')
-            ORDER BY COALESCE(pls.updated_at, ra.updated_at) ASC
+            ORDER BY ra.seq DESC
             LIMIT :limit
-        "#;
-        let rows: Vec<(i64, f64, f64)> = conn
-            .exec(sql, params! {"limit" => cfg.physical_batch_limit})
-            .await?;
-        Ok(rows
-            .into_iter()
-            .map(|(seq, latitude, longitude)| PhysicalCandidateRow {
-                seq,
-                latitude,
-                longitude,
-            })
-            .collect())
-    }
+            "#,
+            params! {"limit" => cfg.physical_batch_limit},
+        )
+        .await?
+    };
+
+    Ok(scan_rows
+        .into_iter()
+        .map(|(seq, latitude, longitude)| PhysicalCandidateRow {
+            seq,
+            latitude,
+            longitude,
+        })
+        .collect())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn upsert_physical_lookup_state(
     conn: &mut my::Conn,
     seq: i64,
