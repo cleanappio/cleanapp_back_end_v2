@@ -429,7 +429,6 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_MODEL=gpt-4o
       - LOOP_DELAY_MS=10000
-      - SEQ_RANGE=85474-283747
       - BATCH_LIMIT=100
       - ENABLE_EMAIL_FETCHER=true
     depends_on:
