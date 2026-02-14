@@ -556,7 +556,17 @@ async fn fetch_physical_candidates(
               AND r.latitude BETWEEN -90 AND 90
               AND r.longitude BETWEEN -180 AND 180
               AND NOT (r.latitude = 0 AND r.longitude = 0)
-              AND (pls.seq IS NULL OR pls.next_attempt_at <= NOW())
+              AND (
+                    pls.seq IS NULL
+                 OR pls.next_attempt_at <= NOW()
+                 -- If the sender is blocked by placeholder inferred emails (e.g. "<org.com>" or invalid domains),
+                 -- allow the fetcher to clean them up immediately rather than waiting for backoff.
+                 OR ra.inferred_contact_emails LIKE '%<%'
+                 OR ra.inferred_contact_emails LIKE '%>%'
+                 OR ra.inferred_contact_emails LIKE '%{%'
+                 OR ra.inferred_contact_emails LIKE '%}%'
+                 OR ra.inferred_contact_emails LIKE '%@%_%'
+              )
               AND (pls.status IS NULL OR pls.status != 'resolved')
             ORDER BY er.next_attempt_at ASC, ra.seq DESC
             LIMIT :limit
@@ -581,7 +591,17 @@ async fn fetch_physical_candidates(
               AND r.latitude BETWEEN -90 AND 90
               AND r.longitude BETWEEN -180 AND 180
               AND NOT (r.latitude = 0 AND r.longitude = 0)
-              AND (pls.seq IS NULL OR pls.next_attempt_at <= NOW())
+              AND (
+                    pls.seq IS NULL
+                 OR pls.next_attempt_at <= NOW()
+                 -- If the sender is blocked by placeholder inferred emails (e.g. "<org.com>" or invalid domains),
+                 -- allow the fetcher to clean them up immediately rather than waiting for backoff.
+                 OR ra.inferred_contact_emails LIKE '%<%'
+                 OR ra.inferred_contact_emails LIKE '%>%'
+                 OR ra.inferred_contact_emails LIKE '%{%'
+                 OR ra.inferred_contact_emails LIKE '%}%'
+                 OR ra.inferred_contact_emails LIKE '%@%_%'
+              )
               AND (pls.status IS NULL OR pls.status != 'resolved')
             ORDER BY er.next_attempt_at ASC, ra.seq DESC
             LIMIT :limit
