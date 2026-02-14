@@ -66,6 +66,7 @@ transactiontest
 *_docker_ps*.txt
 test-query.sql
 **/.DS_Store
+**/buildinfo.vars
 
 # Xray scratch artifacts
 xray/**/_test_*

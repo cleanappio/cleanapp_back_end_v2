@@ -117,6 +117,12 @@ struct PhysicalCandidateRow {
     longitude: f64,
 }
 
+#[derive(Debug, Clone)]
+struct PhysicalEmailCandidate {
+    email: String,
+    area_id: Option<i64>,
+}
+
 #[derive(Debug, Default)]
 struct RunStats {
     digital_candidates: usize,
@@ -202,17 +208,11 @@ async fn fetch_support_emails(brand: &str, cfg: &Config) -> Result<Option<String
         .map(|c| c.message.content.trim().to_string())
         .unwrap_or_default();
 
-    let cleaned = content
-        .split(',')
-        .map(|s| s.trim())
-        .filter(|s| s.contains('@'))
-        .collect::<Vec<_>>()
-        .join(",");
-
-    if cleaned.is_empty() {
+    let normalized = normalize_email_candidates(vec![content], 3);
+    if normalized.is_empty() {
         Ok(None)
     } else {
-        Ok(Some(cleaned))
+        Ok(Some(normalized.join(",")))
     }
 }
 
@@ -231,6 +231,27 @@ fn is_reasonable_email(value: &str) -> bool {
     let v = value.trim();
     if v.len() < 6 || v.contains(' ') {
         return false;
+    }
+    let lower = v.to_lowercase();
+    // Filter obvious placeholders. Personal mailboxes are allowed.
+    let placeholders = [
+        "test@",
+        "example@",
+        "sample@",
+        "demo@",
+        "noreply@",
+        "no-reply@",
+        "donotreply@",
+        "admin@localhost",
+        "user@localhost",
+        "@example.com",
+        "@test.com",
+        "@localhost",
+    ];
+    for p in placeholders {
+        if lower.contains(p) {
+            return false;
+        }
     }
     let mut parts = v.split('@');
     let local = parts.next().unwrap_or_default();
@@ -265,6 +286,126 @@ fn normalize_email_candidates(
     out
 }
 
+fn normalize_physical_email_candidates(
+    raw_values: impl IntoIterator<Item = (i64, String)>,
+    max_contacts: usize,
+) -> Vec<PhysicalEmailCandidate> {
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+
+    for (area_id, raw) in raw_values {
+        for token in raw.split(',') {
+            let email = token.trim().to_lowercase();
+            if !is_reasonable_email(&email) {
+                continue;
+            }
+            if seen.insert(email.clone()) {
+                out.push(PhysicalEmailCandidate {
+                    email,
+                    area_id: Some(area_id),
+                });
+                if out.len() >= max_contacts {
+                    return out;
+                }
+            }
+        }
+    }
+    out
+}
+
+async fn column_exists(conn: &mut my::Conn, table: &str, column: &str) -> Result<bool> {
+    let count: Option<u64> = conn
+        .exec_first(
+            r#"
+            SELECT COUNT(*)
+            FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = :table
+              AND COLUMN_NAME = :col
+            "#,
+            params! {"table" => table, "col" => column},
+        )
+        .await?;
+    Ok(count.unwrap_or(0) > 0)
+}
+
+async fn ensure_column(conn: &mut my::Conn, table: &str, column: &str, ddl: &str) -> Result<()> {
+    if column_exists(conn, table, column).await? {
+        return Ok(());
+    }
+    info!("DB migrate: adding column {}.{}", table, column);
+    let sql = format!("ALTER TABLE `{}` ADD COLUMN {}", table, ddl);
+    conn.query_drop(sql).await?;
+    Ok(())
+}
+
+async fn ensure_physical_lookup_state_columns(conn: &mut my::Conn) -> Result<()> {
+    // These are additive and safe: used for auditability and multi-worker safety.
+    ensure_column(
+        conn,
+        "physical_contact_lookup_state",
+        "claimed_at",
+        "`claimed_at` TIMESTAMP NULL DEFAULT NULL",
+    )
+    .await?;
+    ensure_column(
+        conn,
+        "physical_contact_lookup_state",
+        "claimed_by",
+        "`claimed_by` VARCHAR(128) NULL DEFAULT NULL",
+    )
+    .await?;
+    ensure_column(
+        conn,
+        "physical_contact_lookup_state",
+        "selected_emails",
+        "`selected_emails` TEXT NULL",
+    )
+    .await?;
+    ensure_column(
+        conn,
+        "physical_contact_lookup_state",
+        "selected_by_version",
+        "`selected_by_version` VARCHAR(64) NULL DEFAULT NULL",
+    )
+    .await?;
+    ensure_column(
+        conn,
+        "physical_contact_lookup_state",
+        "selected_reason",
+        "`selected_reason` VARCHAR(255) NULL DEFAULT NULL",
+    )
+    .await?;
+    Ok(())
+}
+
+async fn ensure_physical_candidates_table(pool: &my::Pool) -> Result<()> {
+    let mut conn = pool.get_conn().await?;
+    conn.query_drop(
+        r#"
+        CREATE TABLE IF NOT EXISTS physical_contact_candidates (
+            seq BIGINT NOT NULL,
+            email VARCHAR(320) NOT NULL,
+            area_id BIGINT NULL,
+            source_type VARCHAR(32) NOT NULL,
+            source_ref VARCHAR(255) NULL,
+            confidence DECIMAL(4,3) NOT NULL DEFAULT 0.000,
+            evidence_url TEXT NULL,
+            evidence_hash CHAR(64) NULL,
+            evidence_excerpt VARCHAR(255) NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (seq, email),
+            INDEX idx_pcc_seq (seq),
+            INDEX idx_pcc_area (area_id),
+            INDEX idx_pcc_updated (updated_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        "#,
+    )
+    .await?;
+    Ok(())
+}
+
 async fn ensure_physical_lookup_state_table(pool: &my::Pool) -> Result<()> {
     let mut conn = pool.get_conn().await?;
     conn.query_drop(
@@ -284,6 +425,8 @@ async fn ensure_physical_lookup_state_table(pool: &my::Pool) -> Result<()> {
         "#,
     )
     .await?;
+    // Additive migrations (safe in prod): extra columns used for auditability / multi-worker safety.
+    ensure_physical_lookup_state_columns(&mut conn).await?;
     Ok(())
 }
 
@@ -449,15 +592,29 @@ async fn upsert_physical_lookup_state(
     status: &str,
     next_attempt_unix: i64,
     last_error: Option<&str>,
+    selected_emails: Option<&str>,
+    selected_by_version: Option<&str>,
+    selected_reason: Option<&str>,
 ) -> Result<()> {
     conn.exec_drop(
         r#"
-        INSERT INTO physical_contact_lookup_state (seq, status, attempt_count, next_attempt_at, last_error, created_at, updated_at)
-        VALUES (:seq, :status, 1, FROM_UNIXTIME(:next_unix), :last_error, NOW(), NOW())
+        INSERT INTO physical_contact_lookup_state (
+            seq, status, attempt_count, next_attempt_at, last_error,
+            selected_emails, selected_by_version, selected_reason,
+            created_at, updated_at
+        )
+        VALUES (
+            :seq, :status, 1, FROM_UNIXTIME(:next_unix), :last_error,
+            :selected_emails, :selected_by_version, :selected_reason,
+            NOW(), NOW()
+        )
         ON DUPLICATE KEY UPDATE
             status = VALUES(status),
             next_attempt_at = VALUES(next_attempt_at),
             last_error = VALUES(last_error),
+            selected_emails = VALUES(selected_emails),
+            selected_by_version = VALUES(selected_by_version),
+            selected_reason = VALUES(selected_reason),
             attempt_count = attempt_count + 1,
             updated_at = NOW()
         "#,
@@ -466,6 +623,45 @@ async fn upsert_physical_lookup_state(
             "status" => status,
             "next_unix" => next_attempt_unix,
             "last_error" => last_error,
+            "selected_emails" => selected_emails,
+            "selected_by_version" => selected_by_version,
+            "selected_reason" => selected_reason,
+        },
+    )
+    .await?;
+    Ok(())
+}
+
+async fn upsert_physical_candidate(
+    conn: &mut my::Conn,
+    seq: i64,
+    candidate: &PhysicalEmailCandidate,
+    source_type: &str,
+    source_ref: Option<&str>,
+    confidence: f32,
+) -> Result<()> {
+    conn.exec_drop(
+        r#"
+        INSERT INTO physical_contact_candidates (
+            seq, email, area_id, source_type, source_ref, confidence, created_at, updated_at
+        )
+        VALUES (
+            :seq, :email, :area_id, :source_type, :source_ref, :confidence, NOW(), NOW()
+        )
+        ON DUPLICATE KEY UPDATE
+            area_id = VALUES(area_id),
+            source_type = VALUES(source_type),
+            source_ref = VALUES(source_ref),
+            confidence = GREATEST(confidence, VALUES(confidence)),
+            updated_at = NOW()
+        "#,
+        params! {
+            "seq" => seq,
+            "email" => &candidate.email,
+            "area_id" => candidate.area_id,
+            "source_type" => source_type,
+            "source_ref" => source_ref,
+            "confidence" => confidence,
         },
     )
     .await?;
@@ -477,7 +673,7 @@ async fn lookup_physical_contact_emails(
     latitude: f64,
     longitude: f64,
     max_contacts: usize,
-) -> Result<(usize, Vec<String>)> {
+) -> Result<(usize, Vec<PhysicalEmailCandidate>)> {
     // IMPORTANT: MySQL follows the SRID axis order for geographic SRS. For EPSG:4326 the axis order
     // is latitude, then longitude. So we intentionally build `POINT(lat lon)` here.
     let pt_wkt = format!("POINT({} {})", latitude, longitude);
@@ -498,10 +694,10 @@ async fn lookup_physical_contact_emails(
         return Ok((0, vec![]));
     }
 
-    let raw_rows: Vec<Option<String>> = conn
+    let raw_rows: Vec<(i64, Option<String>)> = conn
         .exec(
             r#"
-            SELECT DISTINCT ce.email
+            SELECT DISTINCT ai.area_id, ce.email
             FROM area_index ai
             INNER JOIN contact_emails ce ON ce.area_id = ai.area_id
             WHERE MBRWithin(ST_GeomFromText(:pt, 4326), ai.geom)
@@ -515,11 +711,13 @@ async fn lookup_physical_contact_emails(
         )
         .await?;
 
-    let emails = normalize_email_candidates(
-        raw_rows.into_iter().flatten().collect::<Vec<String>>(),
+    let candidates = normalize_physical_email_candidates(
+        raw_rows
+            .into_iter()
+            .filter_map(|(area_id, email_opt)| email_opt.map(|e| (area_id, e))),
         max_contacts.max(1),
     );
-    Ok((area_count, emails))
+    Ok((area_count, candidates))
 }
 
 async fn run_physical_once(
@@ -556,8 +754,35 @@ async fn run_physical_once(
         )
         .await
         {
-            Ok((area_count, emails)) => {
-                if !emails.is_empty() {
+            Ok((area_count, candidates)) => {
+                if !candidates.is_empty() {
+                    // Persist provenance for auditability (safe: UPSERT by (seq,email)).
+                    for c in &candidates {
+                        let source_ref = c
+                            .area_id
+                            .map(|id| format!("area_id={}", id))
+                            .unwrap_or_else(|| "area_id=unknown".to_string());
+                        if let Err(e) = upsert_physical_candidate(
+                            conn,
+                            row.seq,
+                            c,
+                            "area_index",
+                            Some(source_ref.as_str()),
+                            0.95,
+                        )
+                        .await
+                        {
+                            warn!(
+                                "Physical pass: failed to upsert candidate for seq={} email={} err={:#}",
+                                row.seq, c.email, e
+                            );
+                        }
+                    }
+
+                    let emails = candidates
+                        .iter()
+                        .map(|c| c.email.clone())
+                        .collect::<Vec<_>>();
                     let email_csv = emails.join(",");
                     conn.exec_drop(
                         r#"
@@ -567,24 +792,29 @@ async fn run_physical_once(
                           AND (inferred_contact_emails IS NULL OR inferred_contact_emails = '')
                         "#,
                         params! {
-                            "emails" => email_csv,
+                            "emails" => email_csv.as_str(),
                             "seq" => row.seq,
                         },
                     )
                     .await?;
+
+                    let selected_reason = format!("area_index match (area_hits={})", area_count);
                     upsert_physical_lookup_state(
                         conn,
                         row.seq,
                         "resolved",
                         next_attempt_unix(7 * 24 * 3600),
                         None,
+                        Some(email_csv.as_str()),
+                        Some("v1_area_index"),
+                        Some(selected_reason.as_str()),
                     )
                     .await?;
                     resolved += 1;
                     info!(
                         "Physical pass: seq={} resolved with {} contact(s), area_hits={}",
                         row.seq,
-                        emails.len(),
+                        candidates.len(),
                         area_count
                     );
                 } else {
@@ -593,12 +823,16 @@ async fn run_physical_once(
                     } else {
                         ("no_contact_email", 4 * 3600)
                     };
+                    let selected_reason = format!("area_index no match (area_hits={})", area_count);
                     upsert_physical_lookup_state(
                         conn,
                         row.seq,
                         status,
                         next_attempt_unix(retry_delay),
                         None,
+                        None,
+                        Some("v1_area_index"),
+                        Some(selected_reason.as_str()),
                     )
                     .await?;
                     no_match += 1;
@@ -616,6 +850,9 @@ async fn run_physical_once(
                     "error",
                     next_attempt_unix(30 * 60),
                     Some(&err_msg),
+                    None,
+                    Some("v1_area_index"),
+                    Some("lookup error"),
                 )
                 .await
                 {
@@ -729,6 +966,9 @@ async fn main() -> Result<()> {
     ensure_physical_lookup_state_table(&pool)
         .await
         .context("ensuring physical lookup state table")?;
+    ensure_physical_candidates_table(&pool)
+        .await
+        .context("ensuring physical candidates table")?;
 
     println!(
         "email-fetcher: mysql pool created, entering loop with delay={}ms",

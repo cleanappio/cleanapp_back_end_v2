@@ -9,6 +9,7 @@ crates=(
   report-fast-renderer
   report-listener-v4
   replier-twitter
+  email-fetcher
 )
 
 for c in "${crates[@]}"; do
@@ -17,4 +18,3 @@ for c in "${crates[@]}"; do
 done
 
 echo "OK: cargo clippy"
-
