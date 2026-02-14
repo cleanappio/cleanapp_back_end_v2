@@ -26,6 +26,7 @@ ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
   "${DIR}/rabbitmq_ensure.sh"
   "${DIR}/smoke_local.sh"
+  "${DIR}/email_pipeline.sh"
   "${DIR}/backup_freshness.sh"
   # Only does work when a report appears stuck; otherwise it is passive.
   if [[ -x "${DIR}/golden_path.sh" ]]; then

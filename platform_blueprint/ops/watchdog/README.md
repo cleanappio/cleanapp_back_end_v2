@@ -12,8 +12,9 @@ What it does each run:
    - core localhost health endpoints
    - RabbitMQ must-have bindings
    - report-analysis/report-tags/report-renderer consumers must be present
-3. Verify backup freshness from `/home/deployer/backups/backup.log` (fails if too old)
-4. Write logs and a small status file.
+3. Verify email pipeline liveness (fails if work is due but `sent_reports_emails` isn't advancing)
+4. Verify backup freshness from `/home/deployer/backups/backup.log` (fails if too old)
+5. Write logs and a small status file.
 
 Alerting:
 - Optional webhook support (no secrets committed). If configured, the watchdog will POST failures.
@@ -28,6 +29,7 @@ Files installed on VM:
 - `~/cleanapp_watchdog/run.sh`
 - `~/cleanapp_watchdog/rabbitmq_ensure.sh`
 - `~/cleanapp_watchdog/smoke_local.sh`
+- `~/cleanapp_watchdog/email_pipeline.sh`
 - `~/cleanapp_watchdog/backup_freshness.sh`
 - `~/cleanapp_watchdog/secrets.env` (optional, not created by default)
 - `~/cleanapp_watchdog/watchdog.log`

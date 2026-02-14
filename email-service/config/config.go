@@ -47,6 +47,12 @@ type Config struct {
 	BrandlessPhysicalEnabled      bool
 	BrandlessPhysicalPollInterval string // duration string (default: 1m)
 	BrandlessPhysicalBatchLimit   int    // max reports per tick (default: 5)
+
+	// Aggregate retry tuning:
+	// `no_valid_emails` can be very common for brands without known contacts; without a cap/backoff it can churn forever.
+	NoValidEmailsBaseHours       int // Base backoff hours for `no_valid_emails` (default: 6)
+	NoValidEmailsMaxBackoffHours int // Max backoff hours for `no_valid_emails` (default: 168)
+	NoValidEmailsMaxRetries      int // Max retry_count increments for `no_valid_emails` (default: 10)
 }
 
 // Load loads configuration from environment variables and flags
@@ -108,6 +114,25 @@ func Load() *Config {
 		batchLimit = 5
 	}
 	cfg.BrandlessPhysicalBatchLimit = batchLimit
+
+	// Aggregate retry tuning for brands with no recipients
+	baseHours, err := strconv.Atoi(getEnv("EMAIL_NO_VALID_EMAILS_BASE_HOURS", "6"))
+	if err != nil || baseHours <= 0 {
+		baseHours = 6
+	}
+	cfg.NoValidEmailsBaseHours = baseHours
+
+	maxBackoffHours, err := strconv.Atoi(getEnv("EMAIL_NO_VALID_EMAILS_MAX_BACKOFF_HOURS", "168"))
+	if err != nil || maxBackoffHours <= 0 {
+		maxBackoffHours = 168 // 7 days
+	}
+	cfg.NoValidEmailsMaxBackoffHours = maxBackoffHours
+
+	maxRetriesNoValid, err := strconv.Atoi(getEnv("EMAIL_NO_VALID_EMAILS_MAX_RETRIES", "10"))
+	if err != nil || maxRetriesNoValid <= 0 {
+		maxRetriesNoValid = 10
+	}
+	cfg.NoValidEmailsMaxRetries = maxRetriesNoValid
 
 	return cfg
 }
