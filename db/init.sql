@@ -210,6 +210,14 @@ SHOW TABLES;
 DESCRIBE TABLE report_clusters;
 SHOW COLUMNS FROM report_clusters;
 
+-- Email pipeline marker: tracks which reports have been processed for outbound notifications.
+CREATE TABLE IF NOT EXISTS sent_reports_emails (
+  seq INT PRIMARY KEY,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_created_at (created_at),
+  INDEX idx_seq (seq)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Fetcher Key System + Quarantine Ingest (v1)
 -- These tables support external agent swarms submitting reports safely with
 -- hashed API keys, quotas, audit logs, and a shadow visibility lane.

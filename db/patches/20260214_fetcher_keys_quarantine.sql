@@ -101,3 +101,11 @@ CREATE TABLE IF NOT EXISTS fetcher_usage_daily (
   PRIMARY KEY (fetcher_id, key_id, bucket_date),
   INDEX idx_bucket (bucket_date)
 );
+
+-- Email pipeline marker (some read APIs reference this for last_email_sent_at).
+CREATE TABLE IF NOT EXISTS sent_reports_emails (
+  seq INT PRIMARY KEY,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_created_at (created_at),
+  INDEX idx_seq (seq)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
