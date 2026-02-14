@@ -1009,7 +1009,7 @@ func (d *Database) GetReportBySeq(ctx context.Context, seq int) (*models.ReportW
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("report with seq %d not found or is unavailable", seq)
+			return nil, fmt.Errorf("report with seq %d not found", seq)
 		}
 		return nil, fmt.Errorf("failed to get report by seq: %w", err)
 	}
