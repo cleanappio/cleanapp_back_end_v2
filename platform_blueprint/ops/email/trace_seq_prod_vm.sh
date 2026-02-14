@@ -32,9 +32,21 @@ fi
 seq="${SEQ}"
 db="${DB_CONTAINER:-cleanapp_db}"
 
+get_db_env() {
+  local k="$1"
+  sudo -n docker inspect "${db}" --format '{{range .Config.Env}}{{println .}}{{end}}' \
+    | awk -F= -v key="$k" '$1==key{print substr($0, index($0,"=")+1); exit}'
+}
+
+root_pw="$(get_db_env MYSQL_ROOT_PASSWORD || true)"
+if [[ -z "${root_pw}" ]]; then
+  echo "trace: could not read MYSQL_ROOT_PASSWORD from ${db} container env" >&2
+  exit 1
+fi
+
 mysql_q() {
   local q="$1"
-  sudo -n docker exec "${db}" sh -lc "mysql -uroot -p\"\\$MYSQL_ROOT_PASSWORD\" -D cleanapp -e \"$q\""
+  sudo -n docker exec -e MYSQL_PWD="${root_pw}" "${db}" mysql -uroot -D cleanapp -e "${q}"
 }
 
 mask_emails() {

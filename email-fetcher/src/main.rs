@@ -535,9 +535,11 @@ async fn fetch_physical_candidates(
             FROM email_report_retry er
             INNER JOIN report_analysis ra ON ra.seq = er.seq
             INNER JOIN reports r ON r.seq = er.seq
+            LEFT JOIN sent_reports_emails sre ON sre.seq = ra.seq
             LEFT JOIN physical_contact_lookup_state pls ON pls.seq = ra.seq
             WHERE er.reason = 'await_contact_discovery'
               AND er.next_attempt_at <= NOW()
+              AND sre.seq IS NULL
               AND ra.is_valid = TRUE
               AND ra.classification = 'physical'
               AND ra.language = 'en'
@@ -561,9 +563,11 @@ async fn fetch_physical_candidates(
             FROM email_report_retry er
             INNER JOIN report_analysis ra ON ra.seq = er.seq
             INNER JOIN reports r ON r.seq = er.seq
+            LEFT JOIN sent_reports_emails sre ON sre.seq = ra.seq
             LEFT JOIN physical_contact_lookup_state pls ON pls.seq = ra.seq
             WHERE er.reason = 'await_contact_discovery'
               AND er.next_attempt_at <= NOW()
+              AND sre.seq IS NULL
               AND ra.is_valid = TRUE
               AND ra.classification = 'physical'
               AND ra.language = 'en'
@@ -599,8 +603,10 @@ async fn fetch_physical_candidates(
             SELECT ra.seq, r.latitude, r.longitude
             FROM report_analysis ra
             INNER JOIN reports r ON r.seq = ra.seq
+            LEFT JOIN sent_reports_emails sre ON sre.seq = ra.seq
             LEFT JOIN physical_contact_lookup_state pls ON pls.seq = ra.seq
             WHERE ra.is_valid = TRUE
+              AND sre.seq IS NULL
               AND ra.classification = 'physical'
               AND ra.language = 'en'
               AND ra.seq BETWEEN :start AND :end
@@ -622,8 +628,10 @@ async fn fetch_physical_candidates(
             SELECT ra.seq, r.latitude, r.longitude
             FROM report_analysis ra
             INNER JOIN reports r ON r.seq = ra.seq
+            LEFT JOIN sent_reports_emails sre ON sre.seq = ra.seq
             LEFT JOIN physical_contact_lookup_state pls ON pls.seq = ra.seq
             WHERE ra.is_valid = TRUE
+              AND sre.seq IS NULL
               AND ra.classification = 'physical'
               AND ra.language = 'en'
               AND (ra.inferred_contact_emails IS NULL OR ra.inferred_contact_emails = '')
@@ -939,18 +947,20 @@ async fn run_once(pool: &my::Pool, cfg: &Config) -> Result<RunStats> {
     let mut conn = pool.get_conn().await?;
     let mut stats = RunStats::default();
 
-    if cfg.enable_digital_email_fetcher {
-        let (total, updated) = run_digital_once(&mut conn, cfg).await?;
-        stats.digital_candidates = total;
-        stats.digital_updated = updated;
-    }
-
     if cfg.enable_physical_email_fetcher {
         let (total, resolved, no_match, errors) = run_physical_once(&mut conn, cfg).await?;
         stats.physical_candidates = total;
         stats.physical_resolved = resolved;
         stats.physical_no_match = no_match;
         stats.physical_errors = errors;
+    }
+
+    // Run digital after physical: digital can be slow (LLM calls) and should not starve
+    // location-based contact discovery.
+    if cfg.enable_digital_email_fetcher {
+        let (total, updated) = run_digital_once(&mut conn, cfg).await?;
+        stats.digital_candidates = total;
+        stats.digital_updated = updated;
     }
 
     Ok(stats)
