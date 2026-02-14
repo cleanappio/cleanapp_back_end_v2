@@ -338,8 +338,18 @@ func (s *Service) AnalyzeReport(report *database.Report) error {
 	}
 	transWg.Wait()
 
-	// Publish the analyzed report to RabbitMQ
-	s.publishAnalyzedReport(report, allAnalyses)
+	// Quarantine lane: reports can be analyzed but not published/routed until promoted.
+	vis, err := s.db.ReportVisibility(report.Seq)
+	if err != nil {
+		log.Printf("Report %d: failed to read visibility (defaulting to publish): %v", report.Seq, err)
+		vis = "public"
+	}
+	if vis == "public" {
+		// Publish the analyzed report to RabbitMQ
+		s.publishAnalyzedReport(report, allAnalyses)
+	} else {
+		log.Printf("Report %d: visibility=%s; skipping publish to report.analysed", report.Seq, vis)
+	}
 
 	// Background enrichment for physical reports only (digital handled synchronously above)
 	if analysisResult.Classification == "physical" {

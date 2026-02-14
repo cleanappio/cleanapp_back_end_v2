@@ -1,0 +1,309 @@
+openapi: 3.0.3
+info:
+  title: CleanApp Ingest API (v1)
+  version: "1.0.0"
+  description: |
+    Public, quarantine-first ingestion surface for external fetchers/agents.
+
+    Notes:
+    - New fetchers register to receive a one-time API key (plaintext is never stored server-side).
+    - Ingested reports default to `visibility=shadow` (quarantine): stored + analyzed, but not publicly published/routed.
+    - Use `Authorization: Bearer <api_key>` for authenticated endpoints.
+servers:
+  - url: https://live.cleanapp.io
+    description: Production (report-listener)
+security:
+  - bearerAuth: []
+paths:
+  /v1/fetchers/register:
+    post:
+      security: []
+      summary: Register a new fetcher and issue an API key (shown once)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterFetcherRequest"
+      responses:
+        "200":
+          description: Fetcher registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterFetcherResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/fetchers/me:
+    get:
+      summary: Fetcher introspection for the current API key
+      responses:
+        "200":
+          description: Fetcher details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FetcherMeResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/reports:bulkIngest:
+    post:
+      summary: Bulk ingest reports (quarantine lane)
+      description: |
+        Liberal intake with strict effects by default:
+        - stored + queued for analysis
+        - not publicly published (shadow visibility)
+        - not routed/rewarded until promoted.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkIngestRequest"
+      responses:
+        "200":
+          description: Accepted and queued for analysis
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkIngestResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: cleanapp_fk_live_* / cleanapp_fk_test_*
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Forbidden:
+      description: Forbidden
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    TooManyRequests:
+      description: Too many requests / quota exceeded
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    ServiceUnavailable:
+      description: Service unavailable (e.g. queued_failed)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+  schemas:
+    RegisterFetcherRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          description: Display name for the fetcher
+        owner_type:
+          type: string
+          description: internal|partner|openclaw|unknown
+      required: []
+    RegisterFetcherResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        fetcher_id:
+          type: string
+        api_key:
+          type: string
+          description: API key shown once. Store it securely.
+        status:
+          type: string
+        tier:
+          type: integer
+        caps:
+          type: object
+          additionalProperties: false
+          properties:
+            per_minute_cap_items:
+              type: integer
+            daily_cap_items:
+              type: integer
+        scopes:
+          type: array
+          items:
+            type: string
+      required: [fetcher_id, api_key, status, tier, caps, scopes]
+    FetcherMeResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        fetcher_id:
+          type: string
+        name:
+          type: string
+        owner_type:
+          type: string
+        status:
+          type: string
+        tier:
+          type: integer
+        reputation_score:
+          type: integer
+        caps:
+          type: object
+          additionalProperties: false
+          properties:
+            per_minute_cap_items:
+              type: integer
+            daily_cap_items:
+              type: integer
+        usage:
+          type: object
+          additionalProperties: false
+          properties:
+            minute_used:
+              type: integer
+            daily_used:
+              type: integer
+            daily_remaining:
+              type: integer
+        scopes:
+          type: array
+          items:
+            type: string
+        last_seen_at:
+          type: string
+          format: date-time
+      required: [fetcher_id, name, owner_type, status, tier, reputation_score, caps, usage, scopes]
+    BulkIngestRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/BulkIngestItem"
+      required: [items]
+    BulkIngestItem:
+      type: object
+      additionalProperties: false
+      properties:
+        source_id:
+          type: string
+          description: Required idempotency key (unique per fetcher)
+        title:
+          type: string
+        description:
+          type: string
+        lat:
+          type: number
+          format: double
+        lng:
+          type: number
+          format: double
+        collected_at:
+          type: string
+          format: date-time
+        agent_id:
+          type: string
+        agent_version:
+          type: string
+        source_type:
+          type: string
+          description: text|vision|sensor|web
+        media:
+          type: array
+          items:
+            $ref: "#/components/schemas/MediaItem"
+      required: [source_id]
+    MediaItem:
+      type: object
+      additionalProperties: false
+      properties:
+        url:
+          type: string
+        sha256:
+          type: string
+        content_type:
+          type: string
+      required: []
+    BulkIngestResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/BulkIngestItemResult"
+        submitted:
+          type: integer
+        accepted:
+          type: integer
+        duplicates:
+          type: integer
+        rejected:
+          type: integer
+      required: [items, submitted, accepted, duplicates, rejected]
+    BulkIngestItemResult:
+      type: object
+      additionalProperties: false
+      properties:
+        source_id:
+          type: string
+        status:
+          type: string
+          enum: [accepted, duplicate, rejected]
+        report_seq:
+          type: integer
+        reason:
+          type: string
+        queued:
+          type: boolean
+        visibility:
+          type: string
+        trust_level:
+          type: string
+      required: [source_id, status, queued]
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        details:
+          type: string
+        result:
+          type: object
+      required: [error]
+

@@ -210,6 +210,167 @@ SHOW TABLES;
 DESCRIBE TABLE report_clusters;
 SHOW COLUMNS FROM report_clusters;
 
+-- Email pipeline marker: tracks which reports have been processed for outbound notifications.
+CREATE TABLE IF NOT EXISTS sent_reports_emails (
+  seq INT PRIMARY KEY,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_created_at (created_at),
+  INDEX idx_seq (seq)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Report status table (active/resolved) used by public report APIs for filtering.
+CREATE TABLE IF NOT EXISTS report_status (
+  seq INT NOT NULL,
+  status ENUM('active', 'resolved') NOT NULL DEFAULT 'active',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (seq),
+  FOREIGN KEY (seq) REFERENCES reports(seq) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Report ownership table used by public report APIs for filtering private reports.
+CREATE TABLE IF NOT EXISTS reports_owners (
+  seq INT NOT NULL,
+  owner VARCHAR(256) NOT NULL,
+  is_public BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (seq, owner),
+  INDEX idx_seq (seq),
+  INDEX idx_is_public (is_public)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Fetcher Key System + Quarantine Ingest (v1)
+-- These tables support external agent swarms submitting reports safely with
+-- hashed API keys, quotas, audit logs, and a shadow visibility lane.
+
+CREATE TABLE IF NOT EXISTS fetchers (
+  id INT UNSIGNED AUTO_INCREMENT,
+  fetcher_id VARCHAR(64) NOT NULL UNIQUE,
+  name VARCHAR(255) NOT NULL,
+  token_hash VARBINARY(64) NOT NULL, -- legacy v3 bulk_ingest token hash (sha256); retained for compatibility
+  scopes JSON NULL,
+  active BOOL NOT NULL DEFAULT TRUE, -- legacy flag; status is the canonical field for v1+
+  owner_type VARCHAR(32) NOT NULL DEFAULT 'unknown',
+  status VARCHAR(16) NOT NULL DEFAULT 'active',
+  tier INT NOT NULL DEFAULT 0,
+  reputation_score INT NOT NULL DEFAULT 50,
+  daily_cap_items INT NOT NULL DEFAULT 200,
+  per_minute_cap_items INT NOT NULL DEFAULT 20,
+  last_used_at TIMESTAMP NULL,
+  last_seen_at TIMESTAMP NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  INDEX idx_active (active),
+  INDEX idx_fetchers_status (status),
+  INDEX idx_fetchers_owner (owner_type),
+  INDEX idx_fetchers_last_seen (last_seen_at)
+);
+
+CREATE TABLE IF NOT EXISTS fetcher_keys (
+  key_id CHAR(36) NOT NULL,
+  fetcher_id VARCHAR(64) NOT NULL,
+  key_prefix VARCHAR(32) NOT NULL,
+  key_hash VARCHAR(128) NOT NULL,
+  status VARCHAR(16) NOT NULL DEFAULT 'active',
+  scopes JSON NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  last_used_at TIMESTAMP NULL,
+  per_minute_cap_items INT NULL,
+  daily_cap_items INT NULL,
+  PRIMARY KEY (key_id),
+  INDEX idx_fetcher (fetcher_id),
+  INDEX idx_status (status),
+  CONSTRAINT fk_fetcher_keys_fetcher FOREIGN KEY (fetcher_id) REFERENCES fetchers(fetcher_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS ingestion_audit (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  fetcher_id VARCHAR(64) NULL,
+  key_id CHAR(36) NULL,
+  endpoint VARCHAR(128) NOT NULL,
+  items_submitted INT NOT NULL DEFAULT 0,
+  items_accepted INT NOT NULL DEFAULT 0,
+  items_rejected INT NOT NULL DEFAULT 0,
+  reject_reasons JSON NULL,
+  latency_ms INT NOT NULL DEFAULT 0,
+  remote_ip VARCHAR(64) NULL,
+  user_agent VARCHAR(255) NULL,
+  request_id VARCHAR(64) NULL,
+  PRIMARY KEY (id),
+  INDEX idx_audit_ts (ts),
+  INDEX idx_audit_fetcher_ts (fetcher_id, ts),
+  INDEX idx_audit_key_ts (key_id, ts)
+);
+
+CREATE TABLE IF NOT EXISTS report_raw (
+  report_seq INT NOT NULL,
+  fetcher_id VARCHAR(64) NULL,
+  source_id VARCHAR(255) NULL,
+  agent_id VARCHAR(255) NULL,
+  agent_version VARCHAR(64) NULL,
+  collected_at TIMESTAMP NULL,
+  source_type VARCHAR(32) NULL,
+  visibility VARCHAR(16) NOT NULL DEFAULT 'public',
+  trust_level VARCHAR(16) NOT NULL DEFAULT 'unverified',
+  spam_score FLOAT NOT NULL DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (report_seq),
+  UNIQUE KEY uniq_fetcher_source (fetcher_id, source_id),
+  INDEX idx_visibility (visibility),
+  INDEX idx_fetcher_visibility (fetcher_id, visibility),
+  FOREIGN KEY (report_seq) REFERENCES reports(seq) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS fetcher_usage_minute (
+  fetcher_id VARCHAR(64) NOT NULL,
+  key_id CHAR(36) NOT NULL,
+  bucket_minute DATETIME NOT NULL,
+  items INT NOT NULL DEFAULT 0,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (fetcher_id, key_id, bucket_minute),
+  INDEX idx_bucket (bucket_minute)
+);
+
+CREATE TABLE IF NOT EXISTS fetcher_usage_daily (
+  fetcher_id VARCHAR(64) NOT NULL,
+  key_id CHAR(36) NOT NULL,
+  bucket_date DATE NOT NULL,
+  items INT NOT NULL DEFAULT 0,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (fetcher_id, key_id, bucket_date),
+  INDEX idx_bucket (bucket_date)
+);
+
+-- Legacy bulk_ingest idempotency mapping (also used for backfills/tools).
+CREATE TABLE IF NOT EXISTS external_ingest_index (
+  source VARCHAR(64) NOT NULL,
+  external_id VARCHAR(255) NOT NULL,
+  seq INT NOT NULL,
+  source_timestamp DATETIME NULL,
+  source_url VARCHAR(512) NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (source, external_id),
+  INDEX idx_seq (seq)
+);
+
+-- Structured metadata for digital reports (company/product/url).
+CREATE TABLE IF NOT EXISTS report_details (
+  seq INT NOT NULL,
+  company_name VARCHAR(255),
+  product_name VARCHAR(255),
+  url VARCHAR(512),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (seq),
+  FOREIGN KEY (seq) REFERENCES reports(seq) ON DELETE CASCADE,
+  INDEX idx_company (company_name),
+  INDEX idx_product (product_name)
+);
+
 -- Create the user.
 -- 1. Remove '%' user
 --    if the server and mysql run on the same instance.

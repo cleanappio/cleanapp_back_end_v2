@@ -73,3 +73,6 @@ xray/**/_test_*
 
 # Xray: never commit deployer script content (may contain secrets).
 xray/**/deployer_scripts/
+
+# Skill package build artifacts
+openclaw/**/dist/

@@ -86,3 +86,17 @@ jobs:
           RABBITMQ_MGMT_USER: guest
           RABBITMQ_MGMT_PASSWORD: guest
         run: make ci-analyzer
+
+  integration-ingest-v1:
+    name: Integration (Fetcher Key Ingest v1)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Docker info
+        run: docker version && docker compose version
+      - name: OpenAPI validate (ingest v1)
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD":/work -w /work openapitools/openapi-generator-cli validate -i openapi/cleanapp-ingest.v1.yaml
+      - name: Ingest v1 golden path
+        run: make ci-ingest-v1

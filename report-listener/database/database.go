@@ -21,6 +21,12 @@ type Database struct {
 	db *sql.DB
 }
 
+// PublicVisibilityWhereSQL is a reusable predicate that excludes quarantine/shadow reports.
+// Convention: queries should LEFT JOIN report_raw rr ON rr.report_seq = <seq> and then apply:
+//
+//	AND (rr.visibility IS NULL OR rr.visibility = 'public')
+const PublicVisibilityWhereSQL = "(rr.visibility IS NULL OR rr.visibility = 'public')"
+
 // NewDatabase creates a new database connection
 func NewDatabase(cfg *config.Config) (*Database, error) {
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&multiStatements=true&charset=utf8mb4&collation=utf8mb4_unicode_ci",
@@ -248,18 +254,20 @@ func (d *Database) GetSeqByExternal(ctx context.Context, source, externalID stri
 func (d *Database) GetReportsSince(ctx context.Context, sinceSeq int) ([]models.ReportWithAnalysis, error) {
 	// First, get all reports since the given sequence that are not resolved
 	// and are not privately owned
-	reportsQuery := `
+	reportsQuery := fmt.Sprintf(`
 		SELECT DISTINCT r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.action_id, r.description
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
+		LEFT JOIN report_raw rr ON r.seq = rr.report_seq
 		LEFT JOIN report_status rs ON r.seq = rs.seq
 		LEFT JOIN reports_owners ro ON r.seq = ro.seq
 		WHERE r.seq > ? 
 		AND (rs.status IS NULL OR rs.status = 'active')
 		AND ra.is_valid = TRUE
+		AND %s
 		AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE)
 		ORDER BY r.seq ASC
-	`
+	`, PublicVisibilityWhereSQL)
 
 	reportRows, err := d.db.QueryContext(ctx, reportsQuery, sinceSeq)
 	if err != nil {
@@ -376,7 +384,14 @@ func (d *Database) GetLatestReportSeq(ctx context.Context) (int, error) {
 // GetReportCount returns the total number of reports
 func (d *Database) GetReportCount(ctx context.Context, classification string) (int, error) {
 	var count int
-	err := d.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM reports r JOIN report_analysis ra ON r.seq = ra.seq WHERE ra.classification = ?", classification).Scan(&count)
+	err := d.db.QueryRowContext(ctx, fmt.Sprintf(`
+		SELECT COUNT(*)
+		FROM reports r
+		INNER JOIN report_analysis ra ON r.seq = ra.seq
+		LEFT JOIN report_raw rr ON r.seq = rr.report_seq
+		WHERE ra.classification = ?
+		AND %s
+	`, PublicVisibilityWhereSQL), classification).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get report count: %w", err)
 	}
@@ -444,14 +459,16 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int, class
 	// FAST PATH: Use a simple query on report_analysis only to get the seq list
 	// This leverages the idx_report_analysis_class_valid_seq index efficiently
 	// Skip report_status and reports_owners checks for performance - they rarely filter anything
-	seqQuery := `
-		SELECT DISTINCT seq 
-		FROM report_analysis 
-		WHERE classification = ? 
-		AND is_valid = TRUE 
-		ORDER BY seq DESC 
+	seqQuery := fmt.Sprintf(`
+		SELECT DISTINCT ra.seq
+		FROM report_analysis ra
+		LEFT JOIN report_raw rr ON ra.seq = rr.report_seq
+		WHERE ra.classification = ?
+		AND ra.is_valid = TRUE
+		AND %s
+		ORDER BY ra.seq DESC
 		LIMIT ?
-	`
+	`, PublicVisibilityWhereSQL)
 
 	seqRows, err := d.db.QueryContext(ctx, seqQuery, classification, limit)
 	if err != nil {
@@ -673,23 +690,27 @@ func (d *Database) SearchReports(ctx context.Context, searchQuery string, classi
 		var fastQuery string
 		var fastArgs []interface{}
 		if classification != "" {
-			fastQuery = `
-				SELECT DISTINCT seq
-				FROM report_analysis
-				WHERE is_valid = TRUE
-				AND classification = ?
-				AND brand_name LIKE ?
+			fastQuery = fmt.Sprintf(`
+				SELECT DISTINCT ra.seq
+				FROM report_analysis ra
+				LEFT JOIN report_raw rr ON ra.seq = rr.report_seq
+				WHERE ra.is_valid = TRUE
+				AND ra.classification = ?
+				AND ra.brand_name LIKE ?
+				AND %s
 				LIMIT ?
-			`
+			`, PublicVisibilityWhereSQL)
 			fastArgs = []interface{}{classification, prefixTerm, limit}
 		} else {
-			fastQuery = `
-				SELECT DISTINCT seq
-				FROM report_analysis
-				WHERE is_valid = TRUE
-				AND brand_name LIKE ?
+			fastQuery = fmt.Sprintf(`
+				SELECT DISTINCT ra.seq
+				FROM report_analysis ra
+				LEFT JOIN report_raw rr ON ra.seq = rr.report_seq
+				WHERE ra.is_valid = TRUE
+				AND ra.brand_name LIKE ?
+				AND %s
 				LIMIT ?
-			`
+			`, PublicVisibilityWhereSQL)
 			fastArgs = []interface{}{prefixTerm, limit}
 		}
 
@@ -723,23 +744,27 @@ func (d *Database) SearchReports(ctx context.Context, searchQuery string, classi
 		var seqArgs []interface{}
 		var seqQuery string
 		if classification != "" {
-			seqQuery = `
-				SELECT DISTINCT seq 
-				FROM report_analysis 
-				WHERE is_valid = TRUE 
-				AND classification = ?
-				AND MATCH(title, description, brand_name, brand_display_name, summary) AGAINST (? IN BOOLEAN MODE)
+			seqQuery = fmt.Sprintf(`
+				SELECT DISTINCT ra.seq
+				FROM report_analysis ra
+				LEFT JOIN report_raw rr ON ra.seq = rr.report_seq
+				WHERE ra.is_valid = TRUE
+				AND ra.classification = ?
+				AND MATCH(ra.title, ra.description, ra.brand_name, ra.brand_display_name, ra.summary) AGAINST (? IN BOOLEAN MODE)
+				AND %s
 				LIMIT ?
-			`
+			`, PublicVisibilityWhereSQL)
 			seqArgs = []interface{}{classification, searchQuery, limit}
 		} else {
-			seqQuery = `
-				SELECT DISTINCT seq 
-				FROM report_analysis 
-				WHERE is_valid = TRUE 
-				AND MATCH(title, description, brand_name, brand_display_name, summary) AGAINST (? IN BOOLEAN MODE)
+			seqQuery = fmt.Sprintf(`
+				SELECT DISTINCT ra.seq
+				FROM report_analysis ra
+				LEFT JOIN report_raw rr ON ra.seq = rr.report_seq
+				WHERE ra.is_valid = TRUE
+				AND MATCH(ra.title, ra.description, ra.brand_name, ra.brand_display_name, ra.summary) AGAINST (? IN BOOLEAN MODE)
+				AND %s
 				LIMIT ?
-			`
+			`, PublicVisibilityWhereSQL)
 			seqArgs = []interface{}{searchQuery, limit}
 		}
 
@@ -950,18 +975,20 @@ func (d *Database) SearchReports(ctx context.Context, searchQuery string, classi
 func (d *Database) GetReportBySeq(ctx context.Context, seq int) (*models.ReportWithAnalysis, error) {
 	// First, get the report if it's not resolved and not privately owned
 	// Include source_timestamp and source_url from external_ingest_index for external sources
-	reportQuery := `
+	reportQuery := fmt.Sprintf(`
 		SELECT r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.image, r.action_id, r.description,
 			   (SELECT MAX(created_at) FROM sent_reports_emails WHERE seq = r.seq) as last_email_sent_at,
 			   eii.source_timestamp, eii.source_url
 		FROM reports r
+		LEFT JOIN report_raw rr ON r.seq = rr.report_seq
 		LEFT JOIN report_status rs ON r.seq = rs.seq
 		LEFT JOIN reports_owners ro ON r.seq = ro.seq
 		LEFT JOIN external_ingest_index eii ON r.seq = eii.seq
 		WHERE r.seq = ? 
 		AND (rs.status IS NULL OR rs.status = 'active')
+		AND %s
 		AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE)
-	`
+	`, PublicVisibilityWhereSQL)
 
 	var report models.Report
 	err := d.db.QueryRowContext(ctx, reportQuery, seq).Scan(
@@ -982,7 +1009,7 @@ func (d *Database) GetReportBySeq(ctx context.Context, seq int) (*models.ReportW
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("report with seq %d not found or is unavailable", seq)
+			return nil, fmt.Errorf("report with seq %d not found", seq)
 		}
 		return nil, fmt.Errorf("failed to get report by seq: %w", err)
 	}
@@ -1051,12 +1078,14 @@ func (d *Database) GetReportBySeq(ctx context.Context, seq int) (*models.ReportW
 // GetLastNReportsByID retrieves the last N reports with analysis for a given report ID
 // Returns all reports for the given ID without filtering.
 func (d *Database) GetLastNReportsByID(ctx context.Context, reportID string) ([]models.ReportWithAnalysis, error) {
-	reportsQuery := `
+	reportsQuery := fmt.Sprintf(`
 		SELECT DISTINCT r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.action_id, r.description
 		FROM reports r
+		LEFT JOIN report_raw rr ON r.seq = rr.report_seq
 		WHERE r.id = ?
+		AND %s
 		ORDER BY r.seq DESC
-	`
+	`, PublicVisibilityWhereSQL)
 
 	reportRows, err := d.db.QueryContext(ctx, reportsQuery, reportID)
 	if err != nil {
@@ -1204,10 +1233,11 @@ func (d *Database) GetReportsByLatLng(ctx context.Context, latitude, longitude f
 
 	// First, get all reports within the bounding box that are not resolved
 	// and are not privately owned
-	reportsQuery := `
+	reportsQuery := fmt.Sprintf(`
 		SELECT DISTINCT r.seq, r.ts, r.id, r.latitude, r.longitude
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
+		LEFT JOIN report_raw rr ON r.seq = rr.report_seq
 		LEFT JOIN report_status rs ON r.seq = rs.seq
 		LEFT JOIN reports_owners ro ON r.seq = ro.seq
 		WHERE r.latitude BETWEEN ? AND ?
@@ -1215,10 +1245,11 @@ func (d *Database) GetReportsByLatLng(ctx context.Context, latitude, longitude f
 		AND (rs.status IS NULL OR rs.status = 'active')
 		AND ra.is_valid = TRUE
 		AND ra.classification = 'physical'
+		AND %s
 		AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE)
 		ORDER BY r.ts DESC
 		LIMIT ?
-	`
+	`, PublicVisibilityWhereSQL)
 
 	reportRows, err := d.db.QueryContext(ctx, reportsQuery, minLat, maxLat, minLng, maxLng, n)
 	if err != nil {
@@ -1344,10 +1375,11 @@ func (d *Database) GetReportsByLatLngLite(ctx context.Context, latitude, longitu
 
 	// First, get all reports within the bounding box that are not resolved
 	// and are not privately owned
-	reportsQuery := `
+	reportsQuery := fmt.Sprintf(`
 		SELECT DISTINCT r.seq, r.ts, r.id, r.latitude, r.longitude
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
+		LEFT JOIN report_raw rr ON r.seq = rr.report_seq
 		LEFT JOIN report_status rs ON r.seq = rs.seq
 		LEFT JOIN reports_owners ro ON r.seq = ro.seq
 		WHERE r.latitude BETWEEN ? AND ?
@@ -1355,10 +1387,11 @@ func (d *Database) GetReportsByLatLngLite(ctx context.Context, latitude, longitu
 		AND (rs.status IS NULL OR rs.status = 'active')
 		AND ra.is_valid = TRUE
 		AND ra.classification = 'physical'
+		AND %s
 		AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE)
 		ORDER BY r.ts DESC
 		LIMIT ?
-	`
+	`, PublicVisibilityWhereSQL)
 
 	reportRows, err := d.db.QueryContext(ctx, reportsQuery, minLat, maxLat, minLng, maxLng, n)
 	if err != nil {
@@ -1474,15 +1507,17 @@ func (d *Database) GetReportsByLatLngLite(ctx context.Context, latitude, longitu
 func (d *Database) GetReportsByBrandName(ctx context.Context, brandName string, limit int) ([]models.ReportWithAnalysis, error) {
 	// FAST PATH: Drive from report_analysis with the brand+valid+seq index and
 	// order by ra.seq to avoid slow join/order plans on reports for high-volume brands.
-	reportsQuery := `
+	reportsQuery := fmt.Sprintf(`
 		SELECT ra.seq, r.ts, r.id, r.latitude, r.longitude
 		FROM report_analysis ra FORCE INDEX (idx_ra_brand_valid_seq)
 		INNER JOIN reports r ON r.seq = ra.seq
+		LEFT JOIN report_raw rr ON r.seq = rr.report_seq
 		WHERE ra.brand_name = ? 
 		AND ra.is_valid = TRUE
+		AND %s
 		ORDER BY ra.seq DESC
 		LIMIT ?
-	`
+	`, PublicVisibilityWhereSQL)
 
 	reportRows, err := d.db.QueryContext(ctx, reportsQuery, brandName, limit)
 	if err != nil {
@@ -1595,15 +1630,17 @@ func (d *Database) GetReportsByBrandName(ctx context.Context, brandName string, 
 
 // GetBrandPriorityCountsByBrandName returns total/high/medium counts in one query.
 func (d *Database) GetBrandPriorityCountsByBrandName(ctx context.Context, brandName string) (int, int, int, error) {
-	query := `
+	query := fmt.Sprintf(`
 		SELECT
 			COUNT(*) AS total_count,
 			COALESCE(SUM(CASE WHEN severity_level >= 0.7 THEN 1 ELSE 0 END), 0) AS high_count,
 			COALESCE(SUM(CASE WHEN severity_level >= 0.4 AND severity_level < 0.7 THEN 1 ELSE 0 END), 0) AS medium_count
-		FROM report_analysis
-		WHERE brand_name = ?
-		AND is_valid = TRUE
-	`
+		FROM report_analysis ra
+		LEFT JOIN report_raw rr ON ra.seq = rr.report_seq
+		WHERE ra.brand_name = ?
+		AND ra.is_valid = TRUE
+		AND %s
+	`, PublicVisibilityWhereSQL)
 
 	var total, high, medium int
 	err := d.db.QueryRowContext(ctx, query, brandName).Scan(&total, &high, &medium)
@@ -1615,7 +1652,13 @@ func (d *Database) GetBrandPriorityCountsByBrandName(ctx context.Context, brandN
 
 // GetImageBySeq gets the image for a specific report by sequence number
 func (d *Database) GetImageBySeq(ctx context.Context, seq int) ([]byte, error) {
-	query := `SELECT r.image FROM reports r WHERE r.seq = ?`
+	query := fmt.Sprintf(`
+		SELECT r.image
+		FROM reports r
+		LEFT JOIN report_raw rr ON r.seq = rr.report_seq
+		WHERE r.seq = ?
+		AND %s
+	`, PublicVisibilityWhereSQL)
 
 	var image []byte
 	err := d.db.QueryRowContext(ctx, query, seq).Scan(&image)
@@ -1632,12 +1675,14 @@ func (d *Database) GetImageBySeq(ctx context.Context, seq int) ([]byte, error) {
 // GetReportsCountByBrandName returns the total count of reports for a brand
 // PERFORMANCE: Skip report_status/owners checks - they rarely filter anything
 func (d *Database) GetReportsCountByBrandName(ctx context.Context, brandName string) (int, error) {
-	query := `
+	query := fmt.Sprintf(`
 		SELECT COUNT(*)
 		FROM report_analysis ra
+		LEFT JOIN report_raw rr ON ra.seq = rr.report_seq
 		WHERE ra.brand_name = ? 
 		AND ra.is_valid = TRUE
-	`
+		AND %s
+	`, PublicVisibilityWhereSQL)
 	var count int
 	err := d.db.QueryRowContext(ctx, query, brandName).Scan(&count)
 	if err != nil {
@@ -1649,13 +1694,15 @@ func (d *Database) GetReportsCountByBrandName(ctx context.Context, brandName str
 // GetHighPriorityCountByBrandName returns the count of high priority reports (severity >= 0.7) for a brand
 // PERFORMANCE: Query only report_analysis table with proper index
 func (d *Database) GetHighPriorityCountByBrandName(ctx context.Context, brandName string) (int, error) {
-	query := `
+	query := fmt.Sprintf(`
 		SELECT COUNT(*)
 		FROM report_analysis ra
+		LEFT JOIN report_raw rr ON ra.seq = rr.report_seq
 		WHERE ra.brand_name = ? 
 		AND ra.severity_level >= 0.7
 		AND ra.is_valid = TRUE
-	`
+		AND %s
+	`, PublicVisibilityWhereSQL)
 	var count int
 	err := d.db.QueryRowContext(ctx, query, brandName).Scan(&count)
 	if err != nil {
@@ -1667,13 +1714,15 @@ func (d *Database) GetHighPriorityCountByBrandName(ctx context.Context, brandNam
 // GetMediumPriorityCountByBrandName returns the count of medium priority reports (0.4 <= severity < 0.7) for a brand
 // PERFORMANCE: Query only report_analysis table with proper index
 func (d *Database) GetMediumPriorityCountByBrandName(ctx context.Context, brandName string) (int, error) {
-	query := `
+	query := fmt.Sprintf(`
 		SELECT COUNT(*)
 		FROM report_analysis ra
+		LEFT JOIN report_raw rr ON ra.seq = rr.report_seq
 		WHERE ra.brand_name = ? 
 		AND ra.severity_level >= 0.4 AND ra.severity_level < 0.7
 		AND ra.is_valid = TRUE
-	`
+		AND %s
+	`, PublicVisibilityWhereSQL)
 	var count int
 	err := d.db.QueryRowContext(ctx, query, brandName).Scan(&count)
 	if err != nil {
