@@ -264,6 +264,11 @@ fn is_reasonable_email(value: &str) -> bool {
     if local.is_empty() || domain.is_empty() || parts.next().is_some() {
         return false;
     }
+    // Domains should not contain underscores; placeholders often do (e.g. "establishment_domain.com").
+    // Allow underscores in the local-part; reject only in the domain.
+    if domain.contains('_') {
+        return false;
+    }
     domain.contains('.') && !domain.starts_with('.') && !domain.ends_with('.')
 }
 
