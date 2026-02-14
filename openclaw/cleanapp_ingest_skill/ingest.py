@@ -5,6 +5,7 @@ import os
 import sys
 import urllib.request
 from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, Tuple
 
 
 def utc_now_iso() -> str:
@@ -15,7 +16,7 @@ def approx_coord(x: float, decimals: int) -> float:
     return round(x, decimals)
 
 
-def load_items(path: str | None) -> list[dict]:
+def load_items(path: Optional[str]) -> List[Dict[str, Any]]:
     raw = ""
     if path:
         with open(path, "r", encoding="utf-8") as f:
@@ -29,18 +30,18 @@ def load_items(path: str | None) -> list[dict]:
 
     obj = json.loads(raw)
     if isinstance(obj, dict) and isinstance(obj.get("items"), list):
-        return obj["items"]
+        return list(obj["items"])
     if isinstance(obj, list):
-        return obj
+        return list(obj)
     raise SystemExit("input must be a JSON array of items, or an object with an 'items' array")
 
 
-def redact_media(items: list[dict]) -> None:
+def redact_media(items: List[Dict[str, Any]]) -> None:
     for it in items:
         it.pop("media", None)
 
 
-def apply_location_policy(items: list[dict], *, no_location: bool, approx_decimals: int | None) -> None:
+def apply_location_policy(items: List[Dict[str, Any]], *, no_location: bool, approx_decimals: Optional[int]) -> None:
     for it in items:
         if no_location:
             it.pop("lat", None)
@@ -53,7 +54,7 @@ def apply_location_policy(items: list[dict], *, no_location: bool, approx_decima
                 it["lng"] = approx_coord(float(it["lng"]), approx_decimals)
 
 
-def post_json(url: str, token: str, payload: dict, timeout_sec: int) -> tuple[int, str]:
+def post_json(url: str, token: str, payload: Dict[str, Any], timeout_sec: int) -> Tuple[int, str]:
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(url, data=data, method="POST")
     req.add_header("content-type", "application/json")
@@ -115,4 +116,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
