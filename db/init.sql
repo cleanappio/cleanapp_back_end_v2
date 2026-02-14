@@ -218,6 +218,27 @@ CREATE TABLE IF NOT EXISTS sent_reports_emails (
   INDEX idx_seq (seq)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Report status table (active/resolved) used by public report APIs for filtering.
+CREATE TABLE IF NOT EXISTS report_status (
+  seq INT NOT NULL,
+  status ENUM('active', 'resolved') NOT NULL DEFAULT 'active',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (seq),
+  FOREIGN KEY (seq) REFERENCES reports(seq) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Report ownership table used by public report APIs for filtering private reports.
+CREATE TABLE IF NOT EXISTS reports_owners (
+  seq INT NOT NULL,
+  owner VARCHAR(256) NOT NULL,
+  is_public BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (seq, owner),
+  INDEX idx_seq (seq),
+  INDEX idx_is_public (is_public)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Fetcher Key System + Quarantine Ingest (v1)
 -- These tables support external agent swarms submitting reports safely with
 -- hashed API keys, quotas, audit logs, and a shadow visibility lane.
