@@ -257,10 +257,12 @@ func (s *EmailService) getUnprocessedReports(ctx context.Context) ([]models.Repo
         SELECT r.seq, r.id, r.latitude, r.longitude, r.image, r.ts
         FROM reports r
         INNER JOIN report_analysis ra ON r.seq = ra.seq
+		LEFT JOIN report_raw rr ON r.seq = rr.report_seq
         LEFT JOIN sent_reports_emails sre ON r.seq = sre.seq
 		LEFT JOIN email_report_retry erry ON r.seq = erry.seq
         WHERE sre.seq IS NULL
         AND ra.language = 'en'
+		AND (rr.visibility IS NULL OR rr.visibility = 'public')
 		AND (erry.seq IS NULL OR erry.next_attempt_at <= NOW())
         ORDER BY r.seq DESC
         LIMIT 500
@@ -301,12 +303,14 @@ func (s *EmailService) getUnprocessedBrandlessPhysicalReports(ctx context.Contex
 	seqRows, err := s.db.QueryContext(ctx, `
 		SELECT ra.seq
 		FROM report_analysis ra
+		LEFT JOIN report_raw rr ON ra.seq = rr.report_seq
 		LEFT JOIN sent_reports_emails sre ON sre.seq = ra.seq
 		LEFT JOIN email_report_retry erry ON erry.seq = ra.seq
 		WHERE sre.seq IS NULL
 		  AND ra.is_valid = TRUE
 		  AND ra.classification = 'physical'
 		  AND ra.language = 'en'
+		  AND (rr.visibility IS NULL OR rr.visibility = 'public')
 		  AND (ra.brand_name IS NULL OR ra.brand_name = '')
 		  AND (erry.seq IS NULL OR erry.next_attempt_at <= NOW())
 		ORDER BY ra.seq DESC
@@ -430,18 +434,24 @@ func (s *EmailService) getUnprocessedReportsByBrand(ctx context.Context) ([]mode
 			ra.brand_name,
 			COALESCE(ra.brand_display_name, ra.brand_name) as brand_display_name,
 			COUNT(*) as new_count,
-			(SELECT COUNT(*) FROM report_analysis ra2 WHERE ra2.brand_name = ra.brand_name AND ra2.language = 'en') as total_count,
+			(SELECT COUNT(*) FROM report_analysis ra2
+			  LEFT JOIN report_raw rr2 ON ra2.seq = rr2.report_seq
+			  WHERE ra2.brand_name = ra.brand_name AND ra2.language = 'en'
+			    AND (rr2.visibility IS NULL OR rr2.visibility = 'public')
+			) as total_count,
 			GROUP_CONCAT(r.seq ORDER BY r.seq DESC) as seqs,
 			MAX(r.seq) as latest_seq,
 			MAX(ra.classification) as classification,
 			MAX(ra.inferred_contact_emails) as inferred_contact_emails
 		FROM reports r
 		INNER JOIN report_analysis ra ON r.seq = ra.seq
+		LEFT JOIN report_raw rr ON r.seq = rr.report_seq
 		LEFT JOIN sent_reports_emails sre ON r.seq = sre.seq
 		LEFT JOIN email_report_retry erry ON r.seq = erry.seq
 		WHERE sre.seq IS NULL
 		  AND ra.brand_name != ''
 		  AND ra.language = 'en'
+		  AND (rr.visibility IS NULL OR rr.visibility = 'public')
 		  AND (erry.seq IS NULL OR erry.next_attempt_at <= NOW())
 		GROUP BY ra.brand_name, ra.brand_display_name
 		ORDER BY new_count DESC
