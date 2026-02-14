@@ -293,25 +293,61 @@ func (s *EmailService) getUnprocessedBrandlessPhysicalReports(ctx context.Contex
 		limit = 5
 	}
 	qStart := time.Now()
-	query := `
-        SELECT r.seq, r.id, r.latitude, r.longitude, r.image, r.ts
-        FROM reports r
-        INNER JOIN report_analysis ra ON r.seq = ra.seq
-        LEFT JOIN sent_reports_emails sre ON r.seq = sre.seq
-        LEFT JOIN email_report_retry erry ON r.seq = erry.seq
-        WHERE sre.seq IS NULL
-          AND ra.is_valid = TRUE
-          AND ra.classification = 'physical'
-          AND (ra.brand_name IS NULL OR ra.brand_name = '')
-          AND ra.language = 'en'
-          AND (erry.seq IS NULL OR erry.next_attempt_at <= NOW())
-        ORDER BY r.seq DESC
-        LIMIT ?
-    `
-
-	rows, err := s.db.QueryContext(ctx, query, limit)
+	// Two-step lookup to avoid expensive joins against large blobs (reports.image) during candidate selection.
+	//
+	// Step 1: pick seqs from report_analysis (fast: ordered by PK desc + small limit).
+	// Step 2: fetch report rows for those seqs (PK lookup).
+	var seqs []int64
+	seqRows, err := s.db.QueryContext(ctx, `
+		SELECT ra.seq
+		FROM report_analysis ra
+		LEFT JOIN sent_reports_emails sre ON sre.seq = ra.seq
+		LEFT JOIN email_report_retry erry ON erry.seq = ra.seq
+		WHERE sre.seq IS NULL
+		  AND ra.is_valid = TRUE
+		  AND ra.classification = 'physical'
+		  AND ra.language = 'en'
+		  AND (ra.brand_name IS NULL OR ra.brand_name = '')
+		  AND (erry.seq IS NULL OR erry.next_attempt_at <= NOW())
+		ORDER BY ra.seq DESC
+		LIMIT ?
+	`, limit)
 	if err != nil {
-		log.Errorf("getUnprocessedBrandlessPhysicalReports query error (in %s): %v", time.Since(qStart), err)
+		log.Errorf("getUnprocessedBrandlessPhysicalReports step1 query error (in %s): %v", time.Since(qStart), err)
+		return nil, err
+	}
+	for seqRows.Next() {
+		var seq int64
+		if err := seqRows.Scan(&seq); err != nil {
+			seqRows.Close()
+			return nil, err
+		}
+		seqs = append(seqs, seq)
+	}
+	seqRows.Close()
+
+	if len(seqs) == 0 {
+		log.Infof("getUnprocessedBrandlessPhysicalReports returned 0 rows (in %s)", time.Since(qStart))
+		return nil, nil
+	}
+
+	placeholders := strings.Repeat("?,", len(seqs))
+	placeholders = placeholders[:len(placeholders)-1]
+	args := make([]any, 0, len(seqs))
+	for _, s := range seqs {
+		args = append(args, s)
+	}
+
+	query := fmt.Sprintf(`
+		SELECT seq, id, latitude, longitude, image, ts
+		FROM reports
+		WHERE seq IN (%s)
+		ORDER BY seq DESC
+	`, placeholders)
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		log.Errorf("getUnprocessedBrandlessPhysicalReports step2 query error (in %s): %v", time.Since(qStart), err)
 		return nil, err
 	}
 	defer rows.Close()
