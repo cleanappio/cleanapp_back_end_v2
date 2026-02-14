@@ -34,11 +34,18 @@ ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   fi
 
   echo "{\"last_ok\":\"${ts}\",\"last_fail\":\"\",\"last_error\":\"\"}" > "${STATUS}"
+  # Always attempt to refresh the public status artifact; never fail the run due to this.
+  if [[ -x "${DIR}/public_status.sh" ]]; then
+    "${DIR}/public_status.sh" || true
+  fi
   echo "OK"
 } >>"${LOG}" 2>&1 || {
   rc=$?
   err_ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo "{\"last_ok\":\"\",\"last_fail\":\"${err_ts}\",\"last_error\":\"rc=${rc}\"}" > "${STATUS}" || true
+  if [[ -x "${DIR}/public_status.sh" ]]; then
+    "${DIR}/public_status.sh" || true
+  fi
   echo "FAIL rc=${rc}" >>"${LOG}" 2>&1
 
   # Optional webhook alert. Expected payload: { "text": "..." }.
