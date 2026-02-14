@@ -1,4 +1,4 @@
-.PHONY: help gitleaks hooks ci ci-go ci-analyzer fmt-go test-go vet-go lint-go rust-fmt rust-clippy analyzer-build-dev analyzer-tag-prod prometheus-install watchdog-install report-auth-up report-auth-down report-auth-logs report-auth-test
+.PHONY: help gitleaks hooks ci ci-go ci-analyzer ci-ingest-v1 fmt-go test-go vet-go lint-go rust-fmt rust-clippy analyzer-build-dev analyzer-tag-prod prometheus-install watchdog-install report-auth-up report-auth-down report-auth-logs report-auth-test
 
 help:
 	@echo "Common commands:"
@@ -12,6 +12,7 @@ help:
 	@echo "  make rust-fmt            - cargo fmt --check (selected Rust crates)"
 	@echo "  make rust-clippy         - cargo clippy (selected Rust crates; requires Rust toolchain)"
 	@echo "  make ci-analyzer         - run analyzer golden-path locally (requires docker)"
+	@echo "  make ci-ingest-v1        - run v1 fetcher-key ingest golden-path (requires docker)"
 	@echo "  make analyzer-build-dev  - build+push analyzer image to :dev (Cloud Build)"
 	@echo "  make analyzer-tag-prod   - promote analyzer :dev build to :prod tag"
 	@echo "  make prometheus-install  - install prod Prometheus (HOST=deployer@<ip>)"
@@ -21,7 +22,7 @@ help:
 	@echo "  make report-auth-down    - stop local report-auth stack"
 	@echo "  make report-auth-test    - curl/jq smoke test against local report-auth endpoints"
 
-ci: gitleaks ci-go rust-fmt ci-analyzer
+ci: gitleaks ci-go rust-fmt ci-analyzer ci-ingest-v1
 
 ci-go: fmt-go test-go vet-go
 
@@ -51,6 +52,9 @@ rust-clippy:
 
 ci-analyzer:
 	./platform_blueprint/tests/ci/analyzer/run.sh
+
+ci-ingest-v1:
+	./platform_blueprint/tests/ci/ingest-v1/run.sh
 
 analyzer-build-dev:
 	cd report-analyze-pipeline && CLOUDSDK_CONFIG=/tmp/codex-gcloud-cleanapp ./build_image.sh -e dev
