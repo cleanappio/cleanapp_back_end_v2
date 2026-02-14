@@ -147,6 +147,8 @@ fi
 stale_min="$(mysql_n "SET time_zone='+00:00'; SELECT IFNULL(TIMESTAMPDIFF(MINUTE, MAX(created_at), UTC_TIMESTAMP()), 999999) FROM sent_reports_emails;")"
 due_retries="$(mysql_n "SET time_zone='+00:00'; SELECT COUNT(*) FROM email_report_retry WHERE next_attempt_at <= UTC_TIMESTAMP();")"
 brandless_physical_with_inferred="$(mysql_n "SET time_zone='+00:00'; SELECT COUNT(*) FROM report_analysis ra JOIN reports r ON r.seq=ra.seq LEFT JOIN sent_reports_emails s ON s.seq=ra.seq WHERE ra.language='en' AND ra.is_valid=1 AND ra.classification='physical' AND ra.brand_name='' AND ra.inferred_contact_emails IS NOT NULL AND ra.inferred_contact_emails<>'' AND s.seq IS NULL;")"
+retry_stale_min="$(mysql_n "SET time_zone='+00:00'; SELECT IFNULL(TIMESTAMPDIFF(MINUTE, MAX(updated_at), UTC_TIMESTAMP()), 999999) FROM email_report_retry;")"
+lookup_stale_min="$(mysql_n "SET time_zone='+00:00'; SELECT IFNULL(TIMESTAMPDIFF(MINUTE, MAX(updated_at), UTC_TIMESTAMP()), 999999) FROM physical_contact_lookup_state;")"
 
 recipients_1h="$(mysql_n "SET time_zone='+00:00'; SELECT COUNT(*) FROM email_recipient_history WHERE last_email_sent_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 HOUR);")"
 recipients_24h="$(mysql_n "SET time_zone='+00:00'; SELECT COUNT(*) FROM email_recipient_history WHERE last_email_sent_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 24 HOUR);")"
@@ -154,7 +156,7 @@ processed_1h="$(mysql_n "SET time_zone='+00:00'; SELECT COUNT(*) FROM sent_repor
 processed_24h="$(mysql_n "SET time_zone='+00:00'; SELECT COUNT(*) FROM sent_reports_emails WHERE created_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 24 HOUR);")"
 
 email_status="ok"
-email_details="stale_min=${stale_min:-} due_retries=${due_retries:-} brandless_pending=${brandless_physical_with_inferred:-} recipients_1h=${recipients_1h:-} recipients_24h=${recipients_24h:-}"
+email_details="stale_min=${stale_min:-} retry_stale_min=${retry_stale_min:-} lookup_stale_min=${lookup_stale_min:-} due_retries=${due_retries:-} brandless_pending=${brandless_physical_with_inferred:-} recipients_1h=${recipients_1h:-} recipients_24h=${recipients_24h:-}"
 if [[ -z "${stale_min}" ]]; then
   email_status="warn"
   email_details="missing_metrics"
@@ -163,10 +165,16 @@ else
   if [[ "${due_retries:-0}" -ge 1 || "${brandless_physical_with_inferred:-0}" -ge 1 ]]; then
     work_due=1
   fi
+  # Treat "activity" as degraded (warn) when the sender hasn't processed a report recently but work is due.
+  # Only mark "fail" (Down) when *all* progress markers are stale for a long window.
   if [[ "${work_due}" -eq 1 && "${stale_min:-999999}" -gt 30 ]]; then
-    email_status="fail"
-  elif [[ "${work_due}" -eq 1 && "${stale_min:-999999}" -gt 10 ]]; then
     email_status="warn"
+  fi
+  if [[ "${work_due}" -eq 1 \
+     && "${stale_min:-999999}" -gt 120 \
+     && "${retry_stale_min:-999999}" -gt 120 \
+     && "${lookup_stale_min:-999999}" -gt 120 ]]; then
+    email_status="fail"
   fi
 fi
 add_check "email_activity" "Email Pipeline (activity)" "${email_status}" "${email_details}" ""

@@ -232,6 +232,11 @@ fn is_reasonable_email(value: &str) -> bool {
     if v.len() < 6 || v.contains(' ') {
         return false;
     }
+    // Filter out placeholder tokens that sometimes appear in AI outputs.
+    // Personal mailboxes are allowed; we're only excluding obviously non-real addresses.
+    if v.contains('<') || v.contains('>') || v.contains('{') || v.contains('}') {
+        return false;
+    }
     let lower = v.to_lowercase();
     // Filter obvious placeholders. Personal mailboxes are allowed.
     let placeholders = [
@@ -538,13 +543,11 @@ async fn fetch_physical_candidates(
             LEFT JOIN sent_reports_emails sre ON sre.seq = ra.seq
             LEFT JOIN physical_contact_lookup_state pls ON pls.seq = ra.seq
             WHERE er.reason = 'await_contact_discovery'
-              AND er.next_attempt_at <= NOW()
               AND sre.seq IS NULL
               AND ra.is_valid = TRUE
               AND ra.classification = 'physical'
               AND ra.language = 'en'
               AND ra.seq BETWEEN :start AND :end
-              AND (ra.inferred_contact_emails IS NULL OR ra.inferred_contact_emails = '')
               AND r.latitude BETWEEN -90 AND 90
               AND r.longitude BETWEEN -180 AND 180
               AND NOT (r.latitude = 0 AND r.longitude = 0)
@@ -566,12 +569,10 @@ async fn fetch_physical_candidates(
             LEFT JOIN sent_reports_emails sre ON sre.seq = ra.seq
             LEFT JOIN physical_contact_lookup_state pls ON pls.seq = ra.seq
             WHERE er.reason = 'await_contact_discovery'
-              AND er.next_attempt_at <= NOW()
               AND sre.seq IS NULL
               AND ra.is_valid = TRUE
               AND ra.classification = 'physical'
               AND ra.language = 'en'
-              AND (ra.inferred_contact_emails IS NULL OR ra.inferred_contact_emails = '')
               AND r.latitude BETWEEN -90 AND 90
               AND r.longitude BETWEEN -180 AND 180
               AND NOT (r.latitude = 0 AND r.longitude = 0)
@@ -810,6 +811,25 @@ async fn run_physical_once(
     let mut errors = 0usize;
 
     for (idx, row) in candidates.into_iter().enumerate() {
+        // Pull the current inferred_contact_emails so we can:
+        // - merge/dedupe with new candidates, and
+        // - clear placeholder-only values (e.g. "<organization.com>") to unblock future passes.
+        let existing_raw: Option<String> = conn
+            .exec_first(
+                r#"
+                SELECT inferred_contact_emails
+                FROM report_analysis
+                WHERE seq = :seq
+                  AND language = 'en'
+                LIMIT 1
+                "#,
+                params! {"seq" => row.seq},
+            )
+            .await?;
+        let existing_raw = existing_raw.unwrap_or_default();
+        let existing_valid =
+            normalize_email_candidates([existing_raw.clone()], cfg.physical_max_contacts.max(1));
+
         info!(
             "Physical pass: processing {}/{} seq={} lat={} lng={}",
             idx + 1,
@@ -852,22 +872,37 @@ async fn run_physical_once(
                         }
                     }
 
-                    let emails = candidates
+                    let new_emails = candidates
                         .iter()
                         .map(|c| c.email.clone())
                         .collect::<Vec<_>>();
-                    let email_csv = emails.join(",");
+                    // Merge: existing (filtered) + new candidates; cap to max_contacts.
+                    let merged = normalize_email_candidates(
+                        [existing_valid.join(","), new_emails.join(",")],
+                        cfg.physical_max_contacts.max(1),
+                    );
+                    let email_csv = merged.join(",");
                     conn.exec_drop(
                         r#"
                         UPDATE report_analysis
                         SET inferred_contact_emails = :emails
                         WHERE seq = :seq
-                          AND (inferred_contact_emails IS NULL OR inferred_contact_emails = '')
                         "#,
                         params! {
                             "emails" => email_csv.as_str(),
                             "seq" => row.seq,
                         },
+                    )
+                    .await?;
+
+                    // If we successfully resolved contacts, ask the sender to retry immediately.
+                    conn.exec_drop(
+                        r#"
+                        UPDATE email_report_retry
+                        SET next_attempt_at = NOW(), updated_at = NOW()
+                        WHERE seq = :seq AND reason = 'await_contact_discovery'
+                        "#,
+                        params! {"seq" => row.seq},
                     )
                     .await?;
 
@@ -891,6 +926,19 @@ async fn run_physical_once(
                         area_count
                     );
                 } else {
+                    // If the existing inferred_contact_emails contains only placeholders/invalid addresses,
+                    // clear it so other discovery paths can run without being blocked.
+                    if existing_valid.is_empty() && !existing_raw.trim().is_empty() {
+                        conn.exec_drop(
+                            r#"
+                            UPDATE report_analysis
+                            SET inferred_contact_emails = ''
+                            WHERE seq = :seq AND language = 'en'
+                            "#,
+                            params! {"seq" => row.seq},
+                        )
+                        .await?;
+                    }
                     let (status, retry_delay) = if area_count == 0 {
                         ("no_area_match", 6 * 3600)
                     } else {
@@ -906,6 +954,17 @@ async fn run_physical_once(
                         None,
                         Some("v1_area_index"),
                         Some(selected_reason.as_str()),
+                    )
+                    .await?;
+                    // Back off sender retries too; otherwise the email-service will churn the same rows
+                    // faster than contact discovery can improve.
+                    conn.exec_drop(
+                        r#"
+                        UPDATE email_report_retry
+                        SET next_attempt_at = DATE_ADD(NOW(), INTERVAL :delay SECOND), updated_at = NOW()
+                        WHERE seq = :seq AND reason = 'await_contact_discovery'
+                        "#,
+                        params! {"seq" => row.seq, "delay" => retry_delay},
                     )
                     .await?;
                     no_match += 1;
