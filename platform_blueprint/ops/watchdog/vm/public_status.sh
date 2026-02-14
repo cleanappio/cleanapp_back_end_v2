@@ -165,9 +165,15 @@ else
   if [[ "${due_retries:-0}" -ge 1 || "${brandless_physical_with_inferred:-0}" -ge 1 ]]; then
     work_due=1
   fi
-  # Treat "activity" as degraded (warn) when the sender hasn't processed a report recently but work is due.
-  # Only mark "fail" (Down) when *all* progress markers are stale for a long window.
-  if [[ "${work_due}" -eq 1 && "${stale_min:-999999}" -gt 30 ]]; then
+  # Treat "activity" as degraded (warn) only when *nothing* is moving:
+  # - no recent sends (sent_reports_emails), AND
+  # - no recent retry rescheduling, AND
+  # - no recent contact lookup state updates,
+  # while work is due.
+  if [[ "${work_due}" -eq 1 \
+     && "${stale_min:-999999}" -gt 30 \
+     && "${retry_stale_min:-999999}" -gt 30 \
+     && "${lookup_stale_min:-999999}" -gt 30 ]]; then
     email_status="warn"
   fi
   if [[ "${work_due}" -eq 1 \

@@ -64,8 +64,11 @@ if [[ "${brandless_physical_with_inferred:-0}" -ge 1 ]]; then
   work_due=1
 fi
 
-if [[ "${work_due}" -eq 1 && "${stale_min:-999999}" -gt "${WARN_STALE_MIN}" ]]; then
-  echo "WARN: email pipeline is slow (work_due=1, stale_min=${stale_min} > WARN_STALE_MIN=${WARN_STALE_MIN})" >&2
+if [[ "${work_due}" -eq 1 \
+   && "${stale_min:-999999}" -gt "${WARN_STALE_MIN}" \
+   && "${retry_stale_min:-999999}" -gt "${WARN_STALE_MIN}" \
+   && "${lookup_stale_min:-999999}" -gt "${WARN_STALE_MIN}" ]]; then
+  echo "WARN: email pipeline is slow (work_due=1, stale_min=${stale_min}, retry_stale_min=${retry_stale_min}, lookup_stale_min=${lookup_stale_min} > WARN_STALE_MIN=${WARN_STALE_MIN})" >&2
 fi
 
 # Fail only if *all* activity markers are stale. This avoids paging on reschedule-heavy periods.
