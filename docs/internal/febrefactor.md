@@ -143,8 +143,8 @@ Secondary KPIs:
 ---
 
 ## Status
-- [x] 1) Counters tables + query refactors (implemented in PR #133; pending merge)
-- [ ] 2) Blob lazy-load/two-step in pipelines
+- [x] 1) Counters tables + query refactors (merged PR #133; deployed to prod 2026-02-15)
+- [ ] 2) Blob lazy-load/two-step in pipelines (started: email-service poll query no longer selects LONGBLOB; merged PR #135; deployed to prod 2026-02-15)
 - [ ] 3) Shared HTTP client/timeouts
 - [ ] 4) Replace runtime DDL with patch SQL + remove `multiStatements=true`
 - [ ] 5) Rust lib dedupe plan + execution
