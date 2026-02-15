@@ -91,7 +91,6 @@ func updateCounterCache() {
 			lastSeq = countCache.lastCountedSeq
 			countCache.mu.RUnlock()
 			log.Infof("Counter cache: loaded from DB (last_seq=%d)", lastSeq)
-			initialized = true
 		} else {
 			// First run: do full count (will be slow, ~30-60s, but only once)
 			log.Info("Counter cache: initializing with full count (this may take a minute)...")

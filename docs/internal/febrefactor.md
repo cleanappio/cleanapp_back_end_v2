@@ -17,17 +17,23 @@ Secondary KPIs:
 
 **Why:** These queries are DB-heavy and appear in multiple services; they can cause multi-second to multi-minute stalls on large datasets.
 
-**Evidence (call sites):**
+**Evidence (prior hot paths, now refactored in PR #133):**
 - Global counts:
-  - `backend/db/db.go` (legacy helper; `COUNT(DISTINCT ra.seq)`)
+  - `backend/db/db.go` (legacy helper; previously `COUNT(DISTINCT ra.seq)`)
 - Brand dashboard:
-  - `brand-dashboard/services/database_service.go` loops brands and runs a count query per brand.
+  - `brand-dashboard/services/database_service.go` previously looped brands and ran a count query per brand.
 - Tags feed count:
-  - `report-tags/src/services/feed_service.rs` uses `COUNT(DISTINCT r.seq)` because joins create duplicates.
+  - `report-tags/src/services/feed_service.rs` previously used `COUNT(DISTINCT r.seq)` because joins create duplicates.
 - Ownership count:
-  - `report-ownership-service/database/service.go` uses `COUNT(DISTINCT seq)` on `reports_owners`.
+  - `report-ownership-service/database/service.go` previously used `COUNT(DISTINCT seq)` on `reports_owners`.
 - Email pipeline:
-  - `email-service/service/email_service.go` counts total reports per brand for messaging.
+  - `email-service/service/email_service.go` previously counted total reports per brand with `COUNT(DISTINCT ...)`.
+
+**New materialized tables (patch SQL):**
+- `db/patches/20260215_report_counters.sql`
+  - `report_counts_total` (global totals)
+  - `brand_report_counts` (per-brand totals)
+  - `counters_state` (incremental checkpoints)
 
 **Approach:**
 - Introduce small, materialized counters in MySQL:
@@ -45,8 +51,15 @@ Secondary KPIs:
 
 **Rollout:**
 1. Add patch SQL to create counters tables.
-2. Add background updater (writes counts periodically and/or incrementally by `last_seq`).
-3. Switch read paths to prefer counters table.
+2. Add background updaters:
+   - Global totals persisted by `backend/server/reports_count.go`.
+   - Brand totals updated by `backend/server/brand_counts.go` (started from `backend/server/server.go`).
+3. Switch read paths to prefer counters tables (with safe fallbacks if tables are missing):
+   - `backend/db/db.go`
+   - `brand-dashboard/services/database_service.go`
+   - `report-tags/src/services/feed_service.rs`
+   - `report-ownership-service/database/service.go`
+   - `email-service/service/email_service.go`
 4. Confirm counts match previous semantics for 24h (log diff if mismatch).
 
 ---
@@ -130,9 +143,8 @@ Secondary KPIs:
 ---
 
 ## Status
-- [ ] 1) Counters tables + query refactors (in progress)
+- [x] 1) Counters tables + query refactors (implemented in PR #133; pending merge)
 - [ ] 2) Blob lazy-load/two-step in pipelines
 - [ ] 3) Shared HTTP client/timeouts
 - [ ] 4) Replace runtime DDL with patch SQL + remove `multiStatements=true`
 - [ ] 5) Rust lib dedupe plan + execution
-
