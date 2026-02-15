@@ -8,3 +8,6 @@
 !docker_backend/certificates/**
 !docker_pipelines/certificates/**
 
+# Build metadata files are generated locally before `gcloud builds submit` and are safe to upload.
+# They allow services to embed provenance into `/version` at build time.
+!**/buildinfo.vars
