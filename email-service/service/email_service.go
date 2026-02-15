@@ -254,7 +254,7 @@ func (s *EmailService) ProcessReports() error {
 func (s *EmailService) getUnprocessedReports(ctx context.Context) ([]models.Report, error) {
 	qStart := time.Now()
 	query := `
-        SELECT r.seq, r.id, r.latitude, r.longitude, r.image, r.ts
+        SELECT r.seq, r.id, r.latitude, r.longitude, r.ts
         FROM reports r
         INNER JOIN report_analysis ra ON r.seq = ra.seq
 		LEFT JOIN report_raw rr ON r.seq = rr.report_seq
@@ -278,7 +278,9 @@ func (s *EmailService) getUnprocessedReports(ctx context.Context) ([]models.Repo
 	var reports []models.Report
 	for rows.Next() {
 		var report models.Report
-		if err := rows.Scan(&report.Seq, &report.ID, &report.Latitude, &report.Longitude, &report.Image, &report.Timestamp); err != nil {
+		// NOTE: We intentionally do NOT select `reports.image` here.
+		// The LONGBLOB is lazy-loaded only if/when we actually send an email.
+		if err := rows.Scan(&report.Seq, &report.ID, &report.Latitude, &report.Longitude, &report.Timestamp); err != nil {
 			return nil, err
 		}
 		reports = append(reports, report)
@@ -286,6 +288,22 @@ func (s *EmailService) getUnprocessedReports(ctx context.Context) ([]models.Repo
 
 	log.Infof("getUnprocessedReports returned %d rows (in %s)", len(reports), time.Since(qStart))
 	return reports, nil
+}
+
+func (s *EmailService) getReportImage(ctx context.Context, seq int64) ([]byte, error) {
+	qStart := time.Now()
+	var img []byte
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT image
+		FROM reports
+		WHERE seq = ?
+		LIMIT 1
+	`, seq).Scan(&img); err != nil {
+		log.Errorf("getReportImage error for seq %d (in %s): %v", seq, time.Since(qStart), err)
+		return nil, err
+	}
+	log.Infof("getReportImage loaded seq=%d bytes=%d (in %s)", seq, len(img), time.Since(qStart))
+	return img, nil
 }
 
 // getUnprocessedBrandlessPhysicalReports returns physical reports that have no brand_name set.
@@ -1010,7 +1028,17 @@ func (s *EmailService) sendEmailsToInferredContacts(ctx context.Context, report 
 	}
 
 	// Send emails with analysis data and map image
-	err := s.email.SendEmailsWithAnalysis(validEmails, report.Image, mapImg, analysis)
+	reportImg := report.Image
+	if reportImg == nil {
+		// Lazy-load blob only once we're committed to sending.
+		img, err := s.getReportImage(ctx, report.Seq)
+		if err != nil {
+			log.Warnf("Failed to load report image for seq %d: %v; sending email without report image", report.Seq, err)
+		} else {
+			reportImg = img
+		}
+	}
+	err := s.email.SendEmailsWithAnalysis(validEmails, reportImg, mapImg, analysis)
 	if err != nil {
 		return err
 	}
@@ -1077,7 +1105,17 @@ func (s *EmailService) sendEmailsForArea(ctx context.Context, report models.Repo
 	}
 
 	// Send emails with analysis data
-	err := s.email.SendEmailsWithAnalysis(validEmails, report.Image, polyImg, analysis)
+	reportImg := report.Image
+	if reportImg == nil {
+		// Lazy-load blob only once we're committed to sending.
+		img, err := s.getReportImage(ctx, report.Seq)
+		if err != nil {
+			log.Warnf("Failed to load report image for seq %d: %v; sending email without report image", report.Seq, err)
+		} else {
+			reportImg = img
+		}
+	}
+	err := s.email.SendEmailsWithAnalysis(validEmails, reportImg, polyImg, analysis)
 	if err != nil {
 		return err
 	}
