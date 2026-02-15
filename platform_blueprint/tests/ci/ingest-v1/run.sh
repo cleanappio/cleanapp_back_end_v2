@@ -150,13 +150,13 @@ fi
 
 echo "== verify promotion published report.analysed =="
 for _ in $(seq 1 30); do
-  msgs="$(rabbit_json GET "http://localhost:15672/api/queues/%2F/${qname}" | python3 -c 'import json,sys; print(int(json.loads(sys.stdin.read()).get(\"messages\",0)))')"
+  msgs="$(rabbit_json GET "http://localhost:15672/api/queues/%2F/${qname}" | python3 -c 'import json,sys; print(int(json.loads(sys.stdin.read()).get("messages",0)))')"
   if [[ "${msgs:-0}" != "0" ]]; then
     break
   fi
   sleep 1
 done
-msgs="$(rabbit_json GET "http://localhost:15672/api/queues/%2F/${qname}" | python3 -c 'import json,sys; print(int(json.loads(sys.stdin.read()).get(\"messages\",0)))')"
+msgs="$(rabbit_json GET "http://localhost:15672/api/queues/%2F/${qname}" | python3 -c 'import json,sys; print(int(json.loads(sys.stdin.read()).get("messages",0)))')"
 if [[ "${msgs:-0}" == "0" ]]; then
   echo "expected report.analysed publish after promotion (seq=$seq), but queue stayed empty" >&2
   dc logs --no-color report_listener || true
