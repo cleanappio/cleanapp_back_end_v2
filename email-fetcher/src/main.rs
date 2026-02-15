@@ -780,9 +780,12 @@ async fn lookup_physical_contact_emails(
     let area_count = conn
         .exec_first::<u64, _, _>(
             r#"
-            SELECT COUNT(DISTINCT area_id)
-            FROM area_index
-            WHERE MBRWithin(ST_GeomFromText(:pt, 4326), geom)
+            SELECT COUNT(*) FROM (
+                SELECT area_id
+                FROM area_index
+                WHERE MBRWithin(ST_GeomFromText(:pt, 4326), geom)
+                GROUP BY area_id
+            ) grouped
             "#,
             params! {"pt" => pt_wkt.clone()},
         )

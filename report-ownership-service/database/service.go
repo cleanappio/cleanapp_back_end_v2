@@ -154,7 +154,13 @@ func (s *OwnershipService) GetTotalReports(ctx context.Context) (int, error) {
 // GetTotalProcessedReports gets the total number of processed reports
 func (s *OwnershipService) GetTotalProcessedReports(ctx context.Context) (int, error) {
 	var count int
-	err := s.db.QueryRowContext(ctx, "SELECT COUNT(DISTINCT seq) FROM reports_owners").Scan(&count)
+	// Count unique reports that have at least one owner row.
+	// Avoid COUNT(DISTINCT ...) by grouping first.
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM (
+			SELECT seq FROM reports_owners GROUP BY seq
+		) grouped
+	`).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get total processed reports: %w", err)
 	}

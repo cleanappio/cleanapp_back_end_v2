@@ -144,6 +144,9 @@ func StartService() {
 	// This uses incremental counting to avoid slow full table scans
 	StartCounterCacheUpdater()
 
+	// Start background brand counts updater (materialized aggregates)
+	StartBrandReportCountsUpdater()
+
 	// Ensure cleanup on exit
 	defer closePublisher()
 

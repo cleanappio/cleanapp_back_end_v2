@@ -84,11 +84,22 @@ func updateCounterCache() {
 	countCache.mu.RUnlock()
 
 	if !initialized {
-		// First run: do full count (will be slow, ~30-60s, but only once)
-		log.Info("Counter cache: initializing with full count (this may take a minute)...")
-		fullUpdateCounterCache(dbc, maxSeq)
-		log.Infof("Counter cache: initialization complete in %v", time.Since(startTime))
-		return
+		// Prefer loading from the materialized counters table to avoid repeated full scans
+		// on every service restart. If the table isn't present yet, fall back to a full scan.
+		if loaded := tryLoadCounterCacheFromDB(dbc); loaded {
+			countCache.mu.RLock()
+			lastSeq = countCache.lastCountedSeq
+			countCache.mu.RUnlock()
+			log.Infof("Counter cache: loaded from DB (last_seq=%d)", lastSeq)
+			initialized = true
+		} else {
+			// First run: do full count (will be slow, ~30-60s, but only once)
+			log.Info("Counter cache: initializing with full count (this may take a minute)...")
+			fullUpdateCounterCache(dbc, maxSeq)
+			persistCounterCacheToDB(dbc)
+			log.Infof("Counter cache: initialization complete in %v", time.Since(startTime))
+			return
+		}
 	}
 
 	// Incremental update: only count new reports since lastSeq
@@ -98,6 +109,7 @@ func updateCounterCache() {
 	}
 
 	incrementalUpdateCounterCache(dbc, lastSeq, maxSeq)
+	persistCounterCacheToDB(dbc)
 	log.Infof("Counter cache: incremental update complete in %v (counted seq %d to %d)",
 		time.Since(startTime), lastSeq, maxSeq)
 }
@@ -177,4 +189,53 @@ func incrementalUpdateCounterCache(dbc *sql.DB, lastSeq, maxSeq int) {
 	countCache.mu.Unlock()
 
 	log.Infof("Counter cache: added new reports - +%d total, +%d physical, +%d digital", newTotal, newPhysical, newDigital)
+}
+
+// tryLoadCounterCacheFromDB attempts to initialize the in-memory cache from the
+// materialized counters table. This avoids repeated full table scans on restarts.
+// Returns true if loaded successfully, false if unavailable (e.g. table missing).
+func tryLoadCounterCacheFromDB(dbc *sql.DB) bool {
+	var total, physical, digital, lastSeq int
+	err := dbc.QueryRow(`
+		SELECT total_valid, physical_valid, digital_valid, last_counted_seq
+		FROM report_counts_total
+		WHERE id = 1
+	`).Scan(&total, &physical, &digital, &lastSeq)
+	if err != nil {
+		// Most commonly: "Error 1146: Table ... doesn't exist" before patch is applied.
+		return false
+	}
+	if lastSeq <= 0 {
+		return false
+	}
+
+	countCache.mu.Lock()
+	countCache.totalReports = total
+	countCache.physicalCount = physical
+	countCache.digitalCount = digital
+	countCache.lastCountedSeq = lastSeq
+	countCache.lastUpdated = time.Now()
+	countCache.initialized = true
+	countCache.mu.Unlock()
+	return true
+}
+
+func persistCounterCacheToDB(dbc *sql.DB) {
+	countCache.mu.RLock()
+	total := countCache.totalReports
+	physical := countCache.physicalCount
+	digital := countCache.digitalCount
+	lastSeq := countCache.lastCountedSeq
+	countCache.mu.RUnlock()
+
+	// Best-effort: if table doesn't exist yet, ignore silently.
+	_, _ = dbc.Exec(`
+		INSERT INTO report_counts_total (id, total_valid, physical_valid, digital_valid, last_counted_seq)
+		VALUES (1, ?, ?, ?, ?)
+		ON DUPLICATE KEY UPDATE
+			total_valid = VALUES(total_valid),
+			physical_valid = VALUES(physical_valid),
+			digital_valid = VALUES(digital_valid),
+			last_counted_seq = VALUES(last_counted_seq)
+	`, total, physical, digital, lastSeq)
 }

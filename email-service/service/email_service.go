@@ -1137,18 +1137,33 @@ func (s *EmailService) getReportAnalysis(ctx context.Context, seq int64) (*model
 
 	// Count total reports for this brand (for personalized email messaging)
 	if analysis.BrandName != "" {
-		countQuery := `
-			SELECT COUNT(DISTINCT seq) 
-			FROM report_analysis 
-			WHERE brand_name = ? AND language = 'en'
-		`
 		var count int
-		if err := s.db.QueryRowContext(ctx, countQuery, analysis.BrandName).Scan(&count); err != nil {
-			log.Warnf("Failed to count reports for brand %s: %v", analysis.BrandName, err)
-			// Continue without count - not critical
-		} else {
+		// Prefer materialized brand counts to avoid COUNT(DISTINCT ...) on hot paths.
+		// Fallback to the legacy query if the counters table is not yet present.
+		if err := s.db.QueryRowContext(ctx, `
+			SELECT total_valid
+			FROM brand_report_counts
+			WHERE brand_name = ? AND language = 'en'
+		`, analysis.BrandName).Scan(&count); err == nil {
 			analysis.BrandReportCount = count
-			log.Infof("Brand %s has %d total reports", analysis.BrandName, count)
+			log.Infof("Brand %s has %d total reports (from counters)", analysis.BrandName, count)
+		} else {
+			countQuery := `
+				SELECT COUNT(*)
+				FROM (
+					SELECT seq
+					FROM report_analysis
+					WHERE brand_name = ? AND language = 'en'
+					GROUP BY seq
+				) grouped
+			`
+			if err := s.db.QueryRowContext(ctx, countQuery, analysis.BrandName).Scan(&count); err != nil {
+				log.Warnf("Failed to count reports for brand %s: %v", analysis.BrandName, err)
+				// Continue without count - not critical
+			} else {
+				analysis.BrandReportCount = count
+				log.Infof("Brand %s has %d total reports", analysis.BrandName, count)
+			}
 		}
 	}
 

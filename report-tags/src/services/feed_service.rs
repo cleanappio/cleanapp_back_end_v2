@@ -165,13 +165,17 @@ pub async fn get_feed_count(
         .map(|_| "?")
         .collect::<Vec<_>>()
         .join(",");
+    // Count unique reports. We avoid COUNT(DISTINCT ...) by grouping by r.seq first.
     let query = format!(
-        "SELECT COUNT(DISTINCT r.seq)
-         FROM reports r
-         INNER JOIN reports_geometry rg ON r.seq = rg.seq
-         INNER JOIN report_tags rt ON r.seq = rt.report_seq
-         WHERE ST_Distance_Sphere(rg.geom, POINT(?, ?)) <= ?
-         AND rt.tag_id IN ({})",
+        "SELECT COUNT(*) FROM (
+           SELECT r.seq
+           FROM reports r
+           INNER JOIN reports_geometry rg ON r.seq = rg.seq
+           INNER JOIN report_tags rt ON r.seq = rt.report_seq
+           WHERE ST_Distance_Sphere(rg.geom, POINT(?, ?)) <= ?
+           AND rt.tag_id IN ({})
+           GROUP BY r.seq
+         ) grouped",
         placeholders
     );
 

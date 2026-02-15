@@ -221,16 +221,17 @@ func (s *DatabaseService) GetReportsByBrand(brandName string, n int, userID stri
 func (s *DatabaseService) GetBrandsInfo(userID string) ([]models.BrandInfo, error) {
 	var brandsInfo []models.BrandInfo
 
-	for _, brandName := range s.Cfg.BrandNames {
-		// Count reports for this brand
-		count, err := s.getBrandReportCount(brandName, userID)
-		if err != nil {
-			log.Printf("Warning: failed to get report count for brand %s: %v", brandName, err)
-			count = 0
-		}
+	counts, err := s.getBrandReportCounts(userID)
+	if err != nil {
+		log.Printf("Warning: failed to precompute brand counts: %v", err)
+		counts = map[string]int{}
+	}
 
+	for _, brandName := range s.Cfg.BrandNames {
+		normalized := utils.NormalizeBrandName(brandName)
+		count := counts[normalized]
 		brandsInfo = append(brandsInfo, models.BrandInfo{
-			Name:        utils.NormalizeBrandName(brandName),
+			Name:        normalized,
 			DisplayName: brandName,
 			Count:       count,
 		})
@@ -239,39 +240,61 @@ func (s *DatabaseService) GetBrandsInfo(userID string) ([]models.BrandInfo, erro
 	return brandsInfo, nil
 }
 
-// getBrandReportCount gets the count of reports for a specific brand
-// Only counts reports that are not privately owned by other users
-func (s *DatabaseService) getBrandReportCount(brandName string, userID string) (int, error) {
-	query := `
-		SELECT COUNT(DISTINCT r.seq)
-		FROM reports r
-		INNER JOIN report_analysis ra ON r.seq = ra.seq
-		LEFT JOIN report_status rs ON r.seq = rs.seq
-		LEFT JOIN reports_owners ro ON r.seq = ro.seq
-		WHERE ra.brand_name IS NOT NULL AND ra.brand_name != ''
-		AND ra.classification = 'physical'
-		AND (rs.status IS NULL OR rs.status = 'active')
-		AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE OR ro.owner = ?)
-	`
+// getBrandReportCounts returns per-brand report counts in a single query (no N-per-brand loop).
+// The result keys are normalized brand names.
+//
+// Only counts reports that are not privately owned by other users.
+func (s *DatabaseService) getBrandReportCounts(userID string) (map[string]int, error) {
+	brands := s.Cfg.NormailzedBrandNames
+	if len(brands) == 0 {
+		return map[string]int{}, nil
+	}
 
-	rows, err := s.db.Query(query, userID)
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(brands)), ",")
+	args := make([]any, 0, len(brands)+1)
+	for _, b := range brands {
+		args = append(args, b)
+	}
+	args = append(args, userID)
+
+	// Drive from report_analysis, group by (seq, brand) first so we can count without DISTINCT.
+	query := fmt.Sprintf(`
+		SELECT brand_name, COUNT(*) AS cnt
+		FROM (
+			SELECT ra.seq, ra.brand_name
+			FROM report_analysis ra
+			LEFT JOIN report_raw rr ON ra.seq = rr.report_seq
+			LEFT JOIN report_status rs ON ra.seq = rs.seq
+			LEFT JOIN reports_owners ro ON ra.seq = ro.seq
+			WHERE ra.brand_name IN (%s)
+			  AND ra.classification = 'physical'
+			  AND ra.is_valid = TRUE
+			  AND ra.language = 'en'
+			  AND (rr.visibility IS NULL OR rr.visibility = 'public')
+			  AND (rs.status IS NULL OR rs.status = 'active')
+			  AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE OR ro.owner = ?)
+			GROUP BY ra.seq, ra.brand_name
+		) grouped
+		GROUP BY brand_name
+	`, placeholders)
+
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
-		return 0, fmt.Errorf("failed to query brand report count: %w", err)
+		return nil, fmt.Errorf("failed to query brand report counts: %w", err)
 	}
 	defer rows.Close()
 
-	var totalCount int
+	out := make(map[string]int, len(brands))
 	for rows.Next() {
-		var count int
-		if err := rows.Scan(&count); err != nil {
-			return 0, fmt.Errorf("failed to scan brand report count: %w", err)
+		var brand string
+		var cnt int
+		if err := rows.Scan(&brand, &cnt); err != nil {
+			return nil, fmt.Errorf("failed to scan brand report counts: %w", err)
 		}
-
-		// Check if this analysis matches the target brand
-		if isMatch, _ := s.Cfg.IsBrandMatch(brandName); isMatch {
-			totalCount += count
-		}
+		out[brand] = cnt
 	}
-
-	return totalCount, nil
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating brand report counts: %w", err)
+	}
+	return out, nil
 }
