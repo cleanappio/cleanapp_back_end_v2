@@ -1,6 +1,7 @@
 use anyhow::Result;
 use my::prelude::*;
 use mysql as my;
+use std::time::{Duration, Instant};
 
 use crate::{
     config::Config,
@@ -10,13 +11,54 @@ use crate::{
 pub fn connect_pool() -> Result<my::Pool> {
     let cfg: &Config = crate::config::get_config();
     let port: u16 = cfg.db_port.parse().unwrap_or(3306);
-    let builder = my::OptsBuilder::new()
-        .ip_or_hostname(Some(cfg.db_host.clone()))
-        .tcp_port(port)
-        .user(Some(cfg.db_user.clone()))
-        .pass(Some(cfg.db_password.clone()))
-        .db_name(Some(cfg.db_name.clone()));
-    Ok(my::Pool::new(builder)?)
+
+    // If MySQL is still booting (common in CI compose), avoid failing hard on first attempt.
+    // In prod, this also makes cold starts more resilient (e.g., DB restart).
+    let mut max_wait_sec: u64 = 300;
+    if std::env::var("CI").ok().as_deref() == Some("true") {
+        max_wait_sec = 30;
+    }
+    if let Ok(v) = std::env::var("DB_CONNECT_MAX_WAIT_SEC") {
+        if let Ok(n) = v.parse::<u64>() {
+            if n > 0 {
+                max_wait_sec = n;
+            }
+        }
+    }
+
+    let deadline = Instant::now().checked_add(Duration::from_secs(max_wait_sec));
+    let mut wait = Duration::from_millis(250);
+    let mut attempt: u64 = 0;
+
+    loop {
+        attempt += 1;
+        let builder = my::OptsBuilder::new()
+            .ip_or_hostname(Some(cfg.db_host.clone()))
+            .tcp_port(port)
+            .user(Some(cfg.db_user.clone()))
+            .pass(Some(cfg.db_password.clone()))
+            .db_name(Some(cfg.db_name.clone()));
+
+        match my::Pool::new(builder) {
+            Ok(pool) => return Ok(pool),
+            Err(err) => {
+                if deadline.is_some_and(|d| Instant::now() >= d) {
+                    return Err(err.into());
+                }
+                tracing::warn!(
+                    "mysql: connect failed (attempt={}) host={} port={} db={} retry_in_ms={} err={}",
+                    attempt,
+                    cfg.db_host,
+                    port,
+                    cfg.db_name,
+                    wait.as_millis(),
+                    err
+                );
+                std::thread::sleep(wait);
+                wait = std::cmp::min(wait.saturating_mul(2), Duration::from_secs(5));
+            }
+        }
+    }
 }
 
 pub fn fetch_brand_summaries(
