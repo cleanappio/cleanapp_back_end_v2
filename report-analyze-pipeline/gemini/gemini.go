@@ -5,8 +5,14 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"image"
 	"io"
 	"net/http"
+	"strings"
+
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 )
 
 const promptSystem = `
@@ -190,12 +196,18 @@ func (c *Client) AnalyzeImage(imageData []byte, description string) (string, err
 		parts = append(parts, part{Text: description})
 	}
 	if len(imageData) > 0 {
-		parts = append(parts, part{
-			InlineData: &inlineData{
-				MimeType: "image/jpeg",
-				Data:     base64.StdEncoding.EncodeToString(imageData),
-			},
-		})
+		// Do not attach "placeholder" or invalid image blobs; Gemini will 400 and the message will retry forever.
+		mimeType := http.DetectContentType(imageData)
+		if strings.HasPrefix(mimeType, "image/") {
+			if !shouldSkipImageAttachment(imageData, mimeType) {
+				parts = append(parts, part{
+					InlineData: &inlineData{
+						MimeType: mimeType,
+						Data:     base64.StdEncoding.EncodeToString(imageData),
+					},
+				})
+			}
+		}
 	}
 
 	reqBody := geminiRequest{
@@ -263,12 +275,18 @@ func (c *Client) AnalyzeImageWithLocation(imageData []byte, description string, 
 		parts = append(parts, part{Text: description})
 	}
 	if len(imageData) > 0 {
-		parts = append(parts, part{
-			InlineData: &inlineData{
-				MimeType: "image/jpeg",
-				Data:     base64.StdEncoding.EncodeToString(imageData),
-			},
-		})
+		// Do not attach "placeholder" or invalid image blobs; Gemini will 400 and the message will retry forever.
+		mimeType := http.DetectContentType(imageData)
+		if strings.HasPrefix(mimeType, "image/") {
+			if !shouldSkipImageAttachment(imageData, mimeType) {
+				parts = append(parts, part{
+					InlineData: &inlineData{
+						MimeType: mimeType,
+						Data:     base64.StdEncoding.EncodeToString(imageData),
+					},
+				})
+			}
+		}
 	}
 
 	reqBody := geminiRequest{
@@ -281,6 +299,29 @@ func (c *Client) AnalyzeImageWithLocation(imageData []byte, description string, 
 	}
 
 	return c.generateContent(reqBody)
+}
+
+func shouldSkipImageAttachment(imageData []byte, mimeType string) bool {
+	// Heuristic:
+	// - For small images (especially 1x1 placeholders) validate they're decodable and not trivially tiny.
+	// - For larger images, rely on DetectContentType only (keeps us from accidentally dropping valid webp, etc.).
+	if len(imageData) >= 512 {
+		return false
+	}
+	switch mimeType {
+	case "image/png", "image/jpeg", "image/gif":
+		cfg, _, err := image.DecodeConfig(bytes.NewReader(imageData))
+		if err != nil {
+			return true
+		}
+		if cfg.Width <= 2 && cfg.Height <= 2 {
+			return true
+		}
+		return false
+	default:
+		// Small, uncommon image type. Assume it's intentional and let Gemini decide.
+		return false
+	}
 }
 
 func (c *Client) TranslateAnalysis(jsonText, targetLanguage string) (string, error) {
