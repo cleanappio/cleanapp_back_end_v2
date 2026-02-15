@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"log"
 	"strings"
 )
 
@@ -25,4 +26,18 @@ func (d *Database) ReportVisibility(seq int) (string, error) {
 		return "public", nil
 	}
 	return strings.ToLower(strings.TrimSpace(vis.String)), nil
+}
+
+// MarkAnalysedPublished best-effort records that this report was published to report.analysed.
+// This is used to make promotion-triggered publish idempotent and observable.
+func (d *Database) MarkAnalysedPublished(seq int) {
+	_, err := d.db.Exec(`UPDATE report_raw SET analysed_published_at = NOW() WHERE report_seq = ?`, seq)
+	if err == nil {
+		return
+	}
+	low := strings.ToLower(err.Error())
+	if strings.Contains(low, "unknown column") || strings.Contains(low, "doesn't exist") {
+		return
+	}
+	log.Printf("warn: failed to mark analysed_published_at seq=%d: %v", seq, err)
 }

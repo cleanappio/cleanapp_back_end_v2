@@ -50,7 +50,14 @@ type v1FetcherMeResponse struct {
 	Status          string `json:"status"`
 	Tier            int    `json:"tier"`
 	ReputationScore int    `json:"reputation_score"`
-	Caps            struct {
+	Defaults        struct {
+		Visibility     string `json:"default_visibility"`
+		TrustLevel     string `json:"default_trust_level"`
+		RoutingEnabled bool   `json:"routing_enabled"`
+		RewardsEnabled bool   `json:"rewards_enabled"`
+	} `json:"defaults"`
+	VerifiedDomain string `json:"verified_domain,omitempty"`
+	Caps           struct {
 		PerMinute int `json:"per_minute_cap_items"`
 		Daily     int `json:"daily_cap_items"`
 	} `json:"caps"`
@@ -308,6 +315,13 @@ func (h *Handlers) GetFetcherMeV1(c *gin.Context) {
 	resp.Status = fetcher.Status
 	resp.Tier = fetcher.Tier
 	resp.ReputationScore = fetcher.ReputationScore
+	resp.Defaults.Visibility = normalizeVisibility(fetcher.DefaultVisibility, "shadow")
+	resp.Defaults.TrustLevel = normalizeTrustLevel(fetcher.DefaultTrustLevel, "unverified")
+	resp.Defaults.RoutingEnabled = fetcher.RoutingEnabled
+	resp.Defaults.RewardsEnabled = fetcher.RewardsEnabled
+	if fetcher.VerifiedDomain.Valid {
+		resp.VerifiedDomain = fetcher.VerifiedDomain.String
+	}
 	resp.Caps.PerMinute = perMinute
 	resp.Caps.Daily = daily
 	resp.Usage.MinuteUsed = minUsed
@@ -342,6 +356,14 @@ func (h *Handlers) BulkIngestV1(c *gin.Context) {
 	dailyCapAny, _ := c.Get(middlewareCtxKeyFetcherDailyCap())
 	perMinCap, _ := perMinCapAny.(int)
 	dailyCap, _ := dailyCapAny.(int)
+
+	// Fetcher-level defaults (promotion workflow can lift a fetcher out of quarantine).
+	defVisAny, _ := c.Get(middlewareCtxKeyFetcherDefaultVisibility())
+	defTrustAny, _ := c.Get(middlewareCtxKeyFetcherDefaultTrustLevel())
+	defVis, _ := defVisAny.(string)
+	defTrust, _ := defTrustAny.(string)
+	defVis = normalizeVisibility(defVis, "shadow")
+	defTrust = normalizeTrustLevel(defTrust, "unverified")
 
 	var req v1BulkIngestRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -449,7 +471,7 @@ func (h *Handlers) BulkIngestV1(c *gin.Context) {
 	}
 
 	// Insert new reports + report_raw rows in a single transaction.
-	// Quarantine lane defaults to visibility=shadow.
+	// Default visibility/trust come from fetcher defaults (normally shadow/unverified).
 	newOnes := make([]prepared, 0, len(preparedItems))
 	for _, p := range preparedItems {
 		if !p.duplicate && p.seq == 0 && p.sourceID != "" {
@@ -515,9 +537,13 @@ func (h *Handlers) BulkIngestV1(c *gin.Context) {
 
 		// Insert report_raw metadata.
 		rawVals := make([]string, 0, len(newOnes))
-		rawArgs := make([]interface{}, 0, len(newOnes)*10)
+		rawArgs := make([]interface{}, 0, len(newOnes)*14)
+		promotedAt := interface{}(nil)
+		if defVis == "public" {
+			promotedAt = time.Now().UTC()
+		}
 		for _, it := range newOnes {
-			rawVals = append(rawVals, "(?, ?, ?, ?, ?, ?, ?, 'shadow', 'unverified', 0)")
+			rawVals = append(rawVals, "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)")
 			rawArgs = append(rawArgs,
 				it.seq,
 				fetcherID,
@@ -526,11 +552,14 @@ func (h *Handlers) BulkIngestV1(c *gin.Context) {
 				nullable(it.agentVer),
 				nullableTime(it.collectedAt),
 				nullable(it.sourceType),
+				defVis,
+				defTrust,
+				promotedAt,
 			)
 		}
 
 		if _, err := tx.ExecContext(c.Request.Context(),
-			fmt.Sprintf("INSERT INTO report_raw (report_seq, fetcher_id, source_id, agent_id, agent_version, collected_at, source_type, visibility, trust_level, spam_score) VALUES %s", strings.Join(rawVals, ",")),
+			fmt.Sprintf("INSERT INTO report_raw (report_seq, fetcher_id, source_id, agent_id, agent_version, collected_at, source_type, visibility, trust_level, promoted_to_public_at, spam_score) VALUES %s", strings.Join(rawVals, ",")),
 			rawArgs...,
 		); err != nil {
 			log.Printf("v1 bulkIngest: insert report_raw failed: %v", err)
@@ -558,6 +587,48 @@ func (h *Handlers) BulkIngestV1(c *gin.Context) {
 		}
 	}
 
+	// Load the actual visibility/trust values from DB for response + publish payloads.
+	// (Duplicates may have been promoted since first ingest.)
+	type visTrust struct {
+		vis   string
+		trust string
+	}
+	visBySeq := map[int]visTrust{}
+	seqs := make([]int, 0, len(preparedItems))
+	seqSeen := map[int]bool{}
+	for _, it := range preparedItems {
+		if it.seq > 0 && !seqSeen[it.seq] {
+			seqSeen[it.seq] = true
+			seqs = append(seqs, it.seq)
+		}
+	}
+	if len(seqs) > 0 {
+		ph := make([]string, 0, len(seqs))
+		args := make([]interface{}, 0, len(seqs))
+		for _, s := range seqs {
+			ph = append(ph, "?")
+			args = append(args, s)
+		}
+		q := fmt.Sprintf(`SELECT report_seq, visibility, trust_level FROM report_raw WHERE report_seq IN (%s)`, strings.Join(ph, ","))
+		rows, err := h.db.DB().QueryContext(c.Request.Context(), q, args...)
+		if err != nil {
+			log.Printf("v1 bulkIngest: failed to load report_raw vis/trust: %v", err)
+		} else {
+			defer rows.Close()
+			for rows.Next() {
+				var seq int
+				var vis, trust string
+				if err := rows.Scan(&seq, &vis, &trust); err != nil {
+					continue
+				}
+				visBySeq[seq] = visTrust{
+					vis:   normalizeVisibility(vis, defVis),
+					trust: normalizeTrustLevel(trust, defTrust),
+				}
+			}
+		}
+	}
+
 	// Publish to RabbitMQ for analysis (includes duplicates; idempotent-ish on the analyzer side).
 	queuedFailures := 0
 	for _, it := range preparedItems {
@@ -568,6 +639,7 @@ func (h *Handlers) BulkIngestV1(c *gin.Context) {
 			queuedFailures++
 			continue
 		}
+		vt := visBySeq[it.seq]
 		msg := map[string]interface{}{
 			"seq":         it.seq,
 			"description": it.description,
@@ -575,7 +647,7 @@ func (h *Handlers) BulkIngestV1(c *gin.Context) {
 			"longitude":   it.lng,
 			"fetcher_id":  fetcherID,
 			"source_id":   it.sourceID,
-			"visibility":  "shadow",
+			"visibility":  normalizeVisibility(vt.vis, defVis),
 		}
 		if err := h.rabbitmqPublisher.PublishWithRoutingKey(h.cfg.RabbitRawReportRoutingKey, msg); err != nil {
 			log.Printf("v1 bulkIngest: publish failed seq=%d: %v", it.seq, err)
@@ -604,8 +676,8 @@ func (h *Handlers) BulkIngestV1(c *gin.Context) {
 			Status:     status,
 			ReportSeq:  it.seq,
 			Queued:     queuedFailures == 0, // coarse-grained (per-request)
-			Visibility: "shadow",
-			TrustLevel: "unverified",
+			Visibility: normalizeVisibility(visBySeq[it.seq].vis, defVis),
+			TrustLevel: normalizeTrustLevel(visBySeq[it.seq].trust, defTrust),
 		})
 	}
 
@@ -639,8 +711,46 @@ func nullableTime(t *time.Time) interface{} {
 	return *t
 }
 
+func normalizeVisibility(v string, def string) string {
+	v = strings.ToLower(strings.TrimSpace(v))
+	switch v {
+	case "shadow", "limited", "public":
+		return v
+	default:
+	}
+	def = strings.ToLower(strings.TrimSpace(def))
+	switch def {
+	case "shadow", "limited", "public":
+		return def
+	default:
+		return "shadow"
+	}
+}
+
+func normalizeTrustLevel(v string, def string) string {
+	v = strings.ToLower(strings.TrimSpace(v))
+	switch v {
+	case "unverified", "verified", "trusted":
+		return v
+	default:
+	}
+	def = strings.ToLower(strings.TrimSpace(def))
+	switch def {
+	case "unverified", "verified", "trusted":
+		return def
+	default:
+		return "unverified"
+	}
+}
+
 // Gin context key helpers (kept local to avoid exporting internal constants).
 func middlewareCtxKeyFetcherID() string        { return "fetcher_id" }
 func middlewareCtxKeyFetcherKeyID() string     { return "fetcher_key_id" }
 func middlewareCtxKeyFetcherMinuteCap() string { return "fetcher_per_minute_cap_items" }
 func middlewareCtxKeyFetcherDailyCap() string  { return "fetcher_daily_cap_items" }
+func middlewareCtxKeyFetcherDefaultVisibility() string {
+	return "fetcher_default_visibility"
+}
+func middlewareCtxKeyFetcherDefaultTrustLevel() string {
+	return "fetcher_default_trust_level"
+}

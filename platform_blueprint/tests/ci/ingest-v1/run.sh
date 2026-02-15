@@ -26,6 +26,22 @@ wait_http_200() {
   return 1
 }
 
+rabbit_json() {
+  local method="$1"
+  local url="$2"
+  local data="${3:-}"
+  local user="${RABBITMQ_MGMT_USER:-guest}"
+  local pass="${RABBITMQ_MGMT_PASSWORD:-guest}"
+  local netrc="${TMPDIR:-/tmp}/.rmq_netrc_$$"
+  printf "machine localhost login %s password %s\\n" "$user" "$pass" >"$netrc"
+  chmod 600 "$netrc"
+  if [[ -n "$data" ]]; then
+    curl -fsS --max-time 10 --netrc-file "$netrc" -H "content-type: application/json" -X "$method" "$url" -d "$data"
+  else
+    curl -fsS --max-time 10 --netrc-file "$netrc" -H "content-type: application/json" -X "$method" "$url"
+  fi
+}
+
 mysql_query() {
   local sql="$1"
   dc exec -T mysql mysql -uroot -proot cleanapp -N -e "$sql"
@@ -115,6 +131,11 @@ if [[ "$code" != "404" ]]; then
   exit 1
 fi
 
+echo "== bind temp queue to report.analysed =="
+qname="ci_test_report_analysed_$$"
+rabbit_json PUT "http://localhost:15672/api/queues/%2F/${qname}" '{"durable":false,"auto_delete":true,"arguments":{}}' >/dev/null
+rabbit_json POST "http://localhost:15672/api/bindings/%2F/e/cleanapp/q/${qname}" '{"routing_key":"report.analysed"}' >/dev/null
+
 echo "== promote to public and verify visible =="
 curl -fsS --max-time 10 -H "content-type: application/json" \
   -H "X-Internal-Admin-Token: ci-admin-token" \
@@ -124,6 +145,22 @@ curl -fsS --max-time 10 -H "content-type: application/json" \
 code="$(curl -sS -o /dev/null -w "%{http_code}" --max-time 10 "http://localhost:18082/api/v3/reports/by-seq?seq=${seq}" || true)"
 if [[ "$code" != "200" ]]; then
   echo "expected 200 after promotion seq=$seq, got http=$code" >&2
+  exit 1
+fi
+
+echo "== verify promotion published report.analysed =="
+for _ in $(seq 1 30); do
+  msgs="$(rabbit_json GET "http://localhost:15672/api/queues/%2F/${qname}" | python3 -c 'import json,sys; print(int(json.loads(sys.stdin.read()).get(\"messages\",0)))')"
+  if [[ "${msgs:-0}" != "0" ]]; then
+    break
+  fi
+  sleep 1
+done
+msgs="$(rabbit_json GET "http://localhost:15672/api/queues/%2F/${qname}" | python3 -c 'import json,sys; print(int(json.loads(sys.stdin.read()).get(\"messages\",0)))')"
+if [[ "${msgs:-0}" == "0" ]]; then
+  echo "expected report.analysed publish after promotion (seq=$seq), but queue stayed empty" >&2
+  dc logs --no-color report_listener || true
+  dc logs --no-color analyzer || true
   exit 1
 fi
 
