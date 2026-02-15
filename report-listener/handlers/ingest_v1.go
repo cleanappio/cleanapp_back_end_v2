@@ -466,7 +466,10 @@ func (h *Handlers) BulkIngestV1(c *gin.Context) {
 		defer tx.Rollback()
 
 		reporterID := "fetcher_v1:" + fetcherID
-		img := placeholderPNGBytes()
+		// For v1 quarantine ingestion, allow text-only items. Store an empty (non-NULL) blob so
+		// downstream analyzers can treat it as "no image" (attaching a 1x1 placeholder can cause
+		// LLM vision APIs to hard-fail).
+		img := []byte{}
 
 		// Insert reports in chunks (keeps MySQL packet reasonable).
 		const chunkSize = 200
