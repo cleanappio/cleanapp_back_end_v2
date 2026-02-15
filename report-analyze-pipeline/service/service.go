@@ -190,6 +190,7 @@ func (s *Service) publishAnalyzedReport(report *database.Report, analyses []*dat
 		log.Printf("Failed to publish analyzed report %d: %v", report.Seq, err)
 	} else {
 		log.Printf("Successfully published analyzed report %d with %d analyses", report.Seq, len(apiAnalyses))
+		s.db.MarkAnalysedPublished(report.Seq) // best-effort
 	}
 }
 

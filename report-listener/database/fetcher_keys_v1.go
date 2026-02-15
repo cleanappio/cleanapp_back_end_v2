@@ -19,6 +19,13 @@ type FetcherV1 struct {
 	ReputationScore   int
 	DailyCapItems     int
 	PerMinuteCapItems int
+	DefaultVisibility string
+	DefaultTrustLevel string
+	RoutingEnabled    bool
+	RewardsEnabled    bool
+	VerifiedDomain    sql.NullString
+	OwnerUserID       sql.NullString
+	Notes             sql.NullString
 	LastSeenAt        sql.NullTime
 }
 
@@ -88,7 +95,10 @@ func (d *Database) GetFetcherKeyAndFetcherV1(ctx context.Context, keyID string) 
 		SELECT
 			k.key_id, k.fetcher_id, k.key_prefix, k.key_hash, k.status, k.scopes, k.created_at, k.last_used_at,
 			k.per_minute_cap_items, k.daily_cap_items,
-			f.name, f.owner_type, f.status, f.tier, f.reputation_score, f.daily_cap_items, f.per_minute_cap_items, f.last_seen_at
+			f.name, f.owner_type, f.status, f.tier, f.reputation_score, f.daily_cap_items, f.per_minute_cap_items,
+			f.default_visibility, f.default_trust_level, f.routing_enabled, f.rewards_enabled,
+			f.verified_domain, f.owner_user_id, f.notes,
+			f.last_seen_at
 		FROM fetcher_keys k
 		INNER JOIN fetchers f ON f.fetcher_id = k.fetcher_id
 		WHERE k.key_id = ?
@@ -110,6 +120,13 @@ func (d *Database) GetFetcherKeyAndFetcherV1(ctx context.Context, keyID string) 
 		&f.ReputationScore,
 		&f.DailyCapItems,
 		&f.PerMinuteCapItems,
+		&f.DefaultVisibility,
+		&f.DefaultTrustLevel,
+		&f.RoutingEnabled,
+		&f.RewardsEnabled,
+		&f.VerifiedDomain,
+		&f.OwnerUserID,
+		&f.Notes,
 		&f.LastSeenAt,
 	)
 	if err != nil {

@@ -231,6 +231,8 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 		v1Auth.Use(middleware.FetcherKeyAuthV1(h.Db(), cfg.FetcherKeyEnv, "fetcher:read"))
 		{
 			v1Auth.GET("/fetchers/me", h.GetFetcherMeV1)
+			v1Auth.POST("/fetchers/promotion-request", h.CreateFetcherPromotionRequestV1)
+			v1Auth.GET("/fetchers/promotion-status", h.GetFetcherPromotionStatusV1)
 		}
 		v1Ingest := v1.Group("/")
 		v1Ingest.Use(middleware.FetcherKeyAuthV1(h.Db(), cfg.FetcherKeyEnv, "report:submit"))
@@ -246,6 +248,8 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 		internal.POST("/reports/:seq/promote", h.InternalPromoteReport)
 		internal.POST("/fetchers/:fetcher_id/suspend", h.InternalSuspendFetcher)
 		internal.POST("/fetchers/keys/:key_id/revoke", h.InternalRevokeFetcherKey)
+		internal.GET("/fetchers/promotion-requests", h.InternalListPromotionRequests)
+		internal.POST("/fetchers/promotion-requests/:id/decide", h.InternalDecidePromotionRequest)
 	}
 
 	// Root health check

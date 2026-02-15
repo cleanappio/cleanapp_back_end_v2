@@ -15,14 +15,18 @@ const (
 	FetcherKeyPrefixLive = "cleanapp_fk_live_"
 	FetcherKeyPrefixTest = "cleanapp_fk_test_"
 
-	ctxFetcherID        = "fetcher_id"
-	ctxFetcherKeyID     = "fetcher_key_id"
-	ctxFetcherScopes    = "fetcher_scopes"
-	ctxFetcherOwnerType = "fetcher_owner_type"
-	ctxFetcherStatus    = "fetcher_status"
-	ctxFetcherTier      = "fetcher_tier"
-	ctxFetcherDailyCap  = "fetcher_daily_cap_items"
-	ctxFetcherMinuteCap = "fetcher_per_minute_cap_items"
+	ctxFetcherID                = "fetcher_id"
+	ctxFetcherKeyID             = "fetcher_key_id"
+	ctxFetcherScopes            = "fetcher_scopes"
+	ctxFetcherOwnerType         = "fetcher_owner_type"
+	ctxFetcherStatus            = "fetcher_status"
+	ctxFetcherTier              = "fetcher_tier"
+	ctxFetcherDailyCap          = "fetcher_daily_cap_items"
+	ctxFetcherMinuteCap         = "fetcher_per_minute_cap_items"
+	ctxFetcherDefaultVisibility = "fetcher_default_visibility"
+	ctxFetcherDefaultTrustLevel = "fetcher_default_trust_level"
+	ctxFetcherRoutingEnabled    = "fetcher_routing_enabled"
+	ctxFetcherRewardsEnabled    = "fetcher_rewards_enabled"
 )
 
 type FetcherScopes map[string]bool
@@ -165,6 +169,10 @@ func FetcherKeyAuthV1(db *database.Database, fetcherKeyEnv string, requiredScope
 		c.Set(ctxFetcherTier, fetcher.Tier)
 		c.Set(ctxFetcherMinuteCap, perMinute)
 		c.Set(ctxFetcherDailyCap, daily)
+		c.Set(ctxFetcherDefaultVisibility, strings.ToLower(strings.TrimSpace(fetcher.DefaultVisibility)))
+		c.Set(ctxFetcherDefaultTrustLevel, strings.ToLower(strings.TrimSpace(fetcher.DefaultTrustLevel)))
+		c.Set(ctxFetcherRoutingEnabled, fetcher.RoutingEnabled)
+		c.Set(ctxFetcherRewardsEnabled, fetcher.RewardsEnabled)
 
 		c.Next()
 	}

@@ -256,6 +256,13 @@ CREATE TABLE IF NOT EXISTS fetchers (
   reputation_score INT NOT NULL DEFAULT 50,
   daily_cap_items INT NOT NULL DEFAULT 200,
   per_minute_cap_items INT NOT NULL DEFAULT 20,
+  default_visibility VARCHAR(16) NOT NULL DEFAULT 'shadow',
+  default_trust_level VARCHAR(16) NOT NULL DEFAULT 'unverified',
+  routing_enabled BOOL NOT NULL DEFAULT FALSE,
+  rewards_enabled BOOL NOT NULL DEFAULT FALSE,
+  verified_domain VARCHAR(255) NULL,
+  owner_user_id VARCHAR(255) NULL,
+  notes TEXT NULL,
   last_used_at TIMESTAMP NULL,
   last_seen_at TIMESTAMP NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -264,6 +271,8 @@ CREATE TABLE IF NOT EXISTS fetchers (
   INDEX idx_active (active),
   INDEX idx_fetchers_status (status),
   INDEX idx_fetchers_owner (owner_type),
+  INDEX idx_fetchers_default_visibility (default_visibility),
+  INDEX idx_fetchers_verified_domain (verified_domain),
   INDEX idx_fetchers_last_seen (last_seen_at)
 );
 
@@ -314,6 +323,8 @@ CREATE TABLE IF NOT EXISTS report_raw (
   source_type VARCHAR(32) NULL,
   visibility VARCHAR(16) NOT NULL DEFAULT 'public',
   trust_level VARCHAR(16) NOT NULL DEFAULT 'unverified',
+  promoted_to_public_at TIMESTAMP NULL,
+  analysed_published_at TIMESTAMP NULL,
   spam_score FLOAT NOT NULL DEFAULT 0,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -321,7 +332,50 @@ CREATE TABLE IF NOT EXISTS report_raw (
   UNIQUE KEY uniq_fetcher_source (fetcher_id, source_id),
   INDEX idx_visibility (visibility),
   INDEX idx_fetcher_visibility (fetcher_id, visibility),
+  INDEX idx_report_raw_promoted_public (promoted_to_public_at),
+  INDEX idx_report_raw_analysed_published (analysed_published_at),
   FOREIGN KEY (report_seq) REFERENCES reports(seq) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS fetcher_promotion_requests (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  fetcher_id VARCHAR(64) NOT NULL,
+  status VARCHAR(16) NOT NULL DEFAULT 'pending', -- pending|approved|denied|needs_info|cancelled
+  contact_email VARCHAR(255) NULL,
+  verified_domain VARCHAR(255) NULL,
+  requested_tier INT NULL,
+  requested_daily_cap_items INT NULL,
+  requested_per_minute_cap_items INT NULL,
+  requested_default_visibility VARCHAR(16) NULL,
+  requested_default_trust_level VARCHAR(16) NULL,
+  requested_routing_enabled BOOL NULL,
+  requested_rewards_enabled BOOL NULL,
+  notes TEXT NULL,
+  decision_notes TEXT NULL,
+  reviewed_by VARCHAR(255) NULL,
+  reviewed_at TIMESTAMP NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  INDEX idx_status_created (status, created_at),
+  INDEX idx_fetcher_created (fetcher_id, created_at),
+  CONSTRAINT fk_promo_req_fetcher FOREIGN KEY (fetcher_id) REFERENCES fetchers(fetcher_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS moderation_events (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  actor VARCHAR(255) NULL,
+  actor_ip VARCHAR(64) NULL,
+  action VARCHAR(64) NOT NULL,
+  target_type VARCHAR(64) NOT NULL,
+  target_id VARCHAR(255) NOT NULL,
+  details JSON NULL,
+  request_id VARCHAR(64) NULL,
+  PRIMARY KEY (id),
+  INDEX idx_ts (ts),
+  INDEX idx_action_ts (action, ts),
+  INDEX idx_target (target_type, target_id)
 );
 
 CREATE TABLE IF NOT EXISTS fetcher_usage_minute (

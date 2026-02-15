@@ -52,6 +52,50 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /v1/fetchers/promotion-request:
+    post:
+      summary: Request promotion out of quarantine (internal review queue)
+      description: |
+        Creates a promotion request for your fetcher. Only one pending request is allowed at a time.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PromotionRequestCreateRequest"
+      responses:
+        "200":
+          description: Promotion request created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PromotionRequestCreateResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: Pending promotion request already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /v1/fetchers/promotion-status:
+    get:
+      summary: Fetcher promotion request status (latest)
+      responses:
+        "200":
+          description: Promotion status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PromotionStatusResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /v1/reports:bulkIngest:
     post:
       summary: Bulk ingest reports (quarantine lane)
@@ -180,6 +224,22 @@ components:
           type: integer
         reputation_score:
           type: integer
+        defaults:
+          type: object
+          additionalProperties: false
+          properties:
+            default_visibility:
+              type: string
+              enum: [shadow, limited, public]
+            default_trust_level:
+              type: string
+              enum: [unverified, verified, trusted]
+            routing_enabled:
+              type: boolean
+            rewards_enabled:
+              type: boolean
+        verified_domain:
+          type: string
         caps:
           type: object
           additionalProperties: false
@@ -205,7 +265,75 @@ components:
         last_seen_at:
           type: string
           format: date-time
-      required: [fetcher_id, name, owner_type, status, tier, reputation_score, caps, usage, scopes]
+      required: [fetcher_id, name, owner_type, status, tier, reputation_score, defaults, caps, usage, scopes]
+    PromotionRequestCreateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        contact_email:
+          type: string
+        verified_domain:
+          type: string
+        requested_tier:
+          type: integer
+        requested_daily_cap_items:
+          type: integer
+        requested_per_minute_cap_items:
+          type: integer
+        requested_default_visibility:
+          type: string
+          enum: [shadow, limited, public]
+        requested_default_trust_level:
+          type: string
+          enum: [unverified, verified, trusted]
+        requested_routing_enabled:
+          type: boolean
+        requested_rewards_enabled:
+          type: boolean
+        notes:
+          type: string
+      required: [notes]
+    PromotionRequestCreateResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        request_id:
+          type: integer
+        status:
+          type: string
+      required: [request_id, status]
+    PromotionStatusResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          description: ok|none
+        request:
+          type: object
+          additionalProperties: false
+          properties:
+            request_id:
+              type: integer
+            status:
+              type: string
+            contact_email:
+              type: string
+            verified_domain:
+              type: string
+            notes:
+              type: string
+            decision_notes:
+              type: string
+            reviewed_by:
+              type: string
+            reviewed_at:
+              type: string
+              format: date-time
+            created_at:
+              type: string
+              format: date-time
+      required: [status]
     BulkIngestRequest:
       type: object
       additionalProperties: false
@@ -306,4 +434,3 @@ components:
         result:
           type: object
       required: [error]
-
