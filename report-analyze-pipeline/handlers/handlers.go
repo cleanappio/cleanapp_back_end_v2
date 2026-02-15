@@ -16,12 +16,12 @@ import (
 type Handlers struct {
 	db              *database.Database
 	analysisService *service.Service
-	subscriber      *rabbitmq.Subscriber
+	subscriber      func() *rabbitmq.Subscriber
 }
 
 // NewHandlers creates new HTTP handlers
-func NewHandlers(db *database.Database, analysisService *service.Service, subscriber *rabbitmq.Subscriber) *Handlers {
-	return &Handlers{db: db, analysisService: analysisService, subscriber: subscriber}
+func NewHandlers(db *database.Database, analysisService *service.Service, subscriberGetter func() *rabbitmq.Subscriber) *Handlers {
+	return &Handlers{db: db, analysisService: analysisService, subscriber: subscriberGetter}
 }
 
 // HealthCheck handles health check requests
@@ -31,15 +31,17 @@ func (h *Handlers) HealthCheck(c *gin.Context) {
 	var rmqLastConnectAt, rmqLastDeliveryAt string
 
 	if h.subscriber != nil {
-		rmqConnected = h.subscriber.IsConnected()
-		rmqQueue = h.subscriber.GetQueue()
-		rmqExchange = h.subscriber.GetExchange()
-		rmqLastError = h.subscriber.LastError()
-		if t := h.subscriber.LastConnectAt(); !t.IsZero() {
-			rmqLastConnectAt = t.UTC().Format(time.RFC3339)
-		}
-		if t := h.subscriber.LastDeliveryAt(); !t.IsZero() {
-			rmqLastDeliveryAt = t.UTC().Format(time.RFC3339)
+		if s := h.subscriber(); s != nil {
+			rmqConnected = s.IsConnected()
+			rmqQueue = s.GetQueue()
+			rmqExchange = s.GetExchange()
+			rmqLastError = s.LastError()
+			if t := s.LastConnectAt(); !t.IsZero() {
+				rmqLastConnectAt = t.UTC().Format(time.RFC3339)
+			}
+			if t := s.LastDeliveryAt(); !t.IsZero() {
+				rmqLastDeliveryAt = t.UTC().Format(time.RFC3339)
+			}
 		}
 	}
 

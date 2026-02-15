@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -23,7 +24,23 @@ import (
 )
 
 // Global RabbitMQ subscriber instance
-var reportSubscriber *rabbitmq.Subscriber
+var (
+	reportSubscriberMu sync.RWMutex
+	reportSubscriber   *rabbitmq.Subscriber
+)
+
+func getReportSubscriber() *rabbitmq.Subscriber {
+	reportSubscriberMu.RLock()
+	s := reportSubscriber
+	reportSubscriberMu.RUnlock()
+	return s
+}
+
+func setReportSubscriber(s *rabbitmq.Subscriber) {
+	reportSubscriberMu.Lock()
+	reportSubscriber = s
+	reportSubscriberMu.Unlock()
+}
 
 // initializeReportSubscriber initializes the RabbitMQ subscriber for reports
 func initializeReportSubscriber(cfg *config.Config, analysisService *service.Service) error {
@@ -50,7 +67,7 @@ func initializeReportSubscriber(cfg *config.Config, analysisService *service.Ser
 		return fmt.Errorf("failed to start RabbitMQ subscriber: %w", err)
 	}
 
-	reportSubscriber = subscriber
+	setReportSubscriber(subscriber)
 	log.Printf("RabbitMQ subscriber initialized: exchange=%s, queue=%s, routing_key=%s",
 		rabbitMQConfig.Exchange, rabbitMQConfig.Queue, rabbitMQConfig.RawReportRoutingKey)
 	return nil
@@ -58,12 +75,50 @@ func initializeReportSubscriber(cfg *config.Config, analysisService *service.Ser
 
 // closeReportSubscriber closes the RabbitMQ subscriber
 func closeReportSubscriber() {
-	if reportSubscriber != nil {
-		err := reportSubscriber.Close()
+	s := getReportSubscriber()
+	if s != nil {
+		err := s.Close()
 		if err != nil {
 			log.Printf("Failed to close RabbitMQ subscriber: %v", err)
 		} else {
 			log.Println("RabbitMQ subscriber closed successfully")
+		}
+		setReportSubscriber(nil)
+	}
+}
+
+// startReportSubscriberWithRetry initializes the RabbitMQ subscriber and keeps retrying until it succeeds
+// (or stopCh closes). This makes startup robust when RabbitMQ comes up slightly after the service.
+func startReportSubscriberWithRetry(cfg *config.Config, analysisService *service.Service, stopCh <-chan struct{}) {
+	backoff := 1 * time.Second
+	for {
+		select {
+		case <-stopCh:
+			return
+		default:
+		}
+
+		if getReportSubscriber() != nil {
+			return
+		}
+
+		if err := initializeReportSubscriber(cfg, analysisService); err == nil {
+			return
+		} else {
+			log.Printf("RabbitMQ subscriber init failed; retrying in %s: %v", backoff, err)
+		}
+
+		select {
+		case <-stopCh:
+			return
+		case <-time.After(backoff):
+		}
+
+		if backoff < 30*time.Second {
+			backoff *= 2
+			if backoff > 30*time.Second {
+				backoff = 30 * time.Second
+			}
 		}
 	}
 }
@@ -116,17 +171,8 @@ func main() {
 	// Initialize service
 	analysisService := service.NewService(cfg, db)
 
-	// Initialize RabbitMQ subscriber for reports
-	err = initializeReportSubscriber(cfg, analysisService)
-	if err != nil {
-		log.Fatalf("Failed to initialize RabbitMQ subscriber: %v", err)
-	}
-
-	// Ensure cleanup on exit
-	defer closeReportSubscriber()
-
 	// Initialize handlers
-	handlers := handlers.NewHandlers(db, analysisService, reportSubscriber)
+	handlers := handlers.NewHandlers(db, analysisService, getReportSubscriber)
 
 	// Setup HTTP server
 	router := gin.Default()
@@ -159,6 +205,14 @@ func main() {
 
 	// Start the analysis service
 	analysisService.Start()
+
+	// Initialize RabbitMQ subscriber for reports (retry until RabbitMQ is ready).
+	subscriberStop := make(chan struct{})
+	defer func() {
+		close(subscriberStop)
+		closeReportSubscriber()
+	}()
+	go startReportSubscriberWithRetry(cfg, analysisService, subscriberStop)
 
 	// Start HTTP server in a goroutine
 	go func() {
