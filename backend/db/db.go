@@ -652,11 +652,26 @@ func DeleteAction(db *sql.DB, req *api.ActionModifyArgs) error {
 // row in report_analysis with the given classification and is_valid = TRUE.
 func GetValidReportsCount(db *sql.DB, classification string) (int, error) {
 	var count int
+	// Prefer materialized counters for speed; fall back to a grouped scan.
+	switch classification {
+	case "physical":
+		if err := db.QueryRow(`SELECT physical_valid FROM report_counts_total WHERE id = 1`).Scan(&count); err == nil {
+			return count, nil
+		}
+	case "digital":
+		if err := db.QueryRow(`SELECT digital_valid FROM report_counts_total WHERE id = 1`).Scan(&count); err == nil {
+			return count, nil
+		}
+	}
+
 	row := db.QueryRow(`
-        SELECT COUNT(DISTINCT ra.seq)
-        FROM report_analysis ra
-        WHERE ra.classification = ? AND ra.is_valid = TRUE
-    `, classification)
+		SELECT COUNT(*) FROM (
+			SELECT ra.seq
+			FROM report_analysis ra
+			WHERE ra.classification = ? AND ra.is_valid = TRUE
+			GROUP BY ra.seq
+		) grouped
+	`, classification)
 	if err := row.Scan(&count); err != nil {
 		return 0, err
 	}
@@ -667,33 +682,49 @@ func GetValidReportsCount(db *sql.DB, classification string) (int, error) {
 // The counts are computed per distinct report (using EXISTS semantics), not per
 // number of rows in report_analysis.
 func GetValidReportsCounts(db *sql.DB) (int, int, int, error) {
-	// total valid
-	var total int
+	var total, physical, digital int
+	// Prefer materialized counters for speed; fall back to grouped scans.
 	if err := db.QueryRow(`
-        SELECT COUNT(DISTINCT ra.seq)
-        FROM report_analysis ra
-        WHERE ra.is_valid = TRUE
-    `).Scan(&total); err != nil {
+		SELECT total_valid, physical_valid, digital_valid
+		FROM report_counts_total
+		WHERE id = 1
+	`).Scan(&total, &physical, &digital); err == nil {
+		return total, physical, digital, nil
+	}
+
+	// total valid
+	if err := db.QueryRow(`
+		SELECT COUNT(*) FROM (
+			SELECT ra.seq
+			FROM report_analysis ra
+			WHERE ra.is_valid = TRUE
+			GROUP BY ra.seq
+		) grouped
+	`).Scan(&total); err != nil {
 		return 0, 0, 0, err
 	}
 
 	// total physical valid
-	var physical int
 	if err := db.QueryRow(`
-        SELECT COUNT(DISTINCT ra.seq)
-        FROM report_analysis ra
-        WHERE ra.classification = 'physical' AND ra.is_valid = TRUE
-    `).Scan(&physical); err != nil {
+		SELECT COUNT(*) FROM (
+			SELECT ra.seq
+			FROM report_analysis ra
+			WHERE ra.classification = 'physical' AND ra.is_valid = TRUE
+			GROUP BY ra.seq
+		) grouped
+	`).Scan(&physical); err != nil {
 		return 0, 0, 0, err
 	}
 
 	// total digital valid
-	var digital int
 	if err := db.QueryRow(`
-        SELECT COUNT(DISTINCT ra.seq)
-        FROM report_analysis ra
-        WHERE ra.classification = 'digital' AND ra.is_valid = TRUE
-    `).Scan(&digital); err != nil {
+		SELECT COUNT(*) FROM (
+			SELECT ra.seq
+			FROM report_analysis ra
+			WHERE ra.classification = 'digital' AND ra.is_valid = TRUE
+			GROUP BY ra.seq
+		) grouped
+	`).Scan(&digital); err != nil {
 		return 0, 0, 0, err
 	}
 

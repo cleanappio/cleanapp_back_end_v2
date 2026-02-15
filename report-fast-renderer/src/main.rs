@@ -111,7 +111,8 @@ async fn main() -> anyhow::Result<()> {
 
     // Load reports into memory from the database
     tracing::info!("📥 Loading reports into in-memory storage...");
-    let physical_reports = db::fetch_report_points(&db::connect_pool()?, "physical")?;
+    let pool = db::connect_pool()?;
+    let physical_reports = db::fetch_report_points(&pool, "physical")?;
     {
         let physical_map = reports_memory.get_physical_content();
         let mut guard = physical_map
@@ -122,7 +123,7 @@ async fn main() -> anyhow::Result<()> {
         }
         tracing::info!("✅ Loaded {} physical reports into memory", guard.len());
     }
-    let digital_reports = db::fetch_brand_summaries(&db::connect_pool()?, "digital", "en")?;
+    let digital_reports = db::fetch_brand_summaries(&pool, "digital", "en")?;
     {
         let digital_map = reports_memory.get_digital_content();
         let mut guard = digital_map
