@@ -3,13 +3,19 @@ package middleware
 import (
 	"areas-service/config"
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/apex/log"
 	"github.com/gin-gonic/gin"
 )
+
+var authServiceHTTPClient = &http.Client{
+	Timeout: 6 * time.Second,
+}
 
 // AuthMiddleware validates JWT tokens for protected routes by calling auth-service
 func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
@@ -33,7 +39,7 @@ func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 		log.Debugf("Validating token from %s", c.ClientIP())
 
 		// Call auth-service to validate token
-		valid, userID, err := validateTokenWithAuthService(tokenString, cfg.AuthServiceURL)
+		valid, userID, err := validateTokenWithAuthService(c.Request.Context(), tokenString, cfg.AuthServiceURL)
 		if err != nil {
 			log.Errorf("Failed to validate token with auth-service from %s: %v", c.ClientIP(), err)
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
@@ -63,14 +69,21 @@ func extractToken(authHeader string) string {
 	return parts[1]
 }
 
-func validateTokenWithAuthService(token string, authServiceURL string) (bool, string, error) {
+func validateTokenWithAuthService(ctx context.Context, token string, authServiceURL string) (bool, string, error) {
 	url := authServiceURL + "/api/v3/validate-token"
 	payload := map[string]string{"token": token}
 	body, _ := json.Marshal(payload)
 
 	log.Debugf("Calling auth-service to validate token: %s", url)
 
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(body))
+	if err != nil {
+		log.Errorf("Failed to create auth-service request for token validation: %v", err)
+		return false, "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := authServiceHTTPClient.Do(req)
 	if err != nil {
 		log.Errorf("Failed to call auth-service for token validation: %v", err)
 		return false, "", err

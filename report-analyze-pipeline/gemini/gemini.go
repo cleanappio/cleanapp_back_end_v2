@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	_ "image/gif"
 	_ "image/jpeg"
@@ -182,7 +183,7 @@ func NewClient(apiKey, model string) *Client {
 	return &Client{
 		apiKey: apiKey,
 		model:  model,
-		http:   &http.Client{},
+		http:   &http.Client{Timeout: 90 * time.Second},
 	}
 }
 

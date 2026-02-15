@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 )
 
 const openAIEndpoint = "https://api.openai.com/v1/chat/completions"
@@ -214,7 +215,7 @@ func NewClient(apiKey, model string) *Client {
 	return &Client{
 		apiKey: apiKey,
 		model:  model,
-		client: &http.Client{},
+		client: &http.Client{Timeout: 120 * time.Second},
 	}
 }
 

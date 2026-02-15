@@ -113,7 +113,7 @@ func NewAssistantClient(apiKey, assistantID string) *AssistantClient {
 	return &AssistantClient{
 		apiKey:      apiKey,
 		assistantID: assistantID,
-		client:      &http.Client{},
+		client:      &http.Client{Timeout: 60 * time.Second},
 	}
 }
 
@@ -152,8 +152,7 @@ func (c *AssistantClient) uploadFile(fileBuf []byte) (string, error) {
 	req.Header.Set("OpenAI-Beta", "assistants=v2")
 
 	// Send request
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to send request: %w", err)
 	}
@@ -196,8 +195,7 @@ func (c *AssistantClient) createThread() (string, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("OpenAI-Beta", "assistants=v2")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to send request: %w", err)
 	}
@@ -269,8 +267,7 @@ func (c *AssistantClient) addMessageToThread(threadID, fileID, description strin
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("OpenAI-Beta", "assistants=v2")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}
@@ -308,8 +305,7 @@ func (c *AssistantClient) createRun(threadID string) (string, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("OpenAI-Beta", "assistants=v2")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to send request: %w", err)
 	}
@@ -343,8 +339,7 @@ func (c *AssistantClient) waitForRunCompletion(threadID, runID string) error {
 		req.Header.Set("Authorization", "Bearer "+c.apiKey)
 		req.Header.Set("OpenAI-Beta", "assistants=v2")
 
-		client := &http.Client{}
-		resp, err := client.Do(req)
+		resp, err := c.client.Do(req)
 		if err != nil {
 			return fmt.Errorf("failed to send request: %w", err)
 		}
@@ -393,8 +388,7 @@ func (c *AssistantClient) getMessages(threadID string) ([]ThreadMessage, error) 
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("OpenAI-Beta", "assistants=v2")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}

@@ -8,6 +8,7 @@ import (
 	"io"
 	"math/big"
 	"net/http"
+	"time"
 
 	"github.com/apex/log"
 	ethcommon "github.com/ethereum/go-ethereum/common"
@@ -43,7 +44,7 @@ func SendReport(receiver ethcommon.Address, amount *big.Int) error {
 
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{}
+	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		log.Errorf("Error making request: %w", err)
