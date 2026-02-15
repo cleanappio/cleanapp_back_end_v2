@@ -1,16 +1,22 @@
 package middleware
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"brand-dashboard/config"
 
 	"github.com/gin-gonic/gin"
 )
+
+var authServiceHTTPClient = &http.Client{
+	Timeout: 6 * time.Second,
+}
 
 // AuthMiddleware validates JWT tokens and extracts user information
 func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
@@ -36,7 +42,7 @@ func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 		token := strings.TrimPrefix(authHeader, "Bearer ")
 
 		// Validate the token with the auth service
-		userID, err := validateTokenWithAuthService(token, cfg.AuthServiceURL)
+		userID, err := validateTokenWithAuthService(c.Request.Context(), token, cfg.AuthServiceURL)
 		if err != nil {
 			log.Printf("WARNING: Token validation failed from %s: %v", c.ClientIP(), err)
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
@@ -52,7 +58,7 @@ func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 }
 
 // validateTokenWithAuthService validates a JWT token with the auth service
-func validateTokenWithAuthService(token, authServiceURL string) (string, error) {
+func validateTokenWithAuthService(ctx context.Context, token, authServiceURL string) (string, error) {
 	// Create request payload
 	requestBody := map[string]string{
 		"token": token,
@@ -65,7 +71,7 @@ func validateTokenWithAuthService(token, authServiceURL string) (string, error) 
 
 	// Create request to auth service
 	url := fmt.Sprintf("%s/api/v3/validate-token", authServiceURL)
-	req, err := http.NewRequest("POST", url, strings.NewReader(string(jsonBody)))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(string(jsonBody)))
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
@@ -74,8 +80,7 @@ func validateTokenWithAuthService(token, authServiceURL string) (string, error) 
 	req.Header.Set("Content-Type", "application/json")
 
 	// Make the request
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := authServiceHTTPClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to call auth service: %w", err)
 	}

@@ -17,6 +17,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+var authServiceProxyHTTPClient = &http.Client{
+	Timeout: 8 * time.Second,
+}
+
 // Handlers contains all HTTP handlers
 type Handlers struct {
 	service      *database.CustomerService
@@ -461,7 +465,15 @@ func proxyToAuthService(c *gin.Context, path string, authServiceURL string) {
 
 	log.Printf("DEBUG: Proxying request to auth-service: %s from %s", path, c.ClientIP())
 
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer(body))
+	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, url, bytes.NewBuffer(body))
+	if err != nil {
+		log.Printf("ERROR: Failed to create auth-service request for %s from %s: %v", path, c.ClientIP(), err)
+		c.JSON(http.StatusBadGateway, models.ErrorResponse{Error: "auth-service unavailable"})
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := authServiceProxyHTTPClient.Do(req)
 	if err != nil {
 		log.Printf("ERROR: Failed to proxy request to auth-service %s from %s: %v", path, c.ClientIP(), err)
 		c.JSON(http.StatusBadGateway, models.ErrorResponse{Error: "auth-service unavailable"})
@@ -477,7 +489,7 @@ func proxyToAuthService(c *gin.Context, path string, authServiceURL string) {
 func proxyToAuthServiceWithAuth(c *gin.Context, path string, authServiceURL string) {
 	url := authServiceURL + path
 	body, _ := io.ReadAll(c.Request.Body)
-	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(body))
+	req, _ := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, url, bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
 	if auth := c.GetHeader("Authorization"); auth != "" {
 		req.Header.Set("Authorization", auth)
@@ -485,8 +497,7 @@ func proxyToAuthServiceWithAuth(c *gin.Context, path string, authServiceURL stri
 
 	log.Printf("DEBUG: Proxying authenticated request to auth-service: %s from %s", path, c.ClientIP())
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := authServiceProxyHTTPClient.Do(req)
 	if err != nil {
 		log.Printf("ERROR: Failed to proxy authenticated request to auth-service %s from %s: %v", path, c.ClientIP(), err)
 		c.JSON(http.StatusBadGateway, models.ErrorResponse{Error: "auth-service unavailable"})
@@ -504,7 +515,13 @@ func proxyToAuthServiceQuery(c *gin.Context, path string, authServiceURL string)
 
 	log.Printf("DEBUG: Proxying query request to auth-service: %s from %s", path, c.ClientIP())
 
-	resp, err := http.Get(url)
+	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, url, nil)
+	if err != nil {
+		log.Printf("ERROR: Failed to create auth-service query request for %s from %s: %v", path, c.ClientIP(), err)
+		c.JSON(http.StatusBadGateway, models.ErrorResponse{Error: "auth-service unavailable"})
+		return
+	}
+	resp, err := authServiceProxyHTTPClient.Do(req)
 	if err != nil {
 		log.Printf("ERROR: Failed to proxy query request to auth-service %s from %s: %v", path, c.ClientIP(), err)
 		c.JSON(http.StatusBadGateway, models.ErrorResponse{Error: "auth-service unavailable"})

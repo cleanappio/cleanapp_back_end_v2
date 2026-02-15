@@ -8,6 +8,7 @@ import (
 	"image/png"
 	"math"
 	"net/http"
+	"time"
 
 	"github.com/fogleman/gg"
 	geojson "github.com/paulmach/go.geojson"
@@ -15,6 +16,10 @@ import (
 
 const tileSize = 256
 const maxTiles = 16
+
+var osmTileHTTPClient = &http.Client{
+	Timeout: 8 * time.Second,
+}
 
 // GeneratePolygonImg drwas an OSM image for a given polygon feature and draws a given polygon on it.
 func GeneratePolygonImg(feature *geojson.Feature, reportLat, reportLon float64) ([]byte, error) {
@@ -99,7 +104,6 @@ func generate(xMin, xMax, yMin, yMax, zoom int, feature *geojson.Feature, report
 func fetchTile(x, y, zoom int) (image.Image, error) {
 	tileURL := fmt.Sprintf("https://tile.openstreetmap.org/%d/%d/%d.png", zoom, x, y)
 
-	client := &http.Client{}
 	req, err := http.NewRequest("GET", tileURL, nil)
 	if err != nil {
 		return nil, err
@@ -107,7 +111,7 @@ func fetchTile(x, y, zoom int) (image.Image, error) {
 
 	req.Header.Set("User-Agent", "CleanApp/2.0")
 
-	resp, err := client.Do(req)
+	resp, err := osmTileHTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
