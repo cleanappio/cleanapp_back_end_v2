@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS fetcher_keys (
   INDEX idx_fetcher (fetcher_id),
   INDEX idx_status (status),
   CONSTRAINT fk_fetcher_keys_fetcher FOREIGN KEY (fetcher_id) REFERENCES fetchers(fetcher_id) ON DELETE CASCADE
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- Append-only ingest audit log (secrets-safe).
 CREATE TABLE IF NOT EXISTS ingestion_audit (
@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS ingestion_audit (
   INDEX idx_audit_ts (ts),
   INDEX idx_audit_fetcher_ts (fetcher_id, ts),
   INDEX idx_audit_key_ts (key_id, ts)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- Raw ingest metadata (quarantine lane control + idempotency).
 CREATE TABLE IF NOT EXISTS report_raw (
@@ -79,7 +79,7 @@ CREATE TABLE IF NOT EXISTS report_raw (
   INDEX idx_visibility (visibility),
   INDEX idx_fetcher_visibility (fetcher_id, visibility),
   CONSTRAINT fk_report_raw_seq FOREIGN KEY (report_seq) REFERENCES reports(seq) ON DELETE CASCADE
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- Quota enforcement helpers (buckets).
 CREATE TABLE IF NOT EXISTS fetcher_usage_minute (
@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS fetcher_usage_minute (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (fetcher_id, key_id, bucket_minute),
   INDEX idx_bucket (bucket_minute)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS fetcher_usage_daily (
   fetcher_id VARCHAR(64) NOT NULL,
@@ -100,7 +100,7 @@ CREATE TABLE IF NOT EXISTS fetcher_usage_daily (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (fetcher_id, key_id, bucket_date),
   INDEX idx_bucket (bucket_date)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- Email pipeline marker (some read APIs reference this for last_email_sent_at).
 CREATE TABLE IF NOT EXISTS sent_reports_emails (
