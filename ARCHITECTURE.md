@@ -1,6 +1,6 @@
 # CleanApp Backend Architecture
 
-> Last updated: December 17, 2025
+> Last updated: February 16, 2026
 
 ## Overview
 
@@ -244,6 +244,55 @@ graph TB
     RAP --> EMAIL
     RP --> TAGS
 ```
+
+### Public Ingest CLI (`@cleanapp/cli`)
+
+CleanApp ships a public npm CLI package for fetchers/agents:
+
+- Package: `@cleanapp/cli`
+- Installed command: `cleanapp`
+- Code location: `cli/cleanapp/`
+- Behavior: thin wrapper over existing API endpoints (no duplicated backend business logic)
+
+The CLI is intended for third-party and agentic ingestion with safe defaults:
+
+- Default output is JSON (agent-friendly), optional `--human`.
+- Global `--dry-run` and `--trace` are supported on all commands.
+- Auth token is resolved from `CLEANAPP_API_TOKEN` (or optional local config via `cleanapp init`).
+
+```mermaid
+flowchart LR
+    subgraph CLI["@cleanapp/cli (npm)"]
+      U["User/Agent"]
+      BIN["cleanapp command"]
+      CFG["Config resolver\nflags > env > ~/.cleanapp/config.json > defaults"]
+      OUT["Output renderer\njson (default) | human"]
+      U --> BIN --> CFG --> OUT
+    end
+
+    subgraph API["CleanApp HTTP API"]
+      ME["GET /v1/fetchers/me"]
+      ING["POST /v1/reports:bulkIngest"]
+      BYSEQ["GET /api/v3/reports/by-seq?seq="]
+      MET["GET /v1/fetchers/me/metrics (fallback to /v1/fetchers/me)"]
+    end
+
+    BIN -->|"auth whoami"| ME
+    BIN -->|"submit / bulk-submit"| ING
+    BIN -->|"status --report-id"| BYSEQ
+    BIN -->|"metrics"| MET
+```
+
+CLI command mapping (v0.1.0):
+
+| CLI command | Endpoint mapping | Notes |
+|-------------|------------------|-------|
+| `cleanapp auth whoami` | `GET /v1/fetchers/me` | Requires bearer token |
+| `cleanapp submit` | `POST /v1/reports:bulkIngest` | Single-item wrapper |
+| `cleanapp bulk-submit --file ...` | `POST /v1/reports:bulkIngest` | Batch upload (`ndjson/json/csv`) |
+| `cleanapp status --report-id <seq>` | `GET /api/v3/reports/by-seq?seq=<seq>` | Uses existing v3 read path |
+| `cleanapp metrics` | `GET /v1/fetchers/me/metrics` | Falls back to `/v1/fetchers/me` if metrics endpoint not present |
+| `cleanapp presign --file ...` | `POST /v1/media:presign` | CLI supports it; endpoint availability depends on backend deployment |
 
 ### API Endpoints by Service
 
