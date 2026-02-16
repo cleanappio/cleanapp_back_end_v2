@@ -21,6 +21,47 @@ Legacy root-level scripts/configs have been moved out of the repository root to 
 - Nginx configs: `conf/nginx/`
 - One-off/legacy scripts: `scripts/legacy/`
 
+## CleanApp CLI (`@cleanapp/cli`)
+
+CleanApp also publishes a thin API client CLI for external developers and agents.
+
+- npm package: `@cleanapp/cli`
+- installed command: `cleanapp`
+- default output: JSON (agent-friendly)
+- optional human-readable mode: `--human`
+
+Install:
+
+```bash
+npm i -g @cleanapp/cli
+```
+
+Quick start (env-var mode):
+
+```bash
+export CLEANAPP_API_URL="https://live.cleanapp.io"
+export CLEANAPP_API_TOKEN="cleanapp_fk_live_..."
+
+cleanapp auth whoami
+cleanapp submit --title "Broken login" --desc "Users stuck on callback" --source-type web
+cleanapp bulk-submit --file reports.ndjson
+cleanapp status --report-id 123456
+```
+
+Interactive setup (human-friendly):
+
+```bash
+cleanapp init
+```
+
+Safety/debug flags available on all commands:
+
+- `--dry-run` (print request payload, send nothing)
+- `--trace` (HTTP trace to stderr with secret redaction)
+
+Full CLI docs and examples:
+- `cli/cleanapp/README.md`
+
 # Environments
 There are three environments:
 *   `local` - a local machine outside cloud
