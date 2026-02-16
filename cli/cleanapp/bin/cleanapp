@@ -1,0 +1,21 @@
+#!/usr/bin/env node
+/* eslint-disable no-console */
+
+// Thin entrypoint that defers to the compiled JS in dist/.
+// (This file is the published npm "bin" target.)
+
+async function run() {
+  // eslint-disable-next-line global-require
+  const mod = require("../dist/index.js");
+  if (!mod || typeof mod.main !== "function") {
+    throw new Error("cleanapp: dist entrypoint missing (did you run npm run build?)");
+  }
+  await mod.main(process.argv);
+}
+
+run().catch((err) => {
+  const msg = err && err.message ? err.message : String(err);
+  console.error(msg);
+  process.exitCode = typeof err?.exitCode === "number" ? err.exitCode : 2;
+});
+
