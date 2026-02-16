@@ -1,0 +1,40 @@
+{
+  "name": "@cleanapp/cli",
+  "version": "0.1.0",
+  "private": false,
+  "description": "CleanApp CLI (thin wrapper around the CleanApp API)",
+  "license": "GPL-3.0-or-later",
+  "bin": {
+    "cleanapp": "./bin/cleanapp"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "bin",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "check-name": "npm view @cleanapp/cli",
+    "build": "tsup src/index.ts --format cjs --dts --sourcemap --clean",
+    "prepack": "npm run build",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "commander": "^14.0.0",
+    "csv-parse": "^6.1.0",
+    "mime-types": "^3.0.1",
+    "prompts": "^2.4.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "tsup": "^8.4.0",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}
+

@@ -76,3 +76,14 @@ xray/**/deployer_scripts/
 
 # Skill package build artifacts
 openclaw/**/dist/
+
+# Node / npm
+**/node_modules/
+**/npm-debug.log*
+**/yarn-error.log*
+
+# CLI build output (built on pack/publish)
+cli/cleanapp/dist/
+
+# npm pack artifacts
+cli/cleanapp/*.tgz
