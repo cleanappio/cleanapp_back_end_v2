@@ -50,14 +50,13 @@ export function addMetrics(program: Command): void {
                 `Usage: ${m.usage?.minute_used}/min, ${m.usage?.daily_used}/day, remaining=${m.usage?.daily_remaining}`,
               ].join("\n"),
             );
-            throw new CLIError(msg, EXIT.USER);
+            return;
           }
 
           printJson({ ok: true, warning: msg, me: me.data });
-          throw new CLIError(msg, EXIT.USER);
+          return;
         }
         throw err;
       }
     });
 }
-
