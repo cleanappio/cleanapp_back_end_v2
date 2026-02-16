@@ -84,3 +84,6 @@ openclaw/**/dist/
 
 # CLI build output (built on pack/publish)
 cli/cleanapp/dist/
+
+# npm pack artifacts
+cli/cleanapp/*.tgz
