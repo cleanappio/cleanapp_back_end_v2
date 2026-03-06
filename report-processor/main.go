@@ -38,23 +38,8 @@ func main() {
 	// Create auth client
 	authClient := database.NewAuthClient(cfg.AuthServiceURL)
 
-	// Ensure report_status table exists
 	if cfg.RunDBMigrations {
-		if err := db.EnsureReportStatusTable(context.Background()); err != nil {
-			log.Fatal("Failed to ensure report_status table:", err)
-		}
-
-		// Ensure responses table exists
-		if err := db.EnsureResponsesTable(context.Background()); err != nil {
-			log.Fatal("Failed to ensure responses table:", err)
-		}
-
-		// Ensure report_clusters table exists
-		if err := db.EnsureReportClustersTable(context.Background()); err != nil {
-			log.Fatal("Failed to ensure report_clusters table:", err)
-		}
-	} else {
-		log.Printf("Skipping runtime database migrations for report-processor (DB_RUN_MIGRATIONS=false)")
+		log.Printf("Runtime DB migrations are disabled at service boot. Run report-processor/cmd/migrate instead.")
 	}
 
 	// Initialize RabbitMQ publisher for tag processing

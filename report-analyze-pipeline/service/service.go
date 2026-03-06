@@ -91,34 +91,7 @@ func (s *Service) Start() {
 	log.Println("Starting report analysis service...")
 
 	if s.config.RunDBMigrations {
-		// Create the report_analysis table if it doesn't exist
-		if err := s.db.CreateReportAnalysisTable(); err != nil {
-			log.Printf("Failed to create report_analysis table: %v", err)
-			return
-		}
-
-		// Migrate the report_analysis table if it doesn't exist
-		if err := s.db.MigrateReportAnalysisTable(); err != nil {
-			log.Printf("Failed to migrate report_analysis table: %v", err)
-			return
-		}
-
-		// Create OSM location cache table
-		if err := s.osmService.CreateCacheTable(); err != nil {
-			log.Printf("Failed to create osm_location_cache table: %v", err)
-			// Continue - OSM is optional
-		}
-
-		// Create brand_contacts table and seed known contacts
-		if err := s.contactService.CreateBrandContactsTable(); err != nil {
-			log.Printf("Failed to create brand_contacts table: %v", err)
-		} else {
-			if err := s.contactService.SeedKnownContacts(); err != nil {
-				log.Printf("Failed to seed known contacts: %v", err)
-			}
-		}
-	} else {
-		log.Printf("Skipping runtime database migrations (DB_RUN_MIGRATIONS=false)")
+		log.Printf("Runtime DB migrations are disabled at service boot. Run report-analyze-pipeline/cmd/migrate instead.")
 	}
 }
 

@@ -774,17 +774,33 @@ Repo tooling:
 
 ### Runtime Migrations
 
-Runtime schema mutation is no longer the default for the hardened Go services.
+Runtime schema mutation is no longer performed at service boot for the hardened Go services.
 
-- Control flag: `DB_RUN_MIGRATIONS`
-- Default in production: `false`
-- Default in local dev / CI-style environments: `true`
+- Legacy control flag: `DB_RUN_MIGRATIONS`
+- Current behavior: service boot logs a warning and does not execute DDL
+- Required path: run the service-specific `cmd/migrate` entrypoint (or the repo wrapper) during deploy/setup
+
+Migration entrypoints:
+
+- `auth-service/cmd/migrate`
+- `customer-service/cmd/migrate`
+- `report-listener/cmd/migrate`
+- `report-analyze-pipeline/cmd/migrate`
+- `report-processor/cmd/migrate`
+- `gdpr-process-service/cmd/migrate`
+
+Repo wrapper:
+
+```bash
+./scripts/db/run_go_service_migrations.sh
+```
 
 This means:
 
 1. production services fail fast on missing required secrets instead of inventing insecure defaults
-2. schema changes should happen through explicit migration/deploy steps
+2. schema changes happen through explicit migration/deploy steps
 3. service boot is more deterministic and requires fewer database privileges
+4. fresh environments must run migrations before starting the affected Go services
 
 ### Deployment Process
 ```bash

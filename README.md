@@ -293,6 +293,27 @@ cd setup
 ./setup.sh -e prod --ssh-keyfile ~/.ssh/id_ed25519
 ```
 
+## Go Service Migrations
+
+The hardened Go services no longer perform schema mutation at service boot.
+
+Use the explicit migration entrypoints instead:
+
+```bash
+./scripts/db/run_go_service_migrations.sh
+```
+
+This runs:
+
+- `auth-service/cmd/migrate`
+- `customer-service/cmd/migrate`
+- `report-listener/cmd/migrate`
+- `report-analyze-pipeline/cmd/migrate`
+- `report-processor/cmd/migrate`
+- `gdpr-process-service/cmd/migrate`
+
+On fresh environments, run migrations before starting these services.
+
 This will:
 1. Pull all Docker images tagged as `:prod`
 2. Run `docker compose up -d` with all services

@@ -51,13 +51,8 @@ func main() {
 	}
 	defer db.Close()
 
-	// Initialize database schema
 	if cfg.RunDBMigrations {
-		if err := database.InitSchema(db); err != nil {
-			log.Fatalf("Failed to initialize database schema: %v", err)
-		}
-	} else {
-		log.Printf("Skipping runtime database migrations for gdpr-process-service (DB_RUN_MIGRATIONS=false)")
+		log.Printf("Runtime DB migrations are disabled at service boot. Run gdpr-process-service/cmd/migrate instead.")
 	}
 
 	// Initialize OpenAI client
