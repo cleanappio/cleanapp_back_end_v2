@@ -87,7 +87,12 @@ for service in "$@"; do
     continue
   fi
   env_file="$(mktemp)"
-  sudo -n docker inspect "$service" --format "{{range .Config.Env}}{{println .}}{{end}}" > "$env_file"
+  if [[ -f /home/deployer/.env ]]; then
+    awk 'index($0,"=")>1 && $1 !~ /^#/ {print}' /home/deployer/.env > "$env_file"
+  fi
+  sudo -n docker inspect "$service" --format "{{range .Config.Env}}{{println .}}{{end}}" >> "$env_file"
+  awk -F= '!seen[$1]++' "$env_file" > "${env_file}.dedup"
+  mv "${env_file}.dedup" "$env_file"
   echo "== remote migrate: ${service} =="
   sudo -n docker run --rm \
     --network "container:${service}" \
