@@ -233,7 +233,7 @@ The service is configured via environment variables:
 | `DB_HOST` | `localhost` | MySQL database host |
 | `DB_PORT` | `3306` | MySQL database port |
 | `DB_USER` | `server` | MySQL database user |
-| `DB_PASSWORD` | `secret_app` | MySQL database password |
+| `DB_PASSWORD` | required outside local dev | MySQL database password |
 | `DB_NAME` | `cleanapp` | MySQL database name |
 | `PORT` | `8080` | HTTP server port |
 | `BROADCAST_INTERVAL` | `1s` | Broadcast frequency (e.g., `500ms`, `2s`) |
@@ -336,7 +336,7 @@ services:
       - "8080:8080"
     environment:
       - DB_HOST=mysql
-      - DB_PASSWORD=secret_app
+      - DB_PASSWORD=<db password>
     depends_on:
       - mysql
     restart: unless-stopped
@@ -390,7 +390,7 @@ The service is configured via environment variables. You can set them in a `.env
 | `DB_HOST` | `localhost` | MySQL database host |
 | `DB_PORT` | `3306` | MySQL database port |
 | `DB_USER` | `server` | MySQL database user |
-| `DB_PASSWORD` | `secret_app` | MySQL database password |
+| `DB_PASSWORD` | required outside local dev | MySQL database password |
 | `DB_NAME` | `cleanapp` | MySQL database name |
 | `PORT` | `8080` | HTTP server port |
 | `BROADCAST_INTERVAL` | `1s` | Broadcast frequency (e.g., `500ms`, `2s`) |
@@ -567,7 +567,7 @@ The service logs important events including:
 
 ## Security Considerations
 
-- The WebSocket endpoint currently allows all origins (CORS is set to `*`)
+- The WebSocket endpoint uses an explicit origin allowlist in production
 - In production, implement proper origin checking
 - Consider adding authentication for WebSocket connections
 - Use TLS/SSL in production environments

@@ -776,8 +776,7 @@ Repo tooling:
 
 Runtime schema mutation is no longer performed at service boot for the hardened Go services.
 
-- Legacy control flag: `DB_RUN_MIGRATIONS`
-- Current behavior: service boot logs a warning and does not execute DDL
+- Current behavior: service boot performs no schema mutation
 - Required path: run the service-specific `cmd/migrate` entrypoint (or the repo wrapper) during deploy/setup
 
 Migration entrypoints:

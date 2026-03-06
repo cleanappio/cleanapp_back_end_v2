@@ -2,11 +2,11 @@ package handlers
 
 import (
 	"log"
-	"net/http"
 
 	"brand-dashboard/middleware"
 	"brand-dashboard/models"
 	"brand-dashboard/services"
+	"cleanapp-common/edge"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -14,13 +14,15 @@ import (
 
 // WebSocketHandler handles WebSocket connections
 type WebSocketHandler struct {
-	hub *services.WebSocketHub
+	hub            *services.WebSocketHub
+	allowedOrigins []string
 }
 
 // NewWebSocketHandler creates a new WebSocket handler
-func NewWebSocketHandler(hub *services.WebSocketHub) *WebSocketHandler {
+func NewWebSocketHandler(hub *services.WebSocketHub, allowedOrigins []string) *WebSocketHandler {
 	return &WebSocketHandler{
-		hub: hub,
+		hub:            hub,
+		allowedOrigins: allowedOrigins,
 	}
 }
 
@@ -31,9 +33,7 @@ func (h *WebSocketHandler) ListenBrandReports(c *gin.Context) {
 
 	// Upgrade the HTTP connection to WebSocket
 	upgrader := websocket.Upgrader{
-		CheckOrigin: func(r *http.Request) bool {
-			return true // Allow all origins for now
-		},
+		CheckOrigin: edge.WebSocketOriginChecker(h.allowedOrigins),
 	}
 
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)

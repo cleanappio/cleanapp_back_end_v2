@@ -8,25 +8,39 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 )
 
 var (
-	mysqlPassword = flag.String("mysql_password", "secret", "MySQL password.")
+	mysqlPassword = flag.String("mysql_password", "", "MySQL password.")
 	mysqlHost     = flag.String("mysql_host", "localhost", "MySQL host.")
 	mysqlPort     = flag.String("mysql_port", "3306", "MySQL port.")
 	mysqlDb       = flag.String("mysql_db", "cleanapp", "MySQL database to use.")
 )
 
-func mysqlAddress() string {
-	db := fmt.Sprintf("server:%s@tcp(%s:%s)/%s", *mysqlPassword, *mysqlHost, *mysqlPort, *mysqlDb)
-	return db
+func mysqlAddress() (string, error) {
+	password := strings.TrimSpace(*mysqlPassword)
+	if password == "" {
+		password = strings.TrimSpace(os.Getenv("MYSQL_APP_PASSWORD"))
+	}
+	if password == "" {
+		password = strings.TrimSpace(os.Getenv("DB_PASSWORD"))
+	}
+	if password == "" {
+		return "", fmt.Errorf("mysql password is required via --mysql_password, MYSQL_APP_PASSWORD, or DB_PASSWORD")
+	}
+	return fmt.Sprintf("server:%s@tcp(%s:%s)/%s", password, *mysqlHost, *mysqlPort, *mysqlDb), nil
 }
 
 func DBConnect() (*sql.DB, error) {
-	db, err := sql.Open("mysql", mysqlAddress())
+	dsn, err := mysqlAddress()
+	if err != nil {
+		return nil, err
+	}
+	db, err := sql.Open("mysql", dsn)
 	if err != nil {
 		log.Printf("Failed to connect to the database: %v", err)
 		return nil, err
@@ -68,7 +82,7 @@ func DBConnect() (*sql.DB, error) {
 	}
 
 	log.Printf("Established db connection pool: open=%d idle=%d max_lifetime_min=%d", maxOpen, maxIdle, connMaxLifetimeMin)
-	return db, err
+	return db, nil
 }
 
 func envInt(keys []string, defaultValue int) int {

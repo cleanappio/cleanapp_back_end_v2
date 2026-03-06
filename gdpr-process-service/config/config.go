@@ -35,8 +35,6 @@ type Config struct {
 	RabbitMQQueue            string
 	RabbitMQReportRoutingKey string
 	RabbitMQUserRoutingKey   string
-
-	RunDBMigrations bool
 }
 
 func Load() (*Config, error) {
@@ -77,7 +75,6 @@ func Load() (*Config, error) {
 		RabbitMQQueue:            appenv.String("RABBITMQ_QUEUE", "gdpr-queue"),
 		RabbitMQReportRoutingKey: appenv.String("RABBITMQ_RAW_REPORT_ROUTING_KEY", "report.raw"),
 		RabbitMQUserRoutingKey:   appenv.String("RABBITMQ_USER_ROUTING_KEY", "user.add"),
-		RunDBMigrations:          appenv.Bool("DB_RUN_MIGRATIONS", appenv.DefaultRunMigrations()),
 	}
 
 	return config, nil

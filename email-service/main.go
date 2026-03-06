@@ -20,13 +20,14 @@ import (
 
 func main() {
 	cfg, err := config.Load()
-	if err != nil { log.Fatal("Failed to load email-service config:", err) }
-	emailService, err := service.NewEmailService(cfg)
-	if err != nil { log.Fatal("Failed to create email service:", err) }
-	defer emailService.Close()
-	if cfg.RunDBMigrations {
-		log.Printf("Runtime DB migrations are disabled at service boot. Run email-service/cmd/migrate instead.")
+	if err != nil {
+		log.Fatal("Failed to load email-service config:", err)
 	}
+	emailService, err := service.NewEmailService(cfg)
+	if err != nil {
+		log.Fatal("Failed to create email service:", err)
+	}
+	defer emailService.Close()
 	handler := handlers.NewEmailServiceHandler(emailService)
 	router := gin.Default()
 	router.Use(edge.SecurityHeaders())

@@ -94,7 +94,7 @@ brand-dashboard/
 ```env
 # Database Configuration
 DB_USER=server
-DB_PASSWORD=secret_app
+DB_PASSWORD=your_mysql_password
 DB_HOST=localhost
 DB_PORT=3306
 DB_NAME=cleanapp

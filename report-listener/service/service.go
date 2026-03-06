@@ -81,10 +81,6 @@ func NewService(cfg *config.Config) (*Service, error) {
 func (s *Service) Start() error {
 	log.Printf("Starting report listener service...")
 
-	if s.config.RunDBMigrations {
-		log.Printf("Runtime DB migrations are disabled at service boot. Run report-listener/cmd/migrate instead.")
-	}
-
 	// Start the WebSocket hub
 	go s.hub.Run()
 

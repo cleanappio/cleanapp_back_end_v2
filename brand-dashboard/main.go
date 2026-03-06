@@ -39,7 +39,7 @@ func main() {
 	go websocketHub.Start()
 	defer websocketHub.Stop()
 	brandHandler := handlers.NewBrandHandler(databaseService)
-	websocketHandler := handlers.NewWebSocketHandler(websocketHub)
+	websocketHandler := handlers.NewWebSocketHandler(websocketHub, cfg.AllowedOrigins)
 
 	r := gin.Default()
 	if len(cfg.TrustedProxies) > 0 {

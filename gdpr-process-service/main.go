@@ -51,10 +51,6 @@ func main() {
 	}
 	defer db.Close()
 
-	if cfg.RunDBMigrations {
-		log.Printf("Runtime DB migrations are disabled at service boot. Run gdpr-process-service/cmd/migrate instead.")
-	}
-
 	// Initialize OpenAI client
 	openaiClient := openai.NewClient(cfg.OpenAIAPIKey, cfg.OpenAIModel)
 

@@ -1,6 +1,7 @@
 package database
 
 import (
+	"cleanapp-common/httpx"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -24,6 +25,8 @@ type CustomerService struct {
 	stripeClient   *stripe.Client
 	authServiceURL string
 }
+
+var authServiceHTTPClient = httpx.NewClient(8 * time.Second)
 
 var (
 	errDBNotInitialized  = errors.New("db not initialized")
@@ -1090,7 +1093,7 @@ func (s *CustomerService) getUserProfileFromAuthService(ctx context.Context, use
 		return nil, fmt.Errorf("failed to create request to auth-service: %w", err)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := authServiceHTTPClient.Do(req)
 	if err != nil {
 		log.Printf("ERROR: Failed to call auth-service for user %s: %v", userID, err)
 		return nil, fmt.Errorf("failed to call auth-service: %w", err)

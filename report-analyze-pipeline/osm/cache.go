@@ -35,29 +35,6 @@ func (s *CachedLocationService) Client() *Client {
 	return s.client
 }
 
-// CreateCacheTable creates the OSM location cache table if it doesn't exist
-func (s *CachedLocationService) CreateCacheTable() error {
-	query := `
-		CREATE TABLE IF NOT EXISTS osm_location_cache (
-			id INT AUTO_INCREMENT PRIMARY KEY,
-			lat_grid DOUBLE NOT NULL,
-			lon_grid DOUBLE NOT NULL,
-			location_context JSON NOT NULL,
-			inferred_emails TEXT,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			expires_at TIMESTAMP NOT NULL,
-			UNIQUE KEY idx_lat_lon (lat_grid, lon_grid),
-			INDEX idx_expires (expires_at)
-		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-	`
-	_, err := s.db.Exec(query)
-	if err != nil {
-		return fmt.Errorf("failed to create osm_location_cache table: %w", err)
-	}
-	log.Println("osm_location_cache table verified/created")
-	return nil
-}
-
 // roundToGrid rounds a coordinate to the cache grid size
 // This allows caching results for nearby coordinates
 func roundToGrid(coord float64) float64 {

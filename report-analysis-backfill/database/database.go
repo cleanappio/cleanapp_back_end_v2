@@ -1,9 +1,12 @@
 package database
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
+	"strconv"
 	"time"
 
 	"report-analysis-backfill/config"
@@ -12,46 +15,80 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
-// Database represents the database connection
+// Database represents the database connection.
 type Database struct {
 	db *sql.DB
 }
 
-// NewDatabase creates a new database connection
+// NewDatabase creates a new database connection.
 func NewDatabase(cfg *config.Config) (*Database, error) {
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true",
-		cfg.DBUser, cfg.DBPassword, cfg.DBHost, cfg.DBPort, cfg.DBName)
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true", cfg.DBUser, cfg.DBPassword, cfg.DBHost, cfg.DBPort, cfg.DBName)
 
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	// Test connection with exponential backoff retry
-	var waitInterval time.Duration = 1 * time.Second
+	maxWaitSec := envInt([]string{"REPORT_ANALYSIS_BACKFILL_DB_PING_MAX_WAIT_SEC", "DB_PING_MAX_WAIT_SEC"}, 60)
+	deadline := time.Now().Add(time.Duration(maxWaitSec) * time.Second)
+	waitInterval := time.Second
 	for {
-		if err := db.Ping(); err == nil {
-			break // Connection successful
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		pingErr := db.PingContext(ctx)
+		cancel()
+		if pingErr == nil {
+			break
 		}
-		log.Printf("Database connection failed, retrying in %v: %v", waitInterval, err)
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("database ping timeout after %ds: %w", maxWaitSec, pingErr)
+		}
+		log.Printf("Database connection failed, retrying in %v: %v", waitInterval, pingErr)
 		time.Sleep(waitInterval)
-		waitInterval *= 2 // Exponential backoff: 1s, 2s, 4s, 8s, ...
+		waitInterval *= 2
+		if waitInterval > 30*time.Second {
+			waitInterval = 30 * time.Second
+		}
 	}
 
-	// Set connection pool settings
-	db.SetMaxOpenConns(25)
-	db.SetMaxIdleConns(25)
-	db.SetConnMaxLifetime(5 * time.Minute)
-
+	applyDBPoolSettings(db)
 	return &Database{db: db}, nil
 }
 
-// Close closes the database connection
+func applyDBPoolSettings(db *sql.DB) {
+	maxOpen := envInt([]string{"REPORT_ANALYSIS_BACKFILL_DB_MAX_OPEN_CONNS", "DB_MAX_OPEN_CONNS"}, 20)
+	maxIdle := envInt([]string{"REPORT_ANALYSIS_BACKFILL_DB_MAX_IDLE_CONNS", "DB_MAX_IDLE_CONNS"}, 10)
+	maxLifetimeMin := envInt([]string{"REPORT_ANALYSIS_BACKFILL_DB_CONN_MAX_LIFETIME_MIN", "DB_CONN_MAX_LIFETIME_MIN"}, 5)
+	if maxOpen > 0 {
+		db.SetMaxOpenConns(maxOpen)
+	}
+	if maxIdle > 0 {
+		db.SetMaxIdleConns(maxIdle)
+	}
+	if maxLifetimeMin > 0 {
+		db.SetConnMaxLifetime(time.Duration(maxLifetimeMin) * time.Minute)
+	}
+}
+
+func envInt(keys []string, def int) int {
+	for _, key := range keys {
+		v := os.Getenv(key)
+		if v == "" {
+			continue
+		}
+		n, err := strconv.Atoi(v)
+		if err == nil && n > 0 {
+			return n
+		}
+	}
+	return def
+}
+
+// Close closes the database connection.
 func (d *Database) Close() error {
 	return d.db.Close()
 }
 
-// GetUnanalyzedReports gets reports that haven't been analyzed yet (without images)
+// GetUnanalyzedReports gets reports that haven't been analyzed yet (without images).
 func (d *Database) GetUnanalyzedReports(cfg *config.Config, limit int) ([]models.Report, error) {
 	query := `
 	SELECT r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.action_id, r.description
@@ -89,7 +126,6 @@ func (d *Database) GetUnanalyzedReports(cfg *config.Config, limit int) ([]models
 		}
 		report.Description = description.String
 		report.ActionID = actionID.String
-		// Image will be fetched separately when needed
 		reports = append(reports, report)
 	}
 
@@ -101,7 +137,7 @@ func (d *Database) GetUnanalyzedReports(cfg *config.Config, limit int) ([]models
 	return reports, nil
 }
 
-// GetReportImage gets the image for a specific report by sequence number
+// GetReportImage gets the image for a specific report by sequence number.
 func (d *Database) GetReportImage(seq int) ([]byte, error) {
 	query := `SELECT r.image FROM reports r WHERE r.seq = ?`
 
@@ -117,7 +153,7 @@ func (d *Database) GetReportImage(seq int) ([]byte, error) {
 	return imageData, nil
 }
 
-// GetLastProcessedSeq gets the last processed sequence number
+// GetLastProcessedSeq gets the last processed sequence number.
 func (d *Database) GetLastProcessedSeq() (int, error) {
 	query := `SELECT MAX(seq) FROM report_analysis`
 
@@ -125,7 +161,7 @@ func (d *Database) GetLastProcessedSeq() (int, error) {
 	err := d.db.QueryRow(query).Scan(&lastSeq)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return 0, nil // No analyses yet
+			return 0, nil
 		}
 		return 0, fmt.Errorf("failed to get last processed seq: %w", err)
 	}
@@ -136,7 +172,7 @@ func (d *Database) GetLastProcessedSeq() (int, error) {
 	return 0, nil
 }
 
-// GetDB returns the underlying sql.DB for direct queries
+// GetDB returns the underlying sql.DB for direct queries.
 func (d *Database) GetDB() *sql.DB {
 	return d.db
 }

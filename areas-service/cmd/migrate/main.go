@@ -4,7 +4,9 @@ import (
 	"areas-service/config"
 	"areas-service/database"
 	"areas-service/utils"
+	"context"
 	"log"
+	"time"
 )
 
 func main() {
@@ -17,7 +19,10 @@ func main() {
 		log.Fatal(err)
 	}
 	defer db.Close()
-	if err := database.InitSchema(db); err != nil {
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	if err := database.RunMigrations(ctx, db); err != nil {
 		log.Fatal(err)
 	}
 	log.Printf("areas-service migrations applied successfully")

@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"regexp"
 	"strings"
@@ -42,38 +41,6 @@ func NewContactService(db *sql.DB) *ContactService {
 			Timeout: 15 * time.Second,
 		},
 	}
-}
-
-// CreateBrandContactsTable creates the brand_contacts table if it doesn't exist
-func (s *ContactService) CreateBrandContactsTable() error {
-	query := `
-	CREATE TABLE IF NOT EXISTS brand_contacts (
-		id INT AUTO_INCREMENT PRIMARY KEY,
-		brand_name VARCHAR(255) NOT NULL,
-		product_name VARCHAR(255),
-		contact_name VARCHAR(255),
-		contact_title VARCHAR(255),
-		contact_level ENUM('ic', 'manager', 'director', 'vp', 'c_suite', 'founder') DEFAULT 'ic',
-		email VARCHAR(255),
-		email_verified BOOLEAN DEFAULT FALSE,
-		twitter_handle VARCHAR(255),
-		linkedin_url VARCHAR(512),
-		github_handle VARCHAR(255),
-		source ENUM('linkedin', 'website', 'github', 'twitter', 'manual', 'inferred') DEFAULT 'manual',
-		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-		INDEX idx_brand_name (brand_name),
-		INDEX idx_brand_product (brand_name, product_name),
-		INDEX idx_contact_level (contact_level),
-		UNIQUE KEY uk_brand_contact_email (brand_name, email)
-	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-	`
-	_, err := s.db.Exec(query)
-	if err != nil {
-		return fmt.Errorf("failed to create brand_contacts table: %w", err)
-	}
-	log.Println("brand_contacts table verified/created")
-	return nil
 }
 
 // GetContactsForBrand retrieves all contacts for a brand

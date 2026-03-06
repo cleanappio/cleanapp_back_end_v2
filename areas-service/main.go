@@ -44,10 +44,6 @@ func main() {
 	}
 	defer db.Close()
 
-	if cfg.RunDBMigrations {
-		log.Printf("Runtime DB migrations are disabled at service boot. Run areas-service/cmd/migrate instead.")
-	}
-
 	areasService := database.NewAreasService(db)
 	areasHandler := handlers.NewAreasHandler(areasService)
 

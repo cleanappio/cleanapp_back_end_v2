@@ -54,7 +54,7 @@ Environment variables:
 - `DB_HOST` - Database host (default: localhost)
 - `DB_PORT` - Database port (default: 3306)
 - `DB_USER` - Database user (default: server)
-- `DB_PASSWORD` - Database password (default: secret_app)
+- `DB_PASSWORD` - Database password (required outside local dev)
 - `DB_NAME` - Database name (default: cleanapp)
 - `PORT` - HTTP server port (default: 8080)
 - `ANALYZER_LLM_PROVIDER` - Model provider: `openai` (default), `gemini`, or `stub` (CI/local e2e only, no API keys)

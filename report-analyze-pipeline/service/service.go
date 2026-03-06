@@ -90,9 +90,6 @@ func NewService(cfg *config.Config, db *database.Database) *Service {
 func (s *Service) Start() {
 	log.Println("Starting report analysis service...")
 
-	if s.config.RunDBMigrations {
-		log.Printf("Runtime DB migrations are disabled at service boot. Run report-analyze-pipeline/cmd/migrate instead.")
-	}
 }
 
 // Stop stops the analysis service

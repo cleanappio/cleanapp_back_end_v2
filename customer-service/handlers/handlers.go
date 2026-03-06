@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"cleanapp-common/httpx"
 	"fmt"
 	"io"
 	"log"
@@ -17,9 +18,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-var authServiceProxyHTTPClient = &http.Client{
-	Timeout: 8 * time.Second,
-}
+var authServiceProxyHTTPClient = httpx.NewClient(8 * time.Second)
 
 // Handlers contains all HTTP handlers
 type Handlers struct {

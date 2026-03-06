@@ -10,7 +10,7 @@ This microservice handles sending emails for CleanApp reports. It polls the data
 - Sends emails to area contacts who have consented to receive reports
 - Includes AI analysis data (title, description, probabilities, severity) in emails
 - Tracks processed reports in `sent_reports_emails` table
-- Automatically creates required tables and indexes on startup
+- Uses explicit migrations via `email-service/cmd/migrate` for schema changes
 - Handles cases where no areas are found for a report
 - **HTTP API for email opt-out management**
 - **Health check endpoint for monitoring**
@@ -60,7 +60,7 @@ The service follows the same logic as the original `sendAffectedPolygonsEmails()
 ## Database Schema
 
 ### sent_reports_emails table
-The service automatically creates this table on startup if it doesn't exist:
+Create this table via `email-service/cmd/migrate` before running the service:
 
 ```sql
 CREATE TABLE IF NOT EXISTS sent_reports_emails (
@@ -93,7 +93,7 @@ The service uses environment variables for configuration:
 - `MYSQL_HOST`: MySQL host (default: localhost)
 - `MYSQL_PORT`: MySQL port (default: 3306)
 - `MYSQL_USER`: MySQL user (default: server)
-- `MYSQL_PASSWORD`: MySQL password (default: secret)
+- `MYSQL_PASSWORD`: MySQL password (required outside local dev)
 - `MYSQL_DB`: MySQL database (default: cleanapp)
 
 ### SendGrid
@@ -104,7 +104,7 @@ The service uses environment variables for configuration:
 ### Service
 - `POLL_INTERVAL`: How often to poll for new reports (default: 10s)
 - `HTTP_PORT`: HTTP server port for API endpoints (default: 8080)
-- `OPT_OUT_URL`: URL for email opt-out links (default: http://localhost:8080/opt-out)
+- `OPT_OUT_URL`: URL for email opt-out links (defaults to `CLEANAPP_BASE_URL`/`FRONTEND_URL`-derived public opt-out path; localhost only in dev-like environments)
 
 ## Running the Service
 

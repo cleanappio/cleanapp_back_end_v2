@@ -3,11 +3,9 @@ package database
 import (
 	"context"
 	"database/sql"
-	"fmt"
 
 	"cleanapp-common/migrator"
 	"report-analyze-pipeline/contacts"
-	"report-analyze-pipeline/osm"
 )
 
 func RunMigrations(ctx context.Context, db *sql.DB) error {
@@ -20,25 +18,9 @@ func RunMigrations(ctx context.Context, db *sql.DB) error {
 	})
 }
 
-func createReportAnalysisTable(ctx context.Context, db *sql.DB) error {
-	return (&Database{db: db}).CreateReportAnalysisTable()
-}
-
-func migrateReportAnalysisTable(ctx context.Context, db *sql.DB) error {
-	return (&Database{db: db}).MigrateReportAnalysisTable()
-}
-
-func createOSMCacheTable(ctx context.Context, db *sql.DB) error {
-	return osm.NewCachedLocationService(db).CreateCacheTable()
-}
-
-func createBrandContactsTable(ctx context.Context, db *sql.DB) error {
-	return contacts.NewContactService(db).CreateBrandContactsTable()
-}
-
 func seedKnownContacts(ctx context.Context, db *sql.DB) error {
 	if err := contacts.NewContactService(db).SeedKnownContacts(); err != nil {
-		return fmt.Errorf("failed to seed known contacts: %w", err)
+		return err
 	}
 	return nil
 }

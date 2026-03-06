@@ -1,7 +1,9 @@
 package config
 
 import (
+	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"cleanapp-common/appenv"
@@ -35,10 +37,9 @@ type Config struct {
 	NoValidEmailsMaxBackoffHours  int
 	NoValidEmailsMaxRetries       int
 
-	AllowedOrigins  []string
-	RateLimitRPS    float64
-	RateLimitBurst  int
-	RunDBMigrations bool
+	AllowedOrigins []string
+	RateLimitRPS   float64
+	RateLimitBurst int
 }
 
 func Load() (*Config, error) {
@@ -55,13 +56,12 @@ func Load() (*Config, error) {
 	cfg.SendGridAPIKey = appenv.String("SENDGRID_API_KEY", "")
 	cfg.SendGridFromName = appenv.String("SENDGRID_FROM_NAME", "CleanApp")
 	cfg.SendGridFromEmail = appenv.String("SENDGRID_FROM_EMAIL", "info@cleanapp.io")
-	cfg.OptOutURL = appenv.String("OPT_OUT_URL", "http://localhost:8080/opt-out")
 	cfg.PollInterval = appenv.String("POLL_INTERVAL", "10s")
 	cfg.HTTPPort = appenv.String("HTTP_PORT", "8080")
+	cfg.OptOutURL = resolveOptOutURL(cfg.HTTPPort)
 	cfg.AllowedOrigins = appenv.Strings("ALLOWED_ORIGINS")
 	cfg.RateLimitRPS = float64(appenv.Int("RATE_LIMIT_RPS", 10))
 	cfg.RateLimitBurst = appenv.Int("RATE_LIMIT_BURST", 20)
-	cfg.RunDBMigrations = appenv.Bool("DB_RUN_MIGRATIONS", appenv.DefaultRunMigrations())
 
 	throttleDays, err := strconv.Atoi(appenv.String("EMAIL_THROTTLE_DAYS", "7"))
 	if err != nil || throttleDays <= 0 {
@@ -108,6 +108,22 @@ func Load() (*Config, error) {
 	}
 	cfg.NoValidEmailsMaxRetries = maxRetriesNoValid
 	return cfg, nil
+}
+
+func resolveOptOutURL(httpPort string) string {
+	if value := strings.TrimSpace(appenv.String("OPT_OUT_URL", "")); value != "" {
+		return value
+	}
+	if baseURL := strings.TrimRight(strings.TrimSpace(appenv.String("CLEANAPP_BASE_URL", "")), "/"); baseURL != "" {
+		return fmt.Sprintf("%s/opt-out", baseURL)
+	}
+	if frontendURL := strings.TrimRight(strings.TrimSpace(appenv.String("FRONTEND_URL", "")), "/"); frontendURL != "" {
+		return fmt.Sprintf("%s/opt-out", frontendURL)
+	}
+	if appenv.IsDevLike() {
+		return fmt.Sprintf("http://localhost:%s/opt-out", httpPort)
+	}
+	return "https://cleanapp.io/opt-out"
 }
 
 func (c *Config) GetPollInterval() time.Duration {

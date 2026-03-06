@@ -179,7 +179,7 @@ curl http://localhost:8080/ws/health
 - `DB_HOST`: Database host (default: localhost)
 - `DB_PORT`: Database port (default: 3306)
 - `DB_USER`: Database user (default: server)
-- `DB_PASSWORD`: Database password (default: secret_app)
+- `DB_PASSWORD`: Database password (required outside local dev)
 - `DB_NAME`: Database name (default: cleanapp)
 - `CUSTOM_AREA_ADMIN_LEVEL`: Administrative level for the custom area (default: 2)
 - `CUSTOM_AREA_OSM_ID`: OSM ID for the custom area (default: -53296)

@@ -82,7 +82,7 @@ export POLL_INTERVAL="10s"           # Default: 10s
 export HTTP_PORT="8080"               # Default: 8080
 
 # Opt-out URL for email templates
-export OPT_OUT_URL="https://yourdomain.com/opt-out"  # Default: http://localhost:8080/opt-out
+export OPT_OUT_URL="https://yourdomain.com/opt-out"  # Default: public /opt-out URL derived from OPT_OUT_URL, CLEANAPP_BASE_URL, or FRONTEND_URL in non-dev environments
 ```
 
 #### **Database Configuration**
@@ -108,7 +108,7 @@ export SENDGRID_FROM_EMAIL="info@cleanapp.io"  # Default: info@cleanapp.io
 // Service configuration
 cfg.PollInterval = getEnv("POLL_INTERVAL", "10s")
 cfg.HTTPPort = getEnv("HTTP_PORT", "8080")
-cfg.OptOutURL = getEnv("OPT_OUT_URL", "http://localhost:8080/opt-out")
+cfg.OptOutURL = getEnv("OPT_OUT_URL", "public /opt-out URL derived from OPT_OUT_URL, CLEANAPP_BASE_URL, or FRONTEND_URL in non-dev environments")
 
 // Database configuration
 cfg.DBHost = getEnv("DB_HOST", "localhost")

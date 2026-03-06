@@ -19,7 +19,7 @@ The service uses the following environment variables:
 - `DB_PORT` - Database port (default: 3306)
 - `DB_NAME` - Database name (default: cleanapp)
 - `DB_USER` - Database username (default: server)
-- `DB_PASSWORD` - Database password (default: secret)
+- `DB_PASSWORD` - Database password (required outside local dev)
 
 ## API Endpoints
 
@@ -66,7 +66,7 @@ curl "http://localhost:8081/api/v3/get_areas?type=poi&sw_lat=40.0&sw_lon=-74.0&n
 
 ## Authentication
 
-Protected endpoints require a valid Bearer token in the Authorization header. The token is validated by calling the auth-service.
+Protected endpoints require a valid Bearer token in the Authorization header. The service validates tokens locally using the shared JWT secret.
 
 ### Example Usage with Authentication
 
@@ -106,7 +106,7 @@ docker-compose up --build
 
 ## Database Schema
 
-The service automatically creates the following tables on startup:
+Apply schema changes with `areas-service/cmd/migrate`. The service expects the following tables to exist:
 
 - `areas` - Main areas table
 - `contact_emails` - Contact email information

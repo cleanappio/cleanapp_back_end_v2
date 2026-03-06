@@ -17,7 +17,6 @@ type Config struct {
 
 	Port                    string
 	RequestBodyLimitBytes   int64
-	RunDBMigrations         bool
 	AllowedOrigins          []string
 	WebSocketAllowedOrigins []string
 	RateLimitRPS            float64
@@ -70,7 +69,6 @@ func Load() (*Config, error) {
 
 		Port:                    appenv.String("PORT", "8080"),
 		RequestBodyLimitBytes:   appenv.Int64("REQUEST_BODY_LIMIT_BYTES", 2*1024*1024),
-		RunDBMigrations:         appenv.Bool("DB_RUN_MIGRATIONS", appenv.DefaultRunMigrations()),
 		AllowedOrigins:          defaultOrigins(),
 		WebSocketAllowedOrigins: defaultWSOrigins(),
 		RateLimitRPS:            appenv.Float64("RATE_LIMIT_RPS", 20),

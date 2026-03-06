@@ -4,7 +4,7 @@ A Go microservice for handling Montenegro area data with bearer token authentica
 
 ## Features
 
-- Bearer token authentication via auth-service
+- Bearer token authentication via shared JWT verification
 - Health check endpoint (`/health`)
 - GeoJSON data loading from OSMB file
 - Areas querying by administrative level
@@ -16,7 +16,7 @@ A Go microservice for handling Montenegro area data with bearer token authentica
 
 ## Authentication
 
-All endpoints except `/health` require a valid Bearer token in the Authorization header. The service validates tokens by calling the auth-service.
+All endpoints except `/health` require a valid Bearer token in the Authorization header. The service validates tokens locally using the shared JWT secret.
 
 **Example:**
 ```bash
@@ -28,7 +28,7 @@ curl -H "Authorization: Bearer $JWT_TOKEN" http://localhost:8080/areas?admin_lev
 ### Prerequisites
 
 - Go 1.21 or later
-- Access to auth-service for token validation
+- Shared JWT signing secret for token validation
 
 ### Setup
 
@@ -88,7 +88,7 @@ HOST=0.0.0.0
 DB_HOST=localhost
 DB_PORT=3306
 DB_USER=root
-DB_PASSWORD=password
+DB_PASSWORD=<db password>
 
 # Auth Service Configuration
 JWT_SECRET=<jwt secret>

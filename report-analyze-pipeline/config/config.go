@@ -20,8 +20,7 @@ type Config struct {
 	DBPassword string
 	DBName     string
 
-	Port            string
-	RunDBMigrations bool
+	Port string
 
 	OpenAIAPIKey      string
 	OpenAIAssistantID string
@@ -75,7 +74,6 @@ func Load() (*Config, error) {
 		DBUser:               appenv.String("DB_USER", "server"),
 		DBPassword:           dbPassword,
 		DBName:               appenv.String("DB_NAME", "cleanapp"),
-		RunDBMigrations:      appenv.Bool("DB_RUN_MIGRATIONS", appenv.DefaultRunMigrations()),
 		Port:                 appenv.String("PORT", "8080"),
 		OpenAIAPIKey:         appenv.String("OPENAI_API_KEY", ""),
 		OpenAIAssistantID:    appenv.String("OPENAI_ASSISTANT_ID", ""),

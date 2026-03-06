@@ -13,12 +13,11 @@ type Config struct {
 	DBHost     string
 	DBPort     string
 
-	Port            string
-	TrustedProxies  []string
-	AllowedOrigins  []string
-	RunDBMigrations bool
-	RateLimitRPS    float64
-	RateLimitBurst  int
+	Port           string
+	TrustedProxies []string
+	AllowedOrigins []string
+	RateLimitRPS   float64
+	RateLimitBurst int
 
 	AuthServiceURL string
 	JWTSecret      string
@@ -38,15 +37,14 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	cfg := &Config{
-		DBUser:          appenv.String("DB_USER", "root"),
-		DBPassword:      dbPassword,
-		DBHost:          appenv.String("DB_HOST", "localhost"),
-		DBPort:          appenv.String("DB_PORT", "3306"),
-		Port:            appenv.String("PORT", "8080"),
-		AllowedOrigins:  customerAllowedOrigins(),
-		RunDBMigrations: appenv.Bool("DB_RUN_MIGRATIONS", appenv.DefaultRunMigrations()),
-		RateLimitRPS:    appenv.Float64("RATE_LIMIT_RPS", 10),
-		RateLimitBurst:  appenv.Int("RATE_LIMIT_BURST", 20),
+		DBUser:         appenv.String("DB_USER", "root"),
+		DBPassword:     dbPassword,
+		DBHost:         appenv.String("DB_HOST", "localhost"),
+		DBPort:         appenv.String("DB_PORT", "3306"),
+		Port:           appenv.String("PORT", "8080"),
+		AllowedOrigins: customerAllowedOrigins(),
+		RateLimitRPS:   appenv.Float64("RATE_LIMIT_RPS", 10),
+		RateLimitBurst: appenv.Int("RATE_LIMIT_BURST", 20),
 
 		AuthServiceURL:      appenv.String("AUTH_SERVICE_URL", "http://auth-service:8080"),
 		JWTSecret:           jwtSecret,

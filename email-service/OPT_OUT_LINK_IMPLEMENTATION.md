@@ -38,7 +38,7 @@ func Load() *Config {
     // ... existing config ...
     
     // Service configuration
-    cfg.OptOutURL = getEnv("OPT_OUT_URL", "http://localhost:8080/opt-out")
+    cfg.OptOutURL = getEnv("OPT_OUT_URL", "public /opt-out URL derived from OPT_OUT_URL, CLEANAPP_BASE_URL, or FRONTEND_URL in non-dev environments")
     
     return cfg
 }
@@ -123,14 +123,14 @@ router.GET("/opt-out", handler.HandleOptOutLink)
 ### HTML Email Footer
 ```html
 <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; font-size: 0.9em; color: #666;">
-    <p>To unsubscribe from these emails, please <a href="http://localhost:8080/opt-out?email=user@example.com" style="color: #007bff; text-decoration: none;">click here</a> or visit: http://localhost:8080/opt-out</p>
+    <p>To unsubscribe from these emails, please <a href="public /opt-out URL derived from OPT_OUT_URL, CLEANAPP_BASE_URL, or FRONTEND_URL in non-dev environments?email=user@example.com" style="color: #007bff; text-decoration: none;">click here</a> or visit: public /opt-out URL derived from OPT_OUT_URL, CLEANAPP_BASE_URL, or FRONTEND_URL in non-dev environments</p>
     <p style="margin-top: 10px; font-size: 0.8em;">You can also reply to this email with "UNSUBSCRIBE" in the subject line.</p>
 </div>
 ```
 
 ### Plain Text Email Footer
 ```
-To unsubscribe from these emails, please visit: http://localhost:8080/opt-out?email=user@example.com
+To unsubscribe from these emails, please visit: public /opt-out URL derived from OPT_OUT_URL, CLEANAPP_BASE_URL, or FRONTEND_URL in non-dev environments?email=user@example.com
 You can also reply to this email with "UNSUBSCRIBE" in the subject line.
 ```
 
@@ -172,7 +172,7 @@ export DB_PASSWORD="secret"
 ```
 
 ### Default Values
-- **Opt-out URL**: `http://localhost:8080/opt-out`
+- **Opt-out URL**: `public /opt-out URL derived from OPT_OUT_URL, CLEANAPP_BASE_URL, or FRONTEND_URL in non-dev environments`
 - **Database**: Local MySQL instance
 - **Port**: 8080
 
@@ -206,7 +206,7 @@ export DB_PASSWORD="secure-password"
 ./main
 
 # Test opt-out link
-curl "http://localhost:8080/opt-out?email=test@example.com"
+curl "public /opt-out URL derived from OPT_OUT_URL, CLEANAPP_BASE_URL, or FRONTEND_URL in non-dev environments?email=test@example.com"
 
 # Test API endpoint
 curl -X POST http://localhost:8080/api/v3/optout \

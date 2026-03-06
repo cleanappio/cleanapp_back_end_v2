@@ -18,11 +18,10 @@ type Config struct {
 
 	JWTSecret string
 
-	TrustedProxies  []string
-	AllowedOrigins  []string
-	RunDBMigrations bool
-	RateLimitRPS    float64
-	RateLimitBurst  int
+	TrustedProxies []string
+	AllowedOrigins []string
+	RateLimitRPS   float64
+	RateLimitBurst int
 }
 
 func Load() (*Config, error) {
@@ -35,17 +34,16 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	cfg := &Config{
-		DBHost:          appenv.String("DB_HOST", "localhost"),
-		DBPort:          appenv.String("DB_PORT", "3306"),
-		DBUser:          appenv.String("DB_USER", "server"),
-		DBPassword:      dbPassword,
-		DBName:          appenv.String("DB_NAME", "cleanapp"),
-		Port:            appenv.String("PORT", "8080"),
-		JWTSecret:       jwtSecret,
-		AllowedOrigins:  allowedOrigins(),
-		RunDBMigrations: appenv.Bool("DB_RUN_MIGRATIONS", appenv.DefaultRunMigrations()),
-		RateLimitRPS:    appenv.Float64("RATE_LIMIT_RPS", 10),
-		RateLimitBurst:  appenv.Int("RATE_LIMIT_BURST", 20),
+		DBHost:         appenv.String("DB_HOST", "localhost"),
+		DBPort:         appenv.String("DB_PORT", "3306"),
+		DBUser:         appenv.String("DB_USER", "server"),
+		DBPassword:     dbPassword,
+		DBName:         appenv.String("DB_NAME", "cleanapp"),
+		Port:           appenv.String("PORT", "8080"),
+		JWTSecret:      jwtSecret,
+		AllowedOrigins: allowedOrigins(),
+		RateLimitRPS:   appenv.Float64("RATE_LIMIT_RPS", 10),
+		RateLimitBurst: appenv.Int("RATE_LIMIT_BURST", 20),
 	}
 	if trusted := appenv.Strings("TRUSTED_PROXIES"); len(trusted) > 0 {
 		cfg.TrustedProxies = trusted

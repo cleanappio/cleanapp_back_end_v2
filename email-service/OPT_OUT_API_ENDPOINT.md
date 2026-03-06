@@ -230,7 +230,7 @@ opt_out_email("user@example.com")
 ### Environment Variables
 - **POLL_INTERVAL**: How often to poll for reports (default: 10s)
 - **HTTP_PORT**: HTTP server port (default: 8080)
-- **OPT_OUT_URL**: URL for email opt-out links (default: http://localhost:8080/opt-out)
+- **OPT_OUT_URL**: URL for email opt-out links (default: public /opt-out URL derived from OPT_OUT_URL, CLEANAPP_BASE_URL, or FRONTEND_URL in non-dev environments)
 
 ### Command Line Configuration
 The service no longer uses command line flags. All configuration is handled through environment variables for better containerization and deployment.
@@ -462,4 +462,4 @@ The opt-out URL is configurable via environment variable:
 export OPT_OUT_URL="https://yourdomain.com/opt-out"
 ```
 
-**Default value**: `http://localhost:8080/opt-out`
+**Default value**: `public /opt-out URL derived from OPT_OUT_URL, CLEANAPP_BASE_URL, or FRONTEND_URL in non-dev environments`

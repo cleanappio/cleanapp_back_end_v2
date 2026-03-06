@@ -20,7 +20,7 @@ The service can be configured using environment variables:
 - `DB_HOST`: Database host (default: localhost)
 - `DB_PORT`: Database port (default: 3306)
 - `DB_USER`: Database username (default: server)
-- `DB_PASSWORD`: Database password (default: secret_app)
+- `DB_PASSWORD`: Database password (required outside local dev)
 - `DB_NAME`: Database name (default: cleanapp)
 
 ### Analysis API Configuration
@@ -29,14 +29,16 @@ The service can be configured using environment variables:
 ### Polling Configuration
 - `POLL_INTERVAL`: Duration between polling cycles (default: 1m)
 - `BATCH_SIZE`: Number of reports to process per batch (default: 20)
-- `SEQ_START_FROM`: Starting sequence number for processing (default: 0)
+- `SEQ_END_TO`: Upper sequence bound for backfill processing (default: 0, meaning include all)
 
 ### Logging
 - `LOG_LEVEL`: Log level (default: info)
 
 ## API Endpoints
 
-- `GET /api/v1/health`: Health check endpoint
+- `GET /health`: Root health check endpoint
+- `GET /version`: Build and git provenance
+- `GET /api/v1/health`: Legacy API health check endpoint
 - `GET /api/v1/status`: Service status and statistics
 
 ## Usage
@@ -50,7 +52,7 @@ DB_PASSWORD=your-db-password
 REPORT_ANALYSIS_URL=http://your-analysis-api:8080
 POLL_INTERVAL=1m
 BATCH_SIZE=20
-SEQ_START_FROM=0
+SEQ_END_TO=0
 ```
 
 2. Run the service:
@@ -123,12 +125,13 @@ The service implements rate limiting by:
 
 ## Monitoring
 
-- Check service health: `curl http://localhost:8081/api/v1/health`
-- Check service status: `curl http://localhost:8081/api/v1/status`
+- Check service health: `curl http://localhost:8080/health`
+- Check service version: `curl http://localhost:8080/version`
+- Check service status: `curl http://localhost:8080/api/v1/status`
 
 The status endpoint returns:
 - `running`: Whether the service is currently running
 - `poll_interval`: Current polling interval
 - `batch_size`: Current batch size
 - `last_processed_seq`: Last processed sequence number
-- `start_from_seq`: Starting sequence number
+- `seq_end_to`: Configured upper sequence bound

@@ -85,7 +85,7 @@ reports_gdpr(
 DB_HOST=localhost          # Database host
 DB_PORT=3306              # Database port
 DB_USER=server            # Database username
-DB_PASSWORD=secret_app    # Database password
+DB_PASSWORD=your_mysql_password    # Database password
 DB_NAME=cleanapp          # Database name
 POLL_INTERVAL=60          # Polling interval in seconds
 OPENAI_API_KEY=           # OpenAI API key for PII detection

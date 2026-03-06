@@ -345,7 +345,7 @@ func (c *Client) TranslateAnalysis(jsonText, targetLanguage string) (string, err
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("error sending request: %w", err)
 	}

@@ -23,7 +23,6 @@ type Config struct {
 	RabbitMQQueue                    string
 	RabbitMQAnalysedReportRoutingKey string
 	LogLevel                         string
-	RunDBMigrations                  bool
 }
 
 func Load() (*Config, error) {
@@ -55,7 +54,6 @@ func Load() (*Config, error) {
 		RabbitMQQueue:                    appenv.String("RABBITMQ_QUEUE", "ownership_queue"),
 		RabbitMQAnalysedReportRoutingKey: appenv.String("RABBITMQ_ANALYSED_REPORT_ROUTING_KEY", "report.analysed"),
 		LogLevel:                         appenv.String("LOG_LEVEL", "info"),
-		RunDBMigrations:                  appenv.Bool("DB_RUN_MIGRATIONS", appenv.DefaultRunMigrations()),
 	}, nil
 }
 

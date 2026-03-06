@@ -1,85 +1,72 @@
 package config
 
 import (
-	"os"
-	"strconv"
+	"strings"
 	"time"
+
+	"cleanapp-common/appenv"
 )
 
-// Config holds all configuration for the report analysis backfill service
+// Config holds all configuration for the report analysis backfill service.
 type Config struct {
-	// Database configuration
 	DBHost     string
 	DBPort     string
 	DBUser     string
 	DBPassword string
 	DBName     string
 
-	// Analysis API configuration
 	ReportAnalysisURL string
-
-	// Polling configuration
-	PollInterval time.Duration
-	BatchSize    int
-
-	// Logging
-	LogLevel string
-
-	// End Seq
-	SeqEndTo int
+	PollInterval      time.Duration
+	BatchSize         int
+	LogLevel          string
+	SeqEndTo          int
+	Port              string
+	AllowedOrigins    []string
+	TrustedProxies    []string
+	RateLimitRPS      float64
+	RateLimitBurst    int
 }
 
-// Load loads configuration from environment variables
-func Load() *Config {
-	config := &Config{
-		// Database defaults
-		DBHost:     getEnv("DB_HOST", "localhost"),
-		DBPort:     getEnv("DB_PORT", "3306"),
-		DBUser:     getEnv("DB_USER", "server"),
-		DBPassword: getEnv("DB_PASSWORD", ""),
-		DBName:     getEnv("DB_NAME", "cleanapp"),
-
-		// Analysis API defaults
-		ReportAnalysisURL: getEnv("REPORT_ANALYSIS_URL", "http://localhost:8080"),
-
-		// Polling defaults (1 minute interval, 20 reports per batch)
-		PollInterval: getDurationEnv("POLL_INTERVAL", 1*time.Minute),
-		BatchSize:    getIntEnv("BATCH_SIZE", 20),
-
-		// Logging defaults
-		LogLevel: getEnv("LOG_LEVEL", "info"),
-
-		// Start and End Point
-		SeqEndTo: getIntEnv("SEQ_END_TO", 0),
+func Load() (*Config, error) {
+	dbPassword, err := appenv.Secret("DB_PASSWORD", "")
+	if err != nil {
+		return nil, err
+	}
+	reportAnalysisURL, err := appenv.StringRequiredInProd("REPORT_ANALYSIS_URL", "http://localhost:8080")
+	if err != nil {
+		return nil, err
 	}
 
-	return config
+	cfg := &Config{
+		DBHost:            appenv.String("DB_HOST", "localhost"),
+		DBPort:            appenv.String("DB_PORT", "3306"),
+		DBUser:            appenv.String("DB_USER", "server"),
+		DBPassword:        dbPassword,
+		DBName:            appenv.String("DB_NAME", "cleanapp"),
+		ReportAnalysisURL: reportAnalysisURL,
+		PollInterval:      appenv.Duration("POLL_INTERVAL", time.Minute),
+		BatchSize:         appenv.Int("BATCH_SIZE", 20),
+		LogLevel:          appenv.String("LOG_LEVEL", "info"),
+		SeqEndTo:          appenv.Int("SEQ_END_TO", 0),
+		Port:              appenv.String("PORT", "8080"),
+		AllowedOrigins:    defaultOrigins(),
+		RateLimitRPS:      appenv.Float64("RATE_LIMIT_RPS", 10),
+		RateLimitBurst:    appenv.Int("RATE_LIMIT_BURST", 20),
+	}
+	if trusted := appenv.Strings("TRUSTED_PROXIES"); len(trusted) > 0 {
+		cfg.TrustedProxies = trusted
+	}
+	return cfg, nil
 }
 
-// getEnv gets an environment variable or returns a default value
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
+func defaultOrigins() []string {
+	if origins := appenv.Strings("ALLOWED_ORIGINS"); len(origins) > 0 {
+		return origins
 	}
-	return defaultValue
-}
-
-// getDurationEnv gets a duration environment variable or returns a default value
-func getDurationEnv(key string, defaultValue time.Duration) time.Duration {
-	if value := os.Getenv(key); value != "" {
-		if duration, err := time.ParseDuration(value); err == nil {
-			return duration
-		}
+	frontendURL := appenv.String("FRONTEND_URL", "https://cleanapp.io")
+	origins := []string{frontendURL}
+	if strings.Contains(frontendURL, "://cleanapp.io") {
+		origins = append(origins, strings.Replace(frontendURL, "://cleanapp.io", "://www.cleanapp.io", 1))
 	}
-	return defaultValue
-}
-
-// getIntEnv gets an integer environment variable or returns a default value
-func getIntEnv(key string, defaultValue int) int {
-	if value := os.Getenv(key); value != "" {
-		if intValue, err := strconv.Atoi(value); err == nil {
-			return intValue
-		}
-	}
-	return defaultValue
+	return origins
 }

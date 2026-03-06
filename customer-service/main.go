@@ -27,10 +27,6 @@ func main() {
 	}
 	defer db.Close()
 
-	if cfg.RunDBMigrations {
-		log.Println("Runtime DB migrations are disabled at service boot. Run customer-service/cmd/migrate instead.")
-	}
-
 	stripeClient := stripe.NewClient(cfg)
 	service := database.NewCustomerService(db, stripeClient, cfg.AuthServiceURL)
 

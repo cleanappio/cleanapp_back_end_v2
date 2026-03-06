@@ -20,7 +20,7 @@ Create a `.env` file or set environment variables:
 ```env
 # Database Configuration
 DB_USER=server
-DB_PASSWORD=secret_app
+DB_PASSWORD=your_mysql_password
 DB_HOST=localhost
 DB_PORT=3306
 DB_NAME=cleanapp
@@ -330,7 +330,7 @@ services:
       - "8080:8080"
     environment:
       - DB_USER=server
-      - DB_PASSWORD=secret_app
+      - DB_PASSWORD=your_mysql_password
       - DB_HOST=mysql
       - DB_PORT=3306
       - DB_NAME=cleanapp

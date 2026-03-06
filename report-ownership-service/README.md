@@ -45,13 +45,18 @@ Environment variables:
 - `DB_HOST` - Database host (default: localhost)
 - `DB_PORT` - Database port (default: 3306)
 - `DB_USER` - Database username (default: server)
-- `DB_PASSWORD` - Database password (default: secret_app)
+- `DB_PASSWORD` - Database password (required outside local dev)
 - `DB_NAME` - Database name (default: cleanapp)
 - `POLL_INTERVAL` - Polling interval (default: 30s)
 - `BATCH_SIZE` - Batch size for processing (default: 100)
 - `LOG_LEVEL` - Logging level (default: info)
 
 ## API Endpoints
+
+### GET /version
+Build provenance endpoint.
+
+
 
 ### GET /health
 Health check endpoint.
@@ -112,6 +117,11 @@ WHERE ST_Contains(ai.geom, ST_GeomFromText(CONCAT('POINT(', ?, ' ', ?, ')'), 432
 ## Running the Service
 
 ### Local Development
+Run schema changes explicitly before starting the service:
+```bash
+go run ./cmd/migrate
+```
+
 ```bash
 go mod tidy
 go run main.go

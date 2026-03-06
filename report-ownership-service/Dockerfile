@@ -14,7 +14,8 @@ RUN go mod download
 COPY . .
 
 # Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main .
+RUN if [ -f buildinfo.vars ]; then . ./buildinfo.vars; else CLEANAPP_BUILD_VERSION=dev; CLEANAPP_GIT_SHA=; CLEANAPP_BUILD_TIME=; fi && \
+    CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags "-s -w -X report-ownership-service/version.BuildVersion=${CLEANAPP_BUILD_VERSION} -X report-ownership-service/version.GitSHA=${CLEANAPP_GIT_SHA} -X report-ownership-service/version.BuildTime=${CLEANAPP_BUILD_TIME}" -a -installsuffix cgo -o main .
 
 FROM alpine:latest
 
