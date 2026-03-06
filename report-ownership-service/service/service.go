@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"time"
@@ -85,11 +86,9 @@ func (s *Service) Stop() error {
 
 // handleReportMessage processes a single report message from RabbitMQ
 func (s *Service) handleReportMessage(msg *rabbitmq.Message) error {
-	var reportWithAnalysis models.ReportWithAnalysis
-
-	// Unmarshal the message body
-	if err := msg.UnmarshalTo(&reportWithAnalysis); err != nil {
-		return rabbitmq.Permanent(fmt.Errorf("failed to unmarshal report message: %w", err))
+	reportWithAnalysis, err := s.decodeReportMessage(msg)
+	if err != nil {
+		return err
 	}
 
 	log.Printf("Received report %d for ownership processing", reportWithAnalysis.Report.Seq)
@@ -98,12 +97,46 @@ func (s *Service) handleReportMessage(msg *rabbitmq.Message) error {
 	ctx, cancel := context.WithTimeout(s.ctx, 5*time.Minute)
 	defer cancel()
 
-	if err := s.processReport(ctx, reportWithAnalysis); err != nil {
+	if err := s.processReport(ctx, *reportWithAnalysis); err != nil {
 		return fmt.Errorf("failed to process report %d: %w", reportWithAnalysis.Report.Seq, err)
 	}
 
 	log.Printf("Successfully processed report %d for ownership", reportWithAnalysis.Report.Seq)
 	return nil
+}
+
+func (s *Service) decodeReportMessage(msg *rabbitmq.Message) (*models.ReportWithAnalysis, error) {
+	var reportWithAnalysis models.ReportWithAnalysis
+	if err := msg.UnmarshalTo(&reportWithAnalysis); err == nil && reportWithAnalysis.Report.Seq > 0 {
+		return &reportWithAnalysis, nil
+	}
+
+	type seqEnvelope struct {
+		Seq int `json:"seq"`
+	}
+
+	var seq int
+	if err := json.Unmarshal(msg.Body, &seq); err == nil && seq > 0 {
+		return s.loadReportWithAnalysis(seq)
+	}
+
+	var envelope seqEnvelope
+	if err := json.Unmarshal(msg.Body, &envelope); err == nil && envelope.Seq > 0 {
+		return s.loadReportWithAnalysis(envelope.Seq)
+	}
+
+	return nil, rabbitmq.Permanent(fmt.Errorf("failed to decode report ownership message body: %s", string(msg.Body)))
+}
+
+func (s *Service) loadReportWithAnalysis(seq int) (*models.ReportWithAnalysis, error) {
+	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
+	defer cancel()
+
+	reportWithAnalysis, err := s.db.GetReportWithAnalysis(ctx, seq)
+	if err != nil {
+		return nil, fmt.Errorf("load report with analysis seq=%d: %w", seq, err)
+	}
+	return reportWithAnalysis, nil
 }
 
 // startRabbitMQSubscription starts the RabbitMQ subscription for report processing

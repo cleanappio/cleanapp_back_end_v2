@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"report-ownership-service/models"
 )
@@ -192,6 +193,93 @@ func (s *OwnershipService) GetPublicReports(ctx context.Context) ([]int, error) 
 	}
 
 	return seqs, nil
+}
+
+// GetReportWithAnalysis loads the canonical report and all persisted analysis rows for a seq.
+func (s *OwnershipService) GetReportWithAnalysis(ctx context.Context, seq int) (*models.ReportWithAnalysis, error) {
+	var report models.Report
+	err := s.db.QueryRowContext(ctx, `
+		SELECT seq, ts, id, team, latitude, longitude, x, y, image, action_id, description
+		FROM reports
+		WHERE seq = ?
+	`, seq).Scan(
+		&report.Seq,
+		&report.Timestamp,
+		&report.ID,
+		&report.Team,
+		&report.Latitude,
+		&report.Longitude,
+		&report.X,
+		&report.Y,
+		&report.Image,
+		&report.ActionID,
+		&report.Description,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("report seq=%d not found", seq)
+		}
+		return nil, fmt.Errorf("load report seq=%d: %w", seq, err)
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT
+			seq, source, analysis_text, analysis_image, title, description,
+			brand_name, brand_display_name, litter_probability, hazard_probability,
+			digital_bug_probability, severity_level, summary, language,
+			classification, is_valid, inferred_contact_emails, created_at, updated_at
+		FROM report_analysis
+		WHERE seq = ?
+		ORDER BY (language = 'en') DESC, updated_at DESC, created_at DESC
+	`, seq)
+	if err != nil {
+		return nil, fmt.Errorf("load analysis seq=%d: %w", seq, err)
+	}
+	defer rows.Close()
+
+	var analyses []models.ReportAnalysis
+	for rows.Next() {
+		var analysis models.ReportAnalysis
+		if err := rows.Scan(
+			&analysis.Seq,
+			&analysis.Source,
+			&analysis.AnalysisText,
+			&analysis.AnalysisImage,
+			&analysis.Title,
+			&analysis.Description,
+			&analysis.BrandName,
+			&analysis.BrandDisplayName,
+			&analysis.LitterProbability,
+			&analysis.HazardProbability,
+			&analysis.DigitalBugProbability,
+			&analysis.SeverityLevel,
+			&analysis.Summary,
+			&analysis.Language,
+			&analysis.Classification,
+			&analysis.IsValid,
+			&analysis.InferredContactEmails,
+			&analysis.CreatedAt,
+			&analysis.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan analysis seq=%d: %w", seq, err)
+		}
+		analyses = append(analyses, analysis)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate analysis seq=%d: %w", seq, err)
+	}
+	if len(analyses) == 0 {
+		return nil, fmt.Errorf("no analysis rows found for seq=%d", seq)
+	}
+
+	if report.Timestamp.IsZero() {
+		report.Timestamp = time.Now().UTC()
+	}
+
+	return &models.ReportWithAnalysis{
+		Report:   report,
+		Analysis: analyses,
+	}, nil
 }
 
 // normalizeBrandName normalizes a brand name for consistent comparison
