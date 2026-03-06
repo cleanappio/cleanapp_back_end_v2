@@ -8,6 +8,8 @@ import (
 	"strings"
 )
 
+const tableName = "go_schema_migrations"
+
 type Step struct {
 	ID          string
 	Description string
@@ -47,7 +49,7 @@ func Run(ctx context.Context, db *sql.DB, service string, steps []Step) error {
 			return fmt.Errorf("migration %s failed: %w", step.ID, err)
 		}
 		if _, err := db.ExecContext(ctx, `
-			INSERT INTO schema_migrations (service_name, step_id, description)
+			INSERT INTO `+tableName+` (service_name, step_id, description)
 			VALUES (?, ?, ?)
 		`, service, step.ID, step.Description); err != nil {
 			return fmt.Errorf("failed to record migration %s: %w", step.ID, err)
@@ -59,17 +61,17 @@ func Run(ctx context.Context, db *sql.DB, service string, steps []Step) error {
 
 func ensureTable(ctx context.Context, db *sql.DB) error {
 	_, err := db.ExecContext(ctx, `
-		CREATE TABLE IF NOT EXISTS schema_migrations (
+		CREATE TABLE IF NOT EXISTS `+tableName+` (
 			service_name VARCHAR(128) NOT NULL,
 			step_id VARCHAR(255) NOT NULL,
 			description TEXT,
 			applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			PRIMARY KEY (service_name, step_id),
-			INDEX idx_schema_migrations_applied_at (applied_at)
+			INDEX idx_go_schema_migrations_applied_at (applied_at)
 		)
 	`)
 	if err != nil {
-		return fmt.Errorf("failed to ensure schema_migrations table: %w", err)
+		return fmt.Errorf("failed to ensure %s table: %w", tableName, err)
 	}
 	return nil
 }
@@ -77,7 +79,7 @@ func ensureTable(ctx context.Context, db *sql.DB) error {
 func appliedSteps(ctx context.Context, db *sql.DB, service string) (map[string]struct{}, error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT step_id
-		FROM schema_migrations
+		FROM `+tableName+`
 		WHERE service_name = ?
 	`, service)
 	if err != nil {

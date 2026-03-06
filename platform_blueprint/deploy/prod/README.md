@@ -31,6 +31,14 @@ pre-captured manifest, use:
 HOST=deployer@34.122.15.16 ./platform_blueprint/deploy/prod/vm/deploy_with_digests.sh
 ```
 
+To run the explicit Go service migrations before the deploy, enable:
+
+```bash
+HOST=deployer@34.122.15.16 RUN_GO_MIGRATIONS=1 ./platform_blueprint/deploy/prod/vm/deploy_with_digests.sh
+```
+
+This stages the local source for the Go migration-backed services to the VM, runs each `cmd/migrate` entrypoint in a transient `golang:1.24-alpine` container on the VM, and then proceeds with the digest-pinned compose rollout.
+
 This runs `docker compose pull` on the VM, resolves the locally pulled images to `RepoDigests`, writes:
 - `~/docker-compose.digests.<timestamp>.yml`
 - `~/docker-compose.digests.current.yml` (symlink)

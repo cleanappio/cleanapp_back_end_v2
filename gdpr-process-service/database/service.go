@@ -79,11 +79,16 @@ func (s *GdprService) GenerateUniqueAvatar(obfuscatedAvatar string) (string, err
 
 // MarkUserProcessed marks a user as processed for GDPR
 func (s *GdprService) MarkUserProcessed(userID string) error {
-	query := `INSERT INTO users_gdpr (id) VALUES (?)`
+	query := `INSERT IGNORE INTO users_gdpr (id) VALUES (?)`
 
-	_, err := s.db.Exec(query, userID)
+	result, err := s.db.Exec(query, userID)
 	if err != nil {
 		return fmt.Errorf("failed to mark user %s as processed: %w", userID, err)
+	}
+
+	if rows, err := result.RowsAffected(); err == nil && rows == 0 {
+		log.Infof("User %s already marked as GDPR processed", userID)
+		return nil
 	}
 
 	log.Infof("Marked user %s as GDPR processed", userID)
@@ -92,11 +97,16 @@ func (s *GdprService) MarkUserProcessed(userID string) error {
 
 // MarkReportProcessed marks a report as processed for GDPR
 func (s *GdprService) MarkReportProcessed(seq int) error {
-	query := `INSERT INTO reports_gdpr (seq) VALUES (?)`
+	query := `INSERT IGNORE INTO reports_gdpr (seq) VALUES (?)`
 
-	_, err := s.db.Exec(query, seq)
+	result, err := s.db.Exec(query, seq)
 	if err != nil {
 		return fmt.Errorf("failed to mark report %d as processed: %w", seq, err)
+	}
+
+	if rows, err := result.RowsAffected(); err == nil && rows == 0 {
+		log.Infof("Report %d already marked as GDPR processed", seq)
+		return nil
 	}
 
 	log.Infof("Marked report %d as GDPR processed", seq)

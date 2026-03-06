@@ -11,12 +11,28 @@ set -euo pipefail
 
 HOST="${HOST:-deployer@34.122.15.16}"
 REMOTE_DIR="${REMOTE_DIR:-/home/deployer}"
+RUN_GO_MIGRATIONS="${RUN_GO_MIGRATIONS:-0}"
 
 # Only pin images that come from our Artifact Registry namespace.
 INTERNAL_PREFIX="${INTERNAL_PREFIX:-us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/}"
 
 # Optional: space-separated compose service names to update (pull/pin/up only these).
 SERVICES="${SERVICES:-}"
+
+if [[ "${RUN_GO_MIGRATIONS}" == "1" ]]; then
+  migration_helper="$(cd "$(dirname "$0")" && pwd)/run_go_migrations_remote.sh"
+  if [[ ! -x "${migration_helper}" ]]; then
+    echo "ERROR: migration helper not executable: ${migration_helper}" >&2
+    exit 3
+  fi
+  echo "== run explicit Go migrations =="
+  if [[ -n "${SERVICES:-}" ]]; then
+    # shellcheck disable=SC2086
+    HOST="${HOST}" "${migration_helper}" ${SERVICES}
+  else
+    HOST="${HOST}" "${migration_helper}"
+  fi
+fi
 
 ssh "${HOST}" "REMOTE_DIR='${REMOTE_DIR}' INTERNAL_PREFIX='${INTERNAL_PREFIX}' SERVICES='${SERVICES}' bash -s" << 'REMOTE'
 set -euo pipefail
