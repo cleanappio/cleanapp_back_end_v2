@@ -54,6 +54,10 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	amqpUser, err := appenv.StringRequiredInProd("AMQP_USER", "guest")
+	if err != nil {
+		return nil, err
+	}
 	amqpPassword, err := appenv.Secret("AMQP_PASSWORD", "guest")
 	if err != nil {
 		return nil, err
@@ -89,7 +93,7 @@ func Load() (*Config, error) {
 		// RabbitMQ defaults
 		RabbitMQHost:             getEnv("AMQP_HOST", "localhost"),
 		RabbitMQPort:             getEnv("AMQP_PORT", "5672"),
-		RabbitMQUser:             getEnv("AMQP_USER", "guest"),
+		RabbitMQUser:             amqpUser,
 		RabbitMQPassword:         amqpPassword,
 		RabbitMQExchange:         getEnv("RABBITMQ_EXCHANGE", "cleanapp-exchange"),
 		RabbitMQQueue:            getEnv("RABBITMQ_QUEUE", "gdpr-queue"),

@@ -11,6 +11,9 @@ service_dir_for() {
     cleanapp_auth_service) echo "auth-service" ;;
     cleanapp_customer_service) echo "customer-service" ;;
     cleanapp_report_listener) echo "report-listener" ;;
+    cleanapp_areas_service) echo "areas-service" ;;
+    cleanapp_email_service) echo "email-service" ;;
+    cleanapp_report_ownership_service) echo "report-ownership-service" ;;
     cleanapp_report_analyze_pipeline) echo "report-analyze-pipeline" ;;
     cleanapp_report_processor) echo "report-processor" ;;
     cleanapp_gdpr_process_service) echo "gdpr-process-service" ;;
@@ -25,6 +28,9 @@ services=(
   cleanapp_report_analyze_pipeline
   cleanapp_report_processor
   cleanapp_gdpr_process_service
+  cleanapp_areas_service
+  cleanapp_email_service
+  cleanapp_report_ownership_service
 )
 
 if [[ $# -gt 0 ]]; then
@@ -64,6 +70,9 @@ service_dir_for() {
     cleanapp_auth_service) echo "auth-service" ;;
     cleanapp_customer_service) echo "customer-service" ;;
     cleanapp_report_listener) echo "report-listener" ;;
+    cleanapp_areas_service) echo "areas-service" ;;
+    cleanapp_email_service) echo "email-service" ;;
+    cleanapp_report_ownership_service) echo "report-ownership-service" ;;
     cleanapp_report_analyze_pipeline) echo "report-analyze-pipeline" ;;
     cleanapp_report_processor) echo "report-processor" ;;
     cleanapp_gdpr_process_service) echo "gdpr-process-service" ;;

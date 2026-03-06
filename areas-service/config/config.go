@@ -1,60 +1,62 @@
 package config
 
 import (
-	"os"
-	"strconv"
+	"strings"
+
+	"cleanapp-common/appenv"
 )
 
 // Config holds all configuration for the areas service
-type Config struct {
-	// Database configuration
+ type Config struct {
 	DBHost     string
 	DBPort     string
 	DBUser     string
 	DBPassword string
 	DBName     string
 
-	// Server configuration
 	Port string
 
-	// Auth Service configuration
 	AuthServiceURL string
+
+	TrustedProxies  []string
+	AllowedOrigins  []string
+	RunDBMigrations bool
+	RateLimitRPS    float64
+	RateLimitBurst  int
 }
 
-// Load loads configuration from environment variables
-func Load() *Config {
-	config := &Config{
-		// Database defaults
-		DBHost:     getEnv("DB_HOST", "localhost"),
-		DBPort:     getEnv("DB_PORT", "3306"),
-		DBUser:     getEnv("DB_USER", "server"),
-		DBPassword: getEnv("DB_PASSWORD", "secret"),
-		DBName:     getEnv("DB_NAME", "cleanapp"),
-
-		// Server defaults
-		Port: getEnv("PORT", "8080"),
-
-		// Auth Service defaults
-		AuthServiceURL: getEnv("AUTH_SERVICE_URL", "http://auth-service:8080"),
+func Load() (*Config, error) {
+	dbPassword, err := appenv.Secret("DB_PASSWORD", "secret")
+	if err != nil {
+		return nil, err
 	}
-
-	return config
+	cfg := &Config{
+		DBHost:          appenv.String("DB_HOST", "localhost"),
+		DBPort:          appenv.String("DB_PORT", "3306"),
+		DBUser:          appenv.String("DB_USER", "server"),
+		DBPassword:      dbPassword,
+		DBName:          appenv.String("DB_NAME", "cleanapp"),
+		Port:            appenv.String("PORT", "8080"),
+		AuthServiceURL:  appenv.String("AUTH_SERVICE_URL", "http://auth-service:8080"),
+		AllowedOrigins:  allowedOrigins(),
+		RunDBMigrations: appenv.Bool("DB_RUN_MIGRATIONS", appenv.DefaultRunMigrations()),
+		RateLimitRPS:    float64(appenv.Int("RATE_LIMIT_RPS", 10)),
+		RateLimitBurst:  appenv.Int("RATE_LIMIT_BURST", 20),
+	}
+	if trusted := appenv.Strings("TRUSTED_PROXIES"); len(trusted) > 0 {
+		cfg.TrustedProxies = trusted
+	}
+	return cfg, nil
 }
 
-// getEnv gets an environment variable or returns a default value
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
+func allowedOrigins() []string {
+	if origins := appenv.Strings("ALLOWED_ORIGINS"); len(origins) > 0 {
+		return origins
 	}
-	return defaultValue
-}
-
-// getIntEnv gets an integer environment variable or returns a default value
-func getIntEnv(key string, defaultValue int) int {
-	if value := os.Getenv(key); value != "" {
-		if intValue, err := strconv.Atoi(value); err == nil {
-			return intValue
-		}
+	frontendURL := appenv.String("FRONTEND_URL", "https://cleanapp.io")
+	origins := []string{frontendURL}
+	if strings.Contains(frontendURL, "://cleanapp.io") {
+		origins = append(origins, strings.Replace(frontendURL, "://cleanapp.io", "://www.cleanapp.io", 1))
 	}
-	return defaultValue
+	return origins
 }

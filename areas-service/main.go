@@ -7,10 +7,17 @@ import (
 	"areas-service/middleware"
 	"areas-service/utils"
 	"areas-service/version"
+	"cleanapp-common/edge"
+	"cleanapp-common/serverx"
+	"context"
 	"fmt"
-	"strconv"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
-	"github.com/apex/log"
 	"github.com/gin-gonic/gin"
 )
 
@@ -24,53 +31,42 @@ const (
 )
 
 func main() {
-	// Load configuration
-	cfg := config.Load()
-
-	log.Info("Starting the areas service...")
-
-	// Connect to database
-	db, err := utils.DBConnect()
+	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
+		log.Fatal("Failed to load configuration:", err)
+	}
+
+	log.Println("Starting the areas service...")
+
+	db, err := utils.DBConnect(cfg)
+	if err != nil {
+		log.Fatal("Failed to connect to database:", err)
 	}
 	defer db.Close()
 
-	// Initialize database schema
-	if err := database.InitSchema(db); err != nil {
-		log.Fatalf("Failed to initialize database schema: %v", err)
+	if cfg.RunDBMigrations {
+		log.Printf("Runtime DB migrations are disabled at service boot. Run areas-service/cmd/migrate instead.")
 	}
 
-	// Initialize services
 	areasService := database.NewAreasService(db)
-
-	// Initialize handlers
 	areasHandler := handlers.NewAreasHandler(areasService)
 
-	// Setup router
 	router := gin.Default()
-	router.Use(func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE")
-
-		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(204)
-			return
+	if len(cfg.TrustedProxies) > 0 {
+		if err := router.SetTrustedProxies(cfg.TrustedProxies); err != nil {
+			log.Printf("Failed to set trusted proxies: %v", err)
 		}
-
-		c.Next()
-	})
+	}
+	router.Use(edge.SecurityHeaders())
+	router.Use(edge.RequestBodyLimit(1 << 20))
+	router.Use(edge.RateLimitMiddleware(edge.RateLimitConfig{RPS: cfg.RateLimitRPS, Burst: cfg.RateLimitBurst}))
+	router.Use(edge.CORSMiddleware(edge.CORSConfig{AllowedOrigins: cfg.AllowedOrigins, AllowedMethods: []string{"GET", "POST", "OPTIONS", "DELETE"}}))
 
 	router.GET("/version", func(c *gin.Context) {
-		c.JSON(200, version.Get("areas-service"))
+		c.JSON(http.StatusOK, version.Get("areas-service"))
 	})
-
-	// Register health endpoint (outside API group)
 	router.GET(EndPointHealth, areasHandler.HealthCheck)
 
-	// Create API v3 router group
 	apiV3 := router.Group("/api/v3")
 	{
 		apiV3.POST(EndPointCreateOrUpdateArea, middleware.AuthMiddleware(cfg), areasHandler.CreateOrUpdateArea)
@@ -80,15 +76,20 @@ func main() {
 		apiV3.DELETE(EndPointDeleteArea, middleware.AuthMiddleware(cfg), areasHandler.DeleteArea)
 	}
 
-	// Get server port from config
-	serverPort, err := strconv.Atoi(cfg.Port)
-	if err != nil {
-		log.Fatalf("Invalid PORT configuration: %v", err)
-	}
+	srv := serverx.New(fmt.Sprintf(":%s", cfg.Port), router)
+	go func() {
+		log.Printf("Areas service starting on port %s", cfg.Port)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatal("Failed to start server:", err)
+		}
+	}()
 
-	// Start server
-	log.Infof("Areas service starting on port %d", serverPort)
-	if err := router.Run(fmt.Sprintf(":%d", serverPort)); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Fatal("Server forced to shutdown:", err)
 	}
 }

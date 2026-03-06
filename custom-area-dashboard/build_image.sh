@@ -89,9 +89,11 @@ DOCKER_TAG="${CLOUD_REGION}-docker.pkg.dev/${PROJECT_NAME}/${DOCKER_IMAGE}"
 
 if [ "${OPT}" == "dev" ]; then
   echo "Building and pushing docker image..."
-  gcloud builds submit \
-    --region=${CLOUD_REGION} \
-    --tag=${DOCKER_TAG}:${BUILD_VERSION}
+  ../scripts/build/submit_go_service_with_common.sh \
+    "$(pwd)" \
+    "${CLOUD_REGION}" \
+    "${DOCKER_TAG}:${BUILD_VERSION}" \
+    "${PROJECT_NAME}"
 fi
 echo "Tagging Docker image as current ${OPT}..."
 gcloud artifacts docker tags add ${DOCKER_TAG}:${BUILD_VERSION} ${DOCKER_TAG}:${OPT}

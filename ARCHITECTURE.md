@@ -788,6 +788,9 @@ Migration entrypoints:
 - `report-analyze-pipeline/cmd/migrate`
 - `report-processor/cmd/migrate`
 - `gdpr-process-service/cmd/migrate`
+- `areas-service/cmd/migrate`
+- `email-service/cmd/migrate`
+- `report-ownership-service/cmd/migrate`
 
 Repo wrapper:
 
@@ -817,7 +820,7 @@ digest pins (`image@sha256:...`) via a compose override on the VM:
 
 - Current symlink on VM: `~/docker-compose.digests.current.yml`
 - Timestamped pins: `~/docker-compose.digests.<timestamp>.yml`
-- Repo helper (laptop-run, pins from *pulled* images on the VM): `platform_blueprint/deploy/prod/vm/deploy_with_digests.sh`
+- Repo helper (laptop-run, pins from *pulled* images on the VM, and runs explicit Go migrations by default): `platform_blueprint/deploy/prod/vm/deploy_with_digests.sh`
 
 This flow:
 1. `docker compose pull` (tag-based)

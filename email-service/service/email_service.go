@@ -205,10 +205,6 @@ func NewEmailService(cfg *config.Config) (*EmailService, error) {
 		waitInterval *= 2 // Exponential backoff: 1s, 2s, 4s, 8s, ...
 	}
 
-	// Verify and create required tables
-	if err := verifyAndCreateTables(db); err != nil {
-		return nil, fmt.Errorf("failed to verify/create tables: %w", err)
-	}
 
 	// Create email sender
 	emailSender := email.NewEmailSender(cfg)
@@ -1299,6 +1295,10 @@ func nextDailyRetryWindow(now time.Time) time.Time {
 	y, m, d := n.Date()
 	loc := n.Location()
 	return time.Date(y, m, d+1, 0, 5, 0, 0, loc)
+}
+
+func RunMigrations(db *sql.DB) error {
+	return verifyAndCreateTables(db)
 }
 
 // verifyAndCreateTables ensures all required tables exist with proper structure

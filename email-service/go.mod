@@ -2,6 +2,8 @@ module email-service
 
 go 1.24.0
 
+require cleanapp-common v0.0.0
+
 require (
 	github.com/apex/log v1.9.0
 	github.com/gin-gonic/gin v1.10.1
@@ -37,6 +39,7 @@ require (
 	golang.org/x/net v0.25.0 // indirect
 	golang.org/x/sys v0.20.0 // indirect
 	golang.org/x/text v0.17.0 // indirect
+	golang.org/x/time v0.12.0 // indirect
 	google.golang.org/protobuf v1.34.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
@@ -47,3 +50,5 @@ require (
 	github.com/pkg/errors v0.8.1 // indirect
 	github.com/sendgrid/rest v2.6.9+incompatible // indirect
 )
+
+replace cleanapp-common => ../go-common

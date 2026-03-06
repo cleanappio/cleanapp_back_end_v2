@@ -311,6 +311,9 @@ This runs:
 - `report-analyze-pipeline/cmd/migrate`
 - `report-processor/cmd/migrate`
 - `gdpr-process-service/cmd/migrate`
+- `areas-service/cmd/migrate`
+- `email-service/cmd/migrate`
+- `report-ownership-service/cmd/migrate`
 
 On fresh environments, run migrations before starting these services.
 

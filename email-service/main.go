@@ -2,6 +2,10 @@ package main
 
 import (
 	"context"
+	"email-service/config"
+	"email-service/handlers"
+	"email-service/service"
+	"email-service/version"
 	"log"
 	"net/http"
 	"os"
@@ -9,71 +13,42 @@ import (
 	"syscall"
 	"time"
 
-	"email-service/config"
-	"email-service/handlers"
-	"email-service/service"
-	"email-service/version"
-
+	"cleanapp-common/edge"
+	"cleanapp-common/serverx"
 	"github.com/gin-gonic/gin"
 )
 
 func main() {
-	// Load configuration
-	cfg := config.Load()
-
-	// Create email service
+	cfg, err := config.Load()
+	if err != nil { log.Fatal("Failed to load email-service config:", err) }
 	emailService, err := service.NewEmailService(cfg)
-	if err != nil {
-		log.Fatal("Failed to create email service:", err)
-	}
+	if err != nil { log.Fatal("Failed to create email service:", err) }
 	defer emailService.Close()
-
-	// Create HTTP handler
+	if cfg.RunDBMigrations {
+		log.Printf("Runtime DB migrations are disabled at service boot. Run email-service/cmd/migrate instead.")
+	}
 	handler := handlers.NewEmailServiceHandler(emailService)
-
-	// Create Gin router
 	router := gin.Default()
-
-	// Load HTML templates for opt-out pages
+	router.Use(edge.SecurityHeaders())
+	router.Use(edge.RequestBodyLimit(1 << 20))
+	router.Use(edge.RateLimitMiddleware(edge.RateLimitConfig{RPS: cfg.RateLimitRPS, Burst: cfg.RateLimitBurst}))
+	router.Use(edge.CORSMiddleware(edge.CORSConfig{AllowedOrigins: cfg.AllowedOrigins, AllowedMethods: []string{"GET", "POST", "OPTIONS"}}))
 	router.LoadHTMLGlob("templates/*")
-
-	// API v3 routes
 	apiV3 := router.Group("/api/v3")
 	{
-		apiV3.GET("/version", func(c *gin.Context) {
-			c.JSON(200, version.Get("email-service"))
-		})
+		apiV3.GET("/version", func(c *gin.Context) { c.JSON(200, version.Get("email-service")) })
 		apiV3.POST("/optout", handler.HandleOptOut)
 	}
-
-	// Opt-out link route (for email links)
 	router.GET("/opt-out", handler.HandleOptOutLink)
-
-	// Health check
 	router.GET("/health", handler.HandleHealth)
-	router.GET("/version", func(c *gin.Context) {
-		c.JSON(200, version.Get("email-service"))
-	})
-
-	// Create HTTP server
-	server := &http.Server{
-		Addr:         ":" + cfg.HTTPPort,
-		Handler:      router,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
-	}
-
-	// Start HTTP server in a goroutine
+	router.GET("/version", func(c *gin.Context) { c.JSON(200, version.Get("email-service")) })
+	srv := serverx.New(":"+cfg.HTTPPort, router)
 	go func() {
 		log.Printf("HTTP server starting on port %s", cfg.HTTPPort)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Printf("HTTP server error: %v", err)
 		}
 	}()
-
-	// Start polling for reports in a goroutine
-	// Uses aggregate notifications: groups reports by brand and sends one email per brand
 	go func() {
 		pollInterval := cfg.GetPollInterval()
 		log.Printf("Email service started (aggregate mode). Polling every %v", pollInterval)
@@ -87,10 +62,6 @@ func main() {
 			time.Sleep(pollInterval)
 		}
 	}()
-
-	// Brandless physical pipeline (bounded).
-	// This fills the gap where physical reports have recipients but no brand_name, so
-	// they don't get picked up by aggregate brand grouping.
 	if cfg.BrandlessPhysicalEnabled {
 		go func() {
 			interval := cfg.GetBrandlessPhysicalPollInterval()
@@ -108,21 +79,14 @@ func main() {
 	} else {
 		log.Printf("Brandless physical pipeline disabled (EMAIL_BRANDLESS_PHYSICAL_ENABLED=false)")
 	}
-
-	// Wait for interrupt signal to gracefully shutdown the server
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
-
 	log.Println("Server is shutting down...")
-
-	// Graceful shutdown
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-
-	if err := server.Shutdown(ctx); err != nil {
+	if err := srv.Shutdown(ctx); err != nil {
 		log.Printf("Server forced to shutdown: %v", err)
 	}
-
 	log.Println("Server exited")
 }

@@ -1,59 +1,56 @@
 package main
 
 import (
+	"context"
 	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
-	"github.com/gin-gonic/gin"
-	"github.com/joho/godotenv"
-
+	"cleanapp-common/edge"
+	"cleanapp-common/serverx"
 	"custom-area-dashboard/config"
 	"custom-area-dashboard/handlers"
 	"custom-area-dashboard/middleware"
 	"custom-area-dashboard/services"
 	"custom-area-dashboard/version"
+	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
 )
 
 func main() {
-	// Load environment variables from .env file
 	if err := godotenv.Load(); err != nil {
 		log.Printf("Warning: .env file not found, using system environment variables")
 	}
-
-	// Load configuration
-	cfg := config.Load()
-
-	// Initialize database service
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("Failed to load configuration: %v", err)
+	}
 	databaseService, err := services.NewDatabaseService(cfg)
 	if err != nil {
 		log.Fatalf("Failed to initialize database service: %v", err)
 	}
 	defer databaseService.Close()
 
-	// Initialize handlers
 	areasHandler := handlers.NewAreasHandler(databaseService, cfg)
 	r := gin.Default()
-
-	// CORS middleware for Gin
-	r.Use(func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
-		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
-		c.Writer.Header().Set("Access-Control-Max-Age", "86400")
-		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(200)
-			return
+	if len(cfg.TrustedProxies) > 0 {
+		if err := r.SetTrustedProxies(cfg.TrustedProxies); err != nil {
+			log.Printf("Failed to set trusted proxies: %v", err)
 		}
-		c.Next()
-	})
+	}
+	r.Use(edge.SecurityHeaders())
+	r.Use(edge.RequestBodyLimit(1 << 20))
+	r.Use(edge.RateLimitMiddleware(edge.RateLimitConfig{RPS: cfg.RateLimitRPS, Burst: cfg.RateLimitBurst}))
+	r.Use(edge.CORSMiddleware(edge.CORSConfig{AllowedOrigins: cfg.AllowedOrigins, AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}, AllowCredentials: true}))
 
-	// Health endpoint (public)
 	r.GET("/health", areasHandler.HealthHandler)
 	r.GET("/version", func(c *gin.Context) {
 		c.JSON(200, version.Get("custom-area-dashboard"))
 	})
 
-	// Protected routes
 	group := r.Group("/")
 	log.Printf("INFO: Public dashboard: %v", cfg.IsPublic)
 	if !cfg.IsPublic {
@@ -66,6 +63,19 @@ func main() {
 		group.GET("/reports_aggr", areasHandler.ReportsAggrHandler)
 	}
 
-	log.Printf("Starting Custom Area Dashboard service on %s:%s", cfg.Host, cfg.Port)
-	r.Run(cfg.Host + ":" + cfg.Port)
+	srv := serverx.New(cfg.Host+":"+cfg.Port, r)
+	go func() {
+		log.Printf("Starting Custom Area Dashboard service on %s:%s", cfg.Host, cfg.Port)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Dashboard server failed: %v", err)
+		}
+	}()
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Printf("Server forced to shutdown: %v", err)
+	}
 }

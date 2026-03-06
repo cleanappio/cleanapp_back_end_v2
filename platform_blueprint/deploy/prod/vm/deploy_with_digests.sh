@@ -11,7 +11,7 @@ set -euo pipefail
 
 HOST="${HOST:-deployer@34.122.15.16}"
 REMOTE_DIR="${REMOTE_DIR:-/home/deployer}"
-RUN_GO_MIGRATIONS="${RUN_GO_MIGRATIONS:-0}"
+RUN_GO_MIGRATIONS="${RUN_GO_MIGRATIONS:-1}"
 
 # Only pin images that come from our Artifact Registry namespace.
 INTERNAL_PREFIX="${INTERNAL_PREFIX:-us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/}"

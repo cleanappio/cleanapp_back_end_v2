@@ -1,18 +1,16 @@
 package server
 
 import (
+	"cleanapp-common/appenv"
+	"cleanapp-common/edge"
 	"flag"
 	"fmt"
 	"net/http"
 	"net/url"
-	"os"
-	"time"
 
 	"cleanapp/backend/rabbitmq"
 	"cleanapp/common/version"
-
 	"github.com/apex/log"
-	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
 
@@ -41,85 +39,46 @@ const (
 	EndPointVersion           = "/version"
 )
 
-var (
-	serverPort = flag.Int("port", 8080, "The port used by the service.")
-)
-
-// Global RabbitMQ publisher instance
+var serverPort = flag.Int("port", 8080, "The port used by the service.")
 var rabbitmqPublisher *rabbitmq.Publisher
-
-// Global user routing key
 var userRoutingKey string
 
-// getRabbitMQConfig returns RabbitMQ configuration from environment variables
-func getRabbitMQConfig() (string, string, string, string) {
-	// Get AMQP URL components
-	host := os.Getenv("AMQP_HOST")
-	if host == "" {
-		host = "localhost"
+func getRabbitMQConfig() (string, string, string, string, error) {
+	host := appenv.String("AMQP_HOST", "localhost")
+	port := appenv.String("AMQP_PORT", "5672")
+	user, err := appenv.StringRequiredInProd("AMQP_USER", "guest")
+	if err != nil {
+		return "", "", "", "", err
 	}
-
-	port := os.Getenv("AMQP_PORT")
-	if port == "" {
-		port = "5672"
+	password, err := appenv.Secret("AMQP_PASSWORD", "guest")
+	if err != nil {
+		return "", "", "", "", err
 	}
-
-	user := os.Getenv("AMQP_USER")
-	if user == "" {
-		user = "guest"
-	}
-
-	password := os.Getenv("AMQP_PASSWORD")
-	if password == "" {
-		password = "guest"
-	}
-
-	// Construct AMQP URL
 	amqpURL := fmt.Sprintf("amqp://%s:%s@%s:%s/", user, password, host, port)
-
-	// Get exchange name
-	exchangeName := os.Getenv("RABBITMQ_EXCHANGE")
-	if exchangeName == "" {
-		exchangeName = "cleanapp"
-	}
-
-	// Get report routing key
-	reportRoutingKey := os.Getenv("RABBITMQ_RAW_REPORT_ROUTING_KEY")
-	if reportRoutingKey == "" {
-		reportRoutingKey = "report.raw"
-	}
-
-	// Get user routing key
-	userRoutingKey := os.Getenv("RABBITMQ_USER_ROUTING_KEY")
-	if userRoutingKey == "" {
-		userRoutingKey = "user.add"
-	}
-
-	return amqpURL, exchangeName, reportRoutingKey, userRoutingKey
+	exchangeName := appenv.String("RABBITMQ_EXCHANGE", "cleanapp")
+	reportRoutingKey := appenv.String("RABBITMQ_RAW_REPORT_ROUTING_KEY", "report.raw")
+	userRoutingKey := appenv.String("RABBITMQ_USER_ROUTING_KEY", "user.add")
+	return amqpURL, exchangeName, reportRoutingKey, userRoutingKey, nil
 }
 
-// initializePublisher initializes the RabbitMQ publisher for reports and user events
 func initializePublisher() error {
-	amqpURL, exchangeName, reportRoutingKey, userRoutingKeyFromEnv := getRabbitMQConfig()
-
+	amqpURL, exchangeName, reportRoutingKey, userRoutingKeyFromEnv, err := getRabbitMQConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load RabbitMQ config: %w", err)
+	}
 	publisher, err := rabbitmq.NewPublisher(amqpURL, exchangeName, reportRoutingKey)
 	if err != nil {
 		return fmt.Errorf("failed to initialize RabbitMQ publisher: %w", err)
 	}
-
 	rabbitmqPublisher = publisher
-	// Store the user routing key globally for use in user events
 	userRoutingKey = userRoutingKeyFromEnv
-	log.Infof("RabbitMQ publisher initialized: exchange=%s, report_routing_key=%s, user_routing_key=%s",
-		exchangeName, reportRoutingKey, userRoutingKeyFromEnv)
+	log.Infof("RabbitMQ publisher initialized: exchange=%s, report_routing_key=%s, user_routing_key=%s", exchangeName, reportRoutingKey, userRoutingKeyFromEnv)
 	return nil
 }
 
-// closePublisher closes the RabbitMQ publisher
 func closePublisher() {
 	if rabbitmqPublisher != nil {
-		err := rabbitmqPublisher.Close()
-		if err != nil {
+		if err := rabbitmqPublisher.Close(); err != nil {
 			log.Errorf("Failed to close RabbitMQ publisher: %v", err)
 		} else {
 			log.Info("RabbitMQ publisher closed successfully")
@@ -129,81 +88,68 @@ func closePublisher() {
 
 func StartService() {
 	log.Info("Starting the service...")
-
-	// Ensure the shared DB pool is closed on service shutdown.
 	defer closeServerDB()
-
-	// Initialize RabbitMQ publisher for reports and user events
-	err := initializePublisher()
-	if err != nil {
+	if err := initializePublisher(); err != nil {
 		log.Errorf("Failed to initialize RabbitMQ publisher: %v", err)
 		log.Info("Continuing without RabbitMQ publisher...")
 	}
-
-	// Start background counter cache updater
-	// This uses incremental counting to avoid slow full table scans
 	StartCounterCacheUpdater()
-
-	// Start background brand counts updater (materialized aggregates)
 	StartBrandReportCountsUpdater()
-
-	// Ensure cleanup on exit
 	defer closePublisher()
-
 	router := gin.Default()
-	router.Use(cors.New(cors.Config{
-		AllowMethods:     []string{"GET", "POST", "OPTIONS"},
-		AllowHeaders:     []string{"Content-Type"},
-		AllowOrigins:     []string{"*"},
-		AllowCredentials: true,
-		MaxAge:           12 * time.Hour,
-	}))
-
-	router.GET(EndPointVersion, func(c *gin.Context) {
-		c.JSON(http.StatusOK, version.Get("cleanapp-service"))
-	})
-
+	router.Use(edge.SecurityHeaders())
+	router.Use(edge.RequestBodyLimit(1 << 20))
+	router.Use(edge.RateLimitMiddleware(edge.RateLimitConfig{RPS: float64(appenv.Int("RATE_LIMIT_RPS", 20)), Burst: appenv.Int("RATE_LIMIT_BURST", 40)}))
+	router.Use(edge.CORSMiddleware(edge.CORSConfig{AllowedOrigins: allowedOrigins(), AllowedMethods: []string{"GET", "POST", "OPTIONS"}, AllowCredentials: true}))
+	router.GET(EndPointVersion, func(c *gin.Context) { c.JSON(http.StatusOK, version.Get("cleanapp-service")) })
 	router.GET(EndPointHelp, Help)
-	router.GET(EndPointGetAreas, GetAreas) // +
+	router.GET(EndPointGetAreas, GetAreas)
 	router.GET(EndPointValidReportsCount, GetValidReportsCount)
-	router.POST(EndPointUser, CreateOrUpdateUser)             // +
-	router.POST(EndPointPrivacyAndTOC, UpdatePrivacyAndTOC)   // +
-	router.POST(EndPointReport, Report)                       // +
-	router.POST(EndPointReadReport, ReadReport)               // +
-	router.POST(EndPointGetMap, GetMap)                       // +
-	router.POST(EndPointGetStats, GetStats)                   // +
-	router.POST(EndPointGetTeams, GetTeams)                   // +
-	router.POST(EndPointGetTopScores, GetTopScores)           // +
-	router.POST(EndPointReadReferral, ReadReferral)           // get -> post
-	router.POST(EndPointWriteReferral, WriteReferral)         // Missing
-	router.POST(EndPointGenerateReferral, GenerateReferral)   // +
-	router.POST(EndPointGetBlockChainLink, GetBlockchainLink) // +
-	router.POST(EndPointCreateAction, CreateAction)           // Missing
-	router.POST(EndPointUpdateAction, UpdateAction)           // modifyAction
-	router.POST(EndPointDeleteAction, DeleteAction)           // Missing
-	router.GET(EndPointGetActions, GetActions)                // post -> get
-	router.GET(EndPointGetAction, GetAction)                  // Missing
-	router.POST(EndPointUpdateUserAction, UpdateUserAction)   // userAction?
+	router.POST(EndPointUser, CreateOrUpdateUser)
+	router.POST(EndPointPrivacyAndTOC, UpdatePrivacyAndTOC)
+	router.POST(EndPointReport, Report)
+	router.POST(EndPointReadReport, ReadReport)
+	router.POST(EndPointGetMap, GetMap)
+	router.POST(EndPointGetStats, GetStats)
+	router.POST(EndPointGetTeams, GetTeams)
+	router.POST(EndPointGetTopScores, GetTopScores)
+	router.POST(EndPointReadReferral, ReadReferral)
+	router.POST(EndPointWriteReferral, WriteReferral)
+	router.POST(EndPointGenerateReferral, GenerateReferral)
+	router.POST(EndPointGetBlockChainLink, GetBlockchainLink)
+	router.POST(EndPointCreateAction, CreateAction)
+	router.POST(EndPointUpdateAction, UpdateAction)
+	router.POST(EndPointDeleteAction, DeleteAction)
+	router.GET(EndPointGetActions, GetActions)
+	router.GET(EndPointGetAction, GetAction)
+	router.POST(EndPointUpdateUserAction, UpdateUserAction)
+	if err := router.Run(fmt.Sprintf(":%d", *serverPort)); err != nil {
+		log.Fatalf("Service failed: %v", err)
+	}
+}
 
-	router.Run(fmt.Sprintf(":%d", *serverPort))
-	log.Info("Finished the service. Should not ever being seen.")
+func allowedOrigins() []string {
+	if origins := appenv.Strings("ALLOWED_ORIGINS"); len(origins) > 0 {
+		return origins
+	}
+	frontendURL := appenv.String("FRONTEND_URL", "https://cleanapp.io")
+	origins := []string{frontendURL}
+	if frontendURL == "https://cleanapp.io" {
+		origins = append(origins, "https://www.cleanapp.io")
+	}
+	return origins
 }
 
 func GetAreas(c *gin.Context) {
-	// Build the target URL with the same query string
 	targetURL := "https://areas.cleanapp.io/api/v3/get_areas"
 	if c.Request.URL.RawQuery != "" {
 		targetURL += "?" + c.Request.URL.RawQuery
 	}
-
-	// Parse the target URL to ensure it's valid
 	parsedURL, err := url.Parse(targetURL)
 	if err != nil {
 		log.Errorf("Failed to parse target URL: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid target URL"})
 		return
 	}
-
-	// Redirect to the areas service
 	c.Redirect(http.StatusTemporaryRedirect, parsedURL.String())
 }

@@ -45,6 +45,16 @@ func String(key, defaultValue string) string {
 	return defaultValue
 }
 
+func StringRequiredInProd(key, devDefault string) (string, error) {
+	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+		return value, nil
+	}
+	if IsDevLike() && devDefault != "" {
+		return devDefault, nil
+	}
+	return "", fmt.Errorf("%s is required", key)
+}
+
 func Strings(key string) []string {
 	value := strings.TrimSpace(os.Getenv(key))
 	if value == "" {
