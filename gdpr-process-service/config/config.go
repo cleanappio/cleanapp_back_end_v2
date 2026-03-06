@@ -1,8 +1,8 @@
 package config
 
 import (
+	"cleanapp-common/appenv"
 	"fmt"
-	"os"
 	"strconv"
 	"time"
 )
@@ -44,20 +44,31 @@ type Config struct {
 	RabbitMQQueue            string
 	RabbitMQReportRoutingKey string
 	RabbitMQUserRoutingKey   string
+
+	RunDBMigrations bool
 }
 
 // Load loads configuration from environment variables
-func Load() *Config {
+func Load() (*Config, error) {
+	dbPassword, err := appenv.Secret("DB_PASSWORD", "secret")
+	if err != nil {
+		return nil, err
+	}
+	amqpPassword, err := appenv.Secret("AMQP_PASSWORD", "guest")
+	if err != nil {
+		return nil, err
+	}
+
 	config := &Config{
 		// Database defaults
 		DBHost:     getEnv("DB_HOST", "localhost"),
 		DBPort:     getEnv("DB_PORT", "3306"),
 		DBUser:     getEnv("DB_USER", "server"),
-		DBPassword: getEnv("DB_PASSWORD", "secret"),
+		DBPassword: dbPassword,
 		DBName:     getEnv("DB_NAME", "cleanapp"),
 
 		// Polling defaults
-		PollInterval: getDurationEnv("POLL_INTERVAL", 60*time.Second), // 60 seconds default
+		PollInterval: getDurationEnv("POLL_INTERVAL", 60*time.Second),
 
 		// OpenAI defaults
 		OpenAIAPIKey: getEnv("OPENAI_API_KEY", ""),
@@ -79,14 +90,15 @@ func Load() *Config {
 		RabbitMQHost:             getEnv("AMQP_HOST", "localhost"),
 		RabbitMQPort:             getEnv("AMQP_PORT", "5672"),
 		RabbitMQUser:             getEnv("AMQP_USER", "guest"),
-		RabbitMQPassword:         getEnv("AMQP_PASSWORD", "guest"),
+		RabbitMQPassword:         amqpPassword,
 		RabbitMQExchange:         getEnv("RABBITMQ_EXCHANGE", "cleanapp-exchange"),
 		RabbitMQQueue:            getEnv("RABBITMQ_QUEUE", "gdpr-queue"),
 		RabbitMQReportRoutingKey: getEnv("RABBITMQ_RAW_REPORT_ROUTING_KEY", "report.raw"),
 		RabbitMQUserRoutingKey:   getEnv("RABBITMQ_USER_ROUTING_KEY", "user.add"),
+		RunDBMigrations:          appenv.Bool("DB_RUN_MIGRATIONS", appenv.DefaultRunMigrations()),
 	}
 
-	return config
+	return config, nil
 }
 
 // GetRabbitMQURL constructs the AMQP URL from individual components
@@ -95,7 +107,7 @@ func (c *Config) GetRabbitMQURL() string {
 }
 
 func getDurationEnv(key string, defaultValue time.Duration) time.Duration {
-	if value := os.Getenv(key); value != "" {
+	if value := appenv.String(key, ""); value != "" {
 		if duration, err := time.ParseDuration(value); err == nil {
 			return duration
 		}
@@ -105,7 +117,7 @@ func getDurationEnv(key string, defaultValue time.Duration) time.Duration {
 
 // getEnv gets an environment variable or returns a default value
 func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
+	if value := appenv.String(key, ""); value != "" {
 		return value
 	}
 	return defaultValue
@@ -113,7 +125,7 @@ func getEnv(key, defaultValue string) string {
 
 // getIntEnv gets an integer environment variable or returns a default value
 func getIntEnv(key string, defaultValue int) int {
-	if value := os.Getenv(key); value != "" {
+	if value := appenv.String(key, ""); value != "" {
 		if intValue, err := strconv.Atoi(value); err == nil {
 			return intValue
 		}

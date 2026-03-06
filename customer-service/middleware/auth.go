@@ -2,20 +2,38 @@ package middleware
 
 import (
 	"bytes"
+	"cleanapp-common/edge"
+	"cleanapp-common/jwtx"
 	"context"
+	"crypto/sha256"
 	"customer-service/config"
 	"customer-service/database"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
 var authServiceHTTPClient = &http.Client{
-	Timeout: 6 * time.Second,
+	Timeout: 3 * time.Second,
+}
+
+type tokenValidationCacheEntry struct {
+	UserID    string
+	ExpiresAt time.Time
+}
+
+var tokenValidationCache = struct {
+	sync.RWMutex
+	entries map[string]tokenValidationCacheEntry
+}{
+	entries: map[string]tokenValidationCacheEntry{},
 }
 
 // AuthMiddleware validates JWT tokens for protected routes by calling auth-service
@@ -37,25 +55,13 @@ func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		log.Printf("DEBUG: Validating token from %s", c.ClientIP())
-
-		// Call auth-service to validate token
-		valid, customerID, err := validateTokenWithAuthService(c.Request.Context(), tokenString, cfg.AuthServiceURL)
+		customerID, err := validateToken(c.Request.Context(), tokenString, cfg)
 		if err != nil {
 			log.Printf("ERROR: Failed to validate token with auth-service from %s: %v", c.ClientIP(), err)
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
 			c.Abort()
 			return
 		}
-
-		if !valid {
-			log.Printf("WARNING: Invalid token from %s", c.ClientIP())
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
-			c.Abort()
-			return
-		}
-
-		log.Printf("DEBUG: Token validated successfully for customer %s from %s", customerID, c.ClientIP())
 		c.Set("customer_id", customerID)
 		c.Set("token", tokenString)
 		c.Next()
@@ -70,12 +76,43 @@ func extractToken(authHeader string) string {
 	return parts[1]
 }
 
+func validateToken(ctx context.Context, token string, cfg *config.Config) (string, error) {
+	claims, err := jwtx.ParseAccessToken(token, cfg.JWTSecret)
+	if err != nil {
+		return "", err
+	}
+	cacheTTL, err := time.ParseDuration(cfg.AuthValidationCacheTTL)
+	if err != nil || cacheTTL <= 0 {
+		cacheTTL = 30 * time.Second
+	}
+	cacheKey := hashTokenForCache(token)
+	if userID, ok := getCachedValidation(cacheKey); ok {
+		return userID, nil
+	}
+	valid, customerID, err := validateTokenWithAuthService(ctx, token, cfg.AuthServiceURL)
+	if err != nil {
+		return "", err
+	}
+	if !valid {
+		return "", errInvalidToken
+	}
+	expiresAt := time.Now().Add(cacheTTL)
+	if claims.Exp.Before(expiresAt) {
+		expiresAt = claims.Exp
+	}
+	setCachedValidation(cacheKey, tokenValidationCacheEntry{
+		UserID:    customerID,
+		ExpiresAt: expiresAt,
+	})
+	return customerID, nil
+}
+
+var errInvalidToken = errors.New("invalid token")
+
 func validateTokenWithAuthService(ctx context.Context, token string, authServiceURL string) (bool, string, error) {
 	url := authServiceURL + "/api/v3/validate-token"
 	payload := map[string]string{"token": token}
 	body, _ := json.Marshal(payload)
-
-	log.Printf("DEBUG: Calling auth-service to validate token: %s", url)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(body))
 	if err != nil {
@@ -90,8 +127,6 @@ func validateTokenWithAuthService(ctx context.Context, token string, authService
 		return false, "", err
 	}
 	defer resp.Body.Close()
-
-	log.Printf("DEBUG: Auth-service token validation response: %d", resp.StatusCode)
 
 	var result struct {
 		Valid      bool   `json:"valid"`
@@ -110,7 +145,6 @@ func validateTokenWithAuthService(ctx context.Context, token string, authService
 		id = result.UserID
 	}
 
-	log.Printf("DEBUG: Token validation result - Valid: %t, ID: %s", result.Valid, id)
 	return result.Valid, id, nil
 }
 
@@ -137,40 +171,44 @@ func RequireSubscription(service *database.CustomerService) gin.HandlerFunc {
 }
 
 // RateLimitMiddleware implements basic rate limiting
-func RateLimitMiddleware() gin.HandlerFunc {
-	// This is a simplified implementation
-	// In production, use a proper rate limiting library with Redis
-	return func(c *gin.Context) {
-		// Implement rate limiting logic here
-		c.Next()
-	}
+func RateLimitMiddleware(rps float64, burst int) gin.HandlerFunc {
+	return edge.RateLimitMiddleware(edge.RateLimitConfig{
+		RPS:   rps,
+		Burst: burst,
+	})
 }
 
 // CORSMiddleware handles CORS headers
-func CORSMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE")
-
-		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(204)
-			return
-		}
-
-		c.Next()
-	}
+func CORSMiddleware(allowedOrigins []string) gin.HandlerFunc {
+	return edge.CORSMiddleware(edge.CORSConfig{
+		AllowedOrigins:   allowedOrigins,
+		AllowCredentials: true,
+	})
 }
 
 // SecurityHeaders adds security headers to responses
 func SecurityHeaders() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		c.Writer.Header().Set("X-Content-Type-Options", "nosniff")
-		c.Writer.Header().Set("X-Frame-Options", "DENY")
-		c.Writer.Header().Set("X-XSS-Protection", "1; mode=block")
-		c.Writer.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
-		c.Writer.Header().Set("Content-Security-Policy", "default-src 'self'")
-		c.Next()
+	return edge.SecurityHeaders()
+}
+
+func hashTokenForCache(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
+}
+
+func getCachedValidation(key string) (string, bool) {
+	now := time.Now()
+	tokenValidationCache.RLock()
+	entry, ok := tokenValidationCache.entries[key]
+	tokenValidationCache.RUnlock()
+	if !ok || now.After(entry.ExpiresAt) {
+		return "", false
 	}
+	return entry.UserID, true
+}
+
+func setCachedValidation(key string, entry tokenValidationCacheEntry) {
+	tokenValidationCache.Lock()
+	tokenValidationCache.entries[key] = entry
+	tokenValidationCache.Unlock()
 }

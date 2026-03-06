@@ -1,6 +1,8 @@
 package config
 
 import (
+	"cleanapp-common/appenv"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -17,7 +19,13 @@ type Config struct {
 	DBName     string
 
 	// Server configuration
-	Port string
+	Port                    string
+	RequestBodyLimitBytes   int64
+	RunDBMigrations         bool
+	AllowedOrigins          []string
+	WebSocketAllowedOrigins []string
+	RateLimitRPS            float64
+	RateLimitBurst          int
 
 	// Broadcast configuration
 	BroadcastInterval time.Duration
@@ -50,17 +58,31 @@ type Config struct {
 }
 
 // Load loads configuration from environment variables
-func Load() *Config {
+func Load() (*Config, error) {
+	dbPassword, err := appenv.Secret("DB_PASSWORD", "secret_app")
+	if err != nil {
+		return nil, err
+	}
+	amqpPassword, err := appenv.Secret("AMQP_PASSWORD", "guest")
+	if err != nil {
+		return nil, err
+	}
 	config := &Config{
 		// Database defaults
-		DBHost:     getEnv("DB_HOST", "localhost"),
-		DBPort:     getEnv("DB_PORT", "3306"),
-		DBUser:     getEnv("DB_USER", "server"),
-		DBPassword: getEnv("DB_PASSWORD", "secret_app"),
-		DBName:     getEnv("DB_NAME", "cleanapp"),
+		DBHost:     appenv.String("DB_HOST", "localhost"),
+		DBPort:     appenv.String("DB_PORT", "3306"),
+		DBUser:     appenv.String("DB_USER", "server"),
+		DBPassword: dbPassword,
+		DBName:     appenv.String("DB_NAME", "cleanapp"),
 
 		// Server defaults
-		Port: getEnv("PORT", "8080"),
+		Port:                    appenv.String("PORT", "8080"),
+		RequestBodyLimitBytes:   appenv.Int64("REQUEST_BODY_LIMIT_BYTES", 2*1024*1024),
+		RunDBMigrations:         appenv.Bool("DB_RUN_MIGRATIONS", appenv.DefaultRunMigrations()),
+		AllowedOrigins:          defaultOrigins(),
+		WebSocketAllowedOrigins: defaultWSOrigins(),
+		RateLimitRPS:            float64(appenv.Int("RATE_LIMIT_RPS", 20)),
+		RateLimitBurst:          appenv.Int("RATE_LIMIT_BURST", 40),
 
 		// Broadcast defaults (1 second)
 		BroadcastInterval: getDurationEnv("BROADCAST_INTERVAL", time.Second),
@@ -72,7 +94,7 @@ func Load() *Config {
 		AMQPHost:                       getEnv("AMQP_HOST", "rabbitmq"),
 		AMQPPort:                       getEnv("AMQP_PORT", "5672"),
 		AMQPUser:                       getEnv("AMQP_USER", "guest"),
-		AMQPPassword:                   getEnv("AMQP_PASSWORD", "guest"),
+		AMQPPassword:                   amqpPassword,
 		RabbitExchange:                 getEnv("RABBITMQ_EXCHANGE", "cleanapp"),
 		RabbitRawReportRoutingKey:      getEnv("RABBITMQ_RAW_REPORT_ROUTING_KEY", "report.raw"),
 		RabbitAnalysedReportRoutingKey: getEnv("RABBITMQ_ANALYSED_REPORT_ROUTING_KEY", "report.analysed"),
@@ -92,7 +114,7 @@ func Load() *Config {
 		InternalAdminToken:             getEnv("INTERNAL_ADMIN_TOKEN", ""),
 	}
 
-	return config
+	return config, validate(config)
 }
 
 // AMQPURL builds the AMQP URL from parts
@@ -126,4 +148,30 @@ func getIntEnv(key string, defaultValue int) int {
 		}
 	}
 	return defaultValue
+}
+
+func defaultOrigins() []string {
+	if origins := appenv.Strings("ALLOWED_ORIGINS"); len(origins) > 0 {
+		return origins
+	}
+	base := strings.TrimRight(appenv.String("INTELLIGENCE_BASE_URL", "https://cleanapp.io"), "/")
+	origins := []string{base}
+	if strings.Contains(base, "://cleanapp.io") {
+		origins = append(origins, strings.Replace(base, "://cleanapp.io", "://www.cleanapp.io", 1))
+	}
+	return origins
+}
+
+func defaultWSOrigins() []string {
+	if origins := appenv.Strings("WEBSOCKET_ALLOWED_ORIGINS"); len(origins) > 0 {
+		return origins
+	}
+	return defaultOrigins()
+}
+
+func validate(cfg *Config) error {
+	if cfg.Port == "" {
+		return fmt.Errorf("PORT is required")
+	}
+	return nil
 }

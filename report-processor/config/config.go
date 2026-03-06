@@ -1,8 +1,8 @@
 package config
 
 import (
+	"cleanapp-common/appenv"
 	"fmt"
-	"os"
 	"strconv"
 	"time"
 )
@@ -45,16 +45,30 @@ type Config struct {
 
 	// Logging
 	LogLevel string
+
+	AllowedOrigins  []string
+	RateLimitRPS    float64
+	RateLimitBurst  int
+	RunDBMigrations bool
 }
 
 // Load loads configuration from environment variables
-func Load() *Config {
+func Load() (*Config, error) {
+	dbPassword, err := appenv.Secret("DB_PASSWORD", "secret_app")
+	if err != nil {
+		return nil, err
+	}
+	amqpPassword, err := appenv.Secret("AMQP_PASSWORD", "guest")
+	if err != nil {
+		return nil, err
+	}
+
 	config := &Config{
 		// Database defaults
 		DBHost:     getEnv("DB_HOST", "localhost"),
 		DBPort:     getEnv("DB_PORT", "3306"),
 		DBUser:     getEnv("DB_USER", "server"),
-		DBPassword: getEnv("DB_PASSWORD", "secret_app"),
+		DBPassword: dbPassword,
 		DBName:     getEnv("DB_NAME", "cleanapp"),
 
 		// Server defaults
@@ -80,20 +94,25 @@ func Load() *Config {
 		AMQPHost:                    getEnv("AMQP_HOST", "localhost"),
 		AMQPPort:                    getEnv("AMQP_PORT", "5672"),
 		AMQPUser:                    getEnv("AMQP_USER", "guest"),
-		AMQPPassword:                getEnv("AMQP_PASSWORD", "guest"),
+		AMQPPassword:                amqpPassword,
 		RabbitMQExchange:            getEnv("RABBITMQ_EXCHANGE", "cleanapp"),
 		RabbitMQRawReportRoutingKey: getEnv("RABBITMQ_RAW_REPORT_ROUTING_KEY", "report.raw"),
 
 		// Logging defaults
 		LogLevel: getEnv("LOG_LEVEL", "info"),
+
+		AllowedOrigins:  defaultOrigins(),
+		RateLimitRPS:    getFloatEnv("RATE_LIMIT_RPS", 20),
+		RateLimitBurst:  getIntEnv("RATE_LIMIT_BURST", 40),
+		RunDBMigrations: appenv.Bool("DB_RUN_MIGRATIONS", appenv.DefaultRunMigrations()),
 	}
 
-	return config
+	return config, nil
 }
 
 // getEnv gets an environment variable or returns a default value
 func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
+	if value := appenv.String(key, ""); value != "" {
 		return value
 	}
 	return defaultValue
@@ -101,7 +120,7 @@ func getEnv(key, defaultValue string) string {
 
 // getDurationEnv gets a duration environment variable or returns a default value
 func getDurationEnv(key string, defaultValue time.Duration) time.Duration {
-	if value := os.Getenv(key); value != "" {
+	if value := appenv.String(key, ""); value != "" {
 		if duration, err := time.ParseDuration(value); err == nil {
 			return duration
 		}
@@ -111,7 +130,7 @@ func getDurationEnv(key string, defaultValue time.Duration) time.Duration {
 
 // getIntEnv gets an integer environment variable or returns a default value
 func getIntEnv(key string, defaultValue int) int {
-	if value := os.Getenv(key); value != "" {
+	if value := appenv.String(key, ""); value != "" {
 		if intValue, err := strconv.Atoi(value); err == nil {
 			return intValue
 		}
@@ -121,12 +140,25 @@ func getIntEnv(key string, defaultValue int) int {
 
 // getFloatEnv gets a float environment variable or returns a default value
 func getFloatEnv(key string, defaultValue float64) float64 {
-	if value := os.Getenv(key); value != "" {
+	if value := appenv.String(key, ""); value != "" {
 		if floatValue, err := strconv.ParseFloat(value, 64); err == nil {
 			return floatValue
 		}
 	}
 	return defaultValue
+}
+
+func defaultOrigins() []string {
+	if origins := appenv.Strings("ALLOWED_ORIGINS"); len(origins) > 0 {
+		return origins
+	}
+	return []string{
+		"https://cleanapp.io",
+		"https://www.cleanapp.io",
+		"https://live.cleanapp.io",
+		"http://localhost:3000",
+		"http://localhost:3001",
+	}
 }
 
 // GetAMQPURL constructs the AMQP connection URL from configuration

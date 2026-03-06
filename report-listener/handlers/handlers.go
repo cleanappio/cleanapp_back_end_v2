@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"cleanapp-common/edge"
 	"context"
 	"database/sql"
 	"encoding/base64"
@@ -42,7 +43,7 @@ type brandCountsCacheEntry struct {
 // WebSocket upgrader with default configuration
 var upgrader = gorilla.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
-		return true // Allow all origins for development; tighten in production
+		return false
 	},
 }
 
@@ -68,6 +69,7 @@ func NewHandlers(
 	replyPub *rabbitmq.Publisher,
 ) *Handlers {
 	geminiClient := intelligence.NewClient(cfg.GeminiAPIKey, cfg.GeminiModel)
+	upgrader.CheckOrigin = edge.WebSocketOriginChecker(cfg.WebSocketAllowedOrigins)
 
 	return &Handlers{
 		hub:               hub,

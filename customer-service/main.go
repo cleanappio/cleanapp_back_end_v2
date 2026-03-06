@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cleanapp-common/serverx"
 	"database/sql"
 	"fmt"
 	"log"
@@ -21,7 +22,10 @@ import (
 
 func main() {
 	// Load configuration
-	cfg := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("ERROR: Failed to load config: %v", err)
+	}
 
 	// Database connection
 	db, err := setupDatabase(cfg)
@@ -30,10 +34,13 @@ func main() {
 	}
 	defer db.Close()
 
-	// Initialize database schema
-	log.Println("Initializing database schema and running migrations...")
-	if err := database.InitializeSchema(db); err != nil {
-		log.Fatalf("ERROR: Failed to initialize database schema: %v", err)
+	if cfg.RunDBMigrations {
+		log.Println("Initializing database schema and running migrations...")
+		if err := database.InitializeSchema(db); err != nil {
+			log.Fatalf("ERROR: Failed to initialize database schema: %v", err)
+		}
+	} else {
+		log.Println("Skipping runtime database migrations (DB_RUN_MIGRATIONS=false)")
 	}
 
 	// Initialize Stripe client
@@ -47,13 +54,13 @@ func main() {
 
 	// Start server
 	log.Printf("INFO: Server starting on port %s", cfg.Port)
-	if err := router.Run(":" + cfg.Port); err != nil {
+	if err := serverx.New(":"+cfg.Port, router).ListenAndServe(); err != nil {
 		log.Fatalf("ERROR: Failed to start server: %v", err)
 	}
 }
 
 func setupDatabase(cfg *config.Config) (*sql.DB, error) {
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/cleanapp?parseTime=true&multiStatements=true",
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/cleanapp?parseTime=true",
 		cfg.DBUser, cfg.DBPassword, cfg.DBHost, cfg.DBPort)
 
 	db, err := sql.Open("mysql", dsn)
@@ -124,9 +131,9 @@ func setupRouter(service *database.CustomerService, stripeClient *stripe.Client,
 	router.SetTrustedProxies(cfg.TrustedProxies)
 
 	// Apply global middleware
-	router.Use(middleware.CORSMiddleware())
+	router.Use(middleware.CORSMiddleware(cfg.AllowedOrigins))
 	router.Use(middleware.SecurityHeaders())
-	router.Use(middleware.RateLimitMiddleware())
+	router.Use(middleware.RateLimitMiddleware(cfg.RateLimitRPS, cfg.RateLimitBurst))
 
 	// Initialize handlers with Stripe client and config
 	h := handlers.NewHandlers(service, stripeClient, cfg)

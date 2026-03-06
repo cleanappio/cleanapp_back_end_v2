@@ -140,7 +140,10 @@ func processReportMessage(msg *rabbitmq.Message, analysisService *service.Servic
 
 func main() {
 	// Load configuration
-	cfg := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
 
 	// Validate required configuration
 	switch cfg.LLMProvider {

@@ -37,7 +37,10 @@ type ReportMessage struct {
 
 func main() {
 	// Load configuration
-	cfg := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("Failed to load configuration: %v", err)
+	}
 
 	log.Printf("Starting the GDPR process service...")
 
@@ -49,8 +52,12 @@ func main() {
 	defer db.Close()
 
 	// Initialize database schema
-	if err := database.InitSchema(db); err != nil {
-		log.Fatalf("Failed to initialize database schema: %v", err)
+	if cfg.RunDBMigrations {
+		if err := database.InitSchema(db); err != nil {
+			log.Fatalf("Failed to initialize database schema: %v", err)
+		}
+	} else {
+		log.Printf("Skipping runtime database migrations for gdpr-process-service (DB_RUN_MIGRATIONS=false)")
 	}
 
 	// Initialize OpenAI client

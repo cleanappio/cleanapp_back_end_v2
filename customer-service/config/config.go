@@ -1,8 +1,10 @@
 package config
 
 import (
-	"os"
+	"fmt"
 	"strings"
+
+	"cleanapp-common/appenv"
 )
 
 type Config struct {
@@ -13,11 +15,17 @@ type Config struct {
 	DBPort     string
 
 	// Server
-	Port           string
-	TrustedProxies []string
+	Port            string
+	TrustedProxies  []string
+	AllowedOrigins  []string
+	RunDBMigrations bool
+	RateLimitRPS    float64
+	RateLimitBurst  int
 
 	// Auth Service
-	AuthServiceURL string
+	AuthServiceURL         string
+	JWTSecret              string
+	AuthValidationCacheTTL string
 
 	// Stripe
 	StripeSecretKey     string
@@ -25,40 +33,62 @@ type Config struct {
 	StripePrices        map[string]string // Map of plan_billing to price ID
 }
 
-func Load() *Config {
+func Load() (*Config, error) {
+	dbPassword, err := appenv.Secret("DB_PASSWORD", "password")
+	if err != nil {
+		return nil, err
+	}
+	jwtSecret, err := appenv.Secret("JWT_SECRET", "dev-jwt-secret")
+	if err != nil {
+		return nil, err
+	}
 	cfg := &Config{
-		DBUser:     getEnv("DB_USER", "root"),
-		DBPassword: getEnv("DB_PASSWORD", "password"),
-		DBHost:     getEnv("DB_HOST", "localhost"),
-		DBPort:     getEnv("DB_PORT", "3306"),
-		Port:       getEnv("PORT", "8080"),
+		DBUser:          appenv.String("DB_USER", "root"),
+		DBPassword:      dbPassword,
+		DBHost:          appenv.String("DB_HOST", "localhost"),
+		DBPort:          appenv.String("DB_PORT", "3306"),
+		Port:            appenv.String("PORT", "8080"),
+		AllowedOrigins:  customerAllowedOrigins(),
+		RunDBMigrations: appenv.Bool("DB_RUN_MIGRATIONS", appenv.DefaultRunMigrations()),
+		RateLimitRPS:    float64(appenv.Int("RATE_LIMIT_RPS", 10)),
+		RateLimitBurst:  appenv.Int("RATE_LIMIT_BURST", 20),
 
-		AuthServiceURL:      getEnv("AUTH_SERVICE_URL", "http://auth-service:8080"),
-		StripeSecretKey:     getEnv("STRIPE_SECRET_KEY", ""),
-		StripeWebhookSecret: getEnv("STRIPE_WEBHOOK_SECRET", ""),
+		AuthServiceURL:         appenv.String("AUTH_SERVICE_URL", "http://auth-service:8080"),
+		JWTSecret:              jwtSecret,
+		AuthValidationCacheTTL: appenv.String("AUTH_VALIDATION_CACHE_TTL", "30s"),
+		StripeSecretKey:        appenv.String("STRIPE_SECRET_KEY", ""),
+		StripeWebhookSecret:    appenv.String("STRIPE_WEBHOOK_SECRET", ""),
 		StripePrices: map[string]string{
-			"base_monthly":     getEnv("STRIPE_PRICE_BASE_MONTHLY", ""),
-			"base_annual":      getEnv("STRIPE_PRICE_BASE_ANNUAL", ""),
-			"advanced_monthly": getEnv("STRIPE_PRICE_ADVANCED_MONTHLY", ""),
-			"advanced_annual":  getEnv("STRIPE_PRICE_ADVANCED_ANNUAL", ""),
+			"base_monthly":     appenv.String("STRIPE_PRICE_BASE_MONTHLY", ""),
+			"base_annual":      appenv.String("STRIPE_PRICE_BASE_ANNUAL", ""),
+			"advanced_monthly": appenv.String("STRIPE_PRICE_ADVANCED_MONTHLY", ""),
+			"advanced_annual":  appenv.String("STRIPE_PRICE_ADVANCED_ANNUAL", ""),
 		},
 	}
 
 	// Handle trusted proxies
-	trustedProxies := os.Getenv("TRUSTED_PROXIES")
-	if trustedProxies != "" {
-		cfg.TrustedProxies = strings.Split(trustedProxies, ",")
-		for i, proxy := range cfg.TrustedProxies {
-			cfg.TrustedProxies[i] = strings.TrimSpace(proxy)
-		}
+	if trustedProxies := appenv.Strings("TRUSTED_PROXIES"); len(trustedProxies) > 0 {
+		cfg.TrustedProxies = trustedProxies
 	}
 
-	return cfg
+	return cfg, validate(cfg)
 }
 
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
+func customerAllowedOrigins() []string {
+	if origins := appenv.Strings("ALLOWED_ORIGINS"); len(origins) > 0 {
+		return origins
 	}
-	return defaultValue
+	frontendURL := appenv.String("FRONTEND_URL", "https://cleanapp.io")
+	origins := []string{frontendURL}
+	if strings.Contains(frontendURL, "://cleanapp.io") {
+		origins = append(origins, strings.Replace(frontendURL, "://cleanapp.io", "://www.cleanapp.io", 1))
+	}
+	return origins
+}
+
+func validate(cfg *Config) error {
+	if cfg.AuthValidationCacheTTL != "" {
+		return nil
+	}
+	return fmt.Errorf("AUTH_VALIDATION_CACHE_TTL must not be empty")
 }

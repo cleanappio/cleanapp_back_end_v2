@@ -81,82 +81,86 @@ func NewService(cfg *config.Config) (*Service, error) {
 func (s *Service) Start() error {
 	log.Printf("Starting report listener service...")
 
-	// Ensure tables for bulk ingest
-	if err := s.db.EnsureFetcherTables(context.Background()); err != nil {
-		return err
-	}
-
-	// Ensure report_details table
-	if err := s.db.EnsureReportDetailsTable(context.Background()); err != nil {
-		return err
-	}
-
-	// Ensure intelligence usage table
-	if err := s.db.EnsureIntelligenceTables(context.Background()); err != nil {
-		return err
-	}
-
-	// Ensure utf8mb4 for Unicode content
-	if err := s.db.EnsureUTF8MB4(context.Background()); err != nil {
-		log.Printf("Warning: UTF8MB4 ensure failed: %v", err)
-	}
-
-	// Best-effort: ensure helpful indexes exist on report_analysis for query performance
-	// We don't fail startup if this cannot run (e.g., insufficient privileges)
-	func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		indexName := "idx_report_analysis_class_valid_seq"
-		exists, err := s.db.IndexExists(ctx, "report_analysis", indexName)
-		if err != nil {
-			log.Printf("warn: unable to check if %s exists: %v", indexName, err)
-			return
+	if s.config.RunDBMigrations {
+		// Ensure tables for bulk ingest
+		if err := s.db.EnsureFetcherTables(context.Background()); err != nil {
+			return err
 		}
 
-		if !exists {
-			_, err := s.db.DB().ExecContext(ctx, `
-				ALTER TABLE report_analysis 
-				ADD INDEX idx_report_analysis_class_valid_seq (classification, is_valid, seq)
-			`)
+		// Ensure report_details table
+		if err := s.db.EnsureReportDetailsTable(context.Background()); err != nil {
+			return err
+		}
+
+		// Ensure intelligence usage table
+		if err := s.db.EnsureIntelligenceTables(context.Background()); err != nil {
+			return err
+		}
+
+		// Ensure utf8mb4 for Unicode content
+		if err := s.db.EnsureUTF8MB4(context.Background()); err != nil {
+			log.Printf("Warning: UTF8MB4 ensure failed: %v", err)
+		}
+
+		// Best-effort: ensure helpful indexes exist on report_analysis for query performance
+		// We don't fail startup if this cannot run (e.g., insufficient privileges)
+		func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			indexName := "idx_report_analysis_class_valid_seq"
+			exists, err := s.db.IndexExists(ctx, "report_analysis", indexName)
 			if err != nil {
-				log.Printf("warn: unable to create %s: %v", indexName, err)
-			} else {
-				log.Printf("Created index %s", indexName)
+				log.Printf("warn: unable to check if %s exists: %v", indexName, err)
+				return
 			}
-		}
-	}()
 
-	// Ensure needs_ai_review column exists for bulk-ingested reports awaiting AI processing
-	func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
+			if !exists {
+				_, err := s.db.DB().ExecContext(ctx, `
+						ALTER TABLE report_analysis 
+						ADD INDEX idx_report_analysis_class_valid_seq (classification, is_valid, seq)
+					`)
+				if err != nil {
+					log.Printf("warn: unable to create %s: %v", indexName, err)
+				} else {
+					log.Printf("Created index %s", indexName)
+				}
+			}
+		}()
 
-		// Check if column exists
-		var count int
-		err := s.db.DB().QueryRowContext(ctx, `
-			SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
-			WHERE TABLE_SCHEMA = DATABASE() 
-			AND TABLE_NAME = 'report_analysis' 
-			AND COLUMN_NAME = 'needs_ai_review'
-		`).Scan(&count)
-		if err != nil {
-			log.Printf("warn: unable to check for needs_ai_review column: %v", err)
-			return
-		}
+		// Ensure needs_ai_review column exists for bulk-ingested reports awaiting AI processing
+		func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
 
-		if count == 0 {
-			_, err := s.db.DB().ExecContext(ctx, `
-				ALTER TABLE report_analysis 
-				ADD COLUMN needs_ai_review BOOL NOT NULL DEFAULT FALSE
-			`)
+			// Check if column exists
+			var count int
+			err := s.db.DB().QueryRowContext(ctx, `
+					SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
+					WHERE TABLE_SCHEMA = DATABASE() 
+					AND TABLE_NAME = 'report_analysis' 
+					AND COLUMN_NAME = 'needs_ai_review'
+				`).Scan(&count)
 			if err != nil {
-				log.Printf("warn: unable to add needs_ai_review column: %v", err)
-			} else {
-				log.Printf("Added needs_ai_review column to report_analysis")
+				log.Printf("warn: unable to check for needs_ai_review column: %v", err)
+				return
 			}
-		}
-	}()
+
+			if count == 0 {
+				_, err := s.db.DB().ExecContext(ctx, `
+						ALTER TABLE report_analysis 
+						ADD COLUMN needs_ai_review BOOL NOT NULL DEFAULT FALSE
+					`)
+				if err != nil {
+					log.Printf("warn: unable to add needs_ai_review column: %v", err)
+				} else {
+					log.Printf("Added needs_ai_review column to report_analysis")
+				}
+			}
+		}()
+	} else {
+		log.Printf("Skipping runtime database migrations (DB_RUN_MIGRATIONS=false)")
+	}
 
 	// Start the WebSocket hub
 	go s.hub.Run()

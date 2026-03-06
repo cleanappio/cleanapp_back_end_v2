@@ -3,6 +3,7 @@ module gdpr-process-service
 go 1.24.0
 
 require (
+	cleanapp-common v0.0.0
 	github.com/apex/log v1.9.0
 	github.com/go-sql-driver/mysql v1.8.1
 	github.com/streadway/amqp v1.1.0
@@ -14,3 +15,5 @@ require (
 	github.com/rwcarlsen/goexif v0.0.0-20190401172101-9e8deecbddbd
 	golang.org/x/image v0.30.0
 )
+
+replace cleanapp-common => ../go-common

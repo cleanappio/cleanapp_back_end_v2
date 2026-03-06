@@ -29,7 +29,7 @@ const PublicVisibilityWhereSQL = "(rr.visibility IS NULL OR rr.visibility = 'pub
 
 // NewDatabase creates a new database connection
 func NewDatabase(cfg *config.Config) (*Database, error) {
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&multiStatements=true&charset=utf8mb4&collation=utf8mb4_unicode_ci",
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&charset=utf8mb4&collation=utf8mb4_unicode_ci",
 		cfg.DBUser, cfg.DBPassword, cfg.DBHost, cfg.DBPort, cfg.DBName)
 
 	db, err := sql.Open("mysql", dsn)

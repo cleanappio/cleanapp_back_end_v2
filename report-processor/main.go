@@ -1,6 +1,8 @@
 package main
 
 import (
+	"cleanapp-common/edge"
+	"cleanapp-common/serverx"
 	"context"
 	"log"
 	"net/http"
@@ -21,7 +23,10 @@ import (
 
 func main() {
 	// Load configuration
-	cfg := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatal("Failed to load configuration:", err)
+	}
 
 	// Create database connection
 	db, err := database.NewDatabase(cfg)
@@ -34,18 +39,22 @@ func main() {
 	authClient := database.NewAuthClient(cfg.AuthServiceURL)
 
 	// Ensure report_status table exists
-	if err := db.EnsureReportStatusTable(context.Background()); err != nil {
-		log.Fatal("Failed to ensure report_status table:", err)
-	}
+	if cfg.RunDBMigrations {
+		if err := db.EnsureReportStatusTable(context.Background()); err != nil {
+			log.Fatal("Failed to ensure report_status table:", err)
+		}
 
-	// Ensure responses table exists
-	if err := db.EnsureResponsesTable(context.Background()); err != nil {
-		log.Fatal("Failed to ensure responses table:", err)
-	}
+		// Ensure responses table exists
+		if err := db.EnsureResponsesTable(context.Background()); err != nil {
+			log.Fatal("Failed to ensure responses table:", err)
+		}
 
-	// Ensure report_clusters table exists
-	if err := db.EnsureReportClustersTable(context.Background()); err != nil {
-		log.Fatal("Failed to ensure report_clusters table:", err)
+		// Ensure report_clusters table exists
+		if err := db.EnsureReportClustersTable(context.Background()); err != nil {
+			log.Fatal("Failed to ensure report_clusters table:", err)
+		}
+	} else {
+		log.Printf("Skipping runtime database migrations for report-processor (DB_RUN_MIGRATIONS=false)")
 	}
 
 	// Initialize RabbitMQ publisher for tag processing
@@ -67,10 +76,7 @@ func main() {
 	router := setupRouter(cfg, h, authClient)
 
 	// Create HTTP server
-	srv := &http.Server{
-		Addr:    ":" + cfg.Port,
-		Handler: router,
-	}
+	srv := serverx.New(":"+cfg.Port, router)
 
 	// Start server in a goroutine
 	go func() {
@@ -111,11 +117,16 @@ func main() {
 func setupRouter(cfg *config.Config, h *handlers.Handlers, authClient *database.AuthClient) *gin.Engine {
 	router := gin.Default()
 
-	// Add CORS middleware
-	router.Use(middleware.CORSMiddleware())
-
-	// Add security headers
-	router.Use(middleware.SecurityHeaders())
+	router.Use(edge.SecurityHeaders())
+	router.Use(edge.RequestBodyLimit(1 << 20))
+	router.Use(edge.RateLimitMiddleware(edge.RateLimitConfig{
+		RPS:   cfg.RateLimitRPS,
+		Burst: cfg.RateLimitBurst,
+	}))
+	router.Use(edge.CORSMiddleware(edge.CORSConfig{
+		AllowedOrigins: cfg.AllowedOrigins,
+		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+	}))
 
 	// API routes
 	api := router.Group("/api/v3")

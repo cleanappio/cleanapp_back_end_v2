@@ -1,8 +1,8 @@
 package config
 
 import (
+	"cleanapp-common/appenv"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -25,7 +25,8 @@ type Config struct {
 	DBName     string
 
 	// Server configuration
-	Port string
+	Port            string
+	RunDBMigrations bool
 
 	// OpenAI configuration
 	OpenAIAPIKey      string
@@ -74,14 +75,23 @@ func (r *RabbitMQConfig) GetAMQPURL() string {
 }
 
 // Load loads configuration from environment variables
-func Load() *Config {
+func Load() (*Config, error) {
+	dbPassword, err := appenv.Secret("DB_PASSWORD", "secret_app")
+	if err != nil {
+		return nil, err
+	}
+	amqpPassword, err := appenv.Secret("AMQP_PASSWORD", "guest")
+	if err != nil {
+		return nil, err
+	}
 	config := &Config{
 		// Database defaults
-		DBHost:     getEnv("DB_HOST", "localhost"),
-		DBPort:     getEnv("DB_PORT", "3306"),
-		DBUser:     getEnv("DB_USER", "server"),
-		DBPassword: getEnv("DB_PASSWORD", "secret_app"),
-		DBName:     getEnv("DB_NAME", "cleanapp"),
+		DBHost:          getEnv("DB_HOST", "localhost"),
+		DBPort:          getEnv("DB_PORT", "3306"),
+		DBUser:          getEnv("DB_USER", "server"),
+		DBPassword:      dbPassword,
+		DBName:          getEnv("DB_NAME", "cleanapp"),
+		RunDBMigrations: appenv.Bool("DB_RUN_MIGRATIONS", appenv.DefaultRunMigrations()),
 
 		// Server defaults
 		Port: getEnv("PORT", "8080"),
@@ -114,7 +124,7 @@ func Load() *Config {
 			Host:                     getEnv("AMQP_HOST", "localhost"),
 			Port:                     getEnv("AMQP_PORT", "5672"),
 			User:                     getEnv("AMQP_USER", "guest"),
-			Password:                 getEnv("AMQP_PASSWORD", "guest"),
+			Password:                 amqpPassword,
 			Exchange:                 getEnv("RABBITMQ_EXCHANGE", "cleanapp"),
 			Queue:                    getEnv("RABBITMQ_QUEUE", "report-analyze"),
 			RawReportRoutingKey:      getEnv("RABBITMQ_RAW_REPORT_ROUTING_KEY", "report.raw"),
@@ -123,7 +133,7 @@ func Load() *Config {
 		},
 	}
 
-	return config
+	return config, nil
 }
 
 // getLanguageMapEnv gets a comma-separated string environment variable and returns it as a language code -> name map
@@ -151,7 +161,7 @@ func getLanguageMapEnv(key, defaultValue string) map[string]string {
 
 // getEnv gets an environment variable or returns a default value
 func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
+	if value := appenv.String(key, ""); value != "" {
 		return value
 	}
 	return defaultValue
@@ -159,7 +169,7 @@ func getEnv(key, defaultValue string) string {
 
 // getDurationEnv gets a duration environment variable or returns a default value
 func getDurationEnv(key string, defaultValue time.Duration) time.Duration {
-	if value := os.Getenv(key); value != "" {
+	if value := appenv.String(key, ""); value != "" {
 		if duration, err := time.ParseDuration(value); err == nil {
 			return duration
 		}
@@ -169,7 +179,7 @@ func getDurationEnv(key string, defaultValue time.Duration) time.Duration {
 
 // getIntEnv gets an integer environment variable or returns a default value
 func getIntEnv(key string, defaultValue int) int {
-	if value := os.Getenv(key); value != "" {
+	if value := appenv.String(key, ""); value != "" {
 		if intValue, err := strconv.Atoi(value); err == nil {
 			return intValue
 		}

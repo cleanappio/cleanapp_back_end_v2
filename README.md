@@ -247,7 +247,7 @@ where &lt;env&gt; is `LOCAL`, `DEV` or `PROD`.
 | report_processor | 9087 | 8080 | Report processing |
 | report_renderer_service | 9093 | 8080 | Image rendering |
 | report_tags_service | 9098 | 8080 | Tag management |
-| report_ownership_service | 9090 | 8080 | Ownership tracking |
+| report_ownership_service | 9096 (prod), 9090 (dev) | 8080 | Ownership tracking |
 
 ### Authentication & Customer Services
 | Service | Host Port | Container Port |

@@ -1,6 +1,6 @@
 # CleanApp Backend Architecture
 
-> Last updated: February 16, 2026
+> Last updated: March 6, 2026
 
 ## Overview
 
@@ -228,7 +228,7 @@ graph TB
         AREAS[Areas Service<br/>:9086]
         EMAIL[Email Service<br/>:9089]
         TAGS[Tags Service<br/>:9098]
-        OWN[Ownership Service<br/>:9090]
+        OWN[Ownership Service<br/>:9096 (prod)]
     end
     
     MOBILE --> CS
@@ -242,8 +242,19 @@ graph TB
     RL --> RAP
     RAP --> TAGS
     RAP --> EMAIL
-    RP --> TAGS
+RP --> TAGS
 ```
+
+### Shared Go Platform Layer (`go-common/`)
+
+The backend now has a small shared Go module for repeated cross-cutting behavior:
+
+- `go-common/appenv`: environment detection, required-secret loading, migration defaults
+- `go-common/edge`: centralized CORS, WebSocket origin checks, request-size limits, in-memory token-bucket rate limiting, security headers
+- `go-common/serverx`: hardened `http.Server` bootstrap with consistent timeouts
+- `go-common/jwtx`: shared JWT parsing helpers for local token validation
+
+This keeps security policy and service bootstrap logic consistent across the Go edge services instead of copying slight variants into each service.
 
 ### Public Ingest CLI (`@cleanapp/cli`)
 
@@ -479,12 +490,12 @@ graph LR
 | Service | Port | Language | Purpose |
 |---------|------|----------|---------|
 | `cleanapp_report_listener` | 9081 | Go | Receives reports via REST API |
-| `cleanapp_report_listener_v4` | 9099 | Go | Updated listener with bulk ingest |
+| `cleanapp_report_listener_v4` | 9097 | Rust | Read-optimized v4 API / OpenAPI surface |
 | `cleanapp_report_analyze_pipeline` | 9082 | Go | AI analysis (Gemini/OpenAI) |
 | `cleanapp_report_processor` | 9087 | Go | Additional processing logic |
 | `cleanapp_report_renderer_service` | 9093 | Rust | Image generation |
 | `cleanapp_report_tags_service` | 9098 | Rust | Tag management |
-| `cleanapp_report_ownership_service` | 9090 | Go | Report assignment |
+| `cleanapp_report_ownership_service` | 9096 (prod), 9090 (dev) | Go | Report assignment |
 
 ### Social Media & Web Indexing
 
@@ -761,6 +772,20 @@ Repo tooling:
 - Installer/uninstaller: `platform_blueprint/ops/watchdog/`
 - Laptop-run golden path: `platform_blueprint/tests/golden_path/golden_path_prod_vm.sh`
 
+### Runtime Migrations
+
+Runtime schema mutation is no longer the default for the hardened Go services.
+
+- Control flag: `DB_RUN_MIGRATIONS`
+- Default in production: `false`
+- Default in local dev / CI-style environments: `true`
+
+This means:
+
+1. production services fail fast on missing required secrets instead of inventing insecure defaults
+2. schema changes should happen through explicit migration/deploy steps
+3. service boot is more deterministic and requires fewer database privileges
+
 ### Deployment Process
 ```bash
 # Build & tag image
@@ -798,7 +823,7 @@ This flow:
 1. **Single database** - All services share one MySQL instance
 2. **No auto-scaling** - Manual VM management
 3. **No service mesh** - Direct container networking
-4. **Limited observability** - Basic Docker logs only (plus VM-local watchdog/smoke checks)
+4. **Partial observability** - Public uptime snapshot + VM-local watchdog exist, but centralized logs/traces are still limited
 5. **Container conflicts** - Docker Compose naming collisions on redeploy
 
 ---

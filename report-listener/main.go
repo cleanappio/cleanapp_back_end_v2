@@ -1,6 +1,8 @@
 package main
 
 import (
+	"cleanapp-common/edge"
+	"cleanapp-common/serverx"
 	"context"
 	"log"
 	"net/http"
@@ -20,7 +22,10 @@ import (
 
 func main() {
 	// Load configuration
-	cfg := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatal("Failed to load config:", err)
+	}
 
 	// Set log level
 	if cfg.LogLevel == "debug" {
@@ -44,10 +49,7 @@ func main() {
 	router := setupRouter(cfg, svc)
 
 	// Create HTTP server
-	srv := &http.Server{
-		Addr:    ":" + cfg.Port,
-		Handler: router,
-	}
+	srv := serverx.New(":"+cfg.Port, router)
 
 	// Start server in a goroutine
 	go func() {
@@ -86,6 +88,12 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 
 	// Add gzip compression middleware
 	router.Use(gzip.Gzip(gzip.DefaultCompression))
+	router.Use(edge.RequestBodyLimit(cfg.RequestBodyLimitBytes))
+	router.Use(edge.SecurityHeaders())
+	router.Use(edge.RateLimitMiddleware(edge.RateLimitConfig{
+		RPS:   cfg.RateLimitRPS,
+		Burst: cfg.RateLimitBurst,
+	}))
 
 	// Add logging middleware to show compression usage
 	router.Use(func(c *gin.Context) {
@@ -102,19 +110,10 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 			c.Writer.Status(), contentLength, contentEncoding)
 	})
 
-	// Add CORS middleware
-	router.Use(func(c *gin.Context) {
-		c.Header("Access-Control-Allow-Origin", "*")
-		c.Header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Accept, Authorization, X-Request-Id, X-Internal-Admin-Token")
-
-		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(204)
-			return
-		}
-
-		c.Next()
-	})
+	router.Use(edge.CORSMiddleware(edge.CORSConfig{
+		AllowedOrigins: cfg.AllowedOrigins,
+		AllowedMethods: []string{"GET", "POST", "OPTIONS"},
+	}))
 
 	// Get handlers
 	h := svc.GetHandlers()

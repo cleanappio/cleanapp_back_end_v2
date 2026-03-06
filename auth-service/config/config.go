@@ -1,11 +1,9 @@
 package config
 
 import (
-	"crypto/rand"
-	"encoding/hex"
-	"log"
-	"os"
 	"strings"
+
+	"cleanapp-common/appenv"
 )
 
 type Config struct {
@@ -20,8 +18,12 @@ type Config struct {
 	JWTSecret     string
 
 	// Server
-	Port           string
-	TrustedProxies []string
+	Port            string
+	TrustedProxies  []string
+	AllowedOrigins  []string
+	RunDBMigrations bool
+	RateLimitRPS    float64
+	RateLimitBurst  int
 
 	// OAuth Configuration
 	GoogleClientID     string
@@ -42,58 +44,69 @@ type Config struct {
 	FrontendURL string
 }
 
-func Load() *Config {
+func Load() (*Config, error) {
+	dbPassword, err := appenv.Secret("DB_PASSWORD", "password")
+	if err != nil {
+		return nil, err
+	}
+	jwtSecret, err := appenv.Secret("JWT_SECRET", "dev-jwt-secret")
+	if err != nil {
+		return nil, err
+	}
+	encryptionKey, err := appenv.Secret("ENCRYPTION_KEY", devEncryptionKey())
+	if err != nil {
+		return nil, err
+	}
 	cfg := &Config{
-		DBUser:             getEnv("DB_USER", "root"),
-		DBPassword:         getEnv("DB_PASSWORD", "password"),
-		DBHost:             getEnv("DB_HOST", "localhost"),
-		DBPort:             getEnv("DB_PORT", "3306"),
-		JWTSecret:          getEnv("JWT_SECRET", "your-secret-key-here"),
-		Port:               getEnv("PORT", "8080"),
-		GoogleClientID:     getEnv("GOOGLE_CLIENT_ID", ""),
-		GoogleClientSecret: getEnv("GOOGLE_CLIENT_SECRET", ""),
-		FacebookAppID:      getEnv("FACEBOOK_APP_ID", ""),
-		FacebookAppSecret:  getEnv("FACEBOOK_APP_SECRET", ""),
-		AppleClientID:      getEnv("APPLE_CLIENT_ID", ""),
-		AppleTeamID:        getEnv("APPLE_TEAM_ID", ""),
-		AppleKeyID:         getEnv("APPLE_KEY_ID", ""),
-		ApplePrivateKey:    getEnv("APPLE_PRIVATE_KEY", ""),
+		DBUser:             appenv.String("DB_USER", "root"),
+		DBPassword:         dbPassword,
+		DBHost:             appenv.String("DB_HOST", "localhost"),
+		DBPort:             appenv.String("DB_PORT", "3306"),
+		JWTSecret:          jwtSecret,
+		EncryptionKey:      encryptionKey,
+		Port:               appenv.String("PORT", "8080"),
+		GoogleClientID:     appenv.String("GOOGLE_CLIENT_ID", ""),
+		GoogleClientSecret: appenv.String("GOOGLE_CLIENT_SECRET", ""),
+		FacebookAppID:      appenv.String("FACEBOOK_APP_ID", ""),
+		FacebookAppSecret:  appenv.String("FACEBOOK_APP_SECRET", ""),
+		AppleClientID:      appenv.String("APPLE_CLIENT_ID", ""),
+		AppleTeamID:        appenv.String("APPLE_TEAM_ID", ""),
+		AppleKeyID:         appenv.String("APPLE_KEY_ID", ""),
+		ApplePrivateKey:    appenv.String("APPLE_PRIVATE_KEY", ""),
+		AllowedOrigins:     authAllowedOrigins(),
+		RunDBMigrations:    appenv.Bool("DB_RUN_MIGRATIONS", appenv.DefaultRunMigrations()),
+		RateLimitRPS:       float64(appenv.Int("RATE_LIMIT_RPS", 10)),
+		RateLimitBurst:     appenv.Int("RATE_LIMIT_BURST", 20),
 	}
-
-	// Handle encryption key
-	encryptionKey := os.Getenv("ENCRYPTION_KEY")
-	if encryptionKey == "" {
-		// Generate a random key for demo - in production, use a fixed key
-		key := make([]byte, 32)
-		rand.Read(key)
-		encryptionKey = hex.EncodeToString(key)
-		log.Printf("WARNING: Generated temporary encryption key. Set ENCRYPTION_KEY environment variable for production.")
-	}
-	cfg.EncryptionKey = encryptionKey
 
 	// Handle trusted proxies
-	trustedProxies := os.Getenv("TRUSTED_PROXIES")
-	if trustedProxies != "" {
-		cfg.TrustedProxies = strings.Split(trustedProxies, ",")
-		for i, proxy := range cfg.TrustedProxies {
-			cfg.TrustedProxies[i] = strings.TrimSpace(proxy)
-		}
+	if trustedProxies := appenv.Strings("TRUSTED_PROXIES"); len(trustedProxies) > 0 {
+		cfg.TrustedProxies = trustedProxies
 	}
 
 	// Email configuration (SendGrid)
-	cfg.SendGridAPIKey = getEnv("SENDGRID_API_KEY", "")
-	cfg.SendGridFromName = getEnv("SENDGRID_FROM_NAME", "CleanApp")
-	cfg.SendGridFromEmail = getEnv("SENDGRID_FROM_EMAIL", "info@cleanapp.io")
+	cfg.SendGridAPIKey = appenv.String("SENDGRID_API_KEY", "")
+	cfg.SendGridFromName = appenv.String("SENDGRID_FROM_NAME", "CleanApp")
+	cfg.SendGridFromEmail = appenv.String("SENDGRID_FROM_EMAIL", "info@cleanapp.io")
 
 	// Frontend URL for password reset links
-	cfg.FrontendURL = getEnv("FRONTEND_URL", "https://cleanapp.io")
+	cfg.FrontendURL = appenv.String("FRONTEND_URL", "https://cleanapp.io")
 
-	return cfg
+	return cfg, nil
 }
 
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
+func authAllowedOrigins() []string {
+	if origins := appenv.Strings("ALLOWED_ORIGINS"); len(origins) > 0 {
+		return origins
 	}
-	return defaultValue
+	frontendURL := appenv.String("FRONTEND_URL", "https://cleanapp.io")
+	origins := []string{frontendURL}
+	if strings.Contains(frontendURL, "://cleanapp.io") {
+		origins = append(origins, strings.Replace(frontendURL, "://cleanapp.io", "://www.cleanapp.io", 1))
+	}
+	return origins
+}
+
+func devEncryptionKey() string {
+	return strings.Repeat("0", 64)
 }

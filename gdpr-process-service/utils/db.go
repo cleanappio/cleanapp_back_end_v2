@@ -11,7 +11,7 @@ import (
 
 // DBConnect establishes a connection to the MySQL database
 func DBConnect(host, port, user, password, dbName string) (*sql.DB, error) {
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&multiStatements=true", user, password, host, port, dbName)
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true", user, password, host, port, dbName)
 
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {

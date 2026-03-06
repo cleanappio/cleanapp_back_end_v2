@@ -3,12 +3,16 @@ module report-listener
 go 1.24.0
 
 require (
+	cleanapp-common v0.0.0
 	github.com/gin-contrib/gzip v1.2.3
 	github.com/gin-gonic/gin v1.10.0
 	github.com/go-sql-driver/mysql v1.8.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/streadway/amqp v1.1.0
+	golang.org/x/crypto v0.36.0
 )
+
+replace cleanapp-common => ../go-common
 
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
@@ -32,10 +36,10 @@ require (
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.2.12 // indirect
 	golang.org/x/arch v0.15.0 // indirect
-	golang.org/x/crypto v0.36.0 // indirect
 	golang.org/x/net v0.38.0 // indirect
 	golang.org/x/sys v0.31.0 // indirect
 	golang.org/x/text v0.23.0 // indirect
+	golang.org/x/time v0.12.0 // indirect
 	google.golang.org/protobuf v1.36.6 // indirect
 	gopkg.in/check.v1 v1.0.0-20190902080502-41f04d3bba15 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
