@@ -24,7 +24,7 @@ rsync -a \
 
 if [[ -f "${SERVICE_DIR}/go.mod" ]] && grep -q '\.\./go-common' "${SERVICE_DIR}/go.mod"; then
   rsync -a "${ROOT_DIR}/go-common/" "${TMP_DIR}/go-common/"
-  perl -0pi -e 's#\.\./go-common#./go-common#g' "${TMP_DIR}/go.mod"
+  perl -0pi -e 's#\.\./go-common#/go-common#g' "${TMP_DIR}/go.mod"
 fi
 
 gcloud builds submit "${TMP_DIR}" \
