@@ -81,34 +81,6 @@ var intelligenceStopWords = map[string]struct{}{
 	"problem": {}, "problems": {}, "month": {}, "week": {}, "today": {}, "recent": {},
 }
 
-func (d *Database) EnsureIntelligenceTables(ctx context.Context) error {
-	_, err := d.db.ExecContext(ctx, `
-		CREATE TABLE IF NOT EXISTS intelligence_usage (
-			session_id VARCHAR(128) PRIMARY KEY,
-			turns_used INT NOT NULL DEFAULT 0,
-			expires_at TIMESTAMP NOT NULL,
-			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-		)
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to ensure intelligence_usage table: %w", err)
-	}
-	_, err = d.db.ExecContext(ctx, `
-		CREATE TABLE IF NOT EXISTS intelligence_session_state (
-			session_id VARCHAR(128) PRIMARY KEY,
-			last_report_ids_json TEXT NULL,
-			expires_at TIMESTAMP NOT NULL,
-			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-		)
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to ensure intelligence_session_state table: %w", err)
-	}
-	return nil
-}
-
 func (d *Database) GetLastReportIDsForSession(ctx context.Context, sessionID string) ([]int, error) {
 	if strings.TrimSpace(sessionID) == "" {
 		return nil, nil

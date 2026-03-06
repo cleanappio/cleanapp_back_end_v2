@@ -3,60 +3,43 @@ package config
 import (
 	"cleanapp-common/appenv"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 )
 
-// languageCodeMap maps 2-letter language codes to full language names
 var languageCodeMap = map[string]string{
 	"en": "English",
 	"me": "Montenegrin",
 	"de": "German",
 }
 
-// Config holds all configuration for the report analyze pipeline service
 type Config struct {
-	// Database configuration
 	DBHost     string
 	DBPort     string
 	DBUser     string
 	DBPassword string
 	DBName     string
 
-	// Server configuration
 	Port            string
 	RunDBMigrations bool
 
-	// OpenAI configuration
 	OpenAIAPIKey      string
 	OpenAIAssistantID string
 	OpenAIModel       string
-	// Gemini configuration
-	GeminiAPIKey string
-	GeminiModel  string
-	// Provider selection
-	LLMProvider string
+	GeminiAPIKey      string
+	GeminiModel       string
+	LLMProvider       string
 
-	// Analysis configuration
 	AnalysisInterval time.Duration
 	MaxRetries       int
 	AnalysisPrompt   string
 
-	// Languages to translate to (code -> name mapping)
 	TranslationLanguages map[string]string
-
-	// Logging
-	LogLevel string
-
-	// Start Point
-	SeqStartFrom int
-
-	// RabbitMQ configuration
-	RabbitMQ RabbitMQConfig
+	LogLevel             string
+	SeqStartFrom         int
+	RabbitMQ             RabbitMQConfig
 }
 
-// RabbitMQConfig holds RabbitMQ connection and queue configuration
 type RabbitMQConfig struct {
 	Host                     string
 	Port                     string
@@ -69,124 +52,72 @@ type RabbitMQConfig struct {
 	PrefetchCount            int
 }
 
-// GetAMQPURL constructs the AMQP URL from the RabbitMQ configuration
 func (r *RabbitMQConfig) GetAMQPURL() string {
 	return fmt.Sprintf("amqp://%s:%s@%s:%s/", r.User, r.Password, r.Host, r.Port)
 }
 
-// Load loads configuration from environment variables
 func Load() (*Config, error) {
-	dbPassword, err := appenv.Secret("DB_PASSWORD", "secret_app")
+	dbPassword, err := appenv.Secret("DB_PASSWORD", "")
 	if err != nil {
 		return nil, err
 	}
-	amqpUser, err := appenv.StringRequiredInProd("AMQP_USER", "guest")
+	amqpUser, err := appenv.StringRequiredInProd("AMQP_USER", "")
 	if err != nil {
 		return nil, err
 	}
-	amqpPassword, err := appenv.Secret("AMQP_PASSWORD", "guest")
+	amqpPassword, err := appenv.Secret("AMQP_PASSWORD", "")
 	if err != nil {
 		return nil, err
 	}
 	config := &Config{
-		// Database defaults
-		DBHost:          getEnv("DB_HOST", "localhost"),
-		DBPort:          getEnv("DB_PORT", "3306"),
-		DBUser:          getEnv("DB_USER", "server"),
-		DBPassword:      dbPassword,
-		DBName:          getEnv("DB_NAME", "cleanapp"),
-		RunDBMigrations: appenv.Bool("DB_RUN_MIGRATIONS", appenv.DefaultRunMigrations()),
-
-		// Server defaults
-		Port: getEnv("PORT", "8080"),
-
-		// OpenAI defaults
-		OpenAIAPIKey:      getEnv("OPENAI_API_KEY", ""),
-		OpenAIAssistantID: getEnv("OPENAI_ASSISTANT_ID", ""),
-		OpenAIModel:       getEnv("OPENAI_MODEL", "gpt-4o"),
-		// Gemini defaults (aligned with analyzer_twitter.rs)
-		GeminiAPIKey: getEnv("GEMINI_API_KEY", ""),
-		GeminiModel:  getEnv("GEMINI_MODEL", "gemini-flash-latest"),
-		// Provider selection default
-		LLMProvider: getEnv("ANALYZER_LLM_PROVIDER", "openai"),
-
-		// Analysis defaults (30 seconds)
-		AnalysisInterval: getDurationEnv("ANALYSIS_INTERVAL", 30*time.Second),
-		MaxRetries:       getIntEnv("MAX_RETRIES", 3),
-
-		// Languages to translate to
+		DBHost:               appenv.String("DB_HOST", "localhost"),
+		DBPort:               appenv.String("DB_PORT", "3306"),
+		DBUser:               appenv.String("DB_USER", "server"),
+		DBPassword:           dbPassword,
+		DBName:               appenv.String("DB_NAME", "cleanapp"),
+		RunDBMigrations:      appenv.Bool("DB_RUN_MIGRATIONS", appenv.DefaultRunMigrations()),
+		Port:                 appenv.String("PORT", "8080"),
+		OpenAIAPIKey:         appenv.String("OPENAI_API_KEY", ""),
+		OpenAIAssistantID:    appenv.String("OPENAI_ASSISTANT_ID", ""),
+		OpenAIModel:          appenv.String("OPENAI_MODEL", "gpt-4o"),
+		GeminiAPIKey:         appenv.String("GEMINI_API_KEY", ""),
+		GeminiModel:          appenv.String("GEMINI_MODEL", "gemini-flash-latest"),
+		LLMProvider:          appenv.String("ANALYZER_LLM_PROVIDER", "openai"),
+		AnalysisInterval:     appenv.Duration("ANALYSIS_INTERVAL", 30*time.Second),
+		MaxRetries:           appenv.Int("MAX_RETRIES", 3),
 		TranslationLanguages: getLanguageMapEnv("TRANSLATION_LANGUAGES", "en"),
-
-		// Logging defaults
-		LogLevel: getEnv("LOG_LEVEL", "info"),
-
-		// Start Point
-		SeqStartFrom: getIntEnv("SEQ_START_FROM", 0),
-
-		// RabbitMQ configuration
+		LogLevel:             appenv.String("LOG_LEVEL", "info"),
+		SeqStartFrom:         appenv.Int("SEQ_START_FROM", 0),
 		RabbitMQ: RabbitMQConfig{
-			Host:                     getEnv("AMQP_HOST", "localhost"),
-			Port:                     getEnv("AMQP_PORT", "5672"),
+			Host:                     appenv.String("AMQP_HOST", "localhost"),
+			Port:                     appenv.String("AMQP_PORT", "5672"),
 			User:                     amqpUser,
 			Password:                 amqpPassword,
-			Exchange:                 getEnv("RABBITMQ_EXCHANGE", "cleanapp"),
-			Queue:                    getEnv("RABBITMQ_QUEUE", "report-analyze"),
-			RawReportRoutingKey:      getEnv("RABBITMQ_RAW_REPORT_ROUTING_KEY", "report.raw"),
-			AnalysedReportRoutingKey: getEnv("RABBITMQ_ANALYSED_REPORT_ROUTING_KEY", "report.analysed"),
-			PrefetchCount:            getIntEnv("RABBITMQ_PREFETCH_COUNT", 5), // Limit concurrency to avoid 429s
+			Exchange:                 appenv.String("RABBITMQ_EXCHANGE", "cleanapp"),
+			Queue:                    appenv.String("RABBITMQ_QUEUE", "report-analyze"),
+			RawReportRoutingKey:      appenv.String("RABBITMQ_RAW_REPORT_ROUTING_KEY", "report.raw"),
+			AnalysedReportRoutingKey: appenv.String("RABBITMQ_ANALYSED_REPORT_ROUTING_KEY", "report.analysed"),
+			PrefetchCount:            appenv.Int("RABBITMQ_PREFETCH_COUNT", 5),
 		},
 	}
-
 	return config, nil
 }
 
-// getLanguageMapEnv gets a comma-separated string environment variable and returns it as a language code -> name map
 func getLanguageMapEnv(key, defaultValue string) map[string]string {
-	value := getEnv(key, defaultValue)
+	value := appenv.String(key, defaultValue)
 	if value == "" {
 		return map[string]string{}
 	}
 
 	codes := strings.Split(value, ",")
 	languages := make(map[string]string)
-
 	for _, code := range codes {
 		code = strings.TrimSpace(code)
 		if fullName, exists := languageCodeMap[code]; exists {
 			languages[code] = fullName
 		} else {
-			// If code not found in map, use the code as both key and value
 			languages[code] = code
 		}
 	}
-
 	return languages
-}
-
-// getEnv gets an environment variable or returns a default value
-func getEnv(key, defaultValue string) string {
-	if value := appenv.String(key, ""); value != "" {
-		return value
-	}
-	return defaultValue
-}
-
-// getDurationEnv gets a duration environment variable or returns a default value
-func getDurationEnv(key string, defaultValue time.Duration) time.Duration {
-	if value := appenv.String(key, ""); value != "" {
-		if duration, err := time.ParseDuration(value); err == nil {
-			return duration
-		}
-	}
-	return defaultValue
-}
-
-// getIntEnv gets an integer environment variable or returns a default value
-func getIntEnv(key string, defaultValue int) int {
-	if value := appenv.String(key, ""); value != "" {
-		if intValue, err := strconv.Atoi(value); err == nil {
-			return intValue
-		}
-	}
-	return defaultValue
 }

@@ -7,12 +7,12 @@ import (
 	"sync"
 	"time"
 
+	"cleanapp-common/events"
 	"report-analyze-pipeline/config"
 	"report-analyze-pipeline/contacts"
 	"report-analyze-pipeline/database"
 	"report-analyze-pipeline/gemini"
 	"report-analyze-pipeline/llm"
-	"report-analyze-pipeline/models"
 	"report-analyze-pipeline/openai"
 	"report-analyze-pipeline/osm"
 	"report-analyze-pipeline/parser"
@@ -109,30 +109,30 @@ func (s *Service) Stop() {
 	close(s.stopChan)
 }
 
-// publishAnalyzedReport publishes a report with its analysis to RabbitMQ
+// publishAnalyzedReport publishes a report with its analysis to RabbitMQ.
 func (s *Service) publishAnalyzedReport(report *database.Report, analyses []*database.ReportAnalysis) {
 	if s.publisher == nil {
 		log.Printf("RabbitMQ publisher not available, skipping publish for report %d", report.Seq)
 		return
 	}
 
-	// Convert database models to API models
-	apiReport := models.Report{
-		Seq:         report.Seq,
-		Timestamp:   report.Timestamp,
-		ID:          report.ID,
-		Team:        report.Team,
-		Latitude:    report.Latitude,
-		Longitude:   report.Longitude,
-		X:           report.X,
-		Y:           report.Y,
-		ActionID:    report.ActionID,
-		Description: report.Description,
+	event := events.ReportAnalysed{
+		Report: events.ReportAnalysedReport{
+			Seq:         report.Seq,
+			Timestamp:   report.Timestamp,
+			ID:          report.ID,
+			Team:        report.Team,
+			Latitude:    report.Latitude,
+			Longitude:   report.Longitude,
+			X:           report.X,
+			Y:           report.Y,
+			ActionID:    report.ActionID,
+			Description: report.Description,
+		},
 	}
 
-	var apiAnalyses []models.ReportAnalysis
 	for _, analysis := range analyses {
-		apiAnalysis := models.ReportAnalysis{
+		event.Analysis = append(event.Analysis, events.ReportAnalysedAnalysis{
 			Seq:                   analysis.Seq,
 			Source:                analysis.Source,
 			AnalysisText:          analysis.AnalysisText,
@@ -150,24 +150,17 @@ func (s *Service) publishAnalyzedReport(report *database.Report, analyses []*dat
 			IsValid:               analysis.IsValid,
 			InferredContactEmails: analysis.InferredContactEmails,
 			LegalRiskEstimate:     analysis.LegalRiskEstimate,
-			CreatedAt:             time.Now(), // We don't have this in database model, use current time
+			CreatedAt:             time.Now(),
 			UpdatedAt:             time.Now(),
-		}
-		apiAnalyses = append(apiAnalyses, apiAnalysis)
+		})
 	}
+	event.Normalize()
 
-	// Create the report with analysis message
-	reportWithAnalysis := models.ReportWithAnalysis{
-		Report:   apiReport,
-		Analysis: apiAnalyses,
-	}
-
-	// Publish to RabbitMQ
-	if err := s.publisher.Publish(reportWithAnalysis); err != nil {
+	if err := s.publisher.Publish(event); err != nil {
 		log.Printf("Failed to publish analyzed report %d: %v", report.Seq, err)
 	} else {
-		log.Printf("Successfully published analyzed report %d with %d analyses", report.Seq, len(apiAnalyses))
-		s.db.MarkAnalysedPublished(report.Seq) // best-effort
+		log.Printf("Successfully published analyzed report %d with %d analyses", report.Seq, len(event.Analysis))
+		s.db.MarkAnalysedPublished(report.Seq)
 	}
 }
 

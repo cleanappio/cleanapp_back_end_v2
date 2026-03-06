@@ -27,15 +27,15 @@ type Config struct {
 }
 
 func Load() (*Config, error) {
-	dbPassword, err := appenv.Secret("DB_PASSWORD", "secret_app")
+	dbPassword, err := appenv.Secret("DB_PASSWORD", "")
 	if err != nil {
 		return nil, err
 	}
-	amqpUser, err := appenv.StringRequiredInProd("AMQP_USER", "guest")
+	amqpUser, err := appenv.StringRequiredInProd("AMQP_USER", "")
 	if err != nil {
 		return nil, err
 	}
-	amqpPassword, err := appenv.Secret("AMQP_PASSWORD", "guest")
+	amqpPassword, err := appenv.Secret("AMQP_PASSWORD", "")
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +53,7 @@ func Load() (*Config, error) {
 		RabbitMQPassword:                 amqpPassword,
 		RabbitMQExchange:                 appenv.String("RABBITMQ_EXCHANGE", "report_exchange"),
 		RabbitMQQueue:                    appenv.String("RABBITMQ_QUEUE", "ownership_queue"),
-		RabbitMQAnalysedReportRoutingKey: appenv.String("RABBITMQ_ANALYSED_REPORT_ROUTING_KEY", "report.raw"),
+		RabbitMQAnalysedReportRoutingKey: appenv.String("RABBITMQ_ANALYSED_REPORT_ROUTING_KEY", "report.analysed"),
 		LogLevel:                         appenv.String("LOG_LEVEL", "info"),
 		RunDBMigrations:                  appenv.Bool("DB_RUN_MIGRATIONS", appenv.DefaultRunMigrations()),
 	}, nil

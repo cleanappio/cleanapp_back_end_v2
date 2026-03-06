@@ -3,22 +3,18 @@ package config
 import (
 	"cleanapp-common/appenv"
 	"fmt"
-	"os"
-	"strconv"
 	"strings"
 	"time"
 )
 
 // Config holds all configuration for the report listener service
 type Config struct {
-	// Database configuration
 	DBHost     string
 	DBPort     string
 	DBUser     string
 	DBPassword string
 	DBName     string
 
-	// Server configuration
 	Port                    string
 	RequestBodyLimitBytes   int64
 	RunDBMigrations         bool
@@ -27,13 +23,10 @@ type Config struct {
 	RateLimitRPS            float64
 	RateLimitBurst          int
 
-	// Broadcast configuration
 	BroadcastInterval time.Duration
 
-	// Logging
 	LogLevel string
 
-	// RabbitMQ configuration
 	AMQPHost                       string
 	AMQPPort                       string
 	AMQPUser                       string
@@ -43,115 +36,79 @@ type Config struct {
 	RabbitAnalysedReportRoutingKey string
 	RabbitTwitterReplyRoutingKey   string
 
-	// Intelligence chat configuration
 	GeminiAPIKey                string
 	GeminiModel                 string
 	IntelligenceFreeTierMaxTurn int
 	IntelligenceBaseURL         string
 
-	// Fetcher key system (public ingest v1)
-	FetcherKeyEnv                  string // "live" or "test" (affects API key prefix)
+	FetcherKeyEnv                  string
 	FetcherRegisterMaxPerHourPerIP int
 	FetcherIngestMaxBatchItems     int
 	FetcherIngestMaxBodyBytes      int64
-	InternalAdminToken             string // protects /internal/* endpoints
+	InternalAdminToken             string
 }
 
-// Load loads configuration from environment variables
 func Load() (*Config, error) {
-	dbPassword, err := appenv.Secret("DB_PASSWORD", "secret_app")
+	dbPassword, err := appenv.Secret("DB_PASSWORD", "")
 	if err != nil {
 		return nil, err
 	}
-	amqpUser, err := appenv.StringRequiredInProd("AMQP_USER", "guest")
+	amqpUser, err := appenv.StringRequiredInProd("AMQP_USER", "")
 	if err != nil {
 		return nil, err
 	}
-	amqpPassword, err := appenv.Secret("AMQP_PASSWORD", "guest")
+	amqpPassword, err := appenv.Secret("AMQP_PASSWORD", "")
 	if err != nil {
 		return nil, err
 	}
 	config := &Config{
-		// Database defaults
 		DBHost:     appenv.String("DB_HOST", "localhost"),
 		DBPort:     appenv.String("DB_PORT", "3306"),
 		DBUser:     appenv.String("DB_USER", "server"),
 		DBPassword: dbPassword,
 		DBName:     appenv.String("DB_NAME", "cleanapp"),
 
-		// Server defaults
 		Port:                    appenv.String("PORT", "8080"),
 		RequestBodyLimitBytes:   appenv.Int64("REQUEST_BODY_LIMIT_BYTES", 2*1024*1024),
 		RunDBMigrations:         appenv.Bool("DB_RUN_MIGRATIONS", appenv.DefaultRunMigrations()),
 		AllowedOrigins:          defaultOrigins(),
 		WebSocketAllowedOrigins: defaultWSOrigins(),
-		RateLimitRPS:            float64(appenv.Int("RATE_LIMIT_RPS", 20)),
+		RateLimitRPS:            appenv.Float64("RATE_LIMIT_RPS", 20),
 		RateLimitBurst:          appenv.Int("RATE_LIMIT_BURST", 40),
 
-		// Broadcast defaults (1 second)
-		BroadcastInterval: getDurationEnv("BROADCAST_INTERVAL", time.Second),
+		BroadcastInterval: appenv.Duration("BROADCAST_INTERVAL", time.Second),
+		LogLevel:          appenv.String("LOG_LEVEL", "info"),
 
-		// Logging defaults
-		LogLevel: getEnv("LOG_LEVEL", "info"),
-
-		// RabbitMQ defaults
-		AMQPHost:                       getEnv("AMQP_HOST", "rabbitmq"),
-		AMQPPort:                       getEnv("AMQP_PORT", "5672"),
+		AMQPHost:                       appenv.String("AMQP_HOST", "rabbitmq"),
+		AMQPPort:                       appenv.String("AMQP_PORT", "5672"),
 		AMQPUser:                       amqpUser,
 		AMQPPassword:                   amqpPassword,
-		RabbitExchange:                 getEnv("RABBITMQ_EXCHANGE", "cleanapp"),
-		RabbitRawReportRoutingKey:      getEnv("RABBITMQ_RAW_REPORT_ROUTING_KEY", "report.raw"),
-		RabbitAnalysedReportRoutingKey: getEnv("RABBITMQ_ANALYSED_REPORT_ROUTING_KEY", "report.analysed"),
-		RabbitTwitterReplyRoutingKey:   getEnv("RABBITMQ_TWITTER_REPLY_ROUTING_KEY", "twitter.reply"),
+		RabbitExchange:                 appenv.String("RABBITMQ_EXCHANGE", "cleanapp"),
+		RabbitRawReportRoutingKey:      appenv.String("RABBITMQ_RAW_REPORT_ROUTING_KEY", "report.raw"),
+		RabbitAnalysedReportRoutingKey: appenv.String("RABBITMQ_ANALYSED_REPORT_ROUTING_KEY", "report.analysed"),
+		RabbitTwitterReplyRoutingKey:   appenv.String("RABBITMQ_TWITTER_REPLY_ROUTING_KEY", "twitter.reply"),
 
-		// Intelligence defaults
-		GeminiAPIKey:                getEnv("GEMINI_API_KEY", ""),
-		GeminiModel:                 getEnv("GEMINI_MODEL", "gemini-2.5-flash"),
-		IntelligenceFreeTierMaxTurn: getIntEnv("INTELLIGENCE_FREE_MAX_TURNS", 5),
-		IntelligenceBaseURL:         strings.TrimRight(getEnv("INTELLIGENCE_BASE_URL", "https://cleanapp.io"), "/"),
+		GeminiAPIKey:                appenv.String("GEMINI_API_KEY", ""),
+		GeminiModel:                 appenv.String("GEMINI_MODEL", "gemini-2.5-flash"),
+		IntelligenceFreeTierMaxTurn: appenv.Int("INTELLIGENCE_FREE_MAX_TURNS", 5),
+		IntelligenceBaseURL:         strings.TrimRight(appenv.String("INTELLIGENCE_BASE_URL", "https://cleanapp.io"), "/"),
 
-		// Fetcher key system defaults
-		FetcherKeyEnv:                  strings.ToLower(getEnv("FETCHER_KEY_ENV", "live")),
-		FetcherRegisterMaxPerHourPerIP: getIntEnv("FETCHER_REGISTER_MAX_PER_HOUR_PER_IP", 5),
-		FetcherIngestMaxBatchItems:     getIntEnv("FETCHER_INGEST_MAX_BATCH_ITEMS", 100),
-		FetcherIngestMaxBodyBytes:      int64(getIntEnv("FETCHER_INGEST_MAX_BODY_BYTES", 2*1024*1024)),
-		InternalAdminToken:             getEnv("INTERNAL_ADMIN_TOKEN", ""),
+		FetcherKeyEnv:                  strings.ToLower(appenv.String("FETCHER_KEY_ENV", "live")),
+		FetcherRegisterMaxPerHourPerIP: appenv.Int("FETCHER_REGISTER_MAX_PER_HOUR_PER_IP", 5),
+		FetcherIngestMaxBatchItems:     appenv.Int("FETCHER_INGEST_MAX_BATCH_ITEMS", 100),
+		FetcherIngestMaxBodyBytes:      appenv.Int64("FETCHER_INGEST_MAX_BODY_BYTES", 2*1024*1024),
+		InternalAdminToken:             appenv.String("INTERNAL_ADMIN_TOKEN", ""),
+	}
+
+	if config.BroadcastInterval <= 0 {
+		config.BroadcastInterval = time.Second
 	}
 
 	return config, validate(config)
 }
 
-// AMQPURL builds the AMQP URL from parts
 func (c *Config) AMQPURL() string {
 	return "amqp://" + c.AMQPUser + ":" + c.AMQPPassword + "@" + c.AMQPHost + ":" + c.AMQPPort
-}
-
-// getEnv gets an environment variable or returns a default value
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
-
-// getDurationEnv gets a duration environment variable or returns a default value
-func getDurationEnv(key string, defaultValue time.Duration) time.Duration {
-	if value := os.Getenv(key); value != "" {
-		if duration, err := time.ParseDuration(value); err == nil {
-			return duration
-		}
-	}
-	return defaultValue
-}
-
-// getIntEnv gets an integer environment variable or returns a default value
-func getIntEnv(key string, defaultValue int) int {
-	if value := os.Getenv(key); value != "" {
-		if intValue, err := strconv.Atoi(value); err == nil {
-			return intValue
-		}
-	}
-	return defaultValue
 }
 
 func defaultOrigins() []string {

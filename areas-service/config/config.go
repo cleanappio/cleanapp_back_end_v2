@@ -7,7 +7,7 @@ import (
 )
 
 // Config holds all configuration for the areas service
- type Config struct {
+type Config struct {
 	DBHost     string
 	DBPort     string
 	DBUser     string
@@ -16,7 +16,7 @@ import (
 
 	Port string
 
-	AuthServiceURL string
+	JWTSecret string
 
 	TrustedProxies  []string
 	AllowedOrigins  []string
@@ -26,7 +26,11 @@ import (
 }
 
 func Load() (*Config, error) {
-	dbPassword, err := appenv.Secret("DB_PASSWORD", "secret")
+	dbPassword, err := appenv.Secret("DB_PASSWORD", "")
+	if err != nil {
+		return nil, err
+	}
+	jwtSecret, err := appenv.Secret("JWT_SECRET", "")
 	if err != nil {
 		return nil, err
 	}
@@ -37,10 +41,10 @@ func Load() (*Config, error) {
 		DBPassword:      dbPassword,
 		DBName:          appenv.String("DB_NAME", "cleanapp"),
 		Port:            appenv.String("PORT", "8080"),
-		AuthServiceURL:  appenv.String("AUTH_SERVICE_URL", "http://auth-service:8080"),
+		JWTSecret:       jwtSecret,
 		AllowedOrigins:  allowedOrigins(),
 		RunDBMigrations: appenv.Bool("DB_RUN_MIGRATIONS", appenv.DefaultRunMigrations()),
-		RateLimitRPS:    float64(appenv.Int("RATE_LIMIT_RPS", 10)),
+		RateLimitRPS:    appenv.Float64("RATE_LIMIT_RPS", 10),
 		RateLimitBurst:  appenv.Int("RATE_LIMIT_BURST", 20),
 	}
 	if trusted := appenv.Strings("TRUSTED_PROXIES"); len(trusted) > 0 {

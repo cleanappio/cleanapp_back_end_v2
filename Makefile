@@ -1,4 +1,4 @@
-.PHONY: help gitleaks hooks ci ci-go ci-analyzer ci-ingest-v1 fmt-go test-go vet-go lint-go rust-fmt rust-clippy analyzer-build-dev analyzer-tag-prod prometheus-install watchdog-install report-auth-up report-auth-down report-auth-logs report-auth-test
+.PHONY: help gitleaks hooks ci ci-go ci-analyzer ci-ingest-v1 fmt-go test-go vet-go lint-go rust-fmt rust-clippy analyzer-build-dev analyzer-tag-prod prometheus-install watchdog-install deploy-prod report-auth-up report-auth-down report-auth-logs report-auth-test
 
 help:
 	@echo "Common commands:"
@@ -17,6 +17,7 @@ help:
 	@echo "  make analyzer-tag-prod   - promote analyzer :dev build to :prod tag"
 	@echo "  make prometheus-install  - install prod Prometheus (HOST=deployer@<ip>)"
 	@echo "  make watchdog-install    - install prod watchdog (HOST=deployer@<ip>)"
+	@echo "  make deploy-prod         - digest-pinned prod deploy with explicit Go migrations (HOST=deployer@<ip>)"
 	@echo "  make report-auth-up      - start auth-service + report-auth-service locally (docker compose)"
 	@echo "  make report-auth-logs    - tail logs for local report-auth stack"
 	@echo "  make report-auth-down    - stop local report-auth stack"
@@ -83,3 +84,8 @@ report-auth-down:
 
 report-auth-test:
 	./scripts/legacy/test_report_auth_auth.sh
+
+
+deploy-prod:
+	HOST?=deployer@34.122.15.16
+	HOST=$(HOST) RUN_GO_MIGRATIONS=1 ./platform_blueprint/deploy/prod/vm/deploy_with_digests.sh

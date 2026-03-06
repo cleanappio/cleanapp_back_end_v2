@@ -97,7 +97,7 @@ compose-logs:
 migrate-up:
 	@echo "Running database migrations..."
 	@echo "Migrations are automatically run on service startup"
-	@echo "To add new migrations, edit database/schema.go"
+	@echo "To add new migrations, edit database/migrate.go"
 
 migrate-down:
 	@echo "Rolling back database migrations..."

@@ -89,6 +89,15 @@ func Int64(key string, defaultValue int64) int64 {
 	return defaultValue
 }
 
+func Float64(key string, defaultValue float64) float64 {
+	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+		if parsed, err := strconv.ParseFloat(value, 64); err == nil {
+			return parsed
+		}
+	}
+	return defaultValue
+}
+
 func Bool(key string, defaultValue bool) bool {
 	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
 		if parsed, err := strconv.ParseBool(value); err == nil {

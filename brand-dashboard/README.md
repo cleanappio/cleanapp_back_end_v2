@@ -7,7 +7,7 @@ A microservice for monitoring and analyzing reports related to specific brands. 
 - **Brand-based Report Filtering**: Displays reports that match configured brand names
 - **Soft Brand Matching**: Handles variations like "coca cola" → "coca-cola", "Red Bull" → "redbull"
 - **Real-time WebSocket Updates**: Live updates for new brand-related reports
-- **Authentication Integration**: Bearer token authentication via auth-service
+- **Authentication Integration**: Bearer token authentication via local JWT verification
 - **RESTful API**: Clean API endpoints for brand and report data
 - **Multi-language Support**: Handles reports with analyses in different languages
 
@@ -30,7 +30,7 @@ PORT=8080
 HOST=0.0.0.0
 
 # Auth Service
-AUTH_SERVICE_URL=http://auth-service:8080
+JWT_SECRET=<jwt secret>
 
 # Brand Dashboard Configuration
 BRAND_NAMES=coca-cola,redbull,nike,adidas,pepsi,mcdonalds,starbucks,apple,samsung,microsoft
@@ -334,7 +334,7 @@ services:
       - DB_HOST=mysql
       - DB_PORT=3306
       - DB_NAME=cleanapp
-      - AUTH_SERVICE_URL=http://auth-service:8080
+      - JWT_SECRET=<jwt secret>
       - BRAND_NAMES=coca-cola,redbull,nike,adidas
     depends_on:
       - mysql

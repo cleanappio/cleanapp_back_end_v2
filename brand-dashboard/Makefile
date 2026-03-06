@@ -106,7 +106,7 @@ setup-env:
 		echo "DB_NAME=cleanapp" >> .env; \
 		echo "PORT=8080" >> .env; \
 		echo "HOST=0.0.0.0" >> .env; \
-		echo "AUTH_SERVICE_URL=http://auth-service:8080" >> .env; \
+		echo "JWT_SECRET=<jwt secret>" >> .env; \
 		echo "BRAND_NAMES=coca-cola,redbull,nike,adidas,pepsi,mcdonalds,starbucks,apple,samsung,microsoft" >> .env; \
 		echo ".env file created successfully"; \
 	else \

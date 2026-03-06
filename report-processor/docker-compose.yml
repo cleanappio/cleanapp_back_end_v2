@@ -12,11 +12,10 @@ services:
       - DB_PASSWORD=secret_app
       - DB_NAME=cleanapp
       - PORT=8081
-      - AUTH_SERVICE_URL=http://auth-service:8080
+      - JWT_SECRET=${JWT_SECRET}
       - LOG_LEVEL=info
     depends_on:
       - db
-      - auth-service
     restart: unless-stopped
     networks:
       - cleanapp-network

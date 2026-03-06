@@ -16,6 +16,7 @@ import (
 	"custom-area-dashboard/middleware"
 	"custom-area-dashboard/services"
 	"custom-area-dashboard/version"
+
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 )
@@ -54,7 +55,7 @@ func main() {
 	group := r.Group("/")
 	log.Printf("INFO: Public dashboard: %v", cfg.IsPublic)
 	if !cfg.IsPublic {
-		group.Use(middleware.AuthMiddleware(cfg))
+		group.Use(middleware.AuthMiddleware(cfg, databaseService.DB()))
 	}
 	{
 		group.GET("/areas", areasHandler.AreasHandler)

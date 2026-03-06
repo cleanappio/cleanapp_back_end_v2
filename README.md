@@ -317,10 +317,18 @@ This runs:
 
 On fresh environments, run migrations before starting these services.
 
+For production releases, use the explicit digest-pinned deploy path instead:
+
+```bash
+make deploy-prod HOST=deployer@34.122.15.16
+```
+
 This will:
-1. Pull all Docker images tagged as `:prod`
-2. Run `docker compose up -d` with all services
-3. Configure Cloud Scheduler jobs
+1. Pull the tagged images on the VM
+2. Resolve them to immutable digests
+3. Run explicit Go migrations
+4. Deploy via `platform_blueprint/deploy/prod/vm/deploy_with_digests.sh`
+5. Preserve a timestamped pinned manifest for rollback
 
 For dev environment:
 ```bash
@@ -442,14 +450,12 @@ docker exec -it cleanapp_db mysql -u server -p cleanapp
 ```bash
 docker stop <container_name>
 docker rm <container_name>
-docker compose up -d <service_name>
+HOST=deployer@34.122.15.16 SERVICES="<service_name>" ./platform_blueprint/deploy/prod/vm/deploy_with_digests.sh
 ```
 
 ### Full System Restart
 ```bash
-cd /home/deployer
-docker compose down
-docker compose up -d
+make deploy-prod HOST=deployer@34.122.15.16
 ```
 
 ---

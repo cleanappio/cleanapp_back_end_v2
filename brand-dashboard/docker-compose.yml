@@ -12,13 +12,12 @@ services:
       - DB_HOST=mysql
       - DB_PORT=3306
       - DB_NAME=cleanapp
-      - AUTH_SERVICE_URL=http://auth-service:8080
+      - JWT_SECRET=${JWT_SECRET}
       - BRAND_NAMES=coca-cola,redbull,nike,adidas,pepsi,mcdonalds,starbucks,apple,samsung,microsoft
       - PORT=8080
       - HOST=0.0.0.0
     depends_on:
       - mysql
-      - auth-service
     networks:
       - cleanapp-network
     restart: unless-stopped

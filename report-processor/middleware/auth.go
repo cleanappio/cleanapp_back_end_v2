@@ -1,19 +1,19 @@
 package middleware
 
 import (
+	"database/sql"
 	"net/http"
 	"strings"
 
+	"cleanapp-common/authx"
 	"report_processor/config"
-	"report_processor/database"
 
 	"github.com/gin-gonic/gin"
 )
 
-// AuthMiddleware validates tokens using the auth-service
-func AuthMiddleware(cfg *config.Config, authClient *database.AuthClient) gin.HandlerFunc {
+// AuthMiddleware validates access tokens locally against the shared auth token store.
+func AuthMiddleware(cfg *config.Config, db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Get token from Authorization header
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "missing authorization header"})
@@ -21,7 +21,6 @@ func AuthMiddleware(cfg *config.Config, authClient *database.AuthClient) gin.Han
 			return
 		}
 
-		// Extract token from Bearer scheme
 		tokenString := extractToken(authHeader)
 		if tokenString == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid authorization format"})
@@ -29,24 +28,20 @@ func AuthMiddleware(cfg *config.Config, authClient *database.AuthClient) gin.Han
 			return
 		}
 
-		// Validate token using auth-service
-		userID, err := authClient.ValidateToken(tokenString)
+		result, err := authx.VerifyAccessToken(c.Request.Context(), db, tokenString, cfg.JWTSecret)
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
 			c.Abort()
 			return
 		}
 
-		// Set user ID in context for use in handlers
-		c.Set("user_id", userID)
+		c.Set("user_id", result.UserID)
 		c.Set("token", tokenString)
 		c.Next()
 	}
 }
 
-// extractToken extracts the token from the Authorization header
 func extractToken(authHeader string) string {
-	// Check for Bearer scheme
 	parts := strings.SplitN(authHeader, " ", 2)
 	if len(parts) != 2 || parts[0] != "Bearer" {
 		return ""

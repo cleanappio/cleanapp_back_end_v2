@@ -62,7 +62,7 @@ The service uses environment variables for configuration. Create a `.env` file o
 
 **Required Environment Variables:**
 
-- `AUTH_SERVICE_URL`: URL of the auth-service for token validation (default: http://auth-service:8080)
+- `JWT_SECRET`: shared JWT signing secret for local bearer-token validation
 
 **Optional Environment Variables:**
 
@@ -91,7 +91,7 @@ DB_USER=root
 DB_PASSWORD=password
 
 # Auth Service Configuration
-AUTH_SERVICE_URL=http://auth-service:8080
+JWT_SECRET=<jwt secret>
 
 # Custom Area Configuration
 CUSTOM_AREA_ADMIN_LEVEL=2
@@ -347,10 +347,10 @@ docker build -t custom-area-dashboard .
 ### Run the container:
 ```bash
 docker run -p 8080:8080 \
-  -e AUTH_SERVICE_URL=http://auth-service:8080 \
+  -e JWT_SECRET=<jwt-secret> \
   custom-area-dashboard
 ```
 
 ## Development
 
-This service integrates with the auth-service for token validation and provides protected access to Montenegro area data and reports. 
+This service validates bearer tokens locally with `JWT_SECRET` and provides protected access to custom-area reports. 

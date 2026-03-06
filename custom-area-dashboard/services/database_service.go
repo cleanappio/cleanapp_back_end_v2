@@ -24,11 +24,11 @@ type DatabaseService struct {
 // NewDatabaseService creates a new database service
 func NewDatabaseService(cfg *config.Config) (*DatabaseService, error) {
 	// Get database connection details from environment variables
-	dbUser := getEnvOrDefault("DB_USER", "server")
-	dbPassword := getEnvOrDefault("DB_PASSWORD", "secret_app")
-	dbHost := getEnvOrDefault("DB_HOST", "localhost")
-	dbPort := getEnvOrDefault("DB_PORT", "3306")
-	dbName := getEnvOrDefault("DB_NAME", "cleanapp")
+	dbUser := cfg.DBUser
+	dbPassword := cfg.DBPassword
+	dbHost := cfg.DBHost
+	dbPort := cfg.DBPort
+	dbName := cfg.DBName
 
 	// Create DSN
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true",
@@ -412,4 +412,8 @@ func getEnvOrDefault(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
+}
+
+func (s *DatabaseService) DB() *sql.DB {
+	return s.db
 }

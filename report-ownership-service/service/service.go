@@ -1,6 +1,7 @@
 package service
 
 import (
+	"cleanapp-common/events"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -106,6 +107,10 @@ func (s *Service) handleReportMessage(msg *rabbitmq.Message) error {
 }
 
 func (s *Service) decodeReportMessage(msg *rabbitmq.Message) (*models.ReportWithAnalysis, error) {
+	if event, err := events.DecodeReportAnalysed(msg.Body); err == nil && event.Report.Seq > 0 {
+		return convertAnalysedEvent(event), nil
+	}
+
 	var reportWithAnalysis models.ReportWithAnalysis
 	if err := msg.UnmarshalTo(&reportWithAnalysis); err == nil && reportWithAnalysis.Report.Seq > 0 {
 		return &reportWithAnalysis, nil
@@ -137,6 +142,49 @@ func (s *Service) loadReportWithAnalysis(seq int) (*models.ReportWithAnalysis, e
 		return nil, fmt.Errorf("load report with analysis seq=%d: %w", seq, err)
 	}
 	return reportWithAnalysis, nil
+}
+
+func convertAnalysedEvent(event *events.ReportAnalysed) *models.ReportWithAnalysis {
+	if event == nil {
+		return nil
+	}
+	converted := &models.ReportWithAnalysis{
+		Report: models.Report{
+			Seq:         event.Report.Seq,
+			Timestamp:   event.Report.Timestamp,
+			ID:          event.Report.ID,
+			Team:        event.Report.Team,
+			Latitude:    event.Report.Latitude,
+			Longitude:   event.Report.Longitude,
+			X:           event.Report.X,
+			Y:           event.Report.Y,
+			ActionID:    event.Report.ActionID,
+			Description: event.Report.Description,
+		},
+	}
+	for _, analysis := range event.Analysis {
+		converted.Analysis = append(converted.Analysis, models.ReportAnalysis{
+			Seq:                   analysis.Seq,
+			Source:                analysis.Source,
+			AnalysisText:          analysis.AnalysisText,
+			Title:                 analysis.Title,
+			Description:           analysis.Description,
+			BrandName:             analysis.BrandName,
+			BrandDisplayName:      analysis.BrandDisplayName,
+			LitterProbability:     analysis.LitterProbability,
+			HazardProbability:     analysis.HazardProbability,
+			DigitalBugProbability: analysis.DigitalBugProbability,
+			SeverityLevel:         analysis.SeverityLevel,
+			Summary:               analysis.Summary,
+			Language:              analysis.Language,
+			Classification:        analysis.Classification,
+			IsValid:               analysis.IsValid,
+			InferredContactEmails: analysis.InferredContactEmails,
+			CreatedAt:             analysis.CreatedAt,
+			UpdatedAt:             analysis.UpdatedAt,
+		})
+	}
+	return converted
 }
 
 // startRabbitMQSubscription starts the RabbitMQ subscription for report processing

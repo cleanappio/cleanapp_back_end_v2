@@ -1,72 +1,64 @@
 package main
 
 import (
+	"context"
 	"log"
-
-	"github.com/gin-gonic/gin"
-	"github.com/joho/godotenv"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"brand-dashboard/config"
 	"brand-dashboard/handlers"
 	"brand-dashboard/middleware"
 	"brand-dashboard/services"
 	"brand-dashboard/version"
+	"cleanapp-common/edge"
+	"cleanapp-common/serverx"
+
+	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
 )
 
 func main() {
-	// Load environment variables from .env file
 	if err := godotenv.Load(); err != nil {
 		log.Printf("Warning: .env file not found, using system environment variables")
 	}
-
-	// Load configuration
-	cfg := config.Load()
-
-	// Initialize brand service
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("Failed to load configuration: %v", err)
+	}
 	log.Printf("INFO: Brand dashboard configured with brands: %v", cfg.BrandNames)
-
-	// Initialize database service
 	databaseService, err := services.NewDatabaseService(cfg)
 	if err != nil {
 		log.Fatalf("Failed to initialize database service: %v", err)
 	}
 	defer databaseService.Close()
-
-	// Initialize WebSocket service
 	websocketHub := services.NewWebSocketHub()
-
-	// Start WebSocket service
 	go websocketHub.Start()
 	defer websocketHub.Stop()
-
-	// Initialize handlers
 	brandHandler := handlers.NewBrandHandler(databaseService)
 	websocketHandler := handlers.NewWebSocketHandler(websocketHub)
 
 	r := gin.Default()
-
-	// CORS middleware for Gin
-	r.Use(func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
-		c.Writer.Header().Set("Access-Control-Max-Age", "86400")
-		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(200)
-			return
+	if len(cfg.TrustedProxies) > 0 {
+		if err := r.SetTrustedProxies(cfg.TrustedProxies); err != nil {
+			log.Printf("Failed to set trusted proxies: %v", err)
 		}
-		c.Next()
-	})
+	}
+	r.Use(edge.SecurityHeaders())
+	r.Use(edge.RequestBodyLimit(1 << 20))
+	r.Use(edge.RateLimitMiddleware(edge.RateLimitConfig{RPS: cfg.RateLimitRPS, Burst: cfg.RateLimitBurst}))
+	r.Use(edge.CORSMiddleware(edge.CORSConfig{AllowedOrigins: cfg.AllowedOrigins, AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}, AllowCredentials: true}))
 
-	// Health endpoint (public)
 	r.GET("/health", brandHandler.HealthHandler)
 	r.GET("/version", func(c *gin.Context) {
 		c.JSON(200, version.Get("brand-dashboard"))
 	})
 
-	// Protected routes
 	protected := r.Group("/")
-	protected.Use(middleware.AuthMiddleware(cfg))
+	protected.Use(middleware.AuthMiddleware(cfg, databaseService.DB()))
 	{
 		protected.GET("/brands", brandHandler.BrandsHandler)
 		protected.GET("/reports", brandHandler.ReportsHandler)
@@ -74,7 +66,20 @@ func main() {
 		protected.GET("/ws/health", websocketHandler.HealthCheck)
 	}
 
-	log.Printf("Starting Brand Dashboard service on %s:%s", cfg.Host, cfg.Port)
-	log.Printf("Configured brands: %v", cfg.BrandNames)
-	r.Run(cfg.Host + ":" + cfg.Port)
+	srv := serverx.New(cfg.Host+":"+cfg.Port, r)
+	go func() {
+		log.Printf("Starting Brand Dashboard service on %s:%s", cfg.Host, cfg.Port)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Failed to start HTTP server: %v", err)
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Printf("Server forced to shutdown: %v", err)
+	}
 }

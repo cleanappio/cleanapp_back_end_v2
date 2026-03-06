@@ -25,10 +25,10 @@ The areas-service now includes authentication middleware for protected endpoints
 
 ### Configuration
 
-Add the following environment variable to configure the auth-service URL:
+Add the shared JWT secret so the service can validate bearer tokens locally:
 
 ```bash
-export AUTH_SERVICE_URL=http://auth-service:8080
+export JWT_SECRET=<jwt-secret>
 ```
 
 ## Architecture Changes

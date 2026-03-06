@@ -45,11 +45,11 @@ type Config struct {
 }
 
 func Load() (*Config, error) {
-	dbPassword, err := appenv.Secret("DB_PASSWORD", "password")
+	dbPassword, err := appenv.Secret("DB_PASSWORD", "")
 	if err != nil {
 		return nil, err
 	}
-	jwtSecret, err := appenv.Secret("JWT_SECRET", "dev-jwt-secret")
+	jwtSecret, err := appenv.Secret("JWT_SECRET", "")
 	if err != nil {
 		return nil, err
 	}

@@ -1,6 +1,8 @@
 package jwtx
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
@@ -48,4 +50,9 @@ func ParseAccessToken(tokenString, secret string) (*AccessClaims, error) {
 		return nil, errors.New("token expired")
 	}
 	return &AccessClaims{UserID: userID, Type: tokenType, Exp: exp}, nil
+}
+
+func HashToken(token string) string {
+	hash := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(hash[:])
 }

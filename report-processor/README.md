@@ -7,7 +7,7 @@ A microservice for managing report statuses in the CleanApp system.
 - Mark reports as resolved
 - Get report status information
 - Get report status counts
-- Bearer token authentication via auth-service
+- Bearer token authentication via local JWT verification against the shared auth token store
 - CORS support
 - Health check endpoints
 
@@ -107,12 +107,11 @@ Root health check endpoint.
 | `DB_PASSWORD` | `secret_app` | Database password |
 | `DB_NAME` | `cleanapp` | Database name |
 | `PORT` | `8081` | Server port |
-| `AUTH_SERVICE_URL` | `http://localhost:8080` | Auth service URL |
 | `LOG_LEVEL` | `info` | Log level |
 
 ## Dependencies
 
-This service depends on the **auth-service** for token validation. The auth-service must be running and accessible at the URL specified in `AUTH_SERVICE_URL`.
+This service validates access tokens locally using `JWT_SECRET` and the shared `auth_tokens` table in MySQL.
 
 ## Running the Service
 
@@ -132,12 +131,11 @@ docker-compose up -d
 # Build the image
 ./build_image.sh
 
-# Run the container (make sure auth-service is running)
+# Run the container
 docker run -p 8081:8081 \
   -e DB_HOST=your-db-host \
   -e DB_USER=your-db-user \
   -e DB_PASSWORD=your-db-password \
-  -e AUTH_SERVICE_URL=http://your-auth-service:8080 \
   report-processor:latest
 ```
 
@@ -147,19 +145,19 @@ docker run -p 8081:8081 \
 # Install dependencies
 go mod download
 
-# Run the service (make sure auth-service is running)
+# Run the service
 go run main.go
 ```
 
 ## Authentication
 
-The service uses the **auth-service** for token validation. Include the token in the Authorization header:
+The service validates bearer tokens locally. Include the token in the Authorization header:
 
 ```
 Authorization: Bearer <your-jwt-token>
 ```
 
-The service will make an HTTP request to the auth-service's `/api/v3/validate-token` endpoint to validate the token and get the user ID.
+The service verifies the JWT signature locally with `JWT_SECRET` and confirms token presence/expiry in the shared `auth_tokens` table.
 
 ## CORS
 
@@ -194,5 +192,4 @@ The service uses Go's standard log package and logs:
 - Go 1.24+
 - MySQL 8.0+
 - Gin web framework
-- Auth-service for token validation
 - MySQL driver for Go 

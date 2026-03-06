@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"cleanapp-common/events"
 	"context"
 	"database/sql"
 	"fmt"
@@ -118,46 +119,6 @@ func (h *Handlers) InternalPromoteReport(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-type analysedPublishReport struct {
-	Seq         int       `json:"seq"`
-	Timestamp   time.Time `json:"timestamp"`
-	ID          string    `json:"id"`
-	Team        int       `json:"team"`
-	Latitude    float64   `json:"latitude"`
-	Longitude   float64   `json:"longitude"`
-	X           float64   `json:"x"`
-	Y           float64   `json:"y"`
-	ActionID    string    `json:"action_id"`
-	Description string    `json:"description"`
-}
-
-type analysedPublishAnalysis struct {
-	Seq                   int       `json:"seq"`
-	Source                string    `json:"source"`
-	AnalysisText          string    `json:"analysis_text"`
-	Title                 string    `json:"title"`
-	Description           string    `json:"description"`
-	BrandName             string    `json:"brand_name"`
-	BrandDisplayName      string    `json:"brand_display_name"`
-	LitterProbability     float64   `json:"litter_probability"`
-	HazardProbability     float64   `json:"hazard_probability"`
-	DigitalBugProbability float64   `json:"digital_bug_probability"`
-	SeverityLevel         float64   `json:"severity_level"`
-	Summary               string    `json:"summary"`
-	Language              string    `json:"language"`
-	Classification        string    `json:"classification"`
-	IsValid               bool      `json:"is_valid"`
-	InferredContactEmails string    `json:"inferred_contact_emails"`
-	LegalRiskEstimate     string    `json:"legal_risk_estimate,omitempty"`
-	CreatedAt             time.Time `json:"created_at"`
-	UpdatedAt             time.Time `json:"updated_at"`
-}
-
-type analysedPublishReportWithAnalysis struct {
-	Report   analysedPublishReport     `json:"report"`
-	Analysis []analysedPublishAnalysis `json:"analysis"`
-}
-
 func (h *Handlers) publishAnalysedFromDB(ctx context.Context, seq int) error {
 	if h.rabbitmqPublisher == nil || !h.rabbitmqPublisher.IsConnected() {
 		return fmt.Errorf("rabbitmq publisher not connected")
@@ -183,17 +144,19 @@ func (h *Handlers) publishAnalysedFromDB(ctx context.Context, seq int) error {
 		return fmt.Errorf("load report: %w", err)
 	}
 
-	r := analysedPublishReport{
-		Seq:         seq,
-		Timestamp:   ts,
-		ID:          id,
-		Team:        team,
-		Latitude:    lat,
-		Longitude:   lng,
-		X:           x,
-		Y:           y,
-		ActionID:    strings.TrimSpace(actionID.String),
-		Description: strings.TrimSpace(desc.String),
+	event := events.ReportAnalysed{
+		Report: events.ReportAnalysedReport{
+			Seq:         seq,
+			Timestamp:   ts,
+			ID:          id,
+			Team:        team,
+			Latitude:    lat,
+			Longitude:   lng,
+			X:           x,
+			Y:           y,
+			ActionID:    strings.TrimSpace(actionID.String),
+			Description: strings.TrimSpace(desc.String),
+		},
 	}
 
 	// Load analyses.
@@ -218,9 +181,8 @@ func (h *Handlers) publishAnalysedFromDB(ctx context.Context, seq int) error {
 	}
 	defer rows.Close()
 
-	var analyses []analysedPublishAnalysis
 	for rows.Next() {
-		var a analysedPublishAnalysis
+		var a events.ReportAnalysedAnalysis
 		if err := rows.Scan(
 			&a.Seq,
 			&a.Source,
@@ -244,25 +206,21 @@ func (h *Handlers) publishAnalysedFromDB(ctx context.Context, seq int) error {
 		); err != nil {
 			return fmt.Errorf("scan analysis: %w", err)
 		}
-		analyses = append(analyses, a)
+		event.Analysis = append(event.Analysis, a)
 	}
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("iterate analysis: %w", err)
 	}
-	if len(analyses) == 0 {
+	if len(event.Analysis) == 0 {
 		return fmt.Errorf("no analysis rows for seq=%d", seq)
 	}
 
-	msg := analysedPublishReportWithAnalysis{
-		Report:   r,
-		Analysis: analyses,
-	}
-
-	if err := h.rabbitmqPublisher.PublishWithRoutingKey(h.cfg.RabbitAnalysedReportRoutingKey, msg); err != nil {
+	event.Normalize()
+	if err := h.rabbitmqPublisher.PublishWithRoutingKey(h.cfg.RabbitAnalysedReportRoutingKey, event); err != nil {
 		return fmt.Errorf("publish report.analysed: %w", err)
 	}
 
-	log.Printf("internal promote: published report.analysed seq=%d analyses=%d", seq, len(analyses))
+	log.Printf("internal promote: published report.analysed seq=%d analyses=%d", seq, len(event.Analysis))
 	return nil
 }
 

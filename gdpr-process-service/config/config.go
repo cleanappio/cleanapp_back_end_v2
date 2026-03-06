@@ -3,39 +3,30 @@ package config
 import (
 	"cleanapp-common/appenv"
 	"fmt"
-	"strconv"
 	"time"
 )
 
-// Config holds all configuration for the GDPR process service
 type Config struct {
-	// Database configuration
 	DBHost     string
 	DBPort     string
 	DBUser     string
 	DBPassword string
 	DBName     string
 
-	// Polling configuration
-	PollInterval time.Duration // seconds between polling cycles
+	PollInterval time.Duration
 
-	// OpenAI configuration
 	OpenAIAPIKey string
 	OpenAIModel  string
 
-	// Face detector service configuration
 	FaceDetectorURL       string
 	FaceDetectorPortStart int
 	FaceDetectorCount     int
 
-	// Image placeholder configuration
 	ImagePlaceholderPath string
 
-	// Parallel processing configuration
-	BatchSize  int // number of users to process in each batch
-	MaxWorkers int // maximum number of concurrent OpenAI API calls
+	BatchSize  int
+	MaxWorkers int
 
-	// RabbitMQ configuration
 	RabbitMQHost             string
 	RabbitMQPort             string
 	RabbitMQUser             string
@@ -48,91 +39,50 @@ type Config struct {
 	RunDBMigrations bool
 }
 
-// Load loads configuration from environment variables
 func Load() (*Config, error) {
-	dbPassword, err := appenv.Secret("DB_PASSWORD", "secret")
+	dbPassword, err := appenv.Secret("DB_PASSWORD", "")
 	if err != nil {
 		return nil, err
 	}
-	amqpUser, err := appenv.StringRequiredInProd("AMQP_USER", "guest")
+	amqpUser, err := appenv.StringRequiredInProd("AMQP_USER", "")
 	if err != nil {
 		return nil, err
 	}
-	amqpPassword, err := appenv.Secret("AMQP_PASSWORD", "guest")
+	amqpPassword, err := appenv.Secret("AMQP_PASSWORD", "")
 	if err != nil {
 		return nil, err
 	}
 
 	config := &Config{
-		// Database defaults
-		DBHost:     getEnv("DB_HOST", "localhost"),
-		DBPort:     getEnv("DB_PORT", "3306"),
-		DBUser:     getEnv("DB_USER", "server"),
+		DBHost:     appenv.String("DB_HOST", "localhost"),
+		DBPort:     appenv.String("DB_PORT", "3306"),
+		DBUser:     appenv.String("DB_USER", "server"),
 		DBPassword: dbPassword,
-		DBName:     getEnv("DB_NAME", "cleanapp"),
+		DBName:     appenv.String("DB_NAME", "cleanapp"),
 
-		// Polling defaults
-		PollInterval: getDurationEnv("POLL_INTERVAL", 60*time.Second),
-
-		// OpenAI defaults
-		OpenAIAPIKey: getEnv("OPENAI_API_KEY", ""),
-		OpenAIModel:  getEnv("OPENAI_MODEL", "gpt-5"),
-
-		// Face detector defaults
-		FaceDetectorURL:       getEnv("FACE_DETECTOR_URL", "http://localhost:8000"),
-		FaceDetectorPortStart: getIntEnv("FACE_DETECTOR_PORT_START", 9500),
-		FaceDetectorCount:     getIntEnv("FACE_DETECTOR_COUNT", 10),
-
-		// Image placeholder defaults
-		ImagePlaceholderPath: getEnv("IMAGE_PLACEHOLDER_PATH", "./image_placeholder.jpg"),
-
-		// Parallel processing defaults
-		BatchSize:  getIntEnv("BATCH_SIZE", 10),
-		MaxWorkers: getIntEnv("MAX_WORKERS", 10),
-
-		// RabbitMQ defaults
-		RabbitMQHost:             getEnv("AMQP_HOST", "localhost"),
-		RabbitMQPort:             getEnv("AMQP_PORT", "5672"),
+		PollInterval:             appenv.Duration("POLL_INTERVAL", 60*time.Second),
+		OpenAIAPIKey:             appenv.String("OPENAI_API_KEY", ""),
+		OpenAIModel:              appenv.String("OPENAI_MODEL", "gpt-5"),
+		FaceDetectorURL:          appenv.String("FACE_DETECTOR_URL", "http://localhost:8000"),
+		FaceDetectorPortStart:    appenv.Int("FACE_DETECTOR_PORT_START", 9500),
+		FaceDetectorCount:        appenv.Int("FACE_DETECTOR_COUNT", 10),
+		ImagePlaceholderPath:     appenv.String("IMAGE_PLACEHOLDER_PATH", "./image_placeholder.jpg"),
+		BatchSize:                appenv.Int("BATCH_SIZE", 10),
+		MaxWorkers:               appenv.Int("MAX_WORKERS", 10),
+		RabbitMQHost:             appenv.String("AMQP_HOST", "localhost"),
+		RabbitMQPort:             appenv.String("AMQP_PORT", "5672"),
 		RabbitMQUser:             amqpUser,
 		RabbitMQPassword:         amqpPassword,
-		RabbitMQExchange:         getEnv("RABBITMQ_EXCHANGE", "cleanapp-exchange"),
-		RabbitMQQueue:            getEnv("RABBITMQ_QUEUE", "gdpr-queue"),
-		RabbitMQReportRoutingKey: getEnv("RABBITMQ_RAW_REPORT_ROUTING_KEY", "report.raw"),
-		RabbitMQUserRoutingKey:   getEnv("RABBITMQ_USER_ROUTING_KEY", "user.add"),
+		RabbitMQExchange:         appenv.String("RABBITMQ_EXCHANGE", "cleanapp-exchange"),
+		RabbitMQQueue:            appenv.String("RABBITMQ_QUEUE", "gdpr-queue"),
+		RabbitMQReportRoutingKey: appenv.String("RABBITMQ_RAW_REPORT_ROUTING_KEY", "report.raw"),
+		RabbitMQUserRoutingKey:   appenv.String("RABBITMQ_USER_ROUTING_KEY", "user.add"),
 		RunDBMigrations:          appenv.Bool("DB_RUN_MIGRATIONS", appenv.DefaultRunMigrations()),
 	}
 
 	return config, nil
 }
 
-// GetRabbitMQURL constructs the AMQP URL from individual components
 func (c *Config) GetRabbitMQURL() string {
 	return fmt.Sprintf("amqp://%s:%s@%s:%s", c.RabbitMQUser, c.RabbitMQPassword, c.RabbitMQHost, c.RabbitMQPort)
-}
-
-func getDurationEnv(key string, defaultValue time.Duration) time.Duration {
-	if value := appenv.String(key, ""); value != "" {
-		if duration, err := time.ParseDuration(value); err == nil {
-			return duration
-		}
-	}
-	return defaultValue
-}
-
-// getEnv gets an environment variable or returns a default value
-func getEnv(key, defaultValue string) string {
-	if value := appenv.String(key, ""); value != "" {
-		return value
-	}
-	return defaultValue
-}
-
-// getIntEnv gets an integer environment variable or returns a default value
-func getIntEnv(key string, defaultValue int) int {
-	if value := appenv.String(key, ""); value != "" {
-		if intValue, err := strconv.Atoi(value); err == nil {
-			return intValue
-		}
-	}
-	return defaultValue
 }

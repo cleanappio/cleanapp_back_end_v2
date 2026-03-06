@@ -1,88 +1,92 @@
 package config
 
 import (
-	"brand-dashboard/utils"
-	"log"
-	"os"
 	"strings"
+
+	"brand-dashboard/utils"
+	"cleanapp-common/appenv"
 )
 
 type Config struct {
-	// Database
 	DBUser     string
 	DBPassword string
 	DBHost     string
 	DBPort     string
 	DBName     string
 
-	// Server
 	Port string
 	Host string
 
-	// Auth Service
-	AuthServiceURL       string
-	ReportAuthServiceURL string
+	JWTSecret string
 
-	// Brand Dashboard Configuration
 	BrandNames           []string
 	NormailzedBrandNames []string
+	TrustedProxies       []string
+	AllowedOrigins       []string
+	RateLimitRPS         float64
+	RateLimitBurst       int
 }
 
-func Load() *Config {
-	cfg := &Config{
-		DBUser:     getEnv("DB_USER", "server"),
-		DBPassword: getEnv("DB_PASSWORD", "secret_app"),
-		DBHost:     getEnv("DB_HOST", "localhost"),
-		DBPort:     getEnv("DB_PORT", "3306"),
-		DBName:     getEnv("DB_NAME", "cleanapp"),
-		Port:       getEnv("PORT", "8080"),
-		Host:       getEnv("HOST", "0.0.0.0"),
-
-		AuthServiceURL:       getEnv("AUTH_SERVICE_URL", "http://auth-service:8080"),
-		ReportAuthServiceURL: getEnv("REPORT_AUTH_SERVICE_URL", "http://report-auth-service:8080"),
+func Load() (*Config, error) {
+	dbPassword, err := appenv.Secret("DB_PASSWORD", "")
+	if err != nil {
+		return nil, err
 	}
-
-	// Load brand names from environment variable
-	brandNamesStr := getEnv("BRAND_NAMES", "coca-cola,redbull,nike,adidas")
+	jwtSecret, err := appenv.Secret("JWT_SECRET", "")
+	if err != nil {
+		return nil, err
+	}
+	cfg := &Config{
+		DBUser:         appenv.String("DB_USER", "server"),
+		DBPassword:     dbPassword,
+		DBHost:         appenv.String("DB_HOST", "localhost"),
+		DBPort:         appenv.String("DB_PORT", "3306"),
+		DBName:         appenv.String("DB_NAME", "cleanapp"),
+		Port:           appenv.String("PORT", "8080"),
+		Host:           appenv.String("HOST", "0.0.0.0"),
+		JWTSecret:      jwtSecret,
+		AllowedOrigins: defaultOrigins(),
+		RateLimitRPS:   appenv.Float64("RATE_LIMIT_RPS", 10),
+		RateLimitBurst: appenv.Int("RATE_LIMIT_BURST", 20),
+	}
+	if trusted := appenv.Strings("TRUSTED_PROXIES"); len(trusted) > 0 {
+		cfg.TrustedProxies = trusted
+	}
+	brandNamesStr := appenv.String("BRAND_NAMES", "coca-cola,redbull,nike,adidas")
 	cfg.BrandNames = parseBrandNames(brandNamesStr)
-
 	for _, brandName := range cfg.BrandNames {
 		cfg.NormailzedBrandNames = append(cfg.NormailzedBrandNames, utils.NormalizeBrandName(brandName))
 	}
-
-	log.Printf("Brand names: %v", cfg.BrandNames)
-	log.Printf("Normailzed brand names: %v", cfg.NormailzedBrandNames)
-
-	return cfg
+	return cfg, nil
 }
 
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
+func defaultOrigins() []string {
+	if origins := appenv.Strings("ALLOWED_ORIGINS"); len(origins) > 0 {
+		return origins
 	}
-	return defaultValue
+	frontendURL := appenv.String("FRONTEND_URL", "https://cleanapp.io")
+	origins := []string{frontendURL}
+	if strings.Contains(frontendURL, "://cleanapp.io") {
+		origins = append(origins, strings.Replace(frontendURL, "://cleanapp.io", "://www.cleanapp.io", 1))
+	}
+	return origins
 }
 
 func parseBrandNames(brandNamesStr string) []string {
 	if brandNamesStr == "" {
 		return []string{}
 	}
-
-	// Split by comma and clean up each brand name
 	brands := strings.Split(brandNamesStr, ",")
-	var cleanBrands []string
-
+	cleanBrands := make([]string, 0, len(brands))
 	for _, brand := range brands {
 		cleanBrand := strings.TrimSpace(brand)
 		if cleanBrand != "" {
 			cleanBrands = append(cleanBrands, cleanBrand)
 		}
 	}
-
 	return cleanBrands
 }
 
-// IsBrandMatch checks if a normalized brand name matches any configured brand
 func (cfg *Config) IsBrandMatch(normalizedBrandName string) (bool, string) {
 	for _, brand := range cfg.NormailzedBrandNames {
 		if brand == normalizedBrandName {

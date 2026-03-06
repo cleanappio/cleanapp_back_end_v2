@@ -10,39 +10,18 @@ import (
 
 func RunMigrations(ctx context.Context, db *sql.DB) error {
 	return migrator.Run(ctx, db, "report-listener", []migrator.Step{
-		{ID: "0001_fetcher_tables", Description: "create fetcher ingest tables", Up: ensureFetcherTablesStep},
-		{ID: "0002_report_details", Description: "create report_details table", Up: ensureReportDetailsTableStep},
-		{ID: "0003_intelligence_tables", Description: "create intelligence session tables", Up: ensureIntelligenceTablesStep},
-		{ID: "0004_service_state", Description: "create service_state table", Up: ensureServiceStateTableStep},
-		{ID: "0005_report_analysis_utf8mb4", Description: "convert report_analysis to utf8mb4", Up: ensureUTF8MB4Step},
+		{ID: "0001_fetcher_tables", Description: "create fetcher ingest tables", Up: func(ctx context.Context, db *sql.DB) error { return ensureFetcherTables(ctx, db) }},
+		{ID: "0002_report_details", Description: "create report_details table", Up: func(ctx context.Context, db *sql.DB) error { return ensureReportDetailsTable(ctx, db) }},
+		{ID: "0003_intelligence_tables", Description: "create intelligence session tables", Up: func(ctx context.Context, db *sql.DB) error { return ensureIntelligenceTables(ctx, db) }},
+		{ID: "0004_service_state", Description: "create service_state table", Up: func(ctx context.Context, db *sql.DB) error { return ensureServiceStateTable(ctx, db) }},
+		{ID: "0005_report_analysis_utf8mb4", Description: "convert report_analysis to utf8mb4", Up: func(ctx context.Context, db *sql.DB) error { return ensureUTF8MB4(ctx, db) }},
 		{ID: "0006_report_analysis_class_valid_seq_index", Description: "ensure report_analysis class-valid-seq index", Up: ensureClassValidSeqIndexStep},
 		{ID: "0007_report_analysis_needs_ai_review", Description: "ensure report_analysis needs_ai_review column", Up: ensureNeedsAIReviewColumnStep},
 	})
 }
 
-func ensureFetcherTablesStep(ctx context.Context, db *sql.DB) error {
-	return (&Database{db: db}).EnsureFetcherTables(ctx)
-}
-
-func ensureReportDetailsTableStep(ctx context.Context, db *sql.DB) error {
-	return (&Database{db: db}).EnsureReportDetailsTable(ctx)
-}
-
-func ensureIntelligenceTablesStep(ctx context.Context, db *sql.DB) error {
-	return (&Database{db: db}).EnsureIntelligenceTables(ctx)
-}
-
-func ensureServiceStateTableStep(ctx context.Context, db *sql.DB) error {
-	return (&Database{db: db}).EnsureServiceStateTable(ctx)
-}
-
-func ensureUTF8MB4Step(ctx context.Context, db *sql.DB) error {
-	return (&Database{db: db}).EnsureUTF8MB4(ctx)
-}
-
 func ensureClassValidSeqIndexStep(ctx context.Context, db *sql.DB) error {
-	d := &Database{db: db}
-	exists, err := d.IndexExists(ctx, "report_analysis", "idx_report_analysis_class_valid_seq")
+	exists, err := indexExists(ctx, db, "report_analysis", "idx_report_analysis_class_valid_seq")
 	if err != nil {
 		return fmt.Errorf("failed to check report_analysis index: %w", err)
 	}

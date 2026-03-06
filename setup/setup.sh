@@ -621,8 +621,7 @@ services:
       - DB_NAME=cleanapp
       - LOG_LEVEL=info
       - LOG_FORMAT=json
-      - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
-      - REPORT_AUTH_SERVICE_URL=http://cleanapp_report_auth_service:8080
+      - JWT_SECRET=${CLEANAPP_IO_JWT_SECRET}
       - GIN_MODE=${GIN_MODE}
       - CUSTOM_AREA_ID=${MONTENEGRO_AREA_ID}
       - CUSTOM_AREA_SUB_IDS=${MONTENEGRO_AREA_SUB_IDS}
@@ -643,8 +642,7 @@ services:
       - DB_NAME=cleanapp
       - LOG_LEVEL=info
       - LOG_FORMAT=json
-      - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
-      - REPORT_AUTH_SERVICE_URL=http://cleanapp_report_auth_service:8080
+      - JWT_SECRET=${CLEANAPP_IO_JWT_SECRET}
       - GIN_MODE=${GIN_MODE}
       - CUSTOM_AREA_ID=${NEW_YORK_AREA_ID}
       - CUSTOM_AREA_SUB_IDS=${NEW_YORK_AREA_SUB_IDS}
@@ -665,8 +663,7 @@ services:
       - DB_NAME=cleanapp
       - LOG_LEVEL=info
       - LOG_FORMAT=json
-      - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
-      - REPORT_AUTH_SERVICE_URL=http://cleanapp_report_auth_service:8080
+      - JWT_SECRET=${CLEANAPP_IO_JWT_SECRET}
       - GIN_MODE=${GIN_MODE}
       - CUSTOM_AREA_ID=${DEVCONNECT_2025_AREA_ID}
       - CUSTOM_AREA_SUB_IDS=${DEVCONNECT_2025_AREA_SUB_IDS}
@@ -687,8 +684,7 @@ services:
       - DB_NAME=cleanapp
       - LOG_LEVEL=info
       - LOG_FORMAT=json
-      - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
-      - REPORT_AUTH_SERVICE_URL=http://cleanapp_report_auth_service:8080
+      - JWT_SECRET=${CLEANAPP_IO_JWT_SECRET}
       - GIN_MODE=${GIN_MODE}
       - CUSTOM_AREA_ID=${EDGE_CITY_AREA_ID}
       - CUSTOM_AREA_SUB_IDS=${EDGE_CITY_AREA_SUB_IDS}
@@ -732,8 +728,7 @@ services:
       - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
       - DB_NAME=cleanapp
       - GIN_MODE=${GIN_MODE}
-      - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
-      - REPORT_AUTH_SERVICE_URL=http://cleanapp_report_auth_service:8080
+      - JWT_SECRET=${CLEANAPP_IO_JWT_SECRET}
       - BRAND_NAMES=${RED_BULL_BRAND_NAMES}
     ports:
       - 9085:8080
@@ -747,7 +742,7 @@ services:
       - DB_USER=server
       - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
       - DB_NAME=cleanapp
-      - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
+      - JWT_SECRET=${CLEANAPP_IO_JWT_SECRET}
       - GIN_MODE=${GIN_MODE}
     ports:
       - 9086:8080
@@ -764,8 +759,7 @@ services:
       - DB_USER=server
       - DB_PASSWORD=\${MYSQL_APP_PASSWORD}
       - DB_NAME=cleanapp
-      - AUTH_SERVICE_URL=http://cleanapp_auth_service:8080
-      - REPORT_AUTH_SERVICE_URL=http://cleanapp_report_auth_service:8080
+      - JWT_SECRET=${CLEANAPP_IO_JWT_SECRET}
       - REPORTS_SUBMISSION_URL=http://cleanapp_service:8080
       - TAG_SERVICE_URL=http://cleanapp_report_tags_service:8080
       - OPENAI_API_KEY=\${OPENAI_API_KEY}

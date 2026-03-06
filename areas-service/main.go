@@ -69,11 +69,11 @@ func main() {
 
 	apiV3 := router.Group("/api/v3")
 	{
-		apiV3.POST(EndPointCreateOrUpdateArea, middleware.AuthMiddleware(cfg), areasHandler.CreateOrUpdateArea)
+		apiV3.POST(EndPointCreateOrUpdateArea, middleware.AuthMiddleware(cfg, db), areasHandler.CreateOrUpdateArea)
 		apiV3.GET(EndPointGetAreas, areasHandler.GetAreas)
 		apiV3.POST(EndPointUpdateConsent, areasHandler.UpdateConsent)
 		apiV3.GET(EndPointGetAreasCount, areasHandler.GetAreasCount)
-		apiV3.DELETE(EndPointDeleteArea, middleware.AuthMiddleware(cfg), areasHandler.DeleteArea)
+		apiV3.DELETE(EndPointDeleteArea, middleware.AuthMiddleware(cfg, db), areasHandler.DeleteArea)
 	}
 
 	srv := serverx.New(fmt.Sprintf(":%s", cfg.Port), router)

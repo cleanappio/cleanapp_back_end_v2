@@ -109,21 +109,6 @@ func envInt(keys []string, def int) int {
 	return def
 }
 
-// EnsureUTF8MB4 converts critical tables to utf8mb4 to support Unicode content
-func (d *Database) EnsureUTF8MB4(ctx context.Context) error {
-	stmts := []string{
-		// Convert report_analysis text/varchar columns
-		`ALTER TABLE report_analysis CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
-	}
-	for _, q := range stmts {
-		if _, err := d.db.ExecContext(ctx, q); err != nil {
-			// Log and continue to avoid breaking startup in case of permissions or already converted
-			log.Printf("warn: utf8mb4 convert skipped: %v", err)
-		}
-	}
-	return nil
-}
-
 // Close closes the database connection
 func (d *Database) Close() error {
 	return d.db.Close()
@@ -132,78 +117,6 @@ func (d *Database) Close() error {
 // DB returns the underlying *sql.DB
 func (d *Database) DB() *sql.DB {
 	return d.db
-}
-
-// IndexExists checks if an index exists on a table
-func (d *Database) IndexExists(ctx context.Context, tableName, indexName string) (bool, error) {
-	var count int
-	err := d.db.QueryRowContext(ctx, `
-		SELECT COUNT(*) 
-		FROM INFORMATION_SCHEMA.STATISTICS 
-		WHERE TABLE_SCHEMA = DATABASE() 
-		AND TABLE_NAME = ? 
-		AND INDEX_NAME = ?`,
-		tableName, indexName,
-	).Scan(&count)
-	if err != nil {
-		return false, fmt.Errorf("failed to check if index exists: %w", err)
-	}
-	return count > 0, nil
-}
-
-// EnsureFetcherTables creates tables needed for fetcher auth and idempotency
-func (d *Database) EnsureFetcherTables(ctx context.Context) error {
-	stmts := []string{
-		`CREATE TABLE IF NOT EXISTS fetchers (
-            id INT UNSIGNED AUTO_INCREMENT,
-            fetcher_id VARCHAR(64) NOT NULL UNIQUE,
-            name VARCHAR(255) NOT NULL,
-            token_hash VARBINARY(64) NOT NULL,
-            scopes JSON NULL,
-            active BOOL NOT NULL DEFAULT TRUE,
-            last_used_at TIMESTAMP NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            PRIMARY KEY (id),
-            INDEX idx_active (active)
-        )`,
-		`CREATE TABLE IF NOT EXISTS external_ingest_index (
-            source VARCHAR(64) NOT NULL,
-            external_id VARCHAR(255) NOT NULL,
-            seq INT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            PRIMARY KEY (source, external_id),
-            INDEX idx_seq (seq)
-        )`,
-	}
-	for _, stmt := range stmts {
-		if _, err := d.db.ExecContext(ctx, stmt); err != nil {
-			return fmt.Errorf("failed to ensure table: %w", err)
-		}
-	}
-	return nil
-}
-
-// EnsureReportDetailsTable creates the report_details table to store structured metadata
-func (d *Database) EnsureReportDetailsTable(ctx context.Context) error {
-	stmt := `
-        CREATE TABLE IF NOT EXISTS report_details (
-            seq INT NOT NULL,
-            company_name VARCHAR(255),
-            product_name VARCHAR(255),
-            url VARCHAR(512),
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            PRIMARY KEY (seq),
-            CONSTRAINT fk_report_details_seq FOREIGN KEY (seq) REFERENCES reports(seq) ON DELETE CASCADE,
-            INDEX idx_company (company_name),
-            INDEX idx_product (product_name)
-        )`
-	if _, err := d.db.ExecContext(ctx, stmt); err != nil {
-		return fmt.Errorf("failed to ensure report_details table: %w", err)
-	}
-	return nil
 }
 
 // ValidateFetcherToken returns fetcher_id if the token hash exists and is active
@@ -427,26 +340,6 @@ func (d *Database) UpdateLastProcessedSeq(ctx context.Context, seq int) error {
 	_, err := d.db.ExecContext(ctx, query, seq)
 	if err != nil {
 		return fmt.Errorf("failed to update last processed seq: %w", err)
-	}
-
-	return nil
-}
-
-// EnsureServiceStateTable creates the service_state table if it doesn't exist
-func (d *Database) EnsureServiceStateTable(ctx context.Context) error {
-	query := `
-		CREATE TABLE IF NOT EXISTS service_state (
-			service_name VARCHAR(100) PRIMARY KEY,
-			last_processed_seq INT NOT NULL DEFAULT 0,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-			INDEX idx_service_name (service_name)
-		)
-	`
-
-	_, err := d.db.ExecContext(ctx, query)
-	if err != nil {
-		return fmt.Errorf("failed to create service_state table: %w", err)
 	}
 
 	return nil

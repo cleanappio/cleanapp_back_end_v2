@@ -104,7 +104,7 @@ PORT=8080
 HOST=0.0.0.0
 
 # Auth Service
-AUTH_SERVICE_URL=http://auth-service:8080
+JWT_SECRET=<jwt secret>
 
 # Brand Dashboard Configuration
 BRAND_NAMES=coca-cola,redbull,nike,adidas,pepsi,mcdonalds,starbucks,apple,samsung,microsoft
@@ -177,7 +177,7 @@ docker run -d \
   --name brand-dashboard \
   -p 8080:8080 \
   -e DB_HOST=production-mysql \
-  -e AUTH_SERVICE_URL=http://production-auth-service:8080 \
+  -e JWT_SECRET=<jwt-secret> \
   -e BRAND_NAMES=coca-cola,redbull,nike,adidas \
   brand-dashboard:latest
 ```

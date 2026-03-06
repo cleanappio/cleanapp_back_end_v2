@@ -12,7 +12,7 @@ The GDPR Process Service is a microservice designed to continuously monitor and 
 - Follows the same pattern as other services
 
 ### 2. Database Layer (`database/`)
-- **Schema Management** (`schema.go`): Creates GDPR tracking tables
+- **Schema Management** (`database/migrate.go` / `cmd/migrate`): Creates GDPR tracking tables
 - **Service Layer** (`service.go`): Handles database operations for GDPR processing
 - **Tables Created**:
   - `users_gdpr(id VARCHAR(255))` with unique index on id

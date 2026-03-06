@@ -185,34 +185,7 @@ Authorization: Bearer <token>
 
 ## Service Integration
 
-Other services can validate tokens by calling the `/api/v3/validate-token` endpoint:
-
-```go
-// Example integration in another service
-func validateTokenWithAuthService(token string) (string, error) {
-    resp, err := http.PostJSON("http://auth-service:8080/api/v3/validate-token", 
-        map[string]string{"token": token})
-    if err != nil {
-        return "", err
-    }
-    
-    var result struct {
-        Valid  bool   `json:"valid"`
-        UserID string `json:"user_id"`
-        Error  string `json:"error"`
-    }
-    
-    if err := json.Unmarshal(resp.Body, &result); err != nil {
-        return "", err
-    }
-    
-    if !result.Valid {
-        return "", errors.New(result.Error)
-    }
-    
-    return result.UserID, nil
-}
-```
+Other Go services should prefer local JWT verification against the shared `auth_tokens` table via `cleanapp-common/authx`. The `/api/v3/validate-token` endpoint remains available for compatibility and non-Go callers.
 
 ## Development
 
@@ -222,10 +195,13 @@ go test ./...
 ```
 
 ### Database Migrations
-Migrations are automatically applied on service startup. To add a new migration:
+Run explicit migrations instead of relying on service startup mutation:
 
-1. Add a new migration to `database/schema.go`
-2. The service will automatically apply it on startup
+```bash
+go run ./cmd/migrate
+```
+
+Add new migration steps in `database/migrate.go`.
 
 #### Important: Table Renaming Migration
 If you're upgrading from a previous version that used the `users` table, you'll need to run the migration to rename it to `client_auth`:

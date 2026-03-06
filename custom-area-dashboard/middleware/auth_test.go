@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -17,30 +18,10 @@ func TestExtractToken(t *testing.T) {
 		expected    string
 		shouldError bool
 	}{
-		{
-			name:        "valid bearer token",
-			authHeader:  "Bearer test-token-123",
-			expected:    "test-token-123",
-			shouldError: false,
-		},
-		{
-			name:        "missing bearer prefix",
-			authHeader:  "test-token-123",
-			expected:    "",
-			shouldError: true,
-		},
-		{
-			name:        "empty header",
-			authHeader:  "",
-			expected:    "",
-			shouldError: true,
-		},
-		{
-			name:        "bearer with empty token",
-			authHeader:  "Bearer ",
-			expected:    "",
-			shouldError: true,
-		},
+		{name: "valid bearer token", authHeader: "Bearer test-token-123", expected: "test-token-123"},
+		{name: "missing bearer prefix", authHeader: "test-token-123", shouldError: true},
+		{name: "empty header", authHeader: "", shouldError: true},
+		{name: "bearer with empty token", authHeader: "Bearer ", shouldError: true},
 	}
 
 	for _, tt := range tests {
@@ -58,32 +39,18 @@ func TestExtractToken(t *testing.T) {
 
 func TestAuthMiddleware(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	cfg := &config.Config{
-		AuthServiceURL: "http://localhost:8080",
-	}
+	cfg := &config.Config{JWTSecret: "dev-jwt-secret"}
 
-	middleware := AuthMiddleware(cfg)
+	middleware := AuthMiddleware(cfg, (*sql.DB)(nil))
 
 	tests := []struct {
 		name           string
 		authHeader     string
 		expectedStatus int
 	}{
-		{
-			name:           "missing authorization header",
-			authHeader:     "",
-			expectedStatus: http.StatusUnauthorized,
-		},
-		{
-			name:           "invalid authorization format",
-			authHeader:     "InvalidFormat token123",
-			expectedStatus: http.StatusUnauthorized,
-		},
-		{
-			name:           "valid bearer format",
-			authHeader:     "Bearer test-token",
-			expectedStatus: http.StatusUnauthorized, // Will fail because auth-service is not running
-		},
+		{name: "missing authorization header", expectedStatus: http.StatusUnauthorized},
+		{name: "invalid authorization format", authHeader: "InvalidFormat token123", expectedStatus: http.StatusUnauthorized},
+		{name: "valid bearer format", authHeader: "Bearer test-token", expectedStatus: http.StatusUnauthorized},
 	}
 
 	for _, tt := range tests {
@@ -95,7 +62,6 @@ func TestAuthMiddleware(t *testing.T) {
 				c.Request.Header.Set("Authorization", tt.authHeader)
 			}
 
-			// Call middleware
 			middleware(c)
 
 			if w.Code != tt.expectedStatus {
@@ -109,17 +75,11 @@ func TestGetUserIDFromContext(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-
-	// Test with no user ID in context
-	userID := GetUserIDFromContext(c)
-	if userID != "" {
+	if userID := GetUserIDFromContext(c); userID != "" {
 		t.Errorf("expected empty user ID, got %s", userID)
 	}
-
-	// Test with user ID in context
 	c.Set("user_id", "test-user-123")
-	userID = GetUserIDFromContext(c)
-	if userID != "test-user-123" {
+	if userID := GetUserIDFromContext(c); userID != "test-user-123" {
 		t.Errorf("expected test-user-123, got %s", userID)
 	}
 }
@@ -128,17 +88,11 @@ func TestGetTokenFromContext(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-
-	// Test with no token in context
-	token := GetTokenFromContext(c)
-	if token != "" {
+	if token := GetTokenFromContext(c); token != "" {
 		t.Errorf("expected empty token, got %s", token)
 	}
-
-	// Test with token in context
 	c.Set("token", "test-token-123")
-	token = GetTokenFromContext(c)
-	if token != "test-token-123" {
+	if token := GetTokenFromContext(c); token != "test-token-123" {
 		t.Errorf("expected test-token-123, got %s", token)
 	}
 }

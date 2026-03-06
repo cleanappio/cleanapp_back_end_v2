@@ -164,3 +164,129 @@ func addCustomerAreasIsPublic(ctx context.Context, db *sql.DB) error {
 func addCustomerBrandsIsPublic(ctx context.Context, db *sql.DB) error {
 	return addIsPublicFieldToCustomerBrands(db)
 }
+
+func addAreaIdForeignKeyToCustomerAreas(db *sql.DB) error {
+	var count int
+	if err := db.QueryRow(`
+		SELECT COUNT(*)
+		FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+		WHERE TABLE_SCHEMA = DATABASE()
+		AND TABLE_NAME = 'customer_areas'
+		AND REFERENCED_TABLE_NAME = 'areas'`).Scan(&count); err != nil {
+		return fmt.Errorf("check customer_areas.area_id foreign key: %w", err)
+	}
+	if count > 0 {
+		return nil
+	}
+	_, err := db.Exec(`
+		ALTER TABLE customer_areas
+		ADD CONSTRAINT fk_customer_areas_area_id
+		FOREIGN KEY (area_id) REFERENCES areas(id) ON DELETE CASCADE
+	`)
+	if err != nil {
+		return fmt.Errorf("add customer_areas.area_id foreign key: %w", err)
+	}
+	return nil
+}
+
+func addCustomerIdForeignKeyToCustomerAreas(db *sql.DB) error {
+	var count int
+	if err := db.QueryRow(`
+		SELECT COUNT(*)
+		FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+		WHERE TABLE_SCHEMA = DATABASE()
+		AND TABLE_NAME = 'customer_areas'
+		AND REFERENCED_TABLE_NAME = 'customers'`).Scan(&count); err != nil {
+		return fmt.Errorf("check customer_areas.customer_id foreign key: %w", err)
+	}
+	if count > 0 {
+		return nil
+	}
+	_, err := db.Exec(`
+		ALTER TABLE customer_areas
+		ADD CONSTRAINT fk_customer_areas_customer_id
+		FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
+	`)
+	if err != nil {
+		return fmt.Errorf("add customer_areas.customer_id foreign key: %w", err)
+	}
+	return nil
+}
+
+func addIsPublicFieldToCustomerAreas(db *sql.DB) error {
+	var count int
+	if err := db.QueryRow(`
+		SELECT COUNT(*)
+		FROM INFORMATION_SCHEMA.COLUMNS
+		WHERE TABLE_SCHEMA = DATABASE()
+		AND TABLE_NAME = 'customer_areas'
+		AND COLUMN_NAME = 'is_public'`).Scan(&count); err != nil {
+		return fmt.Errorf("check customer_areas.is_public column: %w", err)
+	}
+	if count == 0 {
+		if _, err := db.Exec(`
+			ALTER TABLE customer_areas
+			ADD COLUMN is_public BOOLEAN DEFAULT FALSE
+		`); err != nil {
+			return fmt.Errorf("add customer_areas.is_public column: %w", err)
+		}
+	}
+
+	var idxCount int
+	if err := db.QueryRow(`
+		SELECT COUNT(*)
+		FROM INFORMATION_SCHEMA.STATISTICS
+		WHERE TABLE_SCHEMA = DATABASE()
+		AND TABLE_NAME = 'customer_areas'
+		AND INDEX_NAME = 'idx_customer_areas_is_public'`).Scan(&idxCount); err != nil {
+		return fmt.Errorf("check customer_areas.is_public index: %w", err)
+	}
+	if idxCount == 0 {
+		if _, err := db.Exec(`
+			ALTER TABLE customer_areas
+			ADD INDEX idx_customer_areas_is_public (is_public)
+		`); err != nil {
+			return fmt.Errorf("add customer_areas.is_public index: %w", err)
+		}
+	}
+	return nil
+}
+
+func addIsPublicFieldToCustomerBrands(db *sql.DB) error {
+	var count int
+	if err := db.QueryRow(`
+		SELECT COUNT(*)
+		FROM INFORMATION_SCHEMA.COLUMNS
+		WHERE TABLE_SCHEMA = DATABASE()
+		AND TABLE_NAME = 'customer_brands'
+		AND COLUMN_NAME = 'is_public'`).Scan(&count); err != nil {
+		return fmt.Errorf("check customer_brands.is_public column: %w", err)
+	}
+	if count == 0 {
+		if _, err := db.Exec(`
+			ALTER TABLE customer_brands
+			ADD COLUMN is_public BOOLEAN DEFAULT FALSE
+		`); err != nil {
+			return fmt.Errorf("add customer_brands.is_public column: %w", err)
+		}
+	}
+
+	var idxCount int
+	if err := db.QueryRow(`
+		SELECT COUNT(*)
+		FROM INFORMATION_SCHEMA.STATISTICS
+		WHERE TABLE_SCHEMA = DATABASE()
+		AND TABLE_NAME = 'customer_brands'
+		AND INDEX_NAME = 'idx_customer_brands_is_public'`).Scan(&idxCount); err != nil {
+		return fmt.Errorf("check customer_brands.is_public index: %w", err)
+	}
+	if idxCount == 0 {
+		if _, err := db.Exec(`
+			ALTER TABLE customer_brands
+			ADD INDEX idx_customer_brands_is_public (is_public)
+		`); err != nil {
+			return fmt.Errorf("add customer_brands.is_public index: %w", err)
+		}
+	}
+	return nil
+}

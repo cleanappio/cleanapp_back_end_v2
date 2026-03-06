@@ -4,6 +4,7 @@ import (
 	"cleanapp-common/edge"
 	"cleanapp-common/serverx"
 	"context"
+	"database/sql"
 	"log"
 	"net/http"
 	"os"
@@ -22,27 +23,21 @@ import (
 )
 
 func main() {
-	// Load configuration
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatal("Failed to load configuration:", err)
 	}
 
-	// Create database connection
 	db, err := database.NewDatabase(cfg)
 	if err != nil {
 		log.Fatal("Failed to create database connection:", err)
 	}
 	defer db.Close()
 
-	// Create auth client
-	authClient := database.NewAuthClient(cfg.AuthServiceURL)
-
 	if cfg.RunDBMigrations {
 		log.Printf("Runtime DB migrations are disabled at service boot. Run report-processor/cmd/migrate instead.")
 	}
 
-	// Initialize RabbitMQ publisher for tag processing
 	var rabbitmqPublisher *rabbitmq.Publisher
 	amqpURL := cfg.GetAMQPURL()
 	publisher, err := rabbitmq.NewPublisher(amqpURL, cfg.RabbitMQExchange, cfg.RabbitMQRawReportRoutingKey)
@@ -54,16 +49,10 @@ func main() {
 		log.Printf("RabbitMQ publisher initialized: exchange=%s, routing_key=%s", cfg.RabbitMQExchange, cfg.RabbitMQRawReportRoutingKey)
 	}
 
-	// Create handlers
 	h := handlers.NewHandlers(db, cfg, rabbitmqPublisher)
-
-	// Setup HTTP server
-	router := setupRouter(cfg, h, authClient)
-
-	// Create HTTP server
+	router := setupRouter(cfg, h, db.GetDB())
 	srv := serverx.New(":"+cfg.Port, router)
 
-	// Start server in a goroutine
 	go func() {
 		log.Printf("Starting HTTP server on port %s", cfg.Port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -71,23 +60,18 @@ func main() {
 		}
 	}()
 
-	// Wait for interrupt signal to gracefully shutdown the server
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
 	log.Println("Shutting down server...")
 
-	// Create a deadline for server shutdown
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-
-	// Shutdown the HTTP server
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Fatal("Server forced to shutdown:", err)
 	}
 
-	// Close RabbitMQ publisher if it was initialized
 	if rabbitmqPublisher != nil {
 		if err := rabbitmqPublisher.Close(); err != nil {
 			log.Printf("Failed to close RabbitMQ publisher: %v", err)
@@ -99,55 +83,33 @@ func main() {
 	log.Println("Server exited")
 }
 
-func setupRouter(cfg *config.Config, h *handlers.Handlers, authClient *database.AuthClient) *gin.Engine {
+func setupRouter(cfg *config.Config, h *handlers.Handlers, db *sql.DB) *gin.Engine {
 	router := gin.Default()
 
 	router.Use(edge.SecurityHeaders())
 	router.Use(edge.RequestBodyLimit(1 << 20))
-	router.Use(edge.RateLimitMiddleware(edge.RateLimitConfig{
-		RPS:   cfg.RateLimitRPS,
-		Burst: cfg.RateLimitBurst,
-	}))
-	router.Use(edge.CORSMiddleware(edge.CORSConfig{
-		AllowedOrigins: cfg.AllowedOrigins,
-		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-	}))
+	router.Use(edge.RateLimitMiddleware(edge.RateLimitConfig{RPS: cfg.RateLimitRPS, Burst: cfg.RateLimitBurst}))
+	router.Use(edge.CORSMiddleware(edge.CORSConfig{AllowedOrigins: cfg.AllowedOrigins, AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}}))
 
-	// API routes
 	api := router.Group("/api/v3")
 	{
 		api.GET("/version", func(c *gin.Context) {
 			c.JSON(200, version.Get("report-processor"))
 		})
 
-		// Protected routes (require authentication)
 		protected := api.Group("/reports")
-		protected.Use(middleware.AuthMiddleware(cfg, authClient))
+		protected.Use(middleware.AuthMiddleware(cfg, db))
 		{
-			// Mark report as resolved endpoint
 			protected.POST("/mark_resolved", h.MarkResolved)
 		}
 
-		// Public routes
-		{
-			// Get report status endpoint
-			api.GET("/reports/status", h.GetReportStatus)
-
-			// Get report status count endpoint
-			api.GET("/reports/status/count", h.GetReportStatusCount)
-
-			// Match report endpoint
-			api.POST("/match_report", h.MatchReport)
-
-			// Get response endpoint
-			api.GET("/responses/get", h.GetResponse)
-
-			// Get responses by status endpoint
-			api.GET("/responses/by_status", h.GetResponsesByStatus)
-		}
+		api.GET("/reports/status", h.GetReportStatus)
+		api.GET("/reports/status/count", h.GetReportStatusCount)
+		api.POST("/match_report", h.MatchReport)
+		api.GET("/responses/get", h.GetResponse)
+		api.GET("/responses/by_status", h.GetResponsesByStatus)
 	}
 
-	// Root health check
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{
 			"status":  "healthy",

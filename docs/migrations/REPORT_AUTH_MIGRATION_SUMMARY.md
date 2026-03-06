@@ -147,7 +147,7 @@ The report-auth service now requires authentication for the `/reports/authorizat
 
 ### For External Clients:
 - Must include a valid JWT token in the `Authorization: Bearer <token>` header
-- Token is validated by calling the auth-service's `/api/v3/validate-token` endpoint
+- Go services now prefer local JWT validation via the shared `JWT_SECRET`; `/api/v3/validate-token` remains available for compatibility and non-Go callers
 
 ### For Internal Services (like auth-service):
 - Can use the `X-User-ID: <user_id>` header for direct communication

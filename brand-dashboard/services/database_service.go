@@ -22,7 +22,6 @@ type DatabaseService struct {
 
 // NewDatabaseService creates a new database service
 func NewDatabaseService(cfg *config.Config) (*DatabaseService, error) {
-	// Create DSN using config parameters
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true",
 		cfg.DBUser, cfg.DBPassword, cfg.DBHost, cfg.DBPort, cfg.DBName)
 
@@ -297,4 +296,8 @@ func (s *DatabaseService) getBrandReportCounts(userID string) (map[string]int, e
 		return nil, fmt.Errorf("error iterating brand report counts: %w", err)
 	}
 	return out, nil
+}
+
+func (s *DatabaseService) DB() *sql.DB {
+	return s.db
 }
