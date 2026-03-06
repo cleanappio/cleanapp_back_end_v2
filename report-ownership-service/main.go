@@ -41,9 +41,9 @@ func main() {
 		log.Fatal("Failed to start service:", err)
 	}
 	router := setupRouter(svc)
-	srv := serverx.New(":8082", router)
+	srv := serverx.New(":"+cfg.Port, router)
 	go func() {
-		log.Printf("Starting HTTP server on port 8082")
+		log.Printf("Starting HTTP server on port %s", cfg.Port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatal("Failed to start HTTP server:", err)
 		}

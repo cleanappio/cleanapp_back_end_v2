@@ -13,6 +13,7 @@ type Config struct {
 	DBUser                           string
 	DBPassword                       string
 	DBName                           string
+	Port                             string
 	PollInterval                     time.Duration
 	BatchSize                        int
 	RabbitMQHost                     string
@@ -44,6 +45,7 @@ func Load() (*Config, error) {
 		DBUser:                           appenv.String("DB_USER", "server"),
 		DBPassword:                       dbPassword,
 		DBName:                           appenv.String("DB_NAME", "cleanapp"),
+		Port:                             appenv.String("PORT", "8080"),
 		PollInterval:                     appenv.Duration("POLL_INTERVAL", 30*time.Second),
 		BatchSize:                        appenv.Int("BATCH_SIZE", 100),
 		RabbitMQHost:                     appenv.String("AMQP_HOST", "localhost"),

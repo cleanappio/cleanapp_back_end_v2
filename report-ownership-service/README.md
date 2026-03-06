@@ -49,6 +49,7 @@ Environment variables:
 - `DB_NAME` - Database name (default: cleanapp)
 - `POLL_INTERVAL` - Polling interval (default: 30s)
 - `BATCH_SIZE` - Batch size for processing (default: 100)
+- `PORT` - HTTP port (default: 8080)
 - `LOG_LEVEL` - Logging level (default: info)
 
 ## API Endpoints

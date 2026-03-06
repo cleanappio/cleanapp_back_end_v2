@@ -2,7 +2,7 @@
 
 # Test script for report-ownership-service
 
-SERVICE_URL="http://localhost:8082"
+SERVICE_URL="http://localhost:8080"
 
 echo "Testing Report Ownership Service"
 echo "================================"
@@ -32,7 +32,7 @@ echo "4. Service information:"
 echo "   - Health endpoint: $SERVICE_URL/health"
 echo "   - Status endpoint: $SERVICE_URL/status"
 echo "   - Reports with no owners: $SERVICE_URL/reports/no-owners"
-echo "   - Port: 8082"
+echo "   - Port: 8080"
 echo ""
 
 echo "5. To view service logs:"
