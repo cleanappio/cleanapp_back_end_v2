@@ -156,6 +156,12 @@ ensure_policy_dlx "dlx-report-renderer-queue" "report-renderer-queue" "report-re
 ensure_binding "cleanapp-exchange" "report-renderer-queue" "report.analysed"
 ensure_retry_for_queue "report-renderer-queue"
 
+ensure_queue "report-ownership-queue" '{"x-queue-type":"classic"}'
+ensure_queue "report-ownership-queue.dlq" '{"x-queue-type":"classic"}'
+ensure_policy_dlx "dlx-report-ownership-queue" "report-ownership-queue" "report-ownership-queue.dlq"
+ensure_binding "cleanapp-exchange" "report-ownership-queue" "report.analysed"
+ensure_retry_for_queue "report-ownership-queue"
+
 ensure_queue "twitter-reply-queue" '{"x-queue-type":"classic"}'
 ensure_queue "twitter-reply-queue.dlq" '{"x-queue-type":"classic"}'
 ensure_policy_dlx "dlx-twitter-reply-queue" "twitter-reply-queue" "twitter-reply-queue.dlq"

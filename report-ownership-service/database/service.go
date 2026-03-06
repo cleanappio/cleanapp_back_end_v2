@@ -224,10 +224,24 @@ func (s *OwnershipService) GetReportWithAnalysis(ctx context.Context, seq int) (
 
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT
-			seq, source, analysis_text, analysis_image, title, description,
-			brand_name, brand_display_name, litter_probability, hazard_probability,
-			digital_bug_probability, severity_level, summary, language,
-			classification, is_valid, inferred_contact_emails, created_at, updated_at
+			seq,
+			COALESCE(source, '') AS source,
+			COALESCE(analysis_text, '') AS analysis_text,
+			analysis_image,
+			COALESCE(title, '') AS title,
+			COALESCE(description, '') AS description,
+			COALESCE(brand_name, '') AS brand_name,
+			COALESCE(brand_display_name, '') AS brand_display_name,
+			COALESCE(litter_probability, 0.0) AS litter_probability,
+			COALESCE(hazard_probability, 0.0) AS hazard_probability,
+			COALESCE(digital_bug_probability, 0.0) AS digital_bug_probability,
+			COALESCE(severity_level, 0.0) AS severity_level,
+			COALESCE(summary, '') AS summary,
+			COALESCE(language, '') AS language,
+			COALESCE(classification, '') AS classification,
+			is_valid,
+			COALESCE(inferred_contact_emails, '') AS inferred_contact_emails,
+			created_at, updated_at
 		FROM report_analysis
 		WHERE seq = ?
 		ORDER BY (language = 'en') DESC, updated_at DESC, created_at DESC

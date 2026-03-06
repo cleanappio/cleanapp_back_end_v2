@@ -445,7 +445,11 @@ func (s *Subscriber) Start(routingKeyCallbacks map[string]CallbackFunc) error {
 									Timestamp:    delivery.Timestamp,
 								}
 								s.opMu.Lock()
-								publishErr = s.channel.Publish(retryExchange, delivery.RoutingKey, false, false, pub)
+								if s.channel == nil {
+									publishErr = amqp.ErrClosed
+								} else {
+									publishErr = s.channel.Publish(retryExchange, delivery.RoutingKey, false, false, pub)
+								}
 								if publishErr == nil {
 									ackErr = delivery.Ack(false)
 								} else {
