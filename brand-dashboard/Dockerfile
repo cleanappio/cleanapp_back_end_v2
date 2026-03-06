@@ -1,10 +1,12 @@
-FROM golang:1.21-alpine AS builder
+FROM golang:1.24-alpine AS builder
 
 # Install git and ca-certificates
 RUN apk add --no-cache git ca-certificates
 
 # Set working directory
 WORKDIR /app
+
+COPY go-common /go-common
 
 # Copy go mod files
 COPY go.mod go.sum ./
