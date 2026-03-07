@@ -45,6 +45,12 @@ type Config struct {
 	FetcherIngestMaxBatchItems     int
 	FetcherIngestMaxBodyBytes      int64
 	InternalAdminToken             string
+
+	CleanAppWireEnabled             bool
+	CleanAppWireBatchEnabled        bool
+	CleanAppWirePriorityLaneEnabled bool
+	CleanAppWireStrictSignature     bool
+	CleanAppWirePublishLaneMinTier  int
 }
 
 func Load() (*Config, error) {
@@ -96,6 +102,12 @@ func Load() (*Config, error) {
 		FetcherIngestMaxBatchItems:     appenv.Int("FETCHER_INGEST_MAX_BATCH_ITEMS", 100),
 		FetcherIngestMaxBodyBytes:      appenv.Int64("FETCHER_INGEST_MAX_BODY_BYTES", 2*1024*1024),
 		InternalAdminToken:             appenv.String("INTERNAL_ADMIN_TOKEN", ""),
+
+		CleanAppWireEnabled:             appenv.Bool("CLEANAPP_WIRE_ENABLED", true),
+		CleanAppWireBatchEnabled:        appenv.Bool("CLEANAPP_WIRE_BATCH_ENABLED", true),
+		CleanAppWirePriorityLaneEnabled: appenv.Bool("CLEANAPP_WIRE_PRIORITY_LANE_ENABLED", false),
+		CleanAppWireStrictSignature:     appenv.Bool("CLEANAPP_WIRE_STRICT_SIGNATURE", false),
+		CleanAppWirePublishLaneMinTier:  appenv.Int("CLEANAPP_WIRE_PUBLISH_LANE_MIN_TIER", 2),
 	}
 
 	if config.BroadcastInterval <= 0 {

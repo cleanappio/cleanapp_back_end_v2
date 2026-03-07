@@ -1,4 +1,4 @@
-.PHONY: help gitleaks hooks ci ci-go ci-analyzer ci-ingest-v1 fmt-go test-go vet-go lint-go rust-fmt rust-clippy analyzer-build-dev analyzer-tag-prod prometheus-install watchdog-install deploy-prod deploy-prod-source report-auth-up report-auth-down report-auth-logs report-auth-test
+.PHONY: help gitleaks hooks ci ci-go ci-analyzer ci-ingest-v1 ci-cleanapp-wire fmt-go test-go vet-go lint-go rust-fmt rust-clippy analyzer-build-dev analyzer-tag-prod prometheus-install watchdog-install deploy-prod deploy-prod-source report-auth-up report-auth-down report-auth-logs report-auth-test
 
 help:
 	@echo "Common commands:"
@@ -13,6 +13,7 @@ help:
 	@echo "  make rust-clippy         - cargo clippy (selected Rust crates; requires Rust toolchain)"
 	@echo "  make ci-analyzer         - run analyzer golden-path locally (requires docker)"
 	@echo "  make ci-ingest-v1        - run v1 fetcher-key ingest golden-path (requires docker)"
+	@echo "  make ci-cleanapp-wire    - run CleanApp Wire golden-path locally (requires docker)"
 	@echo "  make analyzer-build-dev  - build+push analyzer image to :dev (Cloud Build)"
 	@echo "  make analyzer-tag-prod   - promote analyzer :dev build to :prod tag (legacy; prefer deploy-prod-source)"
 	@echo "  make prometheus-install  - install prod Prometheus (HOST=deployer@<ip>)"
@@ -24,7 +25,7 @@ help:
 	@echo "  make report-auth-down    - stop local report-auth stack"
 	@echo "  make report-auth-test    - curl/jq smoke test against local report-auth endpoints"
 
-ci: gitleaks ci-go rust-fmt ci-analyzer ci-ingest-v1
+ci: gitleaks ci-go rust-fmt ci-analyzer ci-ingest-v1 ci-cleanapp-wire
 
 ci-go: fmt-go test-go vet-go
 
@@ -57,6 +58,9 @@ ci-analyzer:
 
 ci-ingest-v1:
 	./platform_blueprint/tests/ci/ingest-v1/run.sh
+
+ci-cleanapp-wire:
+	./platform_blueprint/tests/ci/cleanapp-wire/run.sh
 
 analyzer-build-dev:
 	cd report-analyze-pipeline && CLOUDSDK_CONFIG=/tmp/codex-gcloud-cleanapp ./build_image.sh -e dev

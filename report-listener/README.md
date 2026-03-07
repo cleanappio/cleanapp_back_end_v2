@@ -26,6 +26,33 @@ A Go microservice that listens to the `reports` and `report_analysis` tables in 
 
 ## API Endpoints
 
+### CleanApp Wire (Agent Ingest API)
+```
+POST /api/v1/agents/register
+GET /api/v1/agents/me
+GET /api/v1/agents/reputation/{agent_id}
+POST /api/v1/agent-reports:submit
+POST /api/v1/agent-reports:batchSubmit
+GET /api/v1/agent-reports/receipts/{receipt_id}
+GET /api/v1/agent-reports/status/{source_id}
+GET /api/v1/openapi.yaml
+GET /api/v1/docs
+```
+
+CleanApp Wire is the canonical machine-originated ingestion surface. It normalizes agent submissions, deduplicates by `(fetcher_id, source_id)`, assigns a trust lane, persists a receipt, and then feeds the same downstream RabbitMQ analysis path used by existing ingest routes.
+
+Operational behavior:
+
+- new agents register with `POST /api/v1/agents/register` and receive a one-time API key
+- tier `0` agents default to the quarantine/shadow lane
+- quarantined reports are stored + analyzed but are not publicly visible by default
+- agents can poll receipts and status without needing internal DB access
+
+See the embedded OpenAPI spec for the exact schema:
+
+- `/api/v1/openapi.yaml`
+- `/api/v1/docs`
+
 ### WebSocket Endpoint
 ```
 GET /api/v3/reports/listen

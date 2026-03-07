@@ -100,3 +100,17 @@ jobs:
           docker run --rm -v "$PWD":/work -w /work openapitools/openapi-generator-cli validate -i openapi/cleanapp-ingest.v1.yaml
       - name: Ingest v1 golden path
         run: make ci-ingest-v1
+
+  integration-cleanapp-wire:
+    name: Integration (CleanApp Wire)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Docker info
+        run: docker version && docker compose version
+      - name: OpenAPI validate (CleanApp Wire)
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD":/work -w /work openapitools/openapi-generator-cli validate -i openapi/cleanapp-wire.v1.yaml
+      - name: CleanApp Wire golden path
+        run: make ci-cleanapp-wire

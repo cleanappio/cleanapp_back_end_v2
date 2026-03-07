@@ -305,6 +305,59 @@ CLI command mapping (v0.1.0):
 | `cleanapp metrics` | `GET /v1/fetchers/me/metrics` | Falls back to `/v1/fetchers/me` if metrics endpoint not present |
 | `cleanapp presign --file ...` | `POST /v1/media:presign` | CLI supports it; endpoint availability depends on backend deployment |
 
+### CleanApp Wire (`/api/v1`)
+
+CleanApp Wire is the canonical agent-ingestion protocol layered on top of the existing fetcher/quarantine ingest lane.
+
+- source of truth implementation: `report-listener`
+- OpenAPI docs:
+  - `/api/v1/openapi.yaml`
+  - `/api/v1/docs`
+- trust lanes:
+  - `quarantine`
+  - `shadow`
+  - `publish`
+  - `priority` (feature-gated)
+
+```mermaid
+flowchart LR
+    AG["External/Internal Agent"] --> REG["POST /api/v1/agents/register"]
+    AG --> SUB["POST /api/v1/agent-reports:submit"]
+    AG --> BATCH["POST /api/v1/agent-reports:batchSubmit"]
+    SUB --> NORM["CleanApp Wire normalizer"]
+    BATCH --> NORM
+    NORM --> DEDUPE["Idempotency check (fetcher_id + source_id)"]
+    DEDUPE --> LANE["Lane assignment (quarantine/shadow/publish/priority)"]
+    LANE --> RAW["reports + report_raw persisted"]
+    RAW --> RMQ["RabbitMQ: report.raw"]
+    RMQ --> ANALYZE["report-analyze-pipeline"]
+    RAW --> RECEIPT["wire_submission_receipts"]
+    AG --> LOOKUP["GET /api/v1/agent-reports/receipts/{receipt_id}\nGET /api/v1/agent-reports/status/{source_id}"]
+    LOOKUP --> RECEIPT
+```
+
+Primary endpoints:
+
+| Endpoint | Purpose |
+|----------|---------|
+| `POST /api/v1/agents/register` | One-time API key issuance for a new machine actor |
+| `GET /api/v1/agents/me` | Authenticated agent profile, caps, and tier |
+| `GET /api/v1/agents/reputation/{agent_id}` | Authenticated agent reputation metrics |
+| `POST /api/v1/agent-reports:submit` | Canonical single-submission path |
+| `POST /api/v1/agent-reports:batchSubmit` | Canonical batch path |
+| `GET /api/v1/agent-reports/receipts/{receipt_id}` | Receipt lookup |
+| `GET /api/v1/agent-reports/status/{source_id}` | Source-id status lookup |
+
+Operational semantics:
+
+- New agents default to tier `0`, which maps to quarantine-first ingestion.
+- Quarantined/shadowed reports are stored and analyzed but not public by default.
+- CleanApp Wire persists its own audit/receipt tables:
+  - `wire_submissions_raw`
+  - `wire_submission_receipts`
+  - `wire_agent_reputation_metrics`
+- Promotion to public remains an internal/admin action through the existing promotion controls.
+
 ### API Endpoints by Service
 
 #### Auth Service (`:9084`)

@@ -133,3 +133,102 @@ func ensureIntelligenceTables(ctx context.Context, db *sql.DB) error {
 	}
 	return nil
 }
+
+func ensureCleanAppWireTables(ctx context.Context, db *sql.DB) error {
+	stmts := []string{
+		`CREATE TABLE IF NOT EXISTS wire_submissions_raw (
+			submission_id VARCHAR(64) NOT NULL,
+			receipt_id VARCHAR(64) NOT NULL,
+			fetcher_id VARCHAR(64) NOT NULL,
+			key_id CHAR(36) NULL,
+			source_id VARCHAR(255) NOT NULL,
+			schema_version VARCHAR(32) NOT NULL,
+			submitted_at TIMESTAMP NOT NULL,
+			observed_at TIMESTAMP NULL,
+			agent_id VARCHAR(128) NOT NULL,
+			lane VARCHAR(16) NOT NULL,
+			material_hash CHAR(64) NOT NULL,
+			submission_quality FLOAT NOT NULL DEFAULT 0,
+			report_seq INT NULL,
+			agent_json JSON NULL,
+			provenance_json JSON NULL,
+			report_json JSON NULL,
+			dedupe_json JSON NULL,
+			delivery_json JSON NULL,
+			extensions_json JSON NULL,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			PRIMARY KEY (submission_id),
+			UNIQUE KEY uniq_wire_receipt_id (receipt_id),
+			UNIQUE KEY uniq_wire_fetcher_source (fetcher_id, source_id),
+			KEY idx_wire_fetcher_created (fetcher_id, created_at),
+			KEY idx_wire_lane_created (lane, created_at),
+			CONSTRAINT fk_wire_submission_fetcher FOREIGN KEY (fetcher_id) REFERENCES fetchers(fetcher_id) ON DELETE CASCADE,
+			CONSTRAINT fk_wire_submission_report FOREIGN KEY (report_seq) REFERENCES reports(seq) ON DELETE SET NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS wire_submission_receipts (
+			receipt_id VARCHAR(64) NOT NULL,
+			submission_id VARCHAR(64) NOT NULL,
+			fetcher_id VARCHAR(64) NOT NULL,
+			source_id VARCHAR(255) NOT NULL,
+			report_seq INT NULL,
+			status VARCHAR(32) NOT NULL,
+			lane VARCHAR(16) NOT NULL,
+			idempotency_replay BOOL NOT NULL DEFAULT FALSE,
+			rejection_code VARCHAR(64) NULL,
+			warnings_json JSON NULL,
+			next_check_after TIMESTAMP NULL,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			PRIMARY KEY (receipt_id),
+			UNIQUE KEY uniq_wire_receipt_submission (submission_id),
+			KEY idx_wire_receipts_fetcher_source (fetcher_id, source_id, created_at),
+			CONSTRAINT fk_wire_receipt_submission FOREIGN KEY (submission_id) REFERENCES wire_submissions_raw(submission_id) ON DELETE CASCADE
+		)`,
+		`CREATE TABLE IF NOT EXISTS wire_agent_reputation_metrics (
+			fetcher_id VARCHAR(64) NOT NULL,
+			precision_score FLOAT NOT NULL DEFAULT 0.45,
+			novelty_score FLOAT NOT NULL DEFAULT 0.45,
+			evidence_score FLOAT NOT NULL DEFAULT 0.45,
+			routing_score FLOAT NOT NULL DEFAULT 0.45,
+			corroboration_score FLOAT NOT NULL DEFAULT 0.45,
+			latency_score FLOAT NOT NULL DEFAULT 0.45,
+			resolution_score FLOAT NOT NULL DEFAULT 0.45,
+			policy_score FLOAT NOT NULL DEFAULT 0.45,
+			dedupe_penalty FLOAT NOT NULL DEFAULT 0,
+			abuse_penalty FLOAT NOT NULL DEFAULT 0,
+			reputation_score FLOAT NOT NULL DEFAULT 0.45,
+			sample_size INT NOT NULL DEFAULT 0,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			PRIMARY KEY (fetcher_id),
+			CONSTRAINT fk_wire_reputation_fetcher FOREIGN KEY (fetcher_id) REFERENCES fetchers(fetcher_id) ON DELETE CASCADE
+		)`,
+		`CREATE TABLE IF NOT EXISTS wire_issue_clusters (
+			cluster_id VARCHAR(64) NOT NULL,
+			status VARCHAR(32) NOT NULL DEFAULT 'stub',
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			PRIMARY KEY (cluster_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS wire_reward_records (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			fetcher_id VARCHAR(64) NOT NULL,
+			report_seq INT NULL,
+			reward_points FLOAT NOT NULL DEFAULT 0,
+			status VARCHAR(32) NOT NULL DEFAULT 'pending',
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			PRIMARY KEY (id),
+			KEY idx_wire_reward_fetcher_created (fetcher_id, created_at),
+			CONSTRAINT fk_wire_reward_fetcher FOREIGN KEY (fetcher_id) REFERENCES fetchers(fetcher_id) ON DELETE CASCADE,
+			CONSTRAINT fk_wire_reward_report FOREIGN KEY (report_seq) REFERENCES reports(seq) ON DELETE SET NULL
+		)`,
+	}
+	for _, stmt := range stmts {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("failed to ensure CleanApp Wire table: %w", err)
+		}
+	}
+	return nil
+}

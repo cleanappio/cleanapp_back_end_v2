@@ -240,6 +240,31 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 		}
 	}
 
+	// CleanApp Wire v1 (canonical agent submission surface).
+	apiV1 := router.Group("/api/v1")
+	{
+		apiV1.GET("/openapi.yaml", h.ServeCleanAppWireOpenAPI)
+		apiV1.GET("/docs", h.ServeCleanAppWireSwaggerUI)
+
+		apiV1.POST("/agents/register", h.RegisterAgentV1)
+
+		apiV1Auth := apiV1.Group("/")
+		apiV1Auth.Use(middleware.FetcherKeyAuthV1(h.Db(), cfg.FetcherKeyEnv, "fetcher:read"))
+		{
+			apiV1Auth.GET("/agents/me", h.GetAgentMeV1)
+			apiV1Auth.GET("/agents/reputation/:agent_id", h.GetAgentReputationV1)
+			apiV1Auth.GET("/agent-reports/receipts/:receipt_id", h.GetCleanAppWireReceiptV1)
+			apiV1Auth.GET("/agent-reports/status/:source_id", h.GetCleanAppWireStatusV1)
+		}
+
+		apiV1Submit := apiV1.Group("/")
+		apiV1Submit.Use(middleware.FetcherKeyAuthV1(h.Db(), cfg.FetcherKeyEnv, "report:submit"))
+		{
+			apiV1Submit.POST("/agent-reports:submit", h.SubmitCleanAppWireV1)
+			apiV1Submit.POST("/agent-reports:batchSubmit", h.BatchSubmitCleanAppWireV1)
+		}
+	}
+
 	// Internal admin (kill switches / promotion hooks).
 	internal := router.Group("/internal")
 	internal.Use(middleware.InternalAdminToken(cfg.InternalAdminToken))

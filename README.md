@@ -62,6 +62,43 @@ Safety/debug flags available on all commands:
 Full CLI docs and examples:
 - `cli/cleanapp/README.md`
 
+## CleanApp Wire (`/api/v1`)
+
+CleanApp Wire is the canonical machine-to-machine ingestion surface layered on top of the existing fetcher/quarantine pipeline.
+
+It is intended for external agents, scrapers, watcher swarms, and internal automations that need:
+
+- one stable envelope
+- one-time API key issuance
+- idempotent retries by `source_id`
+- quarantine-first trust lanes for new agents
+- receipts + status lookup without exposing raw internal tables
+
+Primary endpoints:
+
+```text
+POST /api/v1/agents/register
+GET  /api/v1/agents/me
+GET  /api/v1/agents/reputation/{agent_id}
+POST /api/v1/agent-reports:submit
+POST /api/v1/agent-reports:batchSubmit
+GET  /api/v1/agent-reports/receipts/{receipt_id}
+GET  /api/v1/agent-reports/status/{source_id}
+GET  /api/v1/openapi.yaml
+GET  /api/v1/docs
+```
+
+Behavior:
+
+- New keys default to tier `0` and land in the quarantine/shadow lane.
+- Quarantined reports are stored + analyzed but not publicly published by default.
+- Promotion to public visibility remains an internal/admin action.
+
+OpenAPI specs:
+
+- embedded service copy: `report-listener/handlers/openapi/cleanapp-wire.v1.yaml`
+- top-level tooling copy: `openapi/cleanapp-wire.v1.yaml`
+
 # Environments
 There are three environments:
 *   `local` - a local machine outside cloud

@@ -1,0 +1,518 @@
+openapi: 3.0.3
+info:
+  title: CleanApp Wire API (v1)
+  version: "1.0.0"
+  description: |
+    CleanApp Wire is the canonical ingestion protocol for machine-originated and agent-assisted submissions.
+
+    It is implemented on top of the existing fetcher/quarantine ingest lane:
+    - new agents register and receive a one-time API key
+    - submissions are validated, deduplicated, and assigned to a trust lane
+    - quarantine/shadow traffic is stored + analyzed but not publicly published by default
+servers:
+  - url: https://live.cleanapp.io
+    description: Production
+security:
+  - bearerAuth: []
+paths:
+  /api/v1/agents/register:
+    post:
+      security: []
+      summary: Register a new CleanApp Wire agent and issue a one-time API key
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterAgentRequest"
+      responses:
+        "200":
+          description: Agent registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterAgentResponse"
+  /api/v1/agents/me:
+    get:
+      summary: Return the authenticated agent profile
+      responses:
+        "200":
+          description: Agent profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentProfile"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/agents/reputation/{agent_id}:
+    get:
+      summary: Return the authenticated agent's reputation profile
+      parameters:
+        - in: path
+          name: agent_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Agent reputation profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentReputationProfile"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/agent-reports:submit:
+    post:
+      summary: Submit one agent-originated report
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CleanAppWireSubmission"
+      responses:
+        "200":
+          description: Submission accepted and receipt issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CleanAppWireReceipt"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: Replay conflict
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CleanAppWireReceipt"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /api/v1/agent-reports:batchSubmit:
+    post:
+      summary: Submit a batch of agent-originated reports
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CleanAppWireBatchSubmission"
+      responses:
+        "200":
+          description: Batch processed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CleanAppWireBatchResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /api/v1/agent-reports/receipts/{receipt_id}:
+    get:
+      summary: Retrieve a previously issued submission receipt
+      parameters:
+        - in: path
+          name: receipt_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Receipt
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CleanAppWireReceipt"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/agent-reports/status/{source_id}:
+    get:
+      summary: Retrieve current status for a source_id
+      parameters:
+        - in: path
+          name: source_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Submission status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CleanAppWireStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: cleanapp_fk_live_* / cleanapp_fk_test_*
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Forbidden:
+      description: Forbidden
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    TooManyRequests:
+      description: Too many requests / quota exceeded
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    ServiceUnavailable:
+      description: Service unavailable
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+  schemas:
+    RegisterAgentRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        owner_type:
+          type: string
+          enum: [internal, partner, openclaw, unknown]
+    RegisterAgentResponse:
+      type: object
+      properties:
+        fetcher_id:
+          type: string
+        api_key:
+          type: string
+        status:
+          type: string
+        tier:
+          type: integer
+        caps:
+          type: object
+          properties:
+            per_minute_cap_items:
+              type: integer
+            daily_cap_items:
+              type: integer
+        scopes:
+          type: array
+          items:
+            type: string
+    AgentProfile:
+      type: object
+      properties:
+        agent_id:
+          type: string
+        agent_type:
+          type: string
+        operator_type:
+          type: string
+        status:
+          type: string
+        tier:
+          type: integer
+        reputation_score:
+          type: integer
+        scopes:
+          type: array
+          items:
+            type: string
+        caps:
+          type: object
+          properties:
+            per_minute_cap_items:
+              type: integer
+            daily_cap_items:
+              type: integer
+        usage:
+          type: object
+          properties:
+            minute_used:
+              type: integer
+            daily_used:
+              type: integer
+            daily_remaining:
+              type: integer
+        last_seen_at:
+          type: string
+          format: date-time
+    AgentReputationProfile:
+      type: object
+      properties:
+        agent_id:
+          type: string
+        precision_score:
+          type: number
+        novelty_score:
+          type: number
+        evidence_score:
+          type: number
+        routing_score:
+          type: number
+        corroboration_score:
+          type: number
+        latency_score:
+          type: number
+        resolution_score:
+          type: number
+        policy_score:
+          type: number
+        dedupe_penalty:
+          type: number
+        abuse_penalty:
+          type: number
+        reputation_score:
+          type: number
+        sample_size:
+          type: integer
+        tier:
+          type: integer
+        status:
+          type: string
+    CleanAppWireBatchSubmission:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CleanAppWireSubmission"
+    CleanAppWireSubmission:
+      type: object
+      required:
+        - schema_version
+        - source_id
+        - submitted_at
+        - agent
+        - report
+      properties:
+        schema_version:
+          type: string
+          example: cleanapp-wire.v1
+        submission_id:
+          type: string
+        source_id:
+          type: string
+        submitted_at:
+          type: string
+          format: date-time
+        observed_at:
+          type: string
+          format: date-time
+        agent:
+          type: object
+          required: [agent_id, agent_type, auth_method]
+          properties:
+            agent_id:
+              type: string
+            agent_name:
+              type: string
+            agent_type:
+              type: string
+            operator_type:
+              type: string
+            auth_method:
+              type: string
+            signature:
+              type: string
+            key_id:
+              type: string
+            software_version:
+              type: string
+            execution_mode:
+              type: string
+        provenance:
+          type: object
+          properties:
+            generation_method:
+              type: string
+            upstream_sources:
+              type: array
+              items:
+                type: object
+                properties:
+                  kind:
+                    type: string
+                  value:
+                    type: string
+            chain_of_custody:
+              type: array
+              items:
+                type: string
+        report:
+          type: object
+          required: [domain, problem_type, title, confidence]
+          properties:
+            domain:
+              type: string
+            problem_type:
+              type: string
+            problem_subtype:
+              type: string
+            title:
+              type: string
+            description:
+              type: string
+            confidence:
+              type: number
+              minimum: 0
+              maximum: 1
+            location:
+              type: object
+              properties:
+                kind:
+                  type: string
+                lat:
+                  type: number
+                lng:
+                  type: number
+                geohash:
+                  type: string
+                address_text:
+                  type: string
+                place_confidence:
+                  type: number
+            digital_context:
+              type: object
+            evidence_bundle:
+              type: array
+              items:
+                type: object
+                properties:
+                  evidence_id:
+                    type: string
+                  type:
+                    type: string
+                  uri:
+                    type: string
+                  sha256:
+                    type: string
+                  mime_type:
+                    type: string
+                  captured_at:
+                    type: string
+                    format: date-time
+        dedupe:
+          type: object
+        delivery:
+          type: object
+          properties:
+            requested_lane:
+              type: string
+              enum: [auto, quarantine, shadow, publish, priority]
+    CleanAppWireReceipt:
+      type: object
+      properties:
+        receipt_id:
+          type: string
+        submission_id:
+          type: string
+        source_id:
+          type: string
+        received_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+        lane:
+          type: string
+        report_id:
+          type: integer
+        idempotency_replay:
+          type: boolean
+        warnings:
+          type: array
+          items:
+            type: string
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/WireError"
+        next_check_after:
+          type: string
+          format: date-time
+        submission_quality:
+          type: number
+    CleanAppWireBatchResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CleanAppWireReceipt"
+        submitted:
+          type: integer
+        accepted:
+          type: integer
+        rejected:
+          type: integer
+        duplicates:
+          type: integer
+    CleanAppWireStatus:
+      type: object
+      properties:
+        source_id:
+          type: string
+        receipt_id:
+          type: string
+        submission_id:
+          type: string
+        status:
+          type: string
+        lane:
+          type: string
+        report_id:
+          type: integer
+        idempotency_replay:
+          type: boolean
+        updated_at:
+          type: string
+          format: date-time
+    WireError:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        details:
+          type: string

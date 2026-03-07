@@ -17,6 +17,7 @@ func RunMigrations(ctx context.Context, db *sql.DB) error {
 		{ID: "0005_report_analysis_utf8mb4", Description: "convert report_analysis to utf8mb4", Up: func(ctx context.Context, db *sql.DB) error { return ensureUTF8MB4(ctx, db) }},
 		{ID: "0006_report_analysis_class_valid_seq_index", Description: "ensure report_analysis class-valid-seq index", Up: ensureClassValidSeqIndexStep},
 		{ID: "0007_report_analysis_needs_ai_review", Description: "ensure report_analysis needs_ai_review column", Up: ensureNeedsAIReviewColumnStep},
+		{ID: "0008_cleanapp_wire_tables", Description: "create CleanApp Wire intake tables", Up: func(ctx context.Context, db *sql.DB) error { return ensureCleanAppWireTables(ctx, db) }},
 	})
 }
 
