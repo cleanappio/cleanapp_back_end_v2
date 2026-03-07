@@ -47,9 +47,10 @@ func main() {
 
 	// Setup HTTP server
 	router := setupRouter(cfg, svc)
+	handler := cleanAppWireAliasHandler(router)
 
 	// Create HTTP server
-	srv := serverx.New(":"+cfg.Port, router)
+	srv := serverx.New(":"+cfg.Port, handler)
 
 	// Start server in a goroutine
 	go func() {
@@ -286,21 +287,19 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 	})
 	router.GET("/version", versionHandler)
 
-	router.NoRoute(func(c *gin.Context) {
-		if c.Request.Method == http.MethodPost {
-			switch c.Request.URL.Path {
+	return router
+}
+
+func cleanAppWireAliasHandler(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			switch r.URL.Path {
 			case "/api/v1/agent-reports:submit":
-				c.Request.URL.Path = "/api/v1/agent-reports/submit"
-				router.HandleContext(c)
-				return
+				r.URL.Path = "/api/v1/agent-reports/submit"
 			case "/api/v1/agent-reports:batchSubmit":
-				c.Request.URL.Path = "/api/v1/agent-reports/batch-submit"
-				router.HandleContext(c)
-				return
+				r.URL.Path = "/api/v1/agent-reports/batch-submit"
 			}
 		}
-		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+		next.ServeHTTP(w, r)
 	})
-
-	return router
 }
