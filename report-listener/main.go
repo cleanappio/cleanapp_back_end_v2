@@ -260,8 +260,8 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 		apiV1Submit := apiV1.Group("/")
 		apiV1Submit.Use(middleware.FetcherKeyAuthV1(h.Db(), cfg.FetcherKeyEnv, "report:submit"))
 		{
-			apiV1Submit.POST("/agent-reports:submit", h.SubmitCleanAppWireV1)
-			apiV1Submit.POST("/agent-reports:batchSubmit", h.BatchSubmitCleanAppWireV1)
+			apiV1Submit.POST("/agent-reports/submit", h.SubmitCleanAppWireV1)
+			apiV1Submit.POST("/agent-reports/batch-submit", h.BatchSubmitCleanAppWireV1)
 		}
 	}
 
@@ -285,6 +285,22 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 		})
 	})
 	router.GET("/version", versionHandler)
+
+	router.NoRoute(func(c *gin.Context) {
+		if c.Request.Method == http.MethodPost {
+			switch c.Request.URL.Path {
+			case "/api/v1/agent-reports:submit":
+				c.Request.URL.Path = "/api/v1/agent-reports/submit"
+				router.HandleContext(c)
+				return
+			case "/api/v1/agent-reports:batchSubmit":
+				c.Request.URL.Path = "/api/v1/agent-reports/batch-submit"
+				router.HandleContext(c)
+				return
+			}
+		}
+		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+	})
 
 	return router
 }
