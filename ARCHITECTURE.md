@@ -806,11 +806,11 @@ This means:
 
 ### Deployment Process
 ```bash
-# Build & tag image
-./build_image.sh -e dev
+# Canonical prod release for code changes
+make deploy-prod-source HOST=deployer@34.122.15.16 SOURCE_SERVICES="report-listener customer-service"
 
-# Deploy via setup.sh (generates docker-compose, SSHs to VM)
-./setup.sh -e prod --ssh-keyfile ~/.ssh/id_ed25519
+# Pull-only pinned rollout for already-built :prod tags
+make deploy-prod HOST=deployer@34.122.15.16
 ```
 
 ### Deterministic (Immutable) Deploys
@@ -819,13 +819,17 @@ digest pins (`image@sha256:...`) via a compose override on the VM:
 
 - Current symlink on VM: `~/docker-compose.digests.current.yml`
 - Timestamped pins: `~/docker-compose.digests.<timestamp>.yml`
-- Repo helper (laptop-run, pins from *pulled* images on the VM, and runs explicit Go migrations by default): `platform_blueprint/deploy/prod/vm/deploy_with_digests.sh`
+- Canonical source-build helper (laptop-run, stages an exact git ref to the VM, builds from source there, runs explicit Go migrations from the same staged source, then pins + deploys): `platform_blueprint/deploy/prod/vm/source_build_and_deploy.sh`
+- Pull-only helper for already-built tags: `platform_blueprint/deploy/prod/vm/deploy_with_digests.sh`
 
 This flow:
-1. `docker compose pull` (tag-based)
-2. resolves each internal service image to its `RepoDigest`
-3. writes a digest override file
-4. `docker compose up -d` using `-f docker-compose.digests.current.yml`
+1. stages the selected git ref to the prod VM
+2. builds the selected service images from that source on the VM
+3. promotes those image versions to `:prod`
+4. runs explicit Go migrations from the same staged source
+5. resolves the pulled images to `RepoDigest`s
+6. writes a digest override file
+7. `docker compose up -d` using `-f docker-compose.digests.current.yml`
 
 ### Environment Variables (via Secret Manager)
 - `MYSQL_ROOT_PASSWORD_*`

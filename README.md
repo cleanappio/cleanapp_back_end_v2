@@ -286,11 +286,16 @@ where &lt;env&gt; is `LOCAL`, `DEV` or `PROD`.
 
 ## Full Backend Deployment
 
-Deploy all backend services to production:
+For source changes, deploy backend services to production with the canonical source-build-and-pin path:
 
 ```bash
-cd setup
-./setup.sh -e prod --ssh-keyfile ~/.ssh/id_ed25519
+make deploy-prod-source HOST=deployer@34.122.15.16 SOURCE_SERVICES="report-listener customer-service"
+```
+
+For already-built `:prod` tags only, use:
+
+```bash
+make deploy-prod HOST=deployer@34.122.15.16
 ```
 
 ## Go Service Migrations
@@ -317,18 +322,28 @@ This runs:
 
 On fresh environments, run migrations before starting these services.
 
-For production releases, use the explicit digest-pinned deploy path instead:
+For production code changes, the canonical release path is now source-build-and-pin on the prod VM:
+
+```bash
+make deploy-prod-source HOST=deployer@34.122.15.16 SOURCE_SERVICES="report-listener customer-service"
+```
+
+This will:
+1. Stage the exact git commit to the prod VM
+2. Build the selected services from that staged source on the VM
+3. Promote those freshly built image versions to `:prod`
+4. Run explicit Go migrations from the same staged source
+5. Resolve the pulled images to immutable digests
+6. Deploy via `platform_blueprint/deploy/prod/vm/deploy_with_digests.sh`
+7. Preserve a timestamped pinned manifest for rollback
+
+`./build_image.sh -e prod` is deprecated and intentionally blocked because it only re-tagged an existing image and did not guarantee a fresh source build.
+
+For already-built `:prod` tags, use the pull-only pinned deploy path instead:
 
 ```bash
 make deploy-prod HOST=deployer@34.122.15.16
 ```
-
-This will:
-1. Pull the tagged images on the VM
-2. Resolve them to immutable digests
-3. Run explicit Go migrations
-4. Deploy via `platform_blueprint/deploy/prod/vm/deploy_with_digests.sh`
-5. Preserve a timestamped pinned manifest for rollback
 
 For dev environment:
 ```bash
@@ -364,24 +379,17 @@ cd cleanapp-frontend
 
 ## Individual Microservice Deployment
 
-Each microservice can be built and deployed independently. General pattern:
+Each microservice can still be built independently for dev with `./build_image.sh -e dev`, but production deployments should now go through the single source-build-and-pin flow:
 
-### 1. Build the Image
 ```bash
-cd <service-directory>
-./build_image.sh -e dev   # Builds and pushes to registry
+make deploy-prod-source HOST=deployer@34.122.15.16 SOURCE_SERVICES="<service-directory>"
 ```
 
-### 2. Tag for Production
-```bash
-gcloud artifacts docker tags add \
-  us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/<image-name>:<version> \
-  us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/<image-name>:prod
-```
+Examples:
 
-### 3. Deploy via setup.sh
 ```bash
-cd setup && ./setup.sh -e prod --ssh-keyfile ~/.ssh/id_ed25519
+make deploy-prod-source HOST=deployer@34.122.15.16 SOURCE_SERVICES="report-listener"
+make deploy-prod-source HOST=deployer@34.122.15.16 SOURCE_SERVICES="report-analyze-pipeline report-tags"
 ```
 
 ### Key Microservices with Build Scripts
@@ -453,7 +461,7 @@ docker rm <container_name>
 HOST=deployer@34.122.15.16 SERVICES="<service_name>" ./platform_blueprint/deploy/prod/vm/deploy_with_digests.sh
 ```
 
-### Full System Restart
+### Full System Restart / rollout from existing tags
 ```bash
 make deploy-prod HOST=deployer@34.122.15.16
 ```
@@ -483,6 +491,6 @@ To bump version before building:
 # Check current version
 cat .version
 
-# The build script auto-increments minor version
+# The build script auto-increments minor version for dev builds
 ./build_image.sh -e dev
 ```

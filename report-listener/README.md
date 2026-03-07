@@ -311,7 +311,7 @@ The service includes a build script for deploying to Google Cloud:
 
 # Build for specific environment
 ./build_image.sh -e dev
-./build_image.sh -e prod
+make deploy-prod-source HOST=deployer@34.122.15.16 SOURCE_SERVICES="report-listener"
 ```
 
 The build script will:

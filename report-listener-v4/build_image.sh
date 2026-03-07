@@ -26,6 +26,12 @@ if [ -z "${OPT}" ]; then
   exit 1
 fi
 
+BUILD_SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=../scripts/build/deprecate_prod_tagging.sh
+source "${BUILD_SCRIPT_DIR}/../scripts/build/deprecate_prod_tagging.sh"
+warn_deprecated_prod_tagging "${OPT}" "$(basename "${BUILD_SCRIPT_DIR}")"
+
+
 echo "Building report-listener-v4 docker image..."
 
 CLOUD_REGION="us-central1"

@@ -136,7 +136,7 @@ docker-compose up --build
 ./build_image.sh -e dev
 
 # Build for prod environment
-./build_image.sh -e prod
+make deploy-prod-source HOST=deployer@34.122.15.16 SOURCE_SERVICES="voice-assistant-service"
 ```
 
 ## Usage Examples

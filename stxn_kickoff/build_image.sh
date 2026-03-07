@@ -1,5 +1,9 @@
 echo "Buiding stxn_kickoff docker image..."
 
+BUILD_SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=../scripts/build/deprecate_prod_tagging.sh
+source "${BUILD_SCRIPT_DIR}/../scripts/build/deprecate_prod_tagging.sh"
+
 # Choose the environment
 PS3="Please choose the environment: "
 options=("dev" "prod" "quit")
@@ -20,6 +24,8 @@ do
     *) echo "invalid option $REPLY";;
   esac
 done
+
+warn_deprecated_prod_tagging "${OPT}" "$(basename "${BUILD_SCRIPT_DIR}")"
 
 . .version
 echo "Running docker build for version ${BUILD_VERSION}"

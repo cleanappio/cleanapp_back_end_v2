@@ -51,10 +51,25 @@ Run the build & deploy script.
 
 ### Production deployment
 
-Run the build & deploy script.
+`./build_image.sh -e prod` is deprecated because it only re-tagged an existing image and did not guarantee a fresh source build.
+
+Use the canonical source-build-and-pin path instead:
 ```
-./build_image.sh -e prod --ssh-keyfile ~/.ssh/<you>-cleanapp-io
+make deploy-prod-source HOST=deployer@34.122.15.16 SOURCE_SERVICES="<service-directory>"
 ```
+
+Examples:
+```
+make deploy-prod-source HOST=deployer@34.122.15.16 SOURCE_SERVICES="report-listener"
+make deploy-prod-source HOST=deployer@34.122.15.16 SOURCE_SERVICES="customer-service report-processor"
+```
+
+This flow:
+1. stages the exact git commit to the prod VM
+2. builds the selected services from that source on the VM
+3. promotes the resulting images to `:prod`
+4. runs explicit Go migrations
+5. deploys via digest pins
 
 ## Setting up a new CleanApp VM
 

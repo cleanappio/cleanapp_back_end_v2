@@ -27,6 +27,13 @@ if [ -z "${SSH_KEYFILE}" ]; then
   exit 1
 fi
 
+if [ "${OPT}" = "prod" ]; then
+  echo "ERROR: scripts/legacy/build_and_deploy.sh no longer supports production releases." >&2
+  echo "Use the canonical source-build-and-pin path instead:" >&2
+  echo "  make deploy-prod-source HOST=deployer@34.122.15.16 SOURCE_SERVICES=\"report-listener customer-service\"" >&2
+  exit 2
+fi
+
 for project_dir in areas-service auth-service brand-dashboard custom-area-dashboard customer-service report-analyze-pipeline report-listener report-processor email-service report-ownership-service gdpr-process-service face-detector reports-pusher report-listener-v4 report-fast-renderer; do
     pushd $project_dir
     if [ -f "build_image.sh" ]; then

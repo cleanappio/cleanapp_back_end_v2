@@ -23,6 +23,12 @@ if [ -z "${OPT}" ]; then
   echo "Usage: $0 -e|--env <dev|prod> [-d|--deploy] [--ssh-keyfile <path>]"; exit 1;
 fi
 
+BUILD_SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=../scripts/build/deprecate_prod_tagging.sh
+source "${BUILD_SCRIPT_DIR}/../scripts/build/deprecate_prod_tagging.sh"
+warn_deprecated_prod_tagging "${OPT}" "$(basename "${BUILD_SCRIPT_DIR}")"
+
+
 CLOUD_REGION="us-central1"
 PROJECT_NAME="cleanup-mysql-v2"
 DOCKER_IMAGE="cleanapp-docker-repo/cleanapp-email-service-v3-image"
