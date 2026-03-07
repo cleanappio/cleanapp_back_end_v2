@@ -1,6 +1,6 @@
 {
   "name": "@cleanapp/cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": false,
   "description": "CleanApp CLI (thin wrapper around the CleanApp API)",
   "license": "GPL-3.0-or-later",
@@ -37,4 +37,3 @@
     "vitest": "^3.0.5"
   }
 }
-

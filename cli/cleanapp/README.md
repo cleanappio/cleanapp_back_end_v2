@@ -2,6 +2,11 @@
 
 Production-grade CleanApp CLI (thin wrapper around the CleanApp API).
 
+Wire status:
+- machine-originated submission flows are Wire-native by default
+- auth identity uses CleanApp Wire agent identity where available
+- legacy `report-id` lookup still falls back to the v3 report listener API
+
 - npm package name: `@cleanapp/cli`
 - installed command: `cleanapp`
 - default output: JSON (agent-friendly)
@@ -62,9 +67,9 @@ Token resolution order:
 cleanapp auth whoami
 ```
 
-Calls `GET /v1/fetchers/me`.
+Calls `GET /api/v1/agents/me` and falls back to `GET /v1/fetchers/me` for older APIs.
 
-### Submit One Report
+### Submit One Report (Wire-native)
 
 ```bash
 cleanapp submit --title "Broken login" --desc "Users stuck on OAuth callback" --source-type web
@@ -82,7 +87,11 @@ Dry-run (prints the HTTP payload; sends nothing):
 cleanapp submit --dry-run --title "Test" --desc "No send"
 ```
 
-### Bulk Submit From File
+This submits a single `cleanapp-wire.v1` envelope to:
+
+- `POST /api/v1/agent-reports:submit`
+
+### Bulk Submit From File (Wire-native)
 
 ```bash
 cleanapp bulk-submit --file reports.ndjson
@@ -94,15 +103,22 @@ Supported input formats:
 - `.json`: either an array of items, or `{ "items": [...] }`
 - `.csv`: header row, maps common fields like `source_id,title,description,lat,lng,...`
 
+If the file already contains full Wire envelopes, the CLI submits them as-is.
+If the file contains the older simple item shape, the CLI wraps each item into a valid `cleanapp-wire.v1` envelope automatically.
+
 ### Status
 
 ```bash
+cleanapp status --source-id bluesky:at://did:plc:.../app.bsky.feed.post/...
+cleanapp status --receipt-id rcpt_123...
 cleanapp status --report-id 123456
 ```
 
-Currently maps to `GET /api/v3/reports/by-seq?seq=...` (report listener).
+Mappings:
 
-`--source-id` is not supported yet because there is no API endpoint to query by `(fetcher_id, source_id)`.
+- `--source-id` -> `GET /api/v1/agent-reports/status/{source_id}`
+- `--receipt-id` -> `GET /api/v1/agent-reports/receipts/{receipt_id}`
+- `--report-id` -> `GET /api/v3/reports/by-seq?seq=...` (legacy fallback)
 
 ### Presign (API Gap)
 
@@ -175,4 +191,3 @@ npm pack
 npm run build
 node ./bin/cleanapp --help
 ```
-

@@ -110,11 +110,15 @@ export async function runInit(cmd: any): Promise<void> {
       trace: Boolean(cmd?.optsWithGlobals?.()?.trace),
       dryRun: false,
     };
-    const res = await httpRequest(cfg as any, { method: "GET", path: "/v1/fetchers/me", idempotent: true });
+    let res;
+    try {
+      res = await httpRequest(cfg as any, { method: "GET", path: "/api/v1/agents/me", idempotent: true });
+    } catch {
+      res = await httpRequest(cfg as any, { method: "GET", path: "/v1/fetchers/me", idempotent: true });
+    }
     const me: any = res.data;
-    printHuman(`\nConnectivity check: OK (fetcher_id=${me.fetcher_id}, status=${me.status}, tier=${me.tier})`);
+    printHuman(`\nConnectivity check: OK (agent_id=${me.agent_id || me.fetcher_id}, status=${me.status}, tier=${me.tier})`);
   } catch (err: any) {
     throw new CLIError(`Connectivity check failed: ${String(err?.message || err)}`, EXIT.NET);
   }
 }
-

@@ -5,11 +5,12 @@ import { printHuman, printJson, requireToken } from "../../output.js";
 import { resolveRuntimeConfig } from "../../runtime.js";
 import { genSourceId, parseFloatArg } from "../../util.js";
 import { CLI_VERSION } from "../../version.js";
+import { toWireSubmission } from "../../wire.js";
 
 export function addSubmit(program: Command): void {
   program
     .command("submit")
-    .description("Submit a single report (wraps POST /v1/reports:bulkIngest)")
+    .description("Submit a single machine-originated report via CleanApp Wire")
     .option("--title <title>", "Report title")
     .option("--desc <description>", "Report description")
     .option("--lat <lat>", "Latitude", undefined)
@@ -35,31 +36,26 @@ export function addSubmit(program: Command): void {
         lng = parseFloatArg(opts.lng, "lng");
       }
 
-      const body = {
-        items: [
-          {
-            source_id: sourceId,
-            title: opts.title || "",
-            description: opts.desc || "",
-            lat: lat ?? undefined,
-            lng: lng ?? undefined,
-            collected_at: (opts.collectedAt || "").trim() || new Date().toISOString(),
-            agent_id: (opts.agentId || "").trim() || "cleanapp-cli",
-            agent_version: (opts.agentVersion || "").trim() || CLI_VERSION,
-            source_type: (opts.sourceType || "").trim() || "text",
-          },
-        ],
-      };
+      const body = toWireSubmission({
+        source_id: sourceId,
+        title: opts.title || "",
+        description: opts.desc || "",
+        lat: lat ?? undefined,
+        lng: lng ?? undefined,
+        collected_at: (opts.collectedAt || "").trim() || new Date().toISOString(),
+        agent_id: (opts.agentId || "").trim() || "cleanapp-cli",
+        agent_version: (opts.agentVersion || "").trim() || CLI_VERSION,
+        source_type: (opts.sourceType || "").trim() || "text",
+      });
 
-      const res = await httpRequest(cfg, { method: "POST", path: "/v1/reports:bulkIngest", body });
+      const res = await httpRequest(cfg, { method: "POST", path: "/api/v1/agent-reports:submit", body });
 
       if (cfg.output === "human") {
         const r: any = res.data;
-        const it = r.items?.[0];
         printHuman(
           [
-            `submitted=${r.submitted} accepted=${r.accepted} duplicates=${r.duplicates} rejected=${r.rejected}`,
-            it ? `item: status=${it.status} source_id=${it.source_id} report_seq=${it.report_seq ?? "(n/a)"} queued=${it.queued}` : "",
+            `receipt=${r.receipt_id} status=${r.status} lane=${r.lane}`,
+            `source_id=${r.source_id} report_id=${r.report_id ?? "(n/a)"} replay=${Boolean(r.idempotency_replay)}`,
           ]
             .filter(Boolean)
             .join("\n"),
@@ -70,4 +66,3 @@ export function addSubmit(program: Command): void {
       printJson(res.data);
     });
 }
-

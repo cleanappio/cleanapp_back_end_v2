@@ -6,6 +6,8 @@ import { parse as parseCsv } from "csv-parse/sync";
 import { httpRequest } from "../../http.js";
 import { printHuman, printJson, requireToken } from "../../output.js";
 import { resolveRuntimeConfig } from "../../runtime.js";
+import { CLI_VERSION } from "../../version.js";
+import { isWireSubmission, toWireSubmission } from "../../wire.js";
 import { fileExt } from "../../util.js";
 
 type IngestItem = Record<string, any>;
@@ -70,7 +72,7 @@ function chunk<T>(xs: T[], n: number): T[][] {
 export function addBulkSubmit(program: Command): void {
   program
     .command("bulk-submit")
-    .description("Bulk submit reports from a file (ndjson|json|csv)")
+    .description("Bulk submit machine-originated reports via CleanApp Wire")
     .requiredOption("--file <path>", "Input file path (.ndjson|.jsonl|.json|.csv)")
     .action(async function (opts: any) {
       const cfg = await resolveRuntimeConfig(this);
@@ -82,7 +84,12 @@ export function addBulkSubmit(program: Command): void {
       }
 
       // API maxItems is 100.
-      const batches = chunk(items, 100);
+      const wireItems = items.map((item) =>
+        isWireSubmission(item)
+          ? item
+          : toWireSubmission(item, { agentId: "cleanapp-cli", agentVersion: CLI_VERSION }),
+      );
+      const batches = chunk(wireItems, 100);
 
       const responses: any[] = [];
       let submitted = 0;
@@ -92,7 +99,7 @@ export function addBulkSubmit(program: Command): void {
 
       for (const b of batches) {
         const body = { items: b };
-        const res = await httpRequest(cfg, { method: "POST", path: "/v1/reports:bulkIngest", body });
+        const res = await httpRequest(cfg, { method: "POST", path: "/api/v1/agent-reports:batchSubmit", body });
         responses.push(res.data);
         const r: any = res.data;
         submitted += Number(r.submitted || 0);
@@ -104,7 +111,7 @@ export function addBulkSubmit(program: Command): void {
       if (cfg.output === "human") {
         printHuman(
           [
-            `batches=${batches.length} items=${items.length}`,
+            `batches=${batches.length} items=${wireItems.length}`,
             `submitted=${submitted} accepted=${accepted} duplicates=${duplicates} rejected=${rejected}`,
           ].join("\n"),
         );
@@ -113,10 +120,9 @@ export function addBulkSubmit(program: Command): void {
 
       printJson({
         batches: batches.length,
-        items: items.length,
+        items: wireItems.length,
         totals: { submitted, accepted, duplicates, rejected },
         responses,
       });
     });
 }
-
