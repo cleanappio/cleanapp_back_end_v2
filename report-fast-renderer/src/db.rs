@@ -1,11 +1,12 @@
 use anyhow::Result;
+use chrono::{DateTime, NaiveDateTime, Utc};
 use my::prelude::*;
 use mysql as my;
 use std::time::{Duration, Instant};
 
 use crate::{
     config::Config,
-    model::{BrandSummaryItem, ReportPoint},
+    model::{BrandSummaryItem, Report, ReportAnalysis, ReportPoint, ReportWithAnalysis},
 };
 
 pub fn connect_pool() -> Result<my::Pool> {
@@ -135,4 +136,137 @@ pub fn fetch_report_points(pool: &my::Pool, classification: &str) -> Result<Vec<
         });
     }
     Ok(out)
+}
+
+pub fn fetch_report_with_analysis(pool: &my::Pool, seq: i64) -> Result<ReportWithAnalysis> {
+    let mut conn = pool.get_conn()?;
+
+    let report_row: Option<my::Row> = conn.exec_first(
+        r#"
+        SELECT seq, ts, id, team, latitude, longitude, x, y, image, action_id, description
+        FROM reports
+        WHERE seq = ?
+        "#,
+        (seq,),
+    )?;
+
+    let mut report_row =
+        report_row.ok_or_else(|| anyhow::anyhow!("report seq={} not found", seq))?;
+
+    let report = Report {
+        seq: report_row.take::<i64, _>(0).unwrap_or(0),
+        timestamp: parse_mysql_datetime(
+            report_row
+                .take::<Option<String>, _>(1)
+                .unwrap_or(None)
+                .ok_or_else(|| anyhow::anyhow!("missing timestamp for seq={}", seq))?,
+            "timestamp",
+            seq,
+        )?,
+        id: report_row.take::<String, _>(2).unwrap_or_default(),
+        team: report_row.take::<i32, _>(3).unwrap_or(0),
+        latitude: report_row
+            .take::<Option<f64>, _>(4)
+            .unwrap_or(None)
+            .unwrap_or(0.0),
+        longitude: report_row
+            .take::<Option<f64>, _>(5)
+            .unwrap_or(None)
+            .unwrap_or(0.0),
+        x: report_row
+            .take::<Option<f64>, _>(6)
+            .unwrap_or(None)
+            .unwrap_or(0.0),
+        y: report_row
+            .take::<Option<f64>, _>(7)
+            .unwrap_or(None)
+            .unwrap_or(0.0),
+        image: report_row.take::<Option<Vec<u8>>, _>(8).unwrap_or(None),
+        action_id: report_row.take::<String, _>(9).unwrap_or_default(),
+        description: report_row.take::<String, _>(10).unwrap_or_default(),
+    };
+
+    let analysis_rows: Vec<my::Row> = conn.exec(
+        r#"
+        SELECT
+            seq,
+            COALESCE(source, '') AS source,
+            COALESCE(analysis_text, '') AS analysis_text,
+            analysis_image,
+            COALESCE(title, '') AS title,
+            COALESCE(description, '') AS description,
+            COALESCE(brand_name, '') AS brand_name,
+            COALESCE(brand_display_name, '') AS brand_display_name,
+            COALESCE(litter_probability, 0.0) AS litter_probability,
+            COALESCE(hazard_probability, 0.0) AS hazard_probability,
+            COALESCE(digital_bug_probability, 0.0) AS digital_bug_probability,
+            COALESCE(severity_level, 0.0) AS severity_level,
+            COALESCE(summary, '') AS summary,
+            COALESCE(language, '') AS language,
+            COALESCE(classification, '') AS classification,
+            is_valid,
+            COALESCE(inferred_contact_emails, '') AS inferred_contact_emails,
+            created_at,
+            updated_at
+        FROM report_analysis
+        WHERE seq = ?
+        ORDER BY (language = 'en') DESC, updated_at DESC, created_at DESC
+        "#,
+        (seq,),
+    )?;
+
+    if analysis_rows.is_empty() {
+        return Err(anyhow::anyhow!("no analysis rows found for seq={}", seq));
+    }
+
+    let mut analysis = Vec::with_capacity(analysis_rows.len());
+    for mut row in analysis_rows {
+        analysis.push(ReportAnalysis {
+            seq: row.take::<i64, _>(0).unwrap_or(0),
+            source: row.take::<String, _>(1).unwrap_or_default(),
+            analysis_text: row.take::<String, _>(2).unwrap_or_default(),
+            analysis_image: row.take::<Option<Vec<u8>>, _>(3).unwrap_or(None),
+            title: row.take::<String, _>(4).unwrap_or_default(),
+            description: row.take::<String, _>(5).unwrap_or_default(),
+            brand_name: row.take::<String, _>(6).unwrap_or_default(),
+            brand_display_name: row.take::<String, _>(7).unwrap_or_default(),
+            litter_probability: row.take::<Option<f64>, _>(8).unwrap_or(None).unwrap_or(0.0),
+            hazard_probability: row.take::<Option<f64>, _>(9).unwrap_or(None).unwrap_or(0.0),
+            digital_bug_probability: row
+                .take::<Option<f64>, _>(10)
+                .unwrap_or(None)
+                .unwrap_or(0.0),
+            severity_level: row
+                .take::<Option<f64>, _>(11)
+                .unwrap_or(None)
+                .unwrap_or(0.0),
+            summary: row.take::<String, _>(12).unwrap_or_default(),
+            language: row.take::<String, _>(13).unwrap_or_default(),
+            classification: row.take::<String, _>(14).unwrap_or_default(),
+            is_valid: row.take::<bool, _>(15).unwrap_or(false),
+            inferred_contact_emails: row.take::<String, _>(16).unwrap_or_default(),
+            created_at: parse_mysql_datetime(
+                row.take::<Option<String>, _>(17)
+                    .unwrap_or(None)
+                    .ok_or_else(|| anyhow::anyhow!("missing created_at for seq={}", seq))?,
+                "created_at",
+                seq,
+            )?,
+            updated_at: parse_mysql_datetime(
+                row.take::<Option<String>, _>(18)
+                    .unwrap_or(None)
+                    .ok_or_else(|| anyhow::anyhow!("missing updated_at for seq={}", seq))?,
+                "updated_at",
+                seq,
+            )?,
+        });
+    }
+
+    Ok(ReportWithAnalysis { report, analysis })
+}
+
+fn parse_mysql_datetime(raw: String, field: &str, seq: i64) -> Result<DateTime<Utc>> {
+    let naive = NaiveDateTime::parse_from_str(&raw, "%Y-%m-%d %H:%M:%S")
+        .map_err(|e| anyhow::anyhow!("parse {} for seq={} value='{}': {}", field, seq, raw, e))?;
+    Ok(DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc))
 }

@@ -112,11 +112,10 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!("✅ RabbitMQ subscriber initialized successfully");
 
-    let reports_memory = Arc::new(InMemoryReports::new().await);
-
     // Load reports into memory from the database
     tracing::info!("📥 Loading reports into in-memory storage...");
     let pool = db::connect_pool()?;
+    let reports_memory = Arc::new(InMemoryReports::new(pool.clone()).await);
     let physical_reports = db::fetch_report_points(&pool, "physical")?;
     {
         let physical_map = reports_memory.get_physical_content();

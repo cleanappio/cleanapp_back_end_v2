@@ -1,21 +1,27 @@
 use std::{
     collections::BTreeMap,
+    io,
     sync::{Arc, RwLock},
 };
 
+use mysql as my;
+
+use crate::db;
 use crate::model::{BrandSummaryItem, ReportPoint, ReportWithAnalysis};
 use cleanapp_rustlib::rabbitmq::subscriber::{permanent, Callback, Message};
 
 pub struct InMemoryReports {
     physical_content: Arc<RwLock<BTreeMap<i64, ReportPoint>>>,
     digital_content: Arc<RwLock<BTreeMap<String, BrandSummaryItem>>>,
+    pool: my::Pool,
 }
 
 impl InMemoryReports {
-    pub async fn new() -> Self {
+    pub async fn new(pool: my::Pool) -> Self {
         Self {
             physical_content: Arc::new(RwLock::new(BTreeMap::new())),
             digital_content: Arc::new(RwLock::new(BTreeMap::new())),
+            pool,
         }
     }
     pub fn get_digital_content(&self) -> Arc<RwLock<BTreeMap<String, BrandSummaryItem>>> {
@@ -30,9 +36,9 @@ impl Callback for InMemoryReports {
     fn on_message(&self, message: &Message) -> Result<(), Box<dyn std::error::Error>> {
         let started_at = std::time::Instant::now();
 
-        // Parse inline: ack/nack decision depends on *this* returning success/failure.
-        let res = serde_json::from_slice::<ReportWithAnalysis>(&message.body)
-            .map_err(|e| permanent(e))?;
+        let res = self
+            .decode_report_message(&message.body)
+            .map_err(|e| permanent(io::Error::other(e.to_string())))?;
 
         tracing::debug!("Parsed ReportWithAnalysis message successfully");
         let report = &res.report;
@@ -100,5 +106,37 @@ impl Callback for InMemoryReports {
             started_at.elapsed().as_millis()
         );
         Ok(())
+    }
+}
+
+impl InMemoryReports {
+    fn decode_report_message(&self, body: &[u8]) -> anyhow::Result<ReportWithAnalysis> {
+        if let Ok(report_with_analysis) = serde_json::from_slice::<ReportWithAnalysis>(body) {
+            if report_with_analysis.report.seq > 0 {
+                return Ok(report_with_analysis);
+            }
+        }
+
+        #[derive(serde::Deserialize)]
+        struct SeqEnvelope {
+            seq: i64,
+        }
+
+        if let Ok(seq) = serde_json::from_slice::<i64>(body) {
+            if seq > 0 {
+                return db::fetch_report_with_analysis(&self.pool, seq);
+            }
+        }
+
+        if let Ok(envelope) = serde_json::from_slice::<SeqEnvelope>(body) {
+            if envelope.seq > 0 {
+                return db::fetch_report_with_analysis(&self.pool, envelope.seq);
+            }
+        }
+
+        Err(anyhow::anyhow!(
+            "failed to decode report-fast-renderer message body: {}",
+            String::from_utf8_lossy(body)
+        ))
     }
 }
