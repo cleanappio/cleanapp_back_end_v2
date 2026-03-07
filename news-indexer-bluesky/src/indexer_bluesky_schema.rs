@@ -5,16 +5,20 @@ pub async fn ensure_bluesky_tables(pool: &Pool) -> anyhow::Result<()> {
     let mut conn = pool.get_conn().await?;
 
     // Cursor state for search queries
-    conn.query_drop(r#"
+    conn.query_drop(
+        r#"
         CREATE TABLE IF NOT EXISTS indexer_bluesky_cursor (
             query_tag VARCHAR(255) NOT NULL PRIMARY KEY,
             cursor_value VARCHAR(512) NULL,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    "#).await?;
+    "#,
+    )
+    .await?;
 
     // Raw posts
-    conn.query_drop(r#"
+    conn.query_drop(
+        r#"
         CREATE TABLE IF NOT EXISTS indexer_bluesky_post (
             uri VARCHAR(512) NOT NULL PRIMARY KEY,
             cid VARCHAR(128) NOT NULL,
@@ -28,10 +32,13 @@ pub async fn ensure_bluesky_tables(pool: &Pool) -> anyhow::Result<()> {
             INDEX idx_created_at (created_at),
             INDEX idx_author_handle (author_handle)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    "#).await?;
+    "#,
+    )
+    .await?;
 
     // Media/images linked to posts
-    conn.query_drop(r#"
+    conn.query_drop(
+        r#"
         CREATE TABLE IF NOT EXISTS indexer_bluesky_media (
             id INT AUTO_INCREMENT PRIMARY KEY,
             post_uri VARCHAR(512) NOT NULL,
@@ -41,10 +48,13 @@ pub async fn ensure_bluesky_tables(pool: &Pool) -> anyhow::Result<()> {
             UNIQUE KEY uq_post_position (post_uri, position),
             INDEX idx_sha256 (sha256)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    "#).await?;
+    "#,
+    )
+    .await?;
 
     // Analysis results
-    conn.query_drop(r#"
+    conn.query_drop(
+        r#"
         CREATE TABLE IF NOT EXISTS indexer_bluesky_analysis (
             uri VARCHAR(512) NOT NULL PRIMARY KEY,
             is_relevant BOOL DEFAULT FALSE,
@@ -68,22 +78,52 @@ pub async fn ensure_bluesky_tables(pool: &Pool) -> anyhow::Result<()> {
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    "#).await?;
+    "#,
+    )
+    .await?;
 
     // Submission state tracking
-    conn.query_drop(r#"
+    conn.query_drop(
+        r#"
         CREATE TABLE IF NOT EXISTS indexer_bluesky_submit_state (
             id INT NOT NULL PRIMARY KEY DEFAULT 1,
             last_submitted_created_at DATETIME NULL,
             last_submitted_uri VARCHAR(512) NULL,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    "#).await?;
+    "#,
+    )
+    .await?;
 
     // Initialize submit state if not exists
-    conn.query_drop(r#"
+    conn.query_drop(
+        r#"
         INSERT IGNORE INTO indexer_bluesky_submit_state (id) VALUES (1)
-    "#).await?;
+    "#,
+    )
+    .await?;
+
+    // Wire submission ledger so the submitter can stop relying on external_ingest_index
+    // once it migrates to CleanApp Wire.
+    conn.query_drop(
+        r#"
+        CREATE TABLE IF NOT EXISTS indexer_bluesky_wire_submission (
+            uri VARCHAR(512) NOT NULL PRIMARY KEY,
+            source_id VARCHAR(512) NOT NULL,
+            receipt_id VARCHAR(128) NOT NULL,
+            report_id INT NULL,
+            status VARCHAR(64) NOT NULL,
+            lane VARCHAR(64) NOT NULL,
+            idempotency_replay BOOL DEFAULT FALSE,
+            response_json JSON NULL,
+            submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_status (status),
+            INDEX idx_report_id (report_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    "#,
+    )
+    .await?;
 
     Ok(())
 }
