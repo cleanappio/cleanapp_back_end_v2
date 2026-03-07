@@ -354,6 +354,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cleanapp-rust-common"
+version = "0.1.0"
+
+[[package]]
 name = "cmake"
 version = "0.1.54"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1870,6 +1874,7 @@ dependencies = [
  "anyhow",
  "axum",
  "chrono",
+ "cleanapp-rust-common",
  "dotenvy",
  "mysql",
  "serde",

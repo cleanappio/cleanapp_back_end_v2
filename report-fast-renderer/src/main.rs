@@ -1,11 +1,16 @@
 use std::sync::Arc;
 
-use axum::{response::Json, routing::get, Router};
+use axum::{
+    http::{header, HeaderValue, Method},
+    response::Json,
+    routing::get,
+    Router,
+};
 use serde::{Deserialize, Serialize};
 use tower::ServiceBuilder;
 use tower_http::{
     compression::CompressionLayer,
-    cors::{Any, CorsLayer},
+    cors::{AllowOrigin, CorsLayer},
     trace::TraceLayer,
 };
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -144,6 +149,13 @@ async fn main() -> anyhow::Result<()> {
         .ok();
 
     // Build our application with routes
+    let allowed_origins: Vec<HeaderValue> = config
+        .allowed_origins
+        .iter()
+        .map(|origin| HeaderValue::from_str(origin))
+        .collect::<Result<_, _>>()
+        .map_err(|e| anyhow::anyhow!("Invalid ALLOWED_ORIGINS entry: {}", e))?;
+
     let app = Router::new()
         .route("/health", get(health_check))
         .route("/version", get(version))
@@ -158,15 +170,20 @@ async fn main() -> anyhow::Result<()> {
                 .layer(CompressionLayer::new())
                 .layer(
                     CorsLayer::new()
-                        .allow_origin(Any)
-                        .allow_methods(Any)
-                        .allow_headers(Any),
+                        .allow_origin(AllowOrigin::list(allowed_origins))
+                        .allow_methods([Method::GET, Method::OPTIONS])
+                        .allow_headers([
+                            header::ACCEPT,
+                            header::AUTHORIZATION,
+                            header::CONTENT_TYPE,
+                            header::ORIGIN,
+                        ]),
                 ),
         )
         .with_state(reports_memory.clone());
 
     // Run the server
-    let port = get_config().server_port.clone();
+    let port = get_config().server_port;
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
     tracing::info!(
         "🚀 Report Fast Renderer server starting on http://0.0.0.0:{}",

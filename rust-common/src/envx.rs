@@ -13,6 +13,14 @@ pub fn optional(key: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+pub fn list(key: &str, default: &str) -> Vec<String> {
+    let raw = optional(key).unwrap_or_else(|| default.to_string());
+    raw.split(',')
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .collect()
+}
+
 pub fn required(key: &str) -> String {
     match optional(key) {
         Some(value) => value,

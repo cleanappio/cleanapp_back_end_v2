@@ -1,12 +1,18 @@
 use std::net::SocketAddr;
 
 use anyhow::Result;
-use axum::{extract::Query, http::StatusCode, response::IntoResponse, routing::get, Json, Router};
+use axum::{
+    extract::Query,
+    http::{header, HeaderValue, Method, StatusCode},
+    response::IntoResponse,
+    routing::get,
+    Json, Router,
+};
 use mysql as my;
 use serde::Deserialize;
 use tower::ServiceBuilder;
 use tower_http::{
-    cors::{Any, CorsLayer},
+    cors::{AllowOrigin, CorsLayer},
     trace::TraceLayer,
 };
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -55,6 +61,11 @@ async fn run() -> Result<()> {
     tracing::info!("starting report-listener-v4");
     let cfg = Config::from_env()?;
     let pool = db::connect_pool(&cfg)?;
+    let allowed_origins: Vec<HeaderValue> = cfg
+        .allowed_origins
+        .iter()
+        .map(|origin| HeaderValue::from_str(origin))
+        .collect::<std::result::Result<_, _>>()?;
 
     let app = Router::new()
         .route("/api/v4/health", get(health))
@@ -71,9 +82,14 @@ async fn run() -> Result<()> {
                 .layer(TraceLayer::new_for_http())
                 .layer(
                     CorsLayer::new()
-                        .allow_origin(Any)
-                        .allow_methods(Any)
-                        .allow_headers(Any),
+                        .allow_origin(AllowOrigin::list(allowed_origins))
+                        .allow_methods([Method::GET, Method::OPTIONS])
+                        .allow_headers([
+                            header::ACCEPT,
+                            header::AUTHORIZATION,
+                            header::CONTENT_TYPE,
+                            header::ORIGIN,
+                        ]),
                 ),
         );
 

@@ -53,8 +53,8 @@ set -e
 cleanup_buildinfo() { rm -f buildinfo.vars; }
 trap cleanup_buildinfo EXIT
 
-GIT_SHA="$(git rev-parse --short=12 HEAD 2>/dev/null || true)"
-BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+GIT_SHA="${CLEANAPP_GIT_SHA_OVERRIDE:-$(git rev-parse --short=12 HEAD 2>/dev/null || true)}"
+BUILD_TIME="${CLEANAPP_BUILD_TIME_OVERRIDE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
 cat > buildinfo.vars <<EOF
 CLEANAPP_BUILD_VERSION=${BUILD_VERSION}
 CLEANAPP_GIT_SHA=${GIT_SHA}

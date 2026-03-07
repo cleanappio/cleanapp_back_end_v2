@@ -75,9 +75,12 @@ CLEANAPP_GIT_SHA=${GIT_SHA}
 CLEANAPP_BUILD_TIME=${BUILD_TIME}
 EOF
 
-gcloud builds submit \
-  --region=${CLOUD_REGION} \
-  --tag=${DOCKER_TAG}:${BUILD_VERSION}
+echo "Building and pushing docker image..."
+"${BUILD_SCRIPT_DIR}/../scripts/build/submit_rust_service_with_common.sh" \
+  "${BUILD_SCRIPT_DIR}" \
+  "${CLOUD_REGION}" \
+  "${DOCKER_TAG}:${BUILD_VERSION}" \
+  "${PROJECT_NAME}"
 
 echo "Tagging Docker image as current ${OPT}..."
 gcloud artifacts docker tags add ${DOCKER_TAG}:${BUILD_VERSION} ${DOCKER_TAG}:${OPT}
@@ -89,5 +92,4 @@ if [ -n "${SSH_KEYFILE}" ]; then
   ./setup.sh -e ${OPT} --ssh-keyfile ${SSH_KEYFILE}
   popd >/dev/null
 fi
-
 

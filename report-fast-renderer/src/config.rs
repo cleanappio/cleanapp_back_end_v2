@@ -1,9 +1,9 @@
+use cleanapp_rust_common::envx;
 use serde::{Deserialize, Serialize};
-use std::env;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
-    pub server_port: String,
+    pub server_port: u16,
     pub db_host: String,
     pub db_port: String,
     pub db_user: String,
@@ -16,50 +16,30 @@ pub struct Config {
     pub exchange: String,
     pub queue_name: String,
     pub routing_key: String,
+    pub allowed_origins: Vec<String>,
 }
 
 impl Config {
     pub fn from_env() -> Result<Self, ConfigError> {
-        let server_port = env::var("SERVER_PORT")
-            .map_err(|_| ConfigError::MissingEnvVar("SERVER_PORT".to_string()))?;
-
-        let db_host =
-            env::var("DB_HOST").map_err(|_| ConfigError::MissingEnvVar("DB_HOST".to_string()))?;
-
-        let db_port =
-            env::var("DB_PORT").map_err(|_| ConfigError::MissingEnvVar("DB_PORT".to_string()))?;
-
-        let db_user =
-            env::var("DB_USER").map_err(|_| ConfigError::MissingEnvVar("DB_USER".to_string()))?;
-        let db_password = env::var("DB_PASSWORD")
-            .map_err(|_| ConfigError::MissingEnvVar("DB_PASSWORD".to_string()))?;
-
-        let db_name =
-            env::var("DB_NAME").map_err(|_| ConfigError::MissingEnvVar("DB_NAME".to_string()))?;
-
-        let amqp_host = env::var("AMQP_HOST")
-            .map_err(|_| ConfigError::MissingEnvVar("AMQP_HOST".to_string()))?;
-
-        let amqp_port = env::var("AMQP_PORT")
-            .map_err(|_| ConfigError::MissingEnvVar("AMQP_PORT".to_string()))?
-            .parse::<u16>()
-            .map_err(|e| ConfigError::InvalidEnvVar("AMQP_PORT".to_string(), e.to_string()))?;
-
-        let amqp_user = env::var("AMQP_USER")
-            .map_err(|_| ConfigError::MissingEnvVar("AMQP_USER".to_string()))?;
-
-        let amqp_password = env::var("AMQP_PASSWORD")
-            .map_err(|_| ConfigError::MissingEnvVar("AMQP_PASSWORD".to_string()))?;
-
-        let exchange = env::var("RABBITMQ_EXCHANGE")
-            .map_err(|_| ConfigError::MissingEnvVar("RABBITMQ_EXCHANGE".to_string()))?;
-
-        let queue_name = env::var("RABBITMQ_RENDERER_QUEUE_NAME")
-            .map_err(|_| ConfigError::MissingEnvVar("RABBITMQ_RENDERER_QUEUE_NAME".to_string()))?;
-
-        let routing_key = env::var("RABBITMQ_ANALYSED_REPORT_ROUTING_KEY").map_err(|_| {
-            ConfigError::MissingEnvVar("RABBITMQ_ANALYSED_REPORT_ROUTING_KEY".to_string())
-        })?;
+        let server_port = envx::parse("SERVER_PORT", "8080");
+        let db_host = envx::string("DB_HOST", "127.0.0.1");
+        let db_port = envx::string("DB_PORT", "3306");
+        let db_user = envx::string("DB_USER", "server");
+        let db_password = envx::optional("DB_PASSWORD")
+            .ok_or_else(|| ConfigError::MissingEnvVar("DB_PASSWORD".to_string()))?;
+        let db_name = envx::string("DB_NAME", "cleanapp");
+        let amqp_host = envx::string("AMQP_HOST", "127.0.0.1");
+        let amqp_port = envx::parse("AMQP_PORT", "5672");
+        let amqp_user = envx::string("AMQP_USER", "cleanapp");
+        let amqp_password = envx::optional("AMQP_PASSWORD")
+            .ok_or_else(|| ConfigError::MissingEnvVar("AMQP_PASSWORD".to_string()))?;
+        let exchange = envx::string("RABBITMQ_EXCHANGE", "cleanapp");
+        let queue_name = envx::string("RABBITMQ_RENDERER_QUEUE_NAME", "report-renderer");
+        let routing_key = envx::string("RABBITMQ_ANALYSED_REPORT_ROUTING_KEY", "report.analysed");
+        let allowed_origins = envx::list(
+            "ALLOWED_ORIGINS",
+            "https://cleanapp.io,https://www.cleanapp.io,https://api.cleanapp.io,https://live.cleanapp.io,http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173",
+        );
 
         Ok(Config {
             server_port,
@@ -75,6 +55,7 @@ impl Config {
             exchange,
             queue_name,
             routing_key,
+            allowed_origins,
         })
     }
 
@@ -86,10 +67,10 @@ impl Config {
     }
 
     pub fn validate(&self) -> Result<(), ConfigError> {
-        if self.server_port.is_empty() {
+        if self.server_port == 0 {
             return Err(ConfigError::InvalidEnvVar(
                 "SERVER_PORT".to_string(),
-                "cannot be empty".to_string(),
+                "must be a valid port number".to_string(),
             ));
         }
 
@@ -169,6 +150,13 @@ impl Config {
             ));
         }
 
+        if self.allowed_origins.is_empty() {
+            return Err(ConfigError::InvalidEnvVar(
+                "ALLOWED_ORIGINS".to_string(),
+                "must contain at least one origin".to_string(),
+            ));
+        }
+
         Ok(())
     }
 }
@@ -214,50 +202,55 @@ mod tests {
     #[test]
     fn test_amqp_url_formatting() {
         let config = Config {
-            server_port: "3000".to_string(),
+            server_port: 3000,
             amqp_host: "localhost".to_string(),
             amqp_port: 5672,
-            amqp_user: "guest".to_string(),
-            amqp_password: "guest".to_string(),
+            amqp_user: "test-user".to_string(),
+            amqp_password: "test-password".to_string(),
             exchange: "test_exchange".to_string(),
             queue_name: "test_queue".to_string(),
             routing_key: "test_routing_key".to_string(),
             db_host: "localhost".to_string(),
             db_port: "3306".to_string(),
             db_user: "root".to_string(),
-            db_password: "password".to_string(),
+            db_password: "test-password".to_string(),
             db_name: "test_db".to_string(),
+            allowed_origins: vec!["http://localhost:3000".to_string()],
         };
 
-        assert_eq!(config.amqp_url(), "amqp://guest:guest@localhost:5672");
+        assert_eq!(
+            config.amqp_url(),
+            "amqp://test-user:test-password@localhost:5672"
+        );
     }
 
     #[test]
     fn test_config_validation() {
         let valid_config = Config {
-            server_port: "3000".to_string(),
+            server_port: 3000,
             amqp_host: "localhost".to_string(),
             amqp_port: 5672,
-            amqp_user: "guest".to_string(),
-            amqp_password: "guest".to_string(),
+            amqp_user: "test-user".to_string(),
+            amqp_password: "test-password".to_string(),
             exchange: "test_exchange".to_string(),
             queue_name: "test_queue".to_string(),
             routing_key: "test_routing_key".to_string(),
             db_host: "localhost".to_string(),
             db_port: "3306".to_string(),
             db_user: "root".to_string(),
-            db_password: "password".to_string(),
+            db_password: "test-password".to_string(),
             db_name: "test_db".to_string(),
+            allowed_origins: vec!["http://localhost:3000".to_string()],
         };
 
         assert!(valid_config.validate().is_ok());
 
         let invalid_config = Config {
-            server_port: "".to_string(),
+            server_port: 0,
             amqp_host: "".to_string(),
             amqp_port: 5672,
-            amqp_user: "guest".to_string(),
-            amqp_password: "guest".to_string(),
+            amqp_user: "test-user".to_string(),
+            amqp_password: "test-password".to_string(),
             exchange: "test_exchange".to_string(),
             queue_name: "test_queue".to_string(),
             routing_key: "test_routing_key".to_string(),
@@ -266,6 +259,7 @@ mod tests {
             db_user: "".to_string(),
             db_password: "".to_string(),
             db_name: "".to_string(),
+            allowed_origins: vec![],
         };
 
         assert!(invalid_config.validate().is_err());

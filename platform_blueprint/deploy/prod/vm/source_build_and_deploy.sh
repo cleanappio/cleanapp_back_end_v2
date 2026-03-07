@@ -60,6 +60,7 @@ dedupe_words() {
 commit_sha="$(cd "${ROOT_DIR}" && git rev-parse --verify "${REF}^{commit}")"
 short_sha="${commit_sha:0:12}"
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+build_time="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 remote_stage_dir="${REMOTE_BUILD_ROOT}/cleanapp_back_end_v2_${short_sha}_${timestamp}"
 
 source_services=()
@@ -116,7 +117,7 @@ ssh "${HOST}" "rm -rf '${remote_stage_dir}' && mkdir -p '${remote_stage_dir}'"
 ) | ssh "${HOST}" "tar -xf - -C '${remote_stage_dir}'"
 
 remote_source_services="${source_services[*]}"
-ssh "${HOST}" "REMOTE_STAGE_DIR='${remote_stage_dir}' PROJECT_NAME='${PROJECT_NAME}' CLOUD_REGION='${CLOUD_REGION}' SOURCE_SERVICES='${remote_source_services}' bash -s" <<'REMOTE'
+ssh "${HOST}" "REMOTE_STAGE_DIR='${remote_stage_dir}' PROJECT_NAME='${PROJECT_NAME}' CLOUD_REGION='${CLOUD_REGION}' SOURCE_SERVICES='${remote_source_services}' CLEANAPP_GIT_SHA_OVERRIDE='${short_sha}' CLEANAPP_BUILD_TIME_OVERRIDE='${build_time}' bash -s" <<'REMOTE'
 set -euo pipefail
 
 cd "${REMOTE_STAGE_DIR}"
@@ -125,6 +126,7 @@ gcloud config set project "${PROJECT_NAME}" >/dev/null
 for svc in ${SOURCE_SERVICES}; do
   echo "== build from source: ${svc} =="
   cd "${REMOTE_STAGE_DIR}/${svc}"
+  export CLEANAPP_GIT_SHA_OVERRIDE CLEANAPP_BUILD_TIME_OVERRIDE
   CLOUDSDK_CONFIG="${CLOUDSDK_CONFIG:-/home/deployer/.config/gcloud}" ./build_image.sh -e dev
   build_version=""
   if [[ -f .version ]]; then

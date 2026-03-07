@@ -1,4 +1,5 @@
 use anyhow::Result;
+use cleanapp_rust_common::envx;
 use serde::Deserialize;
 
 #[derive(Clone, Debug, Deserialize)]
@@ -9,19 +10,22 @@ pub struct Config {
     pub db_password: String,
     pub db_name: String,
     pub http_port: u16,
+    pub allowed_origins: Vec<String>,
 }
 
 impl Config {
     pub fn from_env() -> Result<Self> {
-        let db_host = std::env::var("DB_HOST").unwrap_or_else(|_| "127.0.0.1".into());
-        let db_port = std::env::var("DB_PORT").unwrap_or_else(|_| "3306".into());
-        let db_user = std::env::var("DB_USER").unwrap_or_else(|_| "server".into());
-        let db_password = std::env::var("DB_PASSWORD").unwrap_or_default();
-        let db_name = std::env::var("DB_NAME").unwrap_or_else(|_| "cleanapp".into());
-        let http_port = std::env::var("HTTP_PORT")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(9084);
+        let db_password = envx::optional("DB_PASSWORD")
+            .ok_or_else(|| anyhow::anyhow!("DB_PASSWORD is required"))?;
+        let db_host = envx::string("DB_HOST", "127.0.0.1");
+        let db_port = envx::string("DB_PORT", "3306");
+        let db_user = envx::string("DB_USER", "server");
+        let db_name = envx::string("DB_NAME", "cleanapp");
+        let http_port = envx::parse("HTTP_PORT", "9084");
+        let allowed_origins = envx::list(
+            "ALLOWED_ORIGINS",
+            "https://cleanapp.io,https://www.cleanapp.io,https://api.cleanapp.io,https://live.cleanapp.io,http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173",
+        );
         Ok(Self {
             db_host,
             db_port,
@@ -29,6 +33,7 @@ impl Config {
             db_password,
             db_name,
             http_port,
+            allowed_origins,
         })
     }
 }

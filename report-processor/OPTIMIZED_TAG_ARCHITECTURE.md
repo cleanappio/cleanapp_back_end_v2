@@ -178,7 +178,7 @@ DB_PORT=3306
 DB_HOST=localhost
 DB_PORT=3306
 DB_USER=server
-DB_PASSWORD=secret_app
+DB_PASSWORD=<required-db-password>
 DB_NAME=cleanapp
 
 # Server

@@ -52,7 +52,7 @@ env-setup:
 		echo "DB_HOST=localhost" >> .env; \
 		echo "DB_PORT=3306" >> .env; \
 		echo "DB_USER=server" >> .env; \
-		echo "DB_PASSWORD=secret_app" >> .env; \
+		echo "DB_PASSWORD=<required-db-password>" >> .env; \
 		echo "DB_NAME=cleanapp" >> .env; \
 		echo "PORT=8080" >> .env; \
 		echo "BROADCAST_INTERVAL=1s" >> .env; \
@@ -72,7 +72,7 @@ env-example:
 	@echo "DB_HOST=localhost"
 	@echo "DB_PORT=3306"
 	@echo "DB_USER=server"
-	@echo "DB_PASSWORD=secret_app"
+	@echo "DB_PASSWORD=<required-db-password>"
 	@echo "DB_NAME=cleanapp"
 	@echo ""
 	@echo "# Server Configuration"

@@ -34,14 +34,14 @@ env-create:
 	@echo "DB_HOST=localhost" >> .env.template
 	@echo "DB_PORT=3306" >> .env.template
 	@echo "DB_USER=server" >> .env.template
-	@echo "DB_PASSWORD=secret_app" >> .env.template
+	@echo "DB_PASSWORD=<required-db-password>" >> .env.template
 	@echo "DB_NAME=cleanapp" >> .env.template
 	@echo "" >> .env.template
 	@echo "# Server Configuration" >> .env.template
 	@echo "PORT=8080" >> .env.template
 	@echo "" >> .env.template
 	@echo "# OpenAI Configuration" >> .env.template
-	@echo "OPENAI_API_KEY=your_openai_api_key" >> .env.template
+	@echo "OPENAI_API_KEY=<required-openai-api-key>" >> .env.template
 	@echo "OPENAI_MODEL=gpt-4o" >> .env.template
 	@echo "" >> .env.template
 	@echo "# Analysis Configuration" >> .env.template
@@ -74,7 +74,7 @@ docker-run:
 		-e DB_HOST=localhost \
 		-e DB_PORT=3306 \
 		-e DB_USER=server \
-		-e DB_PASSWORD=secret_app \
+		-e DB_PASSWORD=<required-db-password> \
 		-e DB_NAME=cleanapp \
-		-e OPENAI_API_KEY=your_openai_api_key \
+		-e OPENAI_API_KEY=<required-openai-api-key> \
 		report-analyze-pipeline 

@@ -101,10 +101,12 @@ fi
 
 if [ "${OPT}" == "dev" ]; then
   echo "Building and pushing docker image..."
-  gcloud builds submit \
-    --region=${CLOUD_REGION} \
-    --substitutions=_TAG=${DOCKER_TAG}:${BUILD_VERSION} \
-    --config=cloudbuild.yaml
+  echo "${BUILD_VERSION}" > build_version.txt
+  "${BUILD_SCRIPT_DIR}/../scripts/build/submit_rust_service_with_common.sh" \
+    "${BUILD_SCRIPT_DIR}" \
+    "${CLOUD_REGION}" \
+    "${DOCKER_TAG}:${BUILD_VERSION}" \
+    "${PROJECT_NAME}"
 fi
 
 echo "Tagging Docker image as current ${OPT}..."

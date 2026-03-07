@@ -27,6 +27,37 @@ if [[ -f "${SERVICE_DIR}/go.mod" ]] && grep -q '\.\./go-common' "${SERVICE_DIR}/
   perl -0pi -e 's#\.\./go-common#/go-common#g' "${TMP_DIR}/go.mod"
 fi
 
+if [[ -f "${TMP_DIR}/buildinfo.vars" ]]; then
+  # shellcheck disable=SC1091
+  source "${TMP_DIR}/buildinfo.vars"
+fi
+
+if [[ -z "${CLEANAPP_BUILD_VERSION:-}" && -f "${TMP_DIR}/.version" ]]; then
+  CLEANAPP_BUILD_VERSION="$(awk -F= '$1=="BUILD_VERSION"{print $2}' "${TMP_DIR}/.version" | tr -d "\"'[:space:]")"
+fi
+
+if [[ -z "${CLEANAPP_BUILD_VERSION:-}" ]]; then
+  CLEANAPP_BUILD_VERSION="dev"
+fi
+
+if [[ -n "${CLEANAPP_GIT_SHA_OVERRIDE:-}" ]]; then
+  CLEANAPP_GIT_SHA="${CLEANAPP_GIT_SHA_OVERRIDE}"
+fi
+
+if [[ -n "${CLEANAPP_BUILD_TIME_OVERRIDE:-}" ]]; then
+  CLEANAPP_BUILD_TIME="${CLEANAPP_BUILD_TIME_OVERRIDE}"
+fi
+
+if [[ -z "${CLEANAPP_BUILD_TIME:-}" ]]; then
+  CLEANAPP_BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+fi
+
+cat > "${TMP_DIR}/buildinfo.vars" <<EOF
+CLEANAPP_BUILD_VERSION=${CLEANAPP_BUILD_VERSION}
+CLEANAPP_GIT_SHA=${CLEANAPP_GIT_SHA:-}
+CLEANAPP_BUILD_TIME=${CLEANAPP_BUILD_TIME}
+EOF
+
 gcloud builds submit "${TMP_DIR}" \
   --project="${PROJECT_NAME}" \
   --region="${REGION}" \

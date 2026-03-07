@@ -29,6 +29,7 @@ services:
     build:
       context: ../../../../report-analyze-pipeline
     environment:
+      # Synthetic test-fixture credentials only.
       PORT: "8080"
       SEQ_START_FROM: "1"
       TRANSLATION_LANGUAGES: "en"
@@ -36,8 +37,8 @@ services:
 
       DB_HOST: mysql
       DB_PORT: "3306"
-      DB_USER: "server"
-      DB_PASSWORD: "secret_app"
+      DB_USER: "root"
+      DB_PASSWORD: "root"
       DB_NAME: "cleanapp"
 
       AMQP_HOST: rabbitmq

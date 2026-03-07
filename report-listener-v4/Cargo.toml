@@ -19,5 +19,5 @@ utoipa = { version = "4", features = ["axum_extras", "chrono", "uuid", "yaml"] }
 utoipa-swagger-ui = { version = "7", features = ["axum"] }
 time = { version = "0.3", features = ["serde-human-readable"] }
 chrono = { version = "0.4", features = ["serde", "clock"] }
-
+cleanapp-rust-common = { path = "../rust-common" }
 

@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"flag"
 	"fmt"
+	"strings"
 
 	"github.com/apex/log"
 	"github.com/sendgrid/sendgrid-go"
@@ -11,16 +12,20 @@ import (
 )
 
 var (
-	apiKey    = flag.String("sendgrid_api_key", "secret", "SendGrid API Key.")
+	apiKey    = flag.String("sendgrid_api_key", "", "SendGrid API Key.")
 	fromName  = flag.String("sendgrid_from_name", "CleanApp", "SendGrid From Name")
 	fromEmail = flag.String("sendgrid_from_email", "info@cleanapp.io", "SendGrid From email")
 )
 
 func SendEmails(recipients []string, reportImage, mapImage []byte) {
+	if strings.TrimSpace(*apiKey) == "" {
+		log.Warn("SendGrid API key missing; skipping legacy email send path")
+		return
+	}
 	log.Infof("!!!Sending email to %d recipients!!!", len(recipients))
 	for _, r := range recipients {
 		if err := sendOneEmail(r, reportImage, mapImage); err != nil {
-			log.Warnf("Error sending email to %s: %w", err)
+			log.Warnf("Error sending email to %s: %v", r, err)
 		}
 	}
 }

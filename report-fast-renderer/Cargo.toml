@@ -18,3 +18,4 @@ anyhow = "1.0"
 thiserror = "2.0.17"
 utoipa = { version = "5.4.0", features = ["axum_extras", "chrono", "uuid", "yaml"] }
 mysql = "26.0.1"
+cleanapp-rust-common = { path = "../rust-common" }
