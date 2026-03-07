@@ -161,7 +161,11 @@ fn default_brands() -> Vec<BrandConfig> {
             id: "amazon".into(),
             display_name: "Amazon".into(),
             aliases: vec!["amazon".into(), "aws ".into(), "prime video".into()],
-            domains: vec!["amazon.com".into(), "amzn.to".into(), "aws.amazon.com".into()],
+            domains: vec![
+                "amazon.com".into(),
+                "amzn.to".into(),
+                "aws.amazon.com".into(),
+            ],
             handle_patterns: vec!["amazon".into()],
             vertical: "ecommerce".into(),
         },
@@ -193,8 +197,18 @@ fn default_brands() -> Vec<BrandConfig> {
         BrandConfig {
             id: "meta".into(),
             display_name: "Meta".into(),
-            aliases: vec!["facebook".into(), "instagram".into(), "meta ".into(), "whatsapp".into()],
-            domains: vec!["facebook.com".into(), "instagram.com".into(), "meta.com".into(), "whatsapp.com".into()],
+            aliases: vec![
+                "facebook".into(),
+                "instagram".into(),
+                "meta ".into(),
+                "whatsapp".into(),
+            ],
+            domains: vec![
+                "facebook.com".into(),
+                "instagram.com".into(),
+                "meta.com".into(),
+                "whatsapp.com".into(),
+            ],
             handle_patterns: vec!["facebook".into(), "instagram".into(), "meta".into()],
             vertical: "social".into(),
         },
@@ -235,7 +249,12 @@ fn default_brands() -> Vec<BrandConfig> {
         BrandConfig {
             id: "playstation".into(),
             display_name: "PlayStation".into(),
-            aliases: vec!["playstation".into(), "psn ".into(), "ps5 ".into(), "ps4 ".into()],
+            aliases: vec![
+                "playstation".into(),
+                "psn ".into(),
+                "ps5 ".into(),
+                "ps4 ".into(),
+            ],
             domains: vec!["playstation.com".into()],
             handle_patterns: vec!["playstation".into()],
             vertical: "gaming".into(),
@@ -271,137 +290,335 @@ fn default_brands() -> Vec<BrandConfig> {
 // Negative keywords to filter noise and spam
 const NEGATIVE_KEYWORDS: &[&str] = &[
     // Spam/Promo
-    "giveaway", "promo", "nft", "crypto airdrop",
-    "follow for follow", "f4f", "follow back", "followback",
+    "giveaway",
+    "promo",
+    "nft",
+    "crypto airdrop",
+    "follow for follow",
+    "f4f",
+    "follow back",
+    "followback",
     // YouTube/Video spam (common pattern: "Watch the latest")
-    "watch the latest", "watch latest", "don't miss this",
-    "breaking news:", "latest updates:",
-    "youtu.be", "youtube.com/watch",
+    "watch the latest",
+    "watch latest",
+    "don't miss this",
+    "breaking news:",
+    "latest updates:",
+    "youtu.be",
+    "youtube.com/watch",
     // Stock/Crypto spam
-    "nse/bse", "stock updates", "shares updates", "trading signal",
-    "buy now", "pump", "to the moon",
+    "nse/bse",
+    "stock updates",
+    "shares updates",
+    "trading signal",
+    "buy now",
+    "pump",
+    "to the moon",
     // Political/News (not product-related)
-    "vote for", "election", "politician",
+    "vote for",
+    "election",
+    "politician",
     // Other noise
-    "astrology", "horoscope", "zodiac",
-    "subscribe to my", "check out my",
+    "astrology",
+    "horoscope",
+    "zodiac",
+    "subscribe to my",
+    "check out my",
 ];
 
 // Product/Service/Tech complaint keywords - focused but comprehensive
 // These are designed to catch CleanApp-relevant issues about apps, services, products, and brands
 const COMPLAINT_KEYWORDS: &[&str] = &[
     // === HIGH-SIGNAL SINGLE WORDS (catch more, filter later) ===
-    "crash", "crashed", "crashes", "crashing",
-    "bug", "bugs", "buggy",
-    "broken", "broke",
-    "glitch", "glitchy", "glitches",
-    "sucks", "suck",
-    "terrible", "awful", "horrible", "worst",
-    "scam", "scammed", "scammer",
-    "refund", "refunds",
-    "hacked", "hack",
-    "banned", "suspended",
-    "outage", "down",
+    "crash",
+    "crashed",
+    "crashes",
+    "crashing",
+    "bug",
+    "bugs",
+    "buggy",
+    "broken",
+    "broke",
+    "glitch",
+    "glitchy",
+    "glitches",
+    "sucks",
+    "suck",
+    "terrible",
+    "awful",
+    "horrible",
+    "worst",
+    "scam",
+    "scammed",
+    "scammer",
+    "refund",
+    "refunds",
+    "hacked",
+    "hack",
+    "banned",
+    "suspended",
+    "outage",
+    "down",
     "unusable",
-    "overcharged", "charged",
+    "overcharged",
+    "charged",
     "unsubscribe",
-    
     // === App/Software Issues ===
-    "app crash", "app crashed", "app crashes", "app crashing",
-    "keeps crashing", "constantly crashes", "always crashes",
-    "app freeze", "app froze", "app freezes", "app frozen",
-    "app bug", "buggy app", "so buggy", "full of bugs",
-    "glitch", "glitchy", "glitches",
-    "app broken", "broken app", "feature broken",
-    "doesn't work", "doesnt work", "not working", "stopped working",
-    "won't open", "wont open", "won't load", "wont load",
-    "can't open", "cant open", "won't start", "wont start",
-    "app down", "site down", "service down", "server down", "servers down",
-    "outage", "down for", "been down",
-    
+    "app crash",
+    "app crashed",
+    "app crashes",
+    "app crashing",
+    "keeps crashing",
+    "constantly crashes",
+    "always crashes",
+    "app freeze",
+    "app froze",
+    "app freezes",
+    "app frozen",
+    "app bug",
+    "buggy app",
+    "so buggy",
+    "full of bugs",
+    "glitch",
+    "glitchy",
+    "glitches",
+    "app broken",
+    "broken app",
+    "feature broken",
+    "doesn't work",
+    "doesnt work",
+    "not working",
+    "stopped working",
+    "won't open",
+    "wont open",
+    "won't load",
+    "wont load",
+    "can't open",
+    "cant open",
+    "won't start",
+    "wont start",
+    "app down",
+    "site down",
+    "service down",
+    "server down",
+    "servers down",
+    "outage",
+    "down for",
+    "been down",
     // === Login/Account Issues ===
-    "can't login", "cant login", "can't log in", "cant log in",
-    "login failed", "login error", "login issue", "login problem",
-    "can't sign in", "cant sign in", "won't let me log",
-    "locked out", "account locked", "got locked out",
-    "account suspended", "account banned", "account disabled",
-    "account hacked", "got hacked", "been hacked", "someone hacked",
-    "password reset", "reset my password", "forgot password",
-    "2fa issue", "verification code", "verification failed",
-    
+    "can't login",
+    "cant login",
+    "can't log in",
+    "cant log in",
+    "login failed",
+    "login error",
+    "login issue",
+    "login problem",
+    "can't sign in",
+    "cant sign in",
+    "won't let me log",
+    "locked out",
+    "account locked",
+    "got locked out",
+    "account suspended",
+    "account banned",
+    "account disabled",
+    "account hacked",
+    "got hacked",
+    "been hacked",
+    "someone hacked",
+    "password reset",
+    "reset my password",
+    "forgot password",
+    "2fa issue",
+    "verification code",
+    "verification failed",
     // === Billing/Payment Issues ===
-    "charged me", "double charged", "overcharged", "wrongly charged",
-    "unauthorized charge", "mystery charge", "random charge",
-    "want a refund", "need a refund", "give me a refund", "refund please",
-    "where's my refund", "still waiting for refund", "no refund",
-    "billing issue", "billing problem", "billing error",
-    "subscription", "unsubscribe", "cancel subscription", "cancelled but still",
-    "charged after cancel", "still being charged",
-    "payment failed", "payment declined", "payment error",
-    "won't process", "transaction failed",
-    
+    "charged me",
+    "double charged",
+    "overcharged",
+    "wrongly charged",
+    "unauthorized charge",
+    "mystery charge",
+    "random charge",
+    "want a refund",
+    "need a refund",
+    "give me a refund",
+    "refund please",
+    "where's my refund",
+    "still waiting for refund",
+    "no refund",
+    "billing issue",
+    "billing problem",
+    "billing error",
+    "subscription",
+    "unsubscribe",
+    "cancel subscription",
+    "cancelled but still",
+    "charged after cancel",
+    "still being charged",
+    "payment failed",
+    "payment declined",
+    "payment error",
+    "won't process",
+    "transaction failed",
     // === Customer Service ===
-    "customer service", "customer support", "support team",
-    "no response", "no reply", "won't respond", "wont respond",
-    "support ticket", "waiting for support", "support is useless",
-    "help desk", "contact support", "reached out to",
-    "hours on hold", "on hold for", "waiting on hold",
-    "chat support", "email support", "phone support",
-    
+    "customer service",
+    "customer support",
+    "support team",
+    "no response",
+    "no reply",
+    "won't respond",
+    "wont respond",
+    "support ticket",
+    "waiting for support",
+    "support is useless",
+    "help desk",
+    "contact support",
+    "reached out to",
+    "hours on hold",
+    "on hold for",
+    "waiting on hold",
+    "chat support",
+    "email support",
+    "phone support",
     // === Product/Service Quality ===
-    "terrible service", "awful service", "worst service",
-    "terrible app", "awful app", "worst app",
-    "terrible experience", "awful experience", "worst experience",
-    "horrible ux", "bad ux", "terrible ui", "horrible design",
-    "unusable", "barely usable", "completely unusable",
-    "waste of money", "waste of time", "total waste",
-    "scam", "scammed", "feels like a scam", "such a scam",
-    "ripoff", "rip off", "rip-off",
-    "false advertising", "misleading", "bait and switch",
-    
+    "terrible service",
+    "awful service",
+    "worst service",
+    "terrible app",
+    "awful app",
+    "worst app",
+    "terrible experience",
+    "awful experience",
+    "worst experience",
+    "horrible ux",
+    "bad ux",
+    "terrible ui",
+    "horrible design",
+    "unusable",
+    "barely usable",
+    "completely unusable",
+    "waste of money",
+    "waste of time",
+    "total waste",
+    "scam",
+    "scammed",
+    "feels like a scam",
+    "such a scam",
+    "ripoff",
+    "rip off",
+    "rip-off",
+    "false advertising",
+    "misleading",
+    "bait and switch",
     // === Delivery/Shipping Issues ===
-    "never arrived", "didn't arrive", "hasnt arrived", "hasn't arrived",
-    "wrong item", "wrong order", "wrong product",
-    "missing item", "missing order", "order missing",
-    "damaged", "arrived damaged", "came damaged",
-    "late delivery", "delivery late", "still waiting for delivery",
-    "lost package", "package lost", "lost my order",
-    "tracking not working", "tracking shows",
-    
+    "never arrived",
+    "didn't arrive",
+    "hasnt arrived",
+    "hasn't arrived",
+    "wrong item",
+    "wrong order",
+    "wrong product",
+    "missing item",
+    "missing order",
+    "order missing",
+    "damaged",
+    "arrived damaged",
+    "came damaged",
+    "late delivery",
+    "delivery late",
+    "still waiting for delivery",
+    "lost package",
+    "package lost",
+    "lost my order",
+    "tracking not working",
+    "tracking shows",
     // === Booking/Reservation Issues ===
-    "reservation cancelled", "reservation canceled", "booking cancelled",
-    "booking canceled", "cancelled my booking", "canceled my reservation",
-    "double booked", "overbooked", "no record of",
-    "couldn't check in", "check in issue", "check-in problem",
-    "room wasn't", "room wasnt", "not as advertised", "not as described",
-    
+    "reservation cancelled",
+    "reservation canceled",
+    "booking cancelled",
+    "booking canceled",
+    "cancelled my booking",
+    "canceled my reservation",
+    "double booked",
+    "overbooked",
+    "no record of",
+    "couldn't check in",
+    "check in issue",
+    "check-in problem",
+    "room wasn't",
+    "room wasnt",
+    "not as advertised",
+    "not as described",
     // === Feature Requests/Missing Functionality ===
-    "feature request", "please add", "wish you had", "would be nice if",
-    "missing feature", "need a feature", "no option to",
-    "can't find", "cant find", "where is the", "how do i",
-    "used to work", "worked before", "stopped working after update",
-    "update broke", "after update", "since the update", "latest update",
-    "bring back", "removed feature", "why did you remove",
-    
+    "feature request",
+    "please add",
+    "wish you had",
+    "would be nice if",
+    "missing feature",
+    "need a feature",
+    "no option to",
+    "can't find",
+    "cant find",
+    "where is the",
+    "how do i",
+    "used to work",
+    "worked before",
+    "stopped working after update",
+    "update broke",
+    "after update",
+    "since the update",
+    "latest update",
+    "bring back",
+    "removed feature",
+    "why did you remove",
     // === Safety/Trust Issues ===
-    "data breach", "privacy concern", "privacy issue",
-    "leaked my", "exposed my", "shared my data",
-    "unsafe", "security issue", "security concern", "security flaw",
-    "vulnerability", "not secure",
-    "spam", "getting spam", "spam emails", "spam calls",
-    "phishing", "fake email", "suspicious email",
-    
+    "data breach",
+    "privacy concern",
+    "privacy issue",
+    "leaked my",
+    "exposed my",
+    "shared my data",
+    "unsafe",
+    "security issue",
+    "security concern",
+    "security flaw",
+    "vulnerability",
+    "not secure",
+    "spam",
+    "getting spam",
+    "spam emails",
+    "spam calls",
+    "phishing",
+    "fake email",
+    "suspicious email",
     // === Driver/Rider/Host Issues (Rideshare/Delivery/Hospitality) ===
-    "driver was", "driver didn't", "driver didnt", "driver never",
-    "rider was", "passenger was",
-    "host was", "host didn't", "host didnt", "host never",
-    "rude driver", "rude host", "unprofessional",
-    "unsafe driver", "dangerous driving", "felt unsafe",
-    "wrong address", "went to wrong", "picked up wrong",
-    "didn't show up", "didnt show up", "no show",
-    "cancelled on me", "canceled on me",
+    "driver was",
+    "driver didn't",
+    "driver didnt",
+    "driver never",
+    "rider was",
+    "passenger was",
+    "host was",
+    "host didn't",
+    "host didnt",
+    "host never",
+    "rude driver",
+    "rude host",
+    "unprofessional",
+    "unsafe driver",
+    "dangerous driving",
+    "felt unsafe",
+    "wrong address",
+    "went to wrong",
+    "picked up wrong",
+    "didn't show up",
+    "didnt show up",
+    "no show",
+    "cancelled on me",
+    "canceled on me",
 ];
-
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -413,8 +630,8 @@ async fn main() -> Result<()> {
     // Load config
     let config_str = std::fs::read_to_string(&args.config)
         .with_context(|| format!("Failed to read config file: {}", args.config))?;
-    let config: Config = toml::from_str(&config_str)
-        .with_context(|| "Failed to parse config file")?;
+    let config: Config =
+        toml::from_str(&config_str).with_context(|| "Failed to parse config file")?;
 
     // Connect to database
     let pool = Pool::new(config.general.db_url.as_str());
@@ -438,16 +655,22 @@ async fn main() -> Result<()> {
 
 async fn ensure_jetstream_cursor_table(pool: &Pool) -> Result<()> {
     let mut conn = pool.get_conn().await?;
-    conn.query_drop(r#"
+    conn.query_drop(
+        r#"
         CREATE TABLE IF NOT EXISTS indexer_bluesky_jetstream_cursor (
             id INT NOT NULL PRIMARY KEY DEFAULT 1,
             time_us BIGINT NOT NULL DEFAULT 0,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    "#).await?;
-    conn.query_drop(r#"
+    "#,
+    )
+    .await?;
+    conn.query_drop(
+        r#"
         INSERT IGNORE INTO indexer_bluesky_jetstream_cursor (id, time_us) VALUES (1, 0)
-    "#).await?;
+    "#,
+    )
+    .await?;
     Ok(())
 }
 
@@ -463,17 +686,21 @@ async fn update_cursor(pool: &Pool, time_us: u64) -> Result<()> {
     let mut conn = pool.get_conn().await?;
     conn.exec_drop(
         "UPDATE indexer_bluesky_jetstream_cursor SET time_us = ? WHERE id = 1",
-        (time_us,)
-    ).await?;
+        (time_us,),
+    )
+    .await?;
     Ok(())
 }
 
 async fn run_once(pool: &Pool) -> Result<()> {
     info!("Running once for testing...");
     let cursor = get_cursor(pool).await?;
-    
+
     let url = if cursor > 0 {
-        format!("{}?wantedCollections={}&cursor={}", JETSTREAM_URL, WANTED_COLLECTIONS, cursor)
+        format!(
+            "{}?wantedCollections={}&cursor={}",
+            JETSTREAM_URL, WANTED_COLLECTIONS, cursor
+        )
     } else {
         format!("{}?wantedCollections={}", JETSTREAM_URL, WANTED_COLLECTIONS)
     };
@@ -508,51 +735,52 @@ async fn run_once(pool: &Pool) -> Result<()> {
 
 async fn run_continuous(pool: &Pool) -> Result<()> {
     let mut backoff_secs = 1u64;
-    
+
     loop {
         let cursor = get_cursor(pool).await.unwrap_or(0);
-        
+
         let url = if cursor > 0 {
-            format!("{}?wantedCollections={}&cursor={}", JETSTREAM_URL, WANTED_COLLECTIONS, cursor)
+            format!(
+                "{}?wantedCollections={}&cursor={}",
+                JETSTREAM_URL, WANTED_COLLECTIONS, cursor
+            )
         } else {
             format!("{}?wantedCollections={}", JETSTREAM_URL, WANTED_COLLECTIONS)
         };
 
         info!("Connecting to Jetstream (cursor: {})...", cursor);
-        
+
         match connect_async(&url).await {
             Ok((ws_stream, _)) => {
                 backoff_secs = 1; // Reset backoff on success
                 let (_, mut read) = ws_stream.split();
-                
+
                 info!("Connected to Jetstream firehose (COMPREHENSIVE mode)");
-                
+
                 let mut message_count = 0u64;
                 let mut match_count = 0u64;
-                
+
                 while let Some(msg) = read.next().await {
                     match msg {
-                        Ok(Message::Text(text)) => {
-                            match process_message(&text, pool).await {
-                                Ok(matched) => {
-                                    message_count += 1;
-                                    if matched {
-                                        match_count += 1;
-                                    }
-                                    if message_count % 10000 == 0 {
-                                        info!(
-                                            "Processed {} messages, {} complaints stored ({:.2}%)",
-                                            message_count,
-                                            match_count,
-                                            (match_count as f64 / message_count as f64) * 100.0
-                                        );
-                                    }
+                        Ok(Message::Text(text)) => match process_message(&text, pool).await {
+                            Ok(matched) => {
+                                message_count += 1;
+                                if matched {
+                                    match_count += 1;
                                 }
-                                Err(e) => {
-                                    debug!("Error processing message: {}", e);
+                                if message_count % 10000 == 0 {
+                                    info!(
+                                        "Processed {} messages, {} complaints stored ({:.2}%)",
+                                        message_count,
+                                        match_count,
+                                        (match_count as f64 / message_count as f64) * 100.0
+                                    );
                                 }
                             }
-                        }
+                            Err(e) => {
+                                debug!("Error processing message: {}", e);
+                            }
+                        },
                         Ok(Message::Ping(_)) => {
                             debug!("Received ping");
                             // Pong is handled automatically by tungstenite
@@ -575,7 +803,10 @@ async fn run_continuous(pool: &Pool) -> Result<()> {
         }
 
         // Reconnect with exponential backoff
-        warn!("Connection lost, reconnecting in {} seconds...", backoff_secs);
+        warn!(
+            "Connection lost, reconnecting in {} seconds...",
+            backoff_secs
+        );
         sleep(Duration::from_secs(backoff_secs)).await;
         backoff_secs = (backoff_secs * 2).min(60);
     }
@@ -583,13 +814,15 @@ async fn run_continuous(pool: &Pool) -> Result<()> {
 
 async fn process_message(raw: &str, pool: &Pool) -> Result<bool> {
     let event: JetstreamEvent = serde_json::from_str(raw)?;
-    
+
     // Update cursor
     if event.time_us > 0 {
         // Only update cursor periodically to reduce DB writes
-        static CURSOR_UPDATE_INTERVAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        static CURSOR_UPDATE_INTERVAL: std::sync::atomic::AtomicU64 =
+            std::sync::atomic::AtomicU64::new(0);
         let last = CURSOR_UPDATE_INTERVAL.load(std::sync::atomic::Ordering::Relaxed);
-        if event.time_us - last > 1_000_000 { // Update every ~1 second
+        if event.time_us - last > 1_000_000 {
+            // Update every ~1 second
             CURSOR_UPDATE_INTERVAL.store(event.time_us, std::sync::atomic::Ordering::Relaxed);
             update_cursor(pool, event.time_us).await?;
         }
@@ -640,11 +873,8 @@ async fn process_message(raw: &str, pool: &Pool) -> Result<bool> {
 
     // Store the post - analyzer_bluesky will determine brand
     store_post(pool, &post).await?;
-    
-    info!(
-        "📥 Complaint found: {}",
-        truncate_text(&post.text, 80)
-    );
+
+    info!("📥 Complaint found: {}", truncate_text(&post.text, 80));
 
     Ok(true)
 }
@@ -653,12 +883,14 @@ fn normalize_post(did: &str, commit: &JetstreamCommit, record: &JsonValue) -> Re
     let uri = format!("at://{}/{}/{}", did, commit.collection, commit.rkey);
     let cid = commit.cid.clone().unwrap_or_default();
 
-    let text = record.get("text")
+    let text = record
+        .get("text")
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
 
-    let created_at = record.get("createdAt")
+    let created_at = record
+        .get("createdAt")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
@@ -671,7 +903,7 @@ fn normalize_post(did: &str, commit: &JetstreamCommit, record: &JsonValue) -> Re
             if let Some(features) = facet.get("features").and_then(|v| v.as_array()) {
                 for feature in features {
                     let ftype = feature.get("$type").and_then(|v| v.as_str()).unwrap_or("");
-                    
+
                     if ftype == "app.bsky.richtext.facet#link" {
                         if let Some(uri) = feature.get("uri").and_then(|v| v.as_str()) {
                             links.push(uri.to_string());
@@ -704,8 +936,6 @@ fn normalize_post(did: &str, commit: &JetstreamCommit, record: &JsonValue) -> Re
     })
 }
 
-
-
 async fn store_post(pool: &Pool, post: &BlueskyPost) -> Result<()> {
     let mut conn = pool.get_conn().await?;
     let raw_json = serde_json::to_string(&post.raw)?;
@@ -728,8 +958,9 @@ async fn store_post(pool: &Pool, post: &BlueskyPost) -> Result<()> {
             &post.text,
             post.created_at.as_deref(),
             &raw_json,
-        )
-    ).await?;
+        ),
+    )
+    .await?;
 
     debug!("Stored post {}", post.uri);
 
@@ -740,6 +971,12 @@ fn truncate_text(text: &str, max_len: usize) -> String {
     if text.len() <= max_len {
         text.replace('\n', " ")
     } else {
-        format!("{}...", text.chars().take(max_len).collect::<String>().replace('\n', " "))
+        format!(
+            "{}...",
+            text.chars()
+                .take(max_len)
+                .collect::<String>()
+                .replace('\n', " ")
+        )
     }
 }

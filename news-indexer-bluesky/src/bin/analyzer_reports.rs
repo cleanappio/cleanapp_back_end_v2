@@ -104,7 +104,10 @@ async fn main() -> Result<()> {
     let db_url = args
         .db_url
         .clone()
-        .or_else(|| cfg.as_ref().and_then(|c| c.general.as_ref().map(|g| g.db_url.clone())))
+        .or_else(|| {
+            cfg.as_ref()
+                .and_then(|c| c.general.as_ref().map(|g| g.db_url.clone()))
+        })
         .context("db_url must be provided via --db-url or DB_URL")?;
 
     let gemini_key = args
@@ -203,33 +206,39 @@ async fn run_once(
                     if let Some(text_out) = extract_gemini_text(&v) {
                         match serde_json::from_str::<JsonValue>(&text_out) {
                             Ok(obj) => {
-                                brand_display_name = obj.get("brand_display_name")
+                                brand_display_name = obj
+                                    .get("brand_display_name")
                                     .and_then(|x| x.as_str())
                                     .unwrap_or("")
                                     .to_string();
-                                brand_name = obj.get("brand_name")
+                                brand_name = obj
+                                    .get("brand_name")
                                     .and_then(|x| x.as_str())
                                     .unwrap_or("")
                                     .to_string();
-                                summary = obj.get("summary")
+                                summary = obj
+                                    .get("summary")
                                     .and_then(|x| x.as_str())
                                     .unwrap_or("")
                                     .chars()
                                     .take(300)
                                     .collect();
-                                report_title = obj.get("report_title")
+                                report_title = obj
+                                    .get("report_title")
                                     .and_then(|x| x.as_str())
                                     .unwrap_or("")
                                     .chars()
                                     .take(120)
                                     .collect();
-                                report_description = obj.get("report_description")
+                                report_description = obj
+                                    .get("report_description")
                                     .and_then(|x| x.as_str())
                                     .unwrap_or("")
                                     .chars()
                                     .take(1000)
                                     .collect();
-                                classification = obj.get("classification")
+                                classification = obj
+                                    .get("classification")
                                     .and_then(|x| x.as_str())
                                     .unwrap_or("digital")
                                     .to_lowercase();
@@ -237,11 +246,13 @@ async fn run_once(
                                 if classification != "physical" {
                                     classification = "digital".to_string();
                                 }
-                                severity_level = obj.get("severity_level")
+                                severity_level = obj
+                                    .get("severity_level")
                                     .and_then(|x| x.as_f64())
                                     .unwrap_or(0.5)
                                     .clamp(0.0, 1.0);
-                                digital_bug_probability = obj.get("digital_bug_probability")
+                                digital_bug_probability = obj
+                                    .get("digital_bug_probability")
                                     .and_then(|x| x.as_f64())
                                     .unwrap_or(0.5);
                                 if let Some(l) = obj.get("language").and_then(|x| x.as_str()) {
@@ -294,7 +305,9 @@ async fn run_once(
             .await?;
             info!(
                 "analyzer_reports: updated seq={} brand={} summary_len={}",
-                seq, brand_display_name, summary.len()
+                seq,
+                brand_display_name,
+                summary.len()
             );
         } else {
             // Mark as processed anyway to avoid infinite retries, but keep original content
@@ -303,7 +316,10 @@ async fn run_once(
                 (seq,),
             )
             .await?;
-            warn!("analyzer_reports: failed AI for seq={}, marked as processed", seq);
+            warn!(
+                "analyzer_reports: failed AI for seq={}, marked as processed",
+                seq
+            );
         }
 
         // Rate limiting to avoid hitting API limits

@@ -27,7 +27,11 @@ struct Args {
     interval_secs: u64,
     #[arg(long, env = "BSKY_PAGES_PER_RUN", default_value_t = 3)]
     pages_per_run: usize,
-    #[arg(long, env = "BSKY_SEARCH_QUERIES", default_value = "fatal bug,app crash,horrible UX,broken feature,keeps crashing,feature request,missing dark mode,battery drain,laggy,freezes,login broken,sync fails,unusable,showstopper bug")]
+    #[arg(
+        long,
+        env = "BSKY_SEARCH_QUERIES",
+        default_value = "fatal bug,app crash,horrible UX,broken feature,keeps crashing,feature request,missing dark mode,battery drain,laggy,freezes,login broken,sync fails,unusable,showstopper bug"
+    )]
     search_queries: String,
 }
 
@@ -113,7 +117,10 @@ async fn main() -> Result<()> {
     let db_url = args
         .db_url
         .clone()
-        .or_else(|| cfg.as_ref().and_then(|c| c.general.as_ref().map(|g| g.db_url.clone())))
+        .or_else(|| {
+            cfg.as_ref()
+                .and_then(|c| c.general.as_ref().map(|g| g.db_url.clone()))
+        })
         .context("db_url must be provided via --db-url or DB_URL")?;
 
     let app_password = args
@@ -167,7 +174,7 @@ async fn run_once(
 
     for query in queries {
         let tag_key = format!("search:{}", query.to_lowercase());
-        
+
         // Load cursor for this query
         let cursor: Option<String> = conn
             .exec_first(
@@ -186,13 +193,18 @@ async fn run_once(
             pages += 1;
 
             let result = search_posts(client, &access_token, query, next_cursor.as_deref()).await?;
-            
+
             if result.posts.is_empty() {
                 info!("query '{}': no posts in page", query);
                 break;
             }
 
-            info!("query '{}': {} posts in page {}", query, result.posts.len(), pages);
+            info!(
+                "query '{}': {} posts in page {}",
+                query,
+                result.posts.len(),
+                pages
+            );
 
             for post in result.posts.iter() {
                 // Skip if contains negative keywords
@@ -204,7 +216,9 @@ async fn run_once(
                 // Check language (allow en, es, or unspecified)
                 if let Some(ref langs) = post.record.langs {
                     if !langs.is_empty() {
-                        let valid_lang = langs.iter().any(|l| l.starts_with("en") || l.starts_with("es"));
+                        let valid_lang = langs
+                            .iter()
+                            .any(|l| l.starts_with("en") || l.starts_with("es"));
                         if !valid_lang {
                             continue;
                         }
@@ -212,12 +226,11 @@ async fn run_once(
                 }
 
                 // Parse created_at
-                let created_at_db = post.record.created_at.as_ref().map(|s| {
-                    s.replace('T', " ")
-                        .chars()
-                        .take(19)
-                        .collect::<String>()
-                });
+                let created_at_db = post
+                    .record
+                    .created_at
+                    .as_ref()
+                    .map(|s| s.replace('T', " ").chars().take(19).collect::<String>());
 
                 let lang = post
                     .record
@@ -293,7 +306,7 @@ async fn authenticate(
     });
 
     let resp = client.post(url).json(&body).send().await?;
-    
+
     if !resp.status().is_success() {
         let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
@@ -314,7 +327,7 @@ async fn search_posts(
         "https://bsky.social/xrpc/app.bsky.feed.searchPosts?q={}&limit=50",
         urlencoding::encode(query)
     );
-    
+
     if let Some(c) = cursor {
         url.push_str(&format!("&cursor={}", urlencoding::encode(c)));
     }
@@ -352,7 +365,13 @@ async fn handle_embed(
     // Handle images embed
     let images = embed
         .get("images")
-        .or_else(|| embed.get("$type").and_then(|t| t.as_str()).filter(|t| *t == "app.bsky.embed.images#view").and_then(|_| embed.get("images")))
+        .or_else(|| {
+            embed
+                .get("$type")
+                .and_then(|t| t.as_str())
+                .filter(|t| *t == "app.bsky.embed.images#view")
+                .and_then(|_| embed.get("images"))
+        })
         .and_then(|i| i.as_array());
 
     if let Some(images) = images {

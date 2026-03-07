@@ -106,7 +106,10 @@ async fn main() -> Result<()> {
     let db_url = args
         .db_url
         .clone()
-        .or_else(|| cfg.as_ref().and_then(|c| c.general.as_ref().map(|g| g.db_url.clone())))
+        .or_else(|| {
+            cfg.as_ref()
+                .and_then(|c| c.general.as_ref().map(|g| g.db_url.clone()))
+        })
         .context("db_url must be provided via --db-url or DB_URL")?;
 
     let gemini_key = args
@@ -216,7 +219,11 @@ async fn run_once(
         let mut summary = String::new();
         let mut report_title = String::new();
         let mut report_description = String::new();
-        let mut language = if lang.is_empty() { "en".to_string() } else { lang.clone() };
+        let mut language = if lang.is_empty() {
+            "en".to_string()
+        } else {
+            lang.clone()
+        };
         let mut raw_llm: JsonValue = JsonValue::Null;
         let mut inferred_contact_emails = JsonValue::Array(vec![]);
         let mut err_text: Option<String> = None;
@@ -241,19 +248,57 @@ async fn run_once(
                     if let Some(text_out) = extract_gemini_text(&v) {
                         match serde_json::from_str::<JsonValue>(&text_out) {
                             Ok(obj) => {
-                                is_relevant = obj.get("is_relevant").and_then(|x| x.as_bool()).unwrap_or(false);
-                                relevance = obj.get("relevance").and_then(|x| x.as_f64()).unwrap_or(0.0);
-                                classification = obj.get("classification").and_then(|x| x.as_str()).unwrap_or("digital").to_lowercase();
-                                if classification != "physical" && classification != "digital" && classification != "unknown" {
+                                is_relevant = obj
+                                    .get("is_relevant")
+                                    .and_then(|x| x.as_bool())
+                                    .unwrap_or(false);
+                                relevance =
+                                    obj.get("relevance").and_then(|x| x.as_f64()).unwrap_or(0.0);
+                                classification = obj
+                                    .get("classification")
+                                    .and_then(|x| x.as_str())
+                                    .unwrap_or("digital")
+                                    .to_lowercase();
+                                if classification != "physical"
+                                    && classification != "digital"
+                                    && classification != "unknown"
+                                {
                                     classification = "digital".to_string();
                                 }
-                                digital_bug_probability = obj.get("digital_bug_probability").and_then(|x| x.as_f64()).unwrap_or(0.0);
-                                severity_level = obj.get("severity_level").and_then(|x| x.as_f64()).unwrap_or(0.0).clamp(0.0, 1.0);
-                                brand_display_name = obj.get("brand_display_name").and_then(|x| x.as_str()).unwrap_or("").to_string();
-                                brand_name = obj.get("brand_name").and_then(|x| x.as_str()).unwrap_or("").to_string();
-                                summary = obj.get("summary").and_then(|x| x.as_str()).unwrap_or("").to_string();
-                                report_title = obj.get("report_title").and_then(|x| x.as_str()).unwrap_or("").to_string();
-                                report_description = obj.get("report_description").and_then(|x| x.as_str()).unwrap_or("").to_string();
+                                digital_bug_probability = obj
+                                    .get("digital_bug_probability")
+                                    .and_then(|x| x.as_f64())
+                                    .unwrap_or(0.0);
+                                severity_level = obj
+                                    .get("severity_level")
+                                    .and_then(|x| x.as_f64())
+                                    .unwrap_or(0.0)
+                                    .clamp(0.0, 1.0);
+                                brand_display_name = obj
+                                    .get("brand_display_name")
+                                    .and_then(|x| x.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                brand_name = obj
+                                    .get("brand_name")
+                                    .and_then(|x| x.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                summary = obj
+                                    .get("summary")
+                                    .and_then(|x| x.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                report_title = obj
+                                    .get("report_title")
+                                    .and_then(|x| x.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                report_description = obj
+                                    .get("report_description")
+                                    .and_then(|x| x.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
                                 if let Some(l) = obj.get("language").and_then(|x| x.as_str()) {
                                     // Truncate to 10 chars to fit VARCHAR(10)
                                     language = l.chars().take(10).collect();
