@@ -155,10 +155,9 @@ pub fn fetch_report_with_analysis(pool: &my::Pool, seq: i64) -> Result<ReportWit
 
     let report = Report {
         seq: report_row.take::<i64, _>(0).unwrap_or(0),
-        timestamp: parse_mysql_datetime(
+        timestamp: parse_mysql_datetime_value(
             report_row
-                .take::<Option<String>, _>(1)
-                .unwrap_or(None)
+                .take::<my::Value, _>(1)
                 .ok_or_else(|| anyhow::anyhow!("missing timestamp for seq={}", seq))?,
             "timestamp",
             seq,
@@ -245,16 +244,14 @@ pub fn fetch_report_with_analysis(pool: &my::Pool, seq: i64) -> Result<ReportWit
             classification: row.take::<String, _>(14).unwrap_or_default(),
             is_valid: row.take::<bool, _>(15).unwrap_or(false),
             inferred_contact_emails: row.take::<String, _>(16).unwrap_or_default(),
-            created_at: parse_mysql_datetime(
-                row.take::<Option<String>, _>(17)
-                    .unwrap_or(None)
+            created_at: parse_mysql_datetime_value(
+                row.take::<my::Value, _>(17)
                     .ok_or_else(|| anyhow::anyhow!("missing created_at for seq={}", seq))?,
                 "created_at",
                 seq,
             )?,
-            updated_at: parse_mysql_datetime(
-                row.take::<Option<String>, _>(18)
-                    .unwrap_or(None)
+            updated_at: parse_mysql_datetime_value(
+                row.take::<my::Value, _>(18)
                     .ok_or_else(|| anyhow::anyhow!("missing updated_at for seq={}", seq))?,
                 "updated_at",
                 seq,
@@ -265,8 +262,58 @@ pub fn fetch_report_with_analysis(pool: &my::Pool, seq: i64) -> Result<ReportWit
     Ok(ReportWithAnalysis { report, analysis })
 }
 
-fn parse_mysql_datetime(raw: String, field: &str, seq: i64) -> Result<DateTime<Utc>> {
-    let naive = NaiveDateTime::parse_from_str(&raw, "%Y-%m-%d %H:%M:%S")
-        .map_err(|e| anyhow::anyhow!("parse {} for seq={} value='{}': {}", field, seq, raw, e))?;
-    Ok(DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc))
+fn parse_mysql_datetime_value(value: my::Value, field: &str, seq: i64) -> Result<DateTime<Utc>> {
+    match value {
+        my::Value::Date(year, month, day, hour, minute, second, micros) => {
+            let naive = NaiveDateTime::new(
+                chrono::NaiveDate::from_ymd_opt(year.into(), month.into(), day.into()).ok_or_else(
+                    || {
+                        anyhow::anyhow!(
+                            "invalid mysql date {} for seq={} ({:04}-{:02}-{:02})",
+                            field,
+                            seq,
+                            year,
+                            month,
+                            day
+                        )
+                    },
+                )?,
+                chrono::NaiveTime::from_hms_micro_opt(
+                    hour.into(),
+                    minute.into(),
+                    second.into(),
+                    micros,
+                )
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "invalid mysql time {} for seq={} ({:02}:{:02}:{:02}.{:06})",
+                        field,
+                        seq,
+                        hour,
+                        minute,
+                        second,
+                        micros
+                    )
+                })?,
+            );
+            Ok(DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc))
+        }
+        my::Value::Bytes(bytes) => {
+            let raw = String::from_utf8(bytes).map_err(|e| {
+                anyhow::anyhow!("parse {} for seq={} invalid utf8: {}", field, seq, e)
+            })?;
+            let naive = NaiveDateTime::parse_from_str(&raw, "%Y-%m-%d %H:%M:%S")
+                .or_else(|_| NaiveDateTime::parse_from_str(&raw, "%Y-%m-%d %H:%M:%S%.f"));
+            let naive = naive.map_err(|e| {
+                anyhow::anyhow!("parse {} for seq={} value='{}': {}", field, seq, raw, e)
+            })?;
+            Ok(DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc))
+        }
+        other => Err(anyhow::anyhow!(
+            "unexpected mysql datetime type for {} seq={}: {:?}",
+            field,
+            seq,
+            other
+        )),
+    }
 }
