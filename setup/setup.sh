@@ -327,6 +327,7 @@ BLOCKSCAN_CHAT_API_KEY=\$(gcloud secrets versions access latest --secret="BLOCKS
 TWITTER_BEARER_TOKEN=\$(gcloud secrets versions access latest --secret="TWITTER_BEARER_TOKEN_${SECRET_SUFFIX}" | tr -d '\r')
 GEMINI_API_KEY=\$(gcloud secrets versions access latest --secret="GEMINI_API_KEY_${SECRET_SUFFIX}" | tr -d '\r')
 CLEANAPP_TWITTER_FETCHER_TOKEN=\$(gcloud secrets versions access latest --secret="CLEANAPP_TWITTER_FETCHER_TOKEN_${SECRET_SUFFIX}" | tr -d '\r')
+BLUESKY_SUBMITTER_TOKEN=\$(gcloud secrets versions access latest --secret="BLUESKY_SUBMITTER_TOKEN_${SECRET_SUFFIX}" | tr -d '\r')
 # OAuth 1.0a user-context for replier-twitter
 TWITTER_API_KEY=\$(gcloud secrets versions access latest --secret="TWITTER_API_KEY_${SECRET_SUFFIX}" | tr -d '\r')
 TWITTER_API_SECRET=\$(gcloud secrets versions access latest --secret="TWITTER_API_SECRET_${SECRET_SUFFIX}" | tr -d '\r')
@@ -994,6 +995,7 @@ services:
       - DB_URL=mysql://server:\${MYSQL_APP_PASSWORD}@cleanapp_db:3306/cleanapp
       - SUBMIT_ENDPOINT_URL=http://cleanapp_report_listener:8080
       - SUBMIT_TOKEN=\${CLEANAPP_TWITTER_FETCHER_TOKEN}
+      - SUBMIT_PROTOCOL=legacy
       - SUBMIT_BATCH_SIZE=60
       - SUBMIT_INTERVAL_SECS=10
     depends_on:
@@ -1087,7 +1089,8 @@ services:
     environment:
       - DB_URL=mysql://server:\${MYSQL_APP_PASSWORD}@cleanapp_db:3306/cleanapp
       - SUBMIT_ENDPOINT_URL=http://cleanapp_report_listener:8080
-      - SUBMIT_TOKEN=\${CLEANAPP_TWITTER_FETCHER_TOKEN}
+      - SUBMIT_TOKEN=\${BLUESKY_SUBMITTER_TOKEN}
+      - SUBMIT_PROTOCOL=wire
       - SUBMIT_BATCH_SIZE=500
       - SUBMIT_INTERVAL_SECS=30
     depends_on:
