@@ -133,6 +133,31 @@ type BulkIngestRequest struct {
 	} `json:"items"`
 }
 
+type preparedBulkIngestItem struct {
+	idx            int
+	seq            int
+	ext            string
+	team           int
+	lat            float64
+	lon            float64
+	img            []byte
+	title          string
+	description    string
+	url            string
+	createdAt      string
+	brandName      string
+	brandDisplay   string
+	lp             float64
+	hp             float64
+	dbp            float64
+	severity       float64
+	classification string
+	lang           string
+	summary        string
+	inferredEmails interface{}
+	needsAIReview  bool
+}
+
 // BulkIngestResponse contains per-batch stats
 type BulkIngestResponse struct {
 	Inserted int         `json:"inserted"`
@@ -250,32 +275,7 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 		rows.Close()
 	}
 
-	type preparedItem struct {
-		idx            int
-		seq            int
-		ext            string
-		team           int
-		lat            float64
-		lon            float64
-		img            []byte
-		title          string
-		description    string
-		url            string
-		createdAt      string
-		brandName      string
-		brandDisplay   string
-		lp             float64
-		hp             float64
-		dbp            float64
-		severity       float64
-		classification string
-		lang           string
-		summary        string
-		inferredEmails interface{}
-		needsAIReview  bool
-	}
-
-	var newItems []preparedItem
+	var newItems []preparedBulkIngestItem
 	seenNew := make(map[string]bool)
 	for i, it := range req.Items {
 		if strings.TrimSpace(it.ExternalID) == "" {
@@ -373,7 +373,7 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 			}
 		}
 
-		newItems = append(newItems, preparedItem{
+		newItems = append(newItems, preparedBulkIngestItem{
 			idx:            i,
 			ext:            it.ExternalID,
 			team:           team,
@@ -527,6 +527,12 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 
 	resp.Inserted = len(newItems)
 	log.Printf("bulk_ingest source=%s total=%d inserted=%d skipped=%d duration=%s", req.Source, len(req.Items), resp.Inserted, resp.Skipped, time.Since(start))
+
+	if len(newItems) > 0 {
+		if err := h.mirrorLegacyBulkIngestToWire(c.Request.Context(), fetcherID, req.Source, newItems); err != nil {
+			log.Printf("bulk_ingest: wire mirror failed source=%s err=%v", req.Source, err)
+		}
+	}
 
 	if !fastPath && h.rabbitmqPublisher != nil {
 		for _, it := range newItems {

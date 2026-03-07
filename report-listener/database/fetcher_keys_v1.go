@@ -83,6 +83,42 @@ func (d *Database) InsertFetcherKeyV1(ctx context.Context, keyID, fetcherID, key
 	return nil
 }
 
+// GetFetcherV1ByID returns the fetcher record for legacy compatibility wrappers.
+func (d *Database) GetFetcherV1ByID(ctx context.Context, fetcherID string) (*FetcherV1, error) {
+	var f FetcherV1
+	err := d.db.QueryRowContext(ctx, `
+		SELECT fetcher_id, name, owner_type, status, tier, reputation_score,
+		       daily_cap_items, per_minute_cap_items, default_visibility, default_trust_level,
+		       routing_enabled, rewards_enabled, verified_domain, owner_user_id, notes, last_seen_at
+		FROM fetchers
+		WHERE fetcher_id = ?
+	`, fetcherID).Scan(
+		&f.FetcherID,
+		&f.Name,
+		&f.OwnerType,
+		&f.Status,
+		&f.Tier,
+		&f.ReputationScore,
+		&f.DailyCapItems,
+		&f.PerMinuteCapItems,
+		&f.DefaultVisibility,
+		&f.DefaultTrustLevel,
+		&f.RoutingEnabled,
+		&f.RewardsEnabled,
+		&f.VerifiedDomain,
+		&f.OwnerUserID,
+		&f.Notes,
+		&f.LastSeenAt,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, sql.ErrNoRows
+		}
+		return nil, fmt.Errorf("get fetcher by id: %w", err)
+	}
+	return &f, nil
+}
+
 // GetFetcherKeyAndFetcherV1 looks up a key and its parent fetcher in a single query.
 func (d *Database) GetFetcherKeyAndFetcherV1(ctx context.Context, keyID string) (*FetcherKeyV1, *FetcherV1, error) {
 	var (
