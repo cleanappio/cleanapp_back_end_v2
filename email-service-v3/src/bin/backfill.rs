@@ -1,7 +1,11 @@
 use anyhow::Result;
-use email_service_v3::{config::Config, db, models::{Brand, BrandEmail}};
-use mysql as my;
+use email_service_v3::{
+    config::Config,
+    db,
+    models::{Brand, BrandEmail},
+};
 use my::prelude::*;
+use mysql as my;
 use std::collections::{BTreeMap, BTreeSet};
 
 #[tokio::main]
@@ -32,27 +36,57 @@ async fn main() -> Result<()> {
     let mut brand_to_emails: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let mut brand_to_display: BTreeMap<String, String> = BTreeMap::new();
     for (brand_opt, display_opt, emails_opt) in rows {
-        let brand = match brand_opt { Some(b) if !b.trim().is_empty() => b.trim().to_string(), _ => continue };
+        let brand = match brand_opt {
+            Some(b) if !b.trim().is_empty() => b.trim().to_string(),
+            _ => continue,
+        };
         if !brand_to_display.contains_key(&brand) {
             let display = display_opt.unwrap_or_default().trim().to_string();
-            let display = if display.is_empty() { prettify_brand_name(&brand) } else { display };
+            let display = if display.is_empty() {
+                prettify_brand_name(&brand)
+            } else {
+                display
+            };
             brand_to_display.insert(brand.clone(), display);
         }
         let emails = emails_opt.unwrap_or_default();
         for part in emails.split(',') {
             let email = part.trim().to_string();
-            if email.is_empty() { continue; }
-            brand_to_emails.entry(brand.clone()).or_default().insert(email);
+            if email.is_empty() {
+                continue;
+            }
+            brand_to_emails
+                .entry(brand.clone())
+                .or_default()
+                .insert(email);
         }
     }
 
-    tracing::info!("Found {} brands in report_analysis for backfill", brand_to_emails.len());
+    tracing::info!(
+        "Found {} brands in report_analysis for backfill",
+        brand_to_emails.len()
+    );
 
     for (brand_name, emails) in brand_to_emails {
-        let display = brand_to_display.get(&brand_name).cloned().unwrap_or_else(|| prettify_brand_name(&brand_name));
-        db::upsert_brand(&mut conn, &Brand { brand_name: brand_name.clone(), brand_display_name: display })?;
+        let display = brand_to_display
+            .get(&brand_name)
+            .cloned()
+            .unwrap_or_else(|| prettify_brand_name(&brand_name));
+        db::upsert_brand(
+            &mut conn,
+            &Brand {
+                brand_name: brand_name.clone(),
+                brand_display_name: display,
+            },
+        )?;
         for email in emails {
-            db::upsert_brand_email(&mut conn, &BrandEmail { email_address: email, brand_name: brand_name.clone() })?;
+            db::upsert_brand_email(
+                &mut conn,
+                &BrandEmail {
+                    email_address: email,
+                    brand_name: brand_name.clone(),
+                },
+            )?;
         }
     }
 
@@ -74,4 +108,3 @@ fn prettify_brand_name(brand: &str) -> String {
         .collect::<Vec<_>>()
         .join(" ")
 }
-

@@ -30,7 +30,7 @@ impl Config {
                 .parse()
                 .unwrap_or(3306),
             db_user: env::var("DB_USER").unwrap_or_else(|_| "server".to_string()),
-            db_password: env::var("DB_PASSWORD").unwrap_or_else(|_| "secret_app".to_string()),
+            db_password: required("DB_PASSWORD"),
             db_name: env::var("DB_NAME").unwrap_or_else(|_| "cleanapp".to_string()),
             port: env::var("PORT")
                 .unwrap_or_else(|_| "8080".to_string())
@@ -47,8 +47,8 @@ impl Config {
                 .unwrap_or_else(|_| "5672".to_string())
                 .parse()
                 .unwrap_or(5672),
-            amqp_user: env::var("AMQP_USER").unwrap_or_else(|_| "guest".to_string()),
-            amqp_password: env::var("AMQP_PASSWORD").unwrap_or_else(|_| "guest".to_string()),
+            amqp_user: env::var("AMQP_USER").unwrap_or_else(|_| "cleanapp".to_string()),
+            amqp_password: required("AMQP_PASSWORD"),
             rabbitmq_exchange: env::var("RABBITMQ_EXCHANGE")
                 .unwrap_or_else(|_| "cleanapp".to_string()),
             rabbitmq_queue: env::var("RABBITMQ_QUEUE")
@@ -84,5 +84,12 @@ impl Config {
             "amqp://{}:{}@{}:{}",
             self.amqp_user, self.amqp_password, self.amqp_host, self.amqp_port
         )
+    }
+}
+
+fn required(key: &str) -> String {
+    match env::var(key) {
+        Ok(value) if !value.trim().is_empty() => value,
+        _ => panic!("{} environment variable is required", key),
     }
 }

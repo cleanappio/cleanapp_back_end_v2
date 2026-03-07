@@ -1,6 +1,6 @@
 use anyhow::Result;
-use mysql as my;
 use my::prelude::*;
+use mysql as my;
 
 use crate::models::{Brand, BrandEmail};
 
@@ -110,9 +110,14 @@ pub fn pick_due_notifications_for_brands(
     notification_period_days: i64,
     brands: &[String],
 ) -> Result<Vec<(String, String, String)>> {
-    if brands.is_empty() { return Ok(vec![]); }
+    if brands.is_empty() {
+        return Ok(vec![]);
+    }
     // dynamic placeholders
-    let placeholders = std::iter::repeat("?").take(brands.len()).collect::<Vec<_>>().join(",");
+    let placeholders = std::iter::repeat("?")
+        .take(brands.len())
+        .collect::<Vec<_>>()
+        .join(",");
     let sql = format!(
         r#"
         SELECT be.email_address, be.brand_name, b.brand_display_name
@@ -148,4 +153,3 @@ pub fn is_email_opted_out(conn: &mut my::PooledConn, email: &str) -> Result<bool
     )?;
     Ok(count.unwrap_or(0) > 0)
 }
-

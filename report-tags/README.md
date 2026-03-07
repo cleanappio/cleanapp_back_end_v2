@@ -134,7 +134,7 @@ Environment variables (see `env.example`):
 | `DB_HOST`         | `localhost`  | MySQL database host            |
 | `DB_PORT`         | `3306`       | MySQL database port            |
 | `DB_USER`         | `server`     | MySQL database user            |
-| `DB_PASSWORD`     | `secret_app` | MySQL database password        |
+| `DB_PASSWORD`     | `(required)` | MySQL database password        |
 | `DB_NAME`         | `cleanapp`   | MySQL database name            |
 | `PORT`            | `8083`       | HTTP server port               |
 | `RUST_LOG`        | `info`       | Log level                      |

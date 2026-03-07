@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   report-processor:
     build: .
@@ -9,10 +7,10 @@ services:
       - DB_HOST=db
       - DB_PORT=3306
       - DB_USER=server
-      - DB_PASSWORD=secret_app
+      - DB_PASSWORD=${DB_PASSWORD:?set DB_PASSWORD}
       - DB_NAME=cleanapp
       - PORT=8081
-      - JWT_SECRET=${JWT_SECRET}
+      - JWT_SECRET=${JWT_SECRET:?set JWT_SECRET}
       - LOG_LEVEL=info
     depends_on:
       - db
@@ -28,10 +26,10 @@ services:
       - DB_HOST=db
       - DB_PORT=3306
       - DB_USER=server
-      - DB_PASSWORD=secret_app
+      - DB_PASSWORD=${DB_PASSWORD:?set DB_PASSWORD}
       - DB_NAME=cleanapp
       - PORT=8080
-      - JWT_SECRET=your-secret-key-here
+      - JWT_SECRET=${JWT_SECRET:?set JWT_SECRET}
       - LOG_LEVEL=info
     depends_on:
       - db
@@ -42,10 +40,10 @@ services:
   db:
     image: mysql:8.0
     environment:
-      - MYSQL_ROOT_PASSWORD=root_password
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD}
       - MYSQL_DATABASE=cleanapp
       - MYSQL_USER=server
-      - MYSQL_PASSWORD=secret_app
+      - MYSQL_PASSWORD=${DB_PASSWORD:?set DB_PASSWORD}
     ports:
       - "3306:3306"
     volumes:

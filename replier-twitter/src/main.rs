@@ -26,10 +26,10 @@ struct Args {
     amqp_host: String,
     #[arg(long, env = "AMQP_PORT", default_value_t = 5672)]
     amqp_port: u16,
-    #[arg(long, env = "AMQP_USER", default_value = "guest")]
-    amqp_user: String,
-    #[arg(long, env = "AMQP_PASSWORD", default_value = "guest")]
-    amqp_password: String,
+    #[arg(long, env = "AMQP_USER")]
+    amqp_user: Option<String>,
+    #[arg(long, env = "AMQP_PASSWORD")]
+    amqp_password: Option<String>,
     #[arg(long, env = "RABBITMQ_EXCHANGE", default_value = "cleanapp")]
     exchange: String,
     #[arg(
@@ -450,9 +450,18 @@ async fn main() -> Result<()> {
         },
     });
 
+    let amqp_user = args
+        .amqp_user
+        .clone()
+        .unwrap_or_else(|| "cleanapp".to_string());
+    let amqp_password = args
+        .amqp_password
+        .clone()
+        .context("amqp_password must be provided via --amqp-password or AMQP_PASSWORD")?;
+
     let amqp_url = format!(
         "amqp://{}:{}@{}:{}",
-        args.amqp_user, args.amqp_password, args.amqp_host, args.amqp_port
+        amqp_user, amqp_password, args.amqp_host, args.amqp_port
     );
 
     let mut subscriber = Subscriber::new(&amqp_url, &args.exchange, &args.queue).await?;

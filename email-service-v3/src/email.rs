@@ -34,7 +34,10 @@ pub async fn send_sendgrid_email(
     });
 
     if let Some(bcc) = bcc_email {
-        if let Some(personalizations) = payload.get_mut("personalizations").and_then(|v| v.as_array_mut()) {
+        if let Some(personalizations) = payload
+            .get_mut("personalizations")
+            .and_then(|v| v.as_array_mut())
+        {
             if let Some(first) = personalizations.get_mut(0) {
                 first["bcc"] = serde_json::json!([{ "email": bcc }]);
             }
@@ -44,13 +47,15 @@ pub async fn send_sendgrid_email(
     if !attachments.is_empty() {
         let atts: Vec<serde_json::Value> = attachments
             .into_iter()
-            .map(|a| serde_json::json!({
-                "content": a.base64_content,
-                "type": a.mime,
-                "filename": a.filename,
-                "disposition": "inline",
-                "content_id": a.cid
-            }))
+            .map(|a| {
+                serde_json::json!({
+                    "content": a.base64_content,
+                    "type": a.mime,
+                    "filename": a.filename,
+                    "disposition": "inline",
+                    "content_id": a.cid
+                })
+            })
             .collect();
         payload["attachments"] = serde_json::Value::Array(atts);
     }
@@ -74,7 +79,11 @@ pub async fn send_sendgrid_email(
 
 fn truncate(s: &str) -> String {
     const MAX: usize = 512;
-    if s.len() > MAX { format!("{}...", &s[..MAX]) } else { s.to_string() }
+    if s.len() > MAX {
+        format!("{}...", &s[..MAX])
+    } else {
+        s.to_string()
+    }
 }
 
 struct InlineAttachment {
@@ -93,12 +102,21 @@ fn extract_inline_data_images(html: &str) -> (String, Vec<InlineAttachment>) {
     let processed = re
         .replace_all(html, |caps: &regex::Captures| {
             idx += 1;
-            let mime = caps.get(1).map(|m| m.as_str()).unwrap_or("image/jpeg").to_string();
+            let mime = caps
+                .get(1)
+                .map(|m| m.as_str())
+                .unwrap_or("image/jpeg")
+                .to_string();
             let b64 = caps.get(2).map(|m| m.as_str()).unwrap_or("").to_string();
             let cid = format!("img{}", idx);
             let ext = mime_extension(&mime);
             let filename = format!("inline-{}.{}", idx, ext);
-            attachments.push(InlineAttachment { cid: cid.clone(), filename, mime: mime.clone(), base64_content: b64 });
+            attachments.push(InlineAttachment {
+                cid: cid.clone(),
+                filename,
+                mime: mime.clone(),
+                base64_content: b64,
+            });
             format!("cid:{}", cid)
         })
         .into_owned();
@@ -118,5 +136,3 @@ fn mime_extension(mime: &str) -> String {
         "img".to_string()
     }
 }
-
-

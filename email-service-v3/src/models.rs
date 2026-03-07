@@ -17,5 +17,3 @@ pub struct BrandEmail {
     pub email_address: String,
     pub brand_name: String,
 }
-
-

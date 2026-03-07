@@ -97,8 +97,10 @@ o=- 9876543210 9876543210 IN IP4 127.0.0.1
 - `PORT` - Server port (default: 8080)
 - `TRASHFORMER_OPENAI_API_KEY` - OpenAI API key (required)
 - `OPENAI_MODEL` - OpenAI model to use (default: gpt-4o-realtime-preview)
-- `ALLOWED_ORIGINS` - CORS allowed origins (default: \*)
-- `RATE_LIMIT_PER_MINUTE` - Rate limit per user (default: 10)
+- `ALLOWED_ORIGINS` - Comma-separated CORS allowed origins (default: `https://cleanapp.io,https://www.cleanapp.io,http://localhost:3000,http://localhost:3001`)
+- `RATE_LIMIT_PER_MINUTE` - Legacy compatibility knob (default: 10, translated into requests/second)
+- `RATE_LIMIT_RPS` - Preferred rate limit in requests per second
+- `RATE_LIMIT_BURST` - Preferred burst size for the rate limiter
 - `TURN_SERVERS_JSON` - Optional TURN servers configuration
 
 ## Development

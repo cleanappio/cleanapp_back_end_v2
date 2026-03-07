@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"cleanapp-common/httpx"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -199,7 +200,7 @@ We minimize data and avoid unnecessary PII. Location is used for routing and ver
 	req.Header.Set("Content-Type", "application/json")
 
 	// Make request to OpenAI
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := httpx.NewClient(10 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		log.Errorf("OpenAI request failed: %v", err)

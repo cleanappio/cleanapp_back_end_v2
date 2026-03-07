@@ -1,4 +1,5 @@
 use thiserror::Error;
+use unicode_normalization::char::is_combining_mark;
 
 #[derive(Error, Debug)]
 pub enum TagError {
@@ -16,9 +17,12 @@ pub fn normalize_tag(input: &str) -> Result<(String, String), TagError> {
     // Remove leading # if present
     let without_hash = trimmed.strip_prefix('#').unwrap_or(trimmed);
 
-    // Unicode NFKC normalization
-    let normalized = unicode_normalization::UnicodeNormalization::nfkc(without_hash);
-    let canonical = normalized.collect::<String>().to_lowercase();
+    // Canonicalize to lowercase ASCII-ish form so visually similar tags collapse
+    // to one lookup key while preserving the original display form separately.
+    let canonical = unicode_normalization::UnicodeNormalization::nfkd(without_hash)
+        .filter(|c| !is_combining_mark(*c))
+        .collect::<String>()
+        .to_lowercase();
 
     // Validate length
     if canonical.is_empty() {

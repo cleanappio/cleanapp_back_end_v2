@@ -13,7 +13,7 @@ Environment
 - DB_HOST (default: localhost)
 - DB_PORT (default: 3306)
 - DB_USER (default: server)
-- DB_PASSWORD (default: secret_app)
+- DB_PASSWORD (required)
 - DB_NAME (default: cleanapp)
 - OPENAI_API_KEY (required for inference)
 - OPENAI_MODEL (default: gpt-4o)
@@ -34,4 +34,3 @@ SEQ_RANGE=29590-29600 cargo run -q
 Docker
 ------
 Build an image similar to other services. A minimal Dockerfile will be added later to align with pipeline conventions.
-

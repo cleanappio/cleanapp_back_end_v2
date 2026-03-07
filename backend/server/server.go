@@ -3,10 +3,15 @@ package server
 import (
 	"cleanapp-common/appenv"
 	"cleanapp-common/edge"
+	"cleanapp-common/serverx"
+	"context"
 	"flag"
 	"fmt"
 	"net/http"
 	"net/url"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"cleanapp/backend/rabbitmq"
 	"cleanapp/common/version"
@@ -46,11 +51,11 @@ var userRoutingKey string
 func getRabbitMQConfig() (string, string, string, string, error) {
 	host := appenv.String("AMQP_HOST", "localhost")
 	port := appenv.String("AMQP_PORT", "5672")
-	user, err := appenv.StringRequiredInProd("AMQP_USER", "guest")
+	user, err := appenv.StringRequiredInProd("AMQP_USER", "cleanapp")
 	if err != nil {
 		return "", "", "", "", err
 	}
-	password, err := appenv.Secret("AMQP_PASSWORD", "guest")
+	password, err := appenv.Secret("AMQP_PASSWORD", "")
 	if err != nil {
 		return "", "", "", "", err
 	}
@@ -123,8 +128,21 @@ func StartService() {
 	router.GET(EndPointGetActions, GetActions)
 	router.GET(EndPointGetAction, GetAction)
 	router.POST(EndPointUpdateUserAction, UpdateUserAction)
-	if err := router.Run(fmt.Sprintf(":%d", *serverPort)); err != nil {
-		log.Fatalf("Service failed: %v", err)
+	srv := serverx.New(fmt.Sprintf(":%d", *serverPort), router)
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Service failed: %v", err)
+		}
+	}()
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	<-ctx.Done()
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Errorf("Failed to shutdown service cleanly: %v", err)
 	}
 }
 

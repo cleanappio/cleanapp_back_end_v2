@@ -51,7 +51,7 @@ env-setup:
 		echo "DB_HOST=localhost" >> .env; \
 		echo "DB_PORT=3306" >> .env; \
 		echo "DB_USER=server" >> .env; \
-		echo "DB_PASSWORD=secret_app" >> .env; \
+		echo "DB_PASSWORD=change-me" >> .env; \
 		echo "DB_NAME=cleanapp" >> .env; \
 		echo "PORT=8083" >> .env; \
 		echo "RUST_LOG=info" >> .env; \
@@ -71,7 +71,7 @@ env-example:
 	@echo "DB_HOST=localhost"
 	@echo "DB_PORT=3306"
 	@echo "DB_USER=server"
-	@echo "DB_PASSWORD=secret_app"
+	@echo "DB_PASSWORD=change-me"
 	@echo "DB_NAME=cleanapp"
 	@echo ""
 	@echo "# Server Configuration"

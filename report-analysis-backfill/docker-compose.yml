@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   report-analysis-backfill:
     build: .
@@ -9,7 +7,7 @@ services:
       - DB_HOST=${DB_HOST:-localhost}
       - DB_PORT=${DB_PORT:-3306}
       - DB_USER=${DB_USER:-server}
-      - DB_PASSWORD=${DB_PASSWORD:-secret_app}
+      - DB_PASSWORD=${DB_PASSWORD:?set DB_PASSWORD}
       - DB_NAME=${DB_NAME:-cleanapp}
       
       # Analysis API configuration
@@ -40,10 +38,10 @@ services:
     image: mysql:8.0
     container_name: report-analysis-backfill-db
     environment:
-      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-rootpassword}
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD}
       - MYSQL_DATABASE=${DB_NAME:-cleanapp}
       - MYSQL_USER=${DB_USER:-server}
-      - MYSQL_PASSWORD=${DB_PASSWORD:-secret_app}
+      - MYSQL_PASSWORD=${DB_PASSWORD:?set DB_PASSWORD}
     
     ports:
       - "3307:3306"

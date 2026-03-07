@@ -36,7 +36,7 @@ impl Config {
             db_host: get("DB_HOST", "localhost"),
             db_port: get("DB_PORT", "3306"),
             db_user: get("DB_USER", "server"),
-            db_password: get("DB_PASSWORD", "secret_app"),
+            db_password: required("DB_PASSWORD"),
             db_name: get("DB_NAME", "cleanapp"),
             openai_api_key: get("OPENAI_API_KEY", ""),
             openai_model: get("OPENAI_MODEL", "gpt-4o"),
@@ -70,6 +70,13 @@ impl Config {
             .pass(Some(self.db_password.clone()))
             .db_name(Some(self.db_name.clone()));
         my::Opts::from(builder)
+    }
+}
+
+fn required(key: &str) -> String {
+    match std::env::var(key) {
+        Ok(value) if !value.trim().is_empty() => value,
+        _ => panic!("{} environment variable is required", key),
     }
 }
 

@@ -104,7 +104,7 @@ Root health check endpoint.
 | `DB_HOST` | `localhost` | Database host |
 | `DB_PORT` | `3306` | Database port |
 | `DB_USER` | `server` | Database user |
-| `DB_PASSWORD` | `secret_app` | Database password |
+| `DB_PASSWORD` | `(required)` | Database password |
 | `DB_NAME` | `cleanapp` | Database name |
 | `PORT` | `8081` | Server port |
 | `LOG_LEVEL` | `info` | Log level |
@@ -192,4 +192,4 @@ The service uses Go's standard log package and logs:
 - Go 1.24+
 - MySQL 8.0+
 - Gin web framework
-- MySQL driver for Go 
+- MySQL driver for Go

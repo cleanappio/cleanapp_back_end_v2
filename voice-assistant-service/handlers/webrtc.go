@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"cleanapp-common/httpx"
 	"context"
 	"io"
 	"net/http"
@@ -60,7 +61,7 @@ func (h *WebRTCHandler) ProxyOffer(c *gin.Context) {
 	httpReq.Header.Set("Content-Type", "application/sdp")
 
 	// Make request to OpenAI
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := httpx.NewClient(30 * time.Second)
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		log.Errorf("OpenAI WebRTC request failed: %v", err)

@@ -1,7 +1,10 @@
 use anyhow::Result;
 use email_service_v3::{config::Config, db, email::send_sendgrid_email};
 use mysql as my;
-use tokio::{signal, time::{sleep, Duration}};
+use tokio::{
+    signal,
+    time::{sleep, Duration},
+};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -17,7 +20,12 @@ async fn main() -> Result<()> {
         tracing::warn!("ENABLE_EMAIL_V3 is disabled; service will exit without starting");
         return Ok(());
     }
-    tracing::info!("email-service-v3 starting; DB={}, poll={:?}, test_brands={:?}", cfg.mysql_masked_url(), cfg.poll_interval, cfg.test_brands);
+    tracing::info!(
+        "email-service-v3 starting; DB={}, poll={:?}, test_brands={:?}",
+        cfg.mysql_masked_url(),
+        cfg.poll_interval,
+        cfg.test_brands
+    );
 
     let pool = db::connect_pool(&cfg)?;
     let mut conn = pool.get_conn()?;
@@ -25,7 +33,9 @@ async fn main() -> Result<()> {
     drop(conn);
 
     if cfg.test_brands.is_some() {
-        if let Err(e) = run_once(&pool, &cfg).await { tracing::error!("Batch error: {:#}", e); }
+        if let Err(e) = run_once(&pool, &cfg).await {
+            tracing::error!("Batch error: {:#}", e);
+        }
         return Ok(());
     } else {
         loop {
@@ -62,14 +72,21 @@ async fn run_once(pool: &my::Pool, cfg: &Config) -> Result<()> {
         }
 
         let url = format!("{}/{}", cfg.digital_base_url.trim_end_matches('/'), brand);
-        let html = match fetch_until_ready(&url, Duration::from_secs(30), Duration::from_millis
-            (1500)).await {
-            Ok(h) => h,
-            Err(e) => {
-                tracing::warn!("Skipping brand {} ({}): content not ready within timeout: {:#}", brand, email, e);
-                continue;
-            }
-        };
+        let html =
+            match fetch_until_ready(&url, Duration::from_secs(30), Duration::from_millis(1500))
+                .await
+            {
+                Ok(h) => h,
+                Err(e) => {
+                    tracing::warn!(
+                        "Skipping brand {} ({}): content not ready within timeout: {:#}",
+                        brand,
+                        email,
+                        e
+                    );
+                    continue;
+                }
+            };
         let subject = "CleanApp Reports Summary";
         let plain = format!(
             "A new {} report has been analyzed and requires your attention.\nSee: {}",
@@ -122,7 +139,9 @@ fn looks_loading(html: &str) -> bool {
     let lower = html.to_lowercase();
     let loading = lower.contains("loading") || lower.contains("skeleton");
     let has_recent = lower.contains("recent reports");
-    let has_items = lower.contains("<article") || lower.contains("data-report") || lower.contains("class=\"report");
+    let has_items = lower.contains("<article")
+        || lower.contains("data-report")
+        || lower.contains("class=\"report");
     (loading && has_recent) && !has_items
 }
 
@@ -139,4 +158,3 @@ async fn fetch_until_ready(url: &str, max_wait: Duration, interval: Duration) ->
         sleep(interval).await;
     }
 }
-

@@ -1,9 +1,9 @@
 package config
 
 import (
+	"cleanapp-common/appenv"
 	"encoding/json"
-	"os"
-	"strconv"
+	"strings"
 )
 
 type Config struct {
@@ -15,10 +15,11 @@ type Config struct {
 	OpenAIModel  string
 
 	// CORS configuration
-	AllowedOrigins string
+	AllowedOrigins []string
 
 	// Rate limiting
-	RateLimitPerMinute int
+	RateLimitRPS   float64
+	RateLimitBurst int
 
 	// TURN servers (optional)
 	TurnServersJSON string
@@ -30,31 +31,33 @@ type TurnServer struct {
 	Credential string   `json:"credential,omitempty"`
 }
 
-func Load() *Config {
+func Load() (*Config, error) {
+	apiKey, err := appenv.Secret("TRASHFORMER_OPENAI_API_KEY", "")
+	if err != nil {
+		return nil, err
+	}
+	rateLimitPerMinute := appenv.Int("RATE_LIMIT_PER_MINUTE", 10)
 	return &Config{
-		Port:               getEnv("PORT", "8080"),
-		OpenAIAPIKey:       getEnv("TRASHFORMER_OPENAI_API_KEY", ""),
-		OpenAIModel:        getEnv("OPENAI_MODEL", "gpt-4o-realtime-preview"),
-		AllowedOrigins:     getEnv("ALLOWED_ORIGINS", "*"),
-		RateLimitPerMinute: getIntEnv("RATE_LIMIT_PER_MINUTE", 10),
-		TurnServersJSON:    getEnv("TURN_SERVERS_JSON", ""),
-	}
+		Port:            appenv.String("PORT", "8080"),
+		OpenAIAPIKey:    apiKey,
+		OpenAIModel:     appenv.String("OPENAI_MODEL", "gpt-4o-realtime-preview"),
+		AllowedOrigins:  defaultOrigins(),
+		RateLimitRPS:    appenv.Float64("RATE_LIMIT_RPS", float64(rateLimitPerMinute)/60.0),
+		RateLimitBurst:  appenv.Int("RATE_LIMIT_BURST", rateLimitPerMinute),
+		TurnServersJSON: appenv.String("TURN_SERVERS_JSON", ""),
+	}, nil
 }
 
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
+func defaultOrigins() []string {
+	if origins := appenv.Strings("ALLOWED_ORIGINS"); len(origins) > 0 {
+		return origins
 	}
-	return defaultValue
-}
-
-func getIntEnv(key string, defaultValue int) int {
-	if value := os.Getenv(key); value != "" {
-		if intValue, err := strconv.Atoi(value); err == nil {
-			return intValue
-		}
+	frontendURL := appenv.String("FRONTEND_URL", "https://cleanapp.io")
+	origins := []string{frontendURL, "http://localhost:3000", "http://localhost:3001"}
+	if strings.Contains(frontendURL, "://cleanapp.io") {
+		origins = append(origins, strings.Replace(frontendURL, "://cleanapp.io", "://www.cleanapp.io", 1))
 	}
-	return defaultValue
+	return origins
 }
 
 // GetTurnServers parses the TURN_SERVERS_JSON environment variable

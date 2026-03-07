@@ -12,7 +12,7 @@ const MAX_RETRY_DELAY_SECS: u64 = 30;
 pub async fn create_pool(config: &crate::config::Config) -> Result<Pool<MySql>> {
     log::info!("Building database connection string...");
     let database_url = format!(
-        "mysql://{}:{}@{}:{}/{}?parseTime=true&multiStatements=true&charset=utf8mb4&collation=utf8mb4_unicode_ci",
+        "mysql://{}:{}@{}:{}/{}?parseTime=true&charset=utf8mb4&collation=utf8mb4_unicode_ci",
         config.db_user, config.db_password, config.db_host, config.db_port, config.db_name
     );
     log::info!(

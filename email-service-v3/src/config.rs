@@ -35,7 +35,7 @@ impl Config {
         let db_host = env("DB_HOST", "localhost");
         let db_port = env("DB_PORT", "3306");
         let db_user = env("DB_USER", "server");
-        let db_password = env("DB_PASSWORD", "secret");
+        let db_password = required("DB_PASSWORD");
         let db_name = env("DB_NAME", "cleanapp");
 
         let sendgrid_api_key = env("SENDGRID_API_KEY", "");
@@ -43,7 +43,9 @@ impl Config {
         let sendgrid_from_email = env("SENDGRID_FROM_EMAIL", "info@cleanapp.io");
 
         let poll_interval = humantime::parse_duration(&env("POLL_INTERVAL", "10s"))?;
-        let http_port: u16 = env("HTTP_PORT", "8080").parse().context("HTTP_PORT parse")?;
+        let http_port: u16 = env("HTTP_PORT", "8080")
+            .parse()
+            .context("HTTP_PORT parse")?;
         let opt_out_url = env("OPT_OUT_URL", "https://cleanapp.io/api/optout");
 
         let notification_period = humantime::parse_duration(&env("NOTIFICATION_PERIOD", "90d"))?;
@@ -56,10 +58,17 @@ impl Config {
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
                 .collect();
-            if v.is_empty() { None } else { Some(v) }
+            if v.is_empty() {
+                None
+            } else {
+                Some(v)
+            }
         };
         let bcc_email_address = env("BCC_EMAIL_ADDRESS", "cleanapp@stxn.io");
-        let enable_email_v3 = matches!(env("ENABLE_EMAIL_V3", "true").to_lowercase().as_str(), "1" | "true" | "yes" | "on");
+        let enable_email_v3 = matches!(
+            env("ENABLE_EMAIL_V3", "true").to_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        );
 
         Ok(Self {
             db_host,
@@ -94,3 +103,9 @@ fn env(key: &str, default: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| default.to_string())
 }
 
+fn required(key: &str) -> String {
+    match std::env::var(key) {
+        Ok(value) if !value.trim().is_empty() => value,
+        _ => panic!("{} environment variable is required", key),
+    }
+}

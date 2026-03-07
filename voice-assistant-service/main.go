@@ -1,11 +1,16 @@
 package main
 
 import (
-	"strconv"
+	"context"
+	"net/http"
+	"os/signal"
+	"syscall"
 	"time"
+
+	"cleanapp-common/edge"
+	"cleanapp-common/serverx"
 	"voice-assistant-service/config"
 	"voice-assistant-service/handlers"
-	"voice-assistant-service/middleware"
 	"voice-assistant-service/version"
 
 	"github.com/apex/log"
@@ -21,10 +26,9 @@ const (
 
 func main() {
 	// Load configuration
-	cfg := config.Load()
-
-	if cfg.OpenAIAPIKey == "" {
-		log.Fatal("TRASHFORMER_OPENAI_API_KEY environment variable is required")
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("failed to load config: %v", err)
 	}
 
 	log.Info("Starting the voice assistant service...")
@@ -35,21 +39,9 @@ func main() {
 
 	// Setup router
 	router := gin.Default()
-
-	// Add CORS middleware
-	router.Use(func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", cfg.AllowedOrigins)
-		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE")
-
-		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(204)
-			return
-		}
-
-		c.Next()
-	})
+	router.Use(edge.SecurityHeaders())
+	router.Use(edge.RequestBodyLimit(1 << 20))
+	router.Use(edge.CORSMiddleware(edge.CORSConfig{AllowedOrigins: cfg.AllowedOrigins, AllowedMethods: []string{"GET", "POST", "OPTIONS"}}))
 
 	// Health check endpoint (no auth required)
 	router.GET(EndPointHealth, func(c *gin.Context) {
@@ -69,7 +61,7 @@ func main() {
 
 	// Rate-limited endpoints (no auth required for mobile app compatibility)
 	rateLimited := router.Group("/")
-	rateLimited.Use(middleware.RateLimitMiddleware(cfg.RateLimitPerMinute, time.Minute))
+	rateLimited.Use(edge.RateLimitMiddleware(edge.RateLimitConfig{RPS: cfg.RateLimitRPS, Burst: cfg.RateLimitBurst}))
 	{
 		// Session management
 		rateLimited.POST(EndPointSession, sessionHandler.CreateEphemeralSession)
@@ -79,18 +71,24 @@ func main() {
 		rateLimited.POST(EndPointProxyOffer, webrtcHandler.ProxyOffer)
 	}
 
-	// Get server port from config
-	serverPort, err := strconv.Atoi(cfg.Port)
-	if err != nil {
-		log.Fatalf("Invalid PORT configuration: %v", err)
-	}
+	srv := serverx.New(":"+cfg.Port, router)
+	log.Infof("Voice assistant service starting on port %s", cfg.Port)
+	log.Infof("Rate limit: rps=%.3f burst=%d", cfg.RateLimitRPS, cfg.RateLimitBurst)
+	log.Infof("Allowed origins: %v", cfg.AllowedOrigins)
 
-	// Start server
-	log.Infof("Voice assistant service starting on port %d", serverPort)
-	log.Infof("Rate limit: %d requests per minute", cfg.RateLimitPerMinute)
-	log.Infof("Allowed origins: %s", cfg.AllowedOrigins)
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Failed to start server: %v", err)
+		}
+	}()
 
-	if err := router.Run(":" + cfg.Port); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	<-ctx.Done()
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Errorf("Failed to shutdown voice assistant service cleanly: %v", err)
 	}
 }
