@@ -1,7 +1,7 @@
 {
   "name": "cleanapp_ingest_v1",
-  "version": "1.0.0",
-  "description": "Bulk submit reports to CleanApp via /v1/reports:bulkIngest (quarantine lane by default).",
+  "version": "1.1.0",
+  "description": "Submit and inspect machine-originated reports through CleanApp Wire.",
   "entrypoint": "run.sh",
   "secrets": [
     "CLEANAPP_API_TOKEN"
@@ -11,4 +11,3 @@
     "network": "HTTPS only (CleanApp ingest endpoint)."
   }
 }
-

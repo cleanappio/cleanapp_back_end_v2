@@ -1,10 +1,10 @@
-# SKILL: CleanApp Ingest v1
+# SKILL: CleanApp Wire Ingest
 
-Submit bulk reports to CleanApp using a Fetcher API key (`/v1/reports:bulkIngest`).
+Submit or inspect machine-originated reports via CleanApp Wire.
 
 ## Required Secret
 
-- `CLEANAPP_API_TOKEN` (Bearer token). Obtain once via `POST /v1/fetchers/register`, then store in ClawHub/OpenClaw secrets.
+- `CLEANAPP_API_TOKEN` (Bearer token). Obtain once via `POST /api/v1/agents/register`, then store in ClawHub/OpenClaw secrets.
 
 ## Data Handling
 
@@ -30,5 +30,8 @@ python3 ingest.py --base-url https://live.cleanapp.io --input examples/sample_it
 
 # Dry run (no network)
 python3 ingest.py --input examples/sample_items.json --dry-run
-```
 
+# Check status
+python3 ingest.py --base-url https://live.cleanapp.io --status-source-id my-source-id
+python3 ingest.py --base-url https://live.cleanapp.io --status-receipt-id rcpt_123
+```

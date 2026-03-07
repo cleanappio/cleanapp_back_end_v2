@@ -1,6 +1,6 @@
 # CleanApp Ingest Skill (OpenClaw/ClawHub)
 
-This is a **self-contained skill package** for submitting bulk reports to CleanApp via the **Fetcher Key System** (`/v1/reports:bulkIngest`).
+This is a **self-contained skill package** for submitting machine-originated reports to **CleanApp Wire**.
 
 Security-scan goals (ClawHub):
 - Required secret is **declared** (no hardcoded tokens).
@@ -11,7 +11,7 @@ Security-scan goals (ClawHub):
 
 ## Required Secret
 
-- `CLEANAPP_API_TOKEN`: a Fetcher API key (Bearer token) issued by `POST /v1/fetchers/register`.
+- `CLEANAPP_API_TOKEN`: a CleanApp agent key (Bearer token) issued by `POST /api/v1/agents/register`.
 
 Do not paste the token into chat logs. Store it as a secret in ClawHub/OpenClaw.
 
@@ -50,10 +50,16 @@ python3 ingest.py --base-url https://live.cleanapp.io --input examples/sample_it
 python3 ingest.py --input examples/sample_items.json --dry-run
 ```
 
+### 3) Check status by source_id or receipt
+
+```bash
+python3 ingest.py --base-url https://live.cleanapp.io --status-source-id my-source-id
+python3 ingest.py --base-url https://live.cleanapp.io --status-receipt-id rcpt_123
+```
+
 ## Build ZIP (for upload)
 
 ```bash
 ./build_zip.sh
 ls -la dist/
 ```
-
