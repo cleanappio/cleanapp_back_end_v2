@@ -86,9 +86,22 @@ for service in "$@"; do
   sudo -n docker inspect "$service" --format "{{range .Config.Env}}{{println .}}{{end}}" >> "$env_file"
   awk -F= '!seen[$1]++' "$env_file" > "${env_file}.dedup"
   mv "${env_file}.dedup" "$env_file"
+  network_name="$(
+    sudo -n docker inspect "$service" --format '{{range $k,$v := .NetworkSettings.Networks}}{{println $k}}{{end}}' 2>/dev/null | head -n1
+  )"
+  if [[ -z "${network_name}" ]]; then
+    network_name="$(
+      sudo -n docker network ls --format '{{.Name}}' | awk '/_default$/ {print; exit}'
+    )"
+  fi
+  if [[ -z "${network_name}" ]]; then
+    rm -f "$env_file"
+    echo "ERROR: could not determine docker network for ${service}" >&2
+    exit 1
+  fi
   echo "== remote migrate: ${service} =="
   sudo -n docker run --rm \
-    --network "container:${service}" \
+    --network "${network_name}" \
     --env-file "$env_file" \
     -v "${REMOTE_STAGE_DIR}:/workspace" \
     -w "/workspace/${repo_dir}" \
