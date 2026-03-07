@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use cleanapp_rust_common::envx;
 use mysql_async as my;
 use mysql_async::params;
 use mysql_async::prelude::Queryable;
@@ -30,22 +31,20 @@ struct Config {
 
 impl Config {
     fn from_env() -> Self {
-        let get = |k: &str, d: &str| std::env::var(k).unwrap_or_else(|_| d.to_string());
-
         Self {
-            db_host: get("DB_HOST", "localhost"),
-            db_port: get("DB_PORT", "3306"),
-            db_user: get("DB_USER", "server"),
-            db_password: required("DB_PASSWORD"),
-            db_name: get("DB_NAME", "cleanapp"),
-            openai_api_key: get("OPENAI_API_KEY", ""),
-            openai_model: get("OPENAI_MODEL", "gpt-4o"),
-            loop_delay_ms: get("LOOP_DELAY_MS", "10000").parse().unwrap_or(10000),
-            batch_limit: get("BATCH_LIMIT", "10").parse().unwrap_or(10),
-            physical_batch_limit: get("PHYSICAL_BATCH_LIMIT", "25").parse().unwrap_or(25),
-            physical_max_contacts: get("PHYSICAL_MAX_CONTACTS", "5").parse().unwrap_or(5),
-            enable_digital_email_fetcher: parse_bool_env("ENABLE_DIGITAL_EMAIL_FETCHER", true),
-            enable_physical_email_fetcher: parse_bool_env("ENABLE_PHYSICAL_EMAIL_FETCHER", true),
+            db_host: envx::string("DB_HOST", "localhost"),
+            db_port: envx::string("DB_PORT", "3306"),
+            db_user: envx::string("DB_USER", "server"),
+            db_password: envx::required("DB_PASSWORD"),
+            db_name: envx::string("DB_NAME", "cleanapp"),
+            openai_api_key: envx::string("OPENAI_API_KEY", ""),
+            openai_model: envx::string("OPENAI_MODEL", "gpt-4o"),
+            loop_delay_ms: envx::parse("LOOP_DELAY_MS", "10000"),
+            batch_limit: envx::parse("BATCH_LIMIT", "10"),
+            physical_batch_limit: envx::parse("PHYSICAL_BATCH_LIMIT", "25"),
+            physical_max_contacts: envx::parse("PHYSICAL_MAX_CONTACTS", "5"),
+            enable_digital_email_fetcher: envx::bool("ENABLE_DIGITAL_EMAIL_FETCHER", true),
+            enable_physical_email_fetcher: envx::bool("ENABLE_PHYSICAL_EMAIL_FETCHER", true),
             seq_range: parse_seq_range(std::env::var("SEQ_RANGE").ok().as_deref()),
         }
     }
@@ -70,23 +69,6 @@ impl Config {
             .pass(Some(self.db_password.clone()))
             .db_name(Some(self.db_name.clone()));
         my::Opts::from(builder)
-    }
-}
-
-fn required(key: &str) -> String {
-    match std::env::var(key) {
-        Ok(value) if !value.trim().is_empty() => value,
-        _ => panic!("{} environment variable is required", key),
-    }
-}
-
-fn parse_bool_env(key: &str, default: bool) -> bool {
-    match std::env::var(key) {
-        Ok(v) => matches!(
-            v.trim().to_lowercase().as_str(),
-            "1" | "true" | "yes" | "on"
-        ),
-        Err(_) => default,
     }
 }
 

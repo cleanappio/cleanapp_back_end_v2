@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine as _;
 use clap::Parser;
+use cleanapp_rust_common::envx;
 use cleanapp_rustlib::rabbitmq::subscriber::{permanent, Callback, Message, Subscriber};
 use log::{error, info, warn};
 use mysql_async::prelude::*;
@@ -453,7 +454,7 @@ async fn main() -> Result<()> {
     let amqp_user = args
         .amqp_user
         .clone()
-        .unwrap_or_else(|| "cleanapp".to_string());
+        .unwrap_or_else(|| envx::string("AMQP_USER", "cleanapp"));
     let amqp_password = args
         .amqp_password
         .clone()

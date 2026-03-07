@@ -1,0 +1,8 @@
+[package]
+name = "cleanapp-rust-common"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "cleanapp_rust_common"
+path = "src/lib.rs"

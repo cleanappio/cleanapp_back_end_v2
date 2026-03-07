@@ -311,6 +311,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cleanapp-rust-common"
+version = "0.1.0"
+
+[[package]]
 name = "cmake"
 version = "0.1.54"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -530,6 +534,7 @@ name = "email-service-v3"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cleanapp-rust-common",
  "dotenvy",
  "humantime",
  "mysql",

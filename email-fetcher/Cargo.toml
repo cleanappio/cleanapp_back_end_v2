@@ -14,3 +14,4 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 dotenvy = "0.15"
 thiserror = "1"
+cleanapp-rust-common = { path = "../rust-common" }

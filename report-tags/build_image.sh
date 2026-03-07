@@ -103,9 +103,11 @@ if [ "${OPT}" == "dev" ]; then
   echo "Building and pushing docker image..."
   # Create cache-busting file tied to BUILD_VERSION
   echo "${BUILD_VERSION}" > build_version.txt
-  gcloud builds submit \
-    --region=${CLOUD_REGION} \
-    --tag=${DOCKER_TAG}:${BUILD_VERSION}
+  "${BUILD_SCRIPT_DIR}/../scripts/build/submit_rust_service_with_common.sh" \
+    "${BUILD_SCRIPT_DIR}" \
+    "${CLOUD_REGION}" \
+    "${DOCKER_TAG}:${BUILD_VERSION}" \
+    "${PROJECT_NAME}"
 fi
 
 echo "Tagging Docker image as current ${OPT}..."

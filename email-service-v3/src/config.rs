@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use cleanapp_rust_common::envx;
 use std::time::Duration;
 
 #[derive(Clone, Debug)]
@@ -32,26 +33,27 @@ pub struct Config {
 impl Config {
     pub fn from_env() -> Result<Self> {
         dotenvy::dotenv().ok();
-        let db_host = env("DB_HOST", "localhost");
-        let db_port = env("DB_PORT", "3306");
-        let db_user = env("DB_USER", "server");
-        let db_password = required("DB_PASSWORD");
-        let db_name = env("DB_NAME", "cleanapp");
+        let db_host = envx::string("DB_HOST", "localhost");
+        let db_port = envx::string("DB_PORT", "3306");
+        let db_user = envx::string("DB_USER", "server");
+        let db_password = envx::required("DB_PASSWORD");
+        let db_name = envx::string("DB_NAME", "cleanapp");
 
-        let sendgrid_api_key = env("SENDGRID_API_KEY", "");
-        let sendgrid_from_name = env("SENDGRID_FROM_NAME", "CleanApp");
-        let sendgrid_from_email = env("SENDGRID_FROM_EMAIL", "info@cleanapp.io");
+        let sendgrid_api_key = envx::string("SENDGRID_API_KEY", "");
+        let sendgrid_from_name = envx::string("SENDGRID_FROM_NAME", "CleanApp");
+        let sendgrid_from_email = envx::string("SENDGRID_FROM_EMAIL", "info@cleanapp.io");
 
-        let poll_interval = humantime::parse_duration(&env("POLL_INTERVAL", "10s"))?;
-        let http_port: u16 = env("HTTP_PORT", "8080")
+        let poll_interval = humantime::parse_duration(&envx::string("POLL_INTERVAL", "10s"))?;
+        let http_port: u16 = envx::string("HTTP_PORT", "8080")
             .parse()
             .context("HTTP_PORT parse")?;
-        let opt_out_url = env("OPT_OUT_URL", "https://cleanapp.io/api/optout");
+        let opt_out_url = envx::string("OPT_OUT_URL", "https://cleanapp.io/api/optout");
 
-        let notification_period = humantime::parse_duration(&env("NOTIFICATION_PERIOD", "90d"))?;
-        let digital_base_url = env("DIGITAL_BASE_URL", "https://cleanapp.io/api/email");
-        let env_name = env("ENV", "prod");
-        let test_brands_raw = env("TEST_BRANDS", "");
+        let notification_period =
+            humantime::parse_duration(&envx::string("NOTIFICATION_PERIOD", "90d"))?;
+        let digital_base_url = envx::string("DIGITAL_BASE_URL", "https://cleanapp.io/api/email");
+        let env_name = envx::string("ENV", "prod");
+        let test_brands_raw = envx::string("TEST_BRANDS", "");
         let test_brands = {
             let v: Vec<String> = test_brands_raw
                 .split(',')
@@ -64,9 +66,11 @@ impl Config {
                 Some(v)
             }
         };
-        let bcc_email_address = env("BCC_EMAIL_ADDRESS", "cleanapp@stxn.io");
+        let bcc_email_address = envx::string("BCC_EMAIL_ADDRESS", "cleanapp@stxn.io");
         let enable_email_v3 = matches!(
-            env("ENABLE_EMAIL_V3", "true").to_lowercase().as_str(),
+            envx::string("ENABLE_EMAIL_V3", "true")
+                .to_lowercase()
+                .as_str(),
             "1" | "true" | "yes" | "on"
         );
 
@@ -96,16 +100,5 @@ impl Config {
             "mysql://{}:***@{}:{}/{}",
             self.db_user, self.db_host, self.db_port, self.db_name
         )
-    }
-}
-
-fn env(key: &str, default: &str) -> String {
-    std::env::var(key).unwrap_or_else(|_| default.to_string())
-}
-
-fn required(key: &str) -> String {
-    match std::env::var(key) {
-        Ok(value) if !value.trim().is_empty() => value,
-        _ => panic!("{} environment variable is required", key),
     }
 }

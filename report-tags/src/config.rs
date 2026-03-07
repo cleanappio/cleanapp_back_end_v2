@@ -1,4 +1,4 @@
-use std::env;
+use cleanapp_rust_common::envx;
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -24,39 +24,29 @@ pub struct Config {
 impl Config {
     pub fn load() -> Self {
         let config = Self {
-            db_host: env::var("DB_HOST").unwrap_or_else(|_| "localhost".to_string()),
-            db_port: env::var("DB_PORT")
-                .unwrap_or_else(|_| "3306".to_string())
-                .parse()
-                .unwrap_or(3306),
-            db_user: env::var("DB_USER").unwrap_or_else(|_| "server".to_string()),
-            db_password: required("DB_PASSWORD"),
-            db_name: env::var("DB_NAME").unwrap_or_else(|_| "cleanapp".to_string()),
-            port: env::var("PORT")
-                .unwrap_or_else(|_| "8080".to_string())
-                .parse()
-                .unwrap_or(8080),
-            redis_url: env::var("REDIS_URL").ok(),
-            rust_log: env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string()),
-            max_tag_follows: env::var("MAX_TAG_FOLLOWS")
-                .unwrap_or_else(|_| "200".to_string())
-                .parse()
-                .unwrap_or(200),
-            amqp_host: env::var("AMQP_HOST").unwrap_or_else(|_| "localhost".to_string()),
-            amqp_port: env::var("AMQP_PORT")
-                .unwrap_or_else(|_| "5672".to_string())
-                .parse()
-                .unwrap_or(5672),
-            amqp_user: env::var("AMQP_USER").unwrap_or_else(|_| "cleanapp".to_string()),
-            amqp_password: required("AMQP_PASSWORD"),
-            rabbitmq_exchange: env::var("RABBITMQ_EXCHANGE")
-                .unwrap_or_else(|_| "cleanapp".to_string()),
-            rabbitmq_queue: env::var("RABBITMQ_QUEUE")
-                .unwrap_or_else(|_| "report-tags".to_string()),
-            rabbitmq_raw_report_routing_key: env::var("RABBITMQ_RAW_REPORT_ROUTING_KEY")
-                .unwrap_or_else(|_| "report.raw".to_string()),
-            rabbitmq_tag_event_routing_key: env::var("RABBITMQ_TAG_EVENT_ROUTING_KEY")
-                .unwrap_or_else(|_| "tag.added".to_string()),
+            db_host: envx::string("DB_HOST", "localhost"),
+            db_port: envx::parse("DB_PORT", "3306"),
+            db_user: envx::string("DB_USER", "server"),
+            db_password: envx::required("DB_PASSWORD"),
+            db_name: envx::string("DB_NAME", "cleanapp"),
+            port: envx::parse("PORT", "8080"),
+            redis_url: envx::optional("REDIS_URL"),
+            rust_log: envx::string("RUST_LOG", "info"),
+            max_tag_follows: envx::parse("MAX_TAG_FOLLOWS", "200"),
+            amqp_host: envx::string("AMQP_HOST", "localhost"),
+            amqp_port: envx::parse("AMQP_PORT", "5672"),
+            amqp_user: envx::string("AMQP_USER", "cleanapp"),
+            amqp_password: envx::required("AMQP_PASSWORD"),
+            rabbitmq_exchange: envx::string("RABBITMQ_EXCHANGE", "cleanapp"),
+            rabbitmq_queue: envx::string("RABBITMQ_QUEUE", "report-tags"),
+            rabbitmq_raw_report_routing_key: envx::string(
+                "RABBITMQ_RAW_REPORT_ROUTING_KEY",
+                "report.raw",
+            ),
+            rabbitmq_tag_event_routing_key: envx::string(
+                "RABBITMQ_TAG_EVENT_ROUTING_KEY",
+                "tag.added",
+            ),
         };
 
         // Validate configuration
@@ -84,12 +74,5 @@ impl Config {
             "amqp://{}:{}@{}:{}",
             self.amqp_user, self.amqp_password, self.amqp_host, self.amqp_port
         )
-    }
-}
-
-fn required(key: &str) -> String {
-    match env::var(key) {
-        Ok(value) if !value.trim().is_empty() => value,
-        _ => panic!("{} environment variable is required", key),
     }
 }

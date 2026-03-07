@@ -4,12 +4,7 @@ FROM rust:1.82-bullseye AS builder
 
 WORKDIR /app
 
-# Cache deps
-COPY Cargo.toml Cargo.lock ./
-RUN mkdir -p src && echo "fn main(){}" > src/main.rs && cargo build --release || true
-
-# Build actual sources
-COPY src ./src
+COPY . .
 RUN cargo build --release --bins
 
 FROM debian:bullseye-slim
@@ -25,4 +20,3 @@ ENV ENABLE_EMAIL_V3=false
 
 # Default command runs the service; backfill can be invoked by overriding CMD
 CMD ["/usr/local/bin/email-service-v3"]
-

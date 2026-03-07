@@ -54,7 +54,11 @@ if [ "${PROJECT_NAME}" != "${CURRENT_PROJECT}" ]; then
 fi
 
 echo "Submitting Cloud Build for ${DOCKER_TAG}:${BUILD_VERSION} ..."
-gcloud builds submit --region=${CLOUD_REGION} --tag ${DOCKER_TAG}:${BUILD_VERSION}
+"${BUILD_SCRIPT_DIR}/../scripts/build/submit_rust_service_with_common.sh" \
+  "${BUILD_SCRIPT_DIR}" \
+  "${CLOUD_REGION}" \
+  "${DOCKER_TAG}:${BUILD_VERSION}" \
+  "${PROJECT_NAME}"
 
 echo "Tagging ${DOCKER_TAG}:${BUILD_VERSION} as ${OPT}..."
 gcloud artifacts docker tags add ${DOCKER_TAG}:${BUILD_VERSION} ${DOCKER_TAG}:${OPT}
@@ -71,5 +75,4 @@ if [ "${DEPLOY}" == "1" ]; then
   fi
   popd >/dev/null
 fi
-
 
