@@ -165,7 +165,7 @@ func ensureCleanAppWireTables(ctx context.Context, db *sql.DB) error {
 			KEY idx_wire_lane_created (lane, created_at),
 			CONSTRAINT fk_wire_submission_fetcher FOREIGN KEY (fetcher_id) REFERENCES fetchers(fetcher_id) ON DELETE CASCADE,
 			CONSTRAINT fk_wire_submission_report FOREIGN KEY (report_seq) REFERENCES reports(seq) ON DELETE SET NULL
-		)`,
+		) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
 		`CREATE TABLE IF NOT EXISTS wire_submission_receipts (
 			receipt_id VARCHAR(64) NOT NULL,
 			submission_id VARCHAR(64) NOT NULL,
@@ -184,7 +184,7 @@ func ensureCleanAppWireTables(ctx context.Context, db *sql.DB) error {
 			UNIQUE KEY uniq_wire_receipt_submission (submission_id),
 			KEY idx_wire_receipts_fetcher_source (fetcher_id, source_id, created_at),
 			CONSTRAINT fk_wire_receipt_submission FOREIGN KEY (submission_id) REFERENCES wire_submissions_raw(submission_id) ON DELETE CASCADE
-		)`,
+		) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
 		`CREATE TABLE IF NOT EXISTS wire_agent_reputation_metrics (
 			fetcher_id VARCHAR(64) NOT NULL,
 			precision_score FLOAT NOT NULL DEFAULT 0.45,
@@ -203,14 +203,14 @@ func ensureCleanAppWireTables(ctx context.Context, db *sql.DB) error {
 			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 			PRIMARY KEY (fetcher_id),
 			CONSTRAINT fk_wire_reputation_fetcher FOREIGN KEY (fetcher_id) REFERENCES fetchers(fetcher_id) ON DELETE CASCADE
-		)`,
+		) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
 		`CREATE TABLE IF NOT EXISTS wire_issue_clusters (
 			cluster_id VARCHAR(64) NOT NULL,
 			status VARCHAR(32) NOT NULL DEFAULT 'stub',
 			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 			PRIMARY KEY (cluster_id)
-		)`,
+		) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
 		`CREATE TABLE IF NOT EXISTS wire_reward_records (
 			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 			fetcher_id VARCHAR(64) NOT NULL,
@@ -223,7 +223,7 @@ func ensureCleanAppWireTables(ctx context.Context, db *sql.DB) error {
 			KEY idx_wire_reward_fetcher_created (fetcher_id, created_at),
 			CONSTRAINT fk_wire_reward_fetcher FOREIGN KEY (fetcher_id) REFERENCES fetchers(fetcher_id) ON DELETE CASCADE,
 			CONSTRAINT fk_wire_reward_report FOREIGN KEY (report_seq) REFERENCES reports(seq) ON DELETE SET NULL
-		)`,
+		) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
 	}
 	for _, stmt := range stmts {
 		if _, err := db.ExecContext(ctx, stmt); err != nil {
