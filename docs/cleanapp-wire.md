@@ -60,7 +60,7 @@ The largest implementation gap is architectural, not endpoint-level:
 | Validation rules | Partial | `report-listener/handlers/cleanapp_wire_v1.go` | Core schema/field/confidence validation is implemented with machine-readable codes. MIME allowlists, timestamp drift checks, and richer category compatibility validation are not yet present. |
 | Queue and processing architecture | Partial | `report-listener/handlers/cleanapp_wire_v1.go`, `report-listener/handlers/ingest_v1.go`, `report-listener/config/config.go`, `report-analyze-pipeline` consumers | Wire currently publishes into the existing `report.raw` flow through v1 ingest. The dedicated `casp.*` / Wire-native queue graph from the spec does not exist yet. |
 | Governance and auditability | Partial | `report-listener/database/cleanapp_wire_v1.go`, `report-listener/database/migration_helpers.go`, `report-listener/handlers/internal_fetcher_admin.go`, `report-listener/handlers/fetcher_promotion_v1.go` | Submission records, receipts, promotion requests, and moderation events exist. Full decision traces, rule-versioning, and reconstruction of every lane decision are not yet implemented. |
-| Rollout plan | Partial | `report-listener/main.go`, `cli/cleanapp`, `openclaw/cleanapp_ingest_skill`, `news-indexer-bluesky/src/bin/submitter_bluesky.rs` | Phase 1 and part of Phase 2 exist. Internal-bot migration is incomplete. External agent onboarding exists only partially because CLI and skill packages still target v1 fetcher ingest, not Wire. |
+| Rollout plan | Partial | `report-listener/main.go`, `cli/cleanapp`, `openclaw/cleanapp_ingest_skill`, `news-indexer-bluesky/src/bin/submitter_bluesky.rs` | Wire is now the default path for the Bluesky submitter, the npm CLI, and the OpenClaw ingest skill. Internal-bot migration is still incomplete because legacy v1/v3 machine-ingest routes and `report-processor` still bypass Wire semantics directly. |
 | Operational metrics | Partial | `report-listener/database/fetcher_keys_v1.go`, `report-listener/database/cleanapp_wire_v1.go`, `report-listener/database/ingestion_audit_v1.go` | Basic usage quotas and ingestion audits exist. The richer operational metrics suite from the spec is not fully implemented. |
 | Non-negotiable rules | Partial | `report-listener/main.go`, `news-indexer-bluesky/src/bin/submitter_bluesky.rs`, `openclaw/cleanapp_ingest_skill/ingest.py`, `cli/cleanapp/src/commands/reports/submit.ts`, `report-processor/handlers/handlers.go` | Rule 1 is currently false: not all internal agentic ingestion goes through Wire. Rule 3 is mostly true. Rules around rewards, provenance integrity, and duplicate-vs-corroboration are only partial. |
 
@@ -209,10 +209,15 @@ Files:
 - `openclaw/cleanapp_ingest_skill/README.md`
 - `openclaw/cleanapp_ingest_skill/ingest.py`
 
-Why it bypasses Wire:
+Current state:
 
-- still targets `/v1/reports:bulkIngest`
-- does not use Wire receipts/reputation/lane semantics
+- now targets:
+  - `POST /api/v1/agent-reports:submit`
+  - `POST /api/v1/agent-reports:batchSubmit`
+  - `GET /api/v1/agent-reports/status/{source_id}`
+  - `GET /api/v1/agent-reports/receipts/{receipt_id}`
+- wraps legacy simple items into `cleanapp-wire.v1`
+- no longer teaches `/v1/reports:bulkIngest` as the default path
 
 ### 4. CleanApp CLI
 
@@ -222,11 +227,15 @@ Files:
 - `cli/cleanapp/src/commands/reports/submit.ts`
 - `cli/cleanapp/src/commands/reports/bulk_submit.ts`
 
-Why it bypasses Wire:
+Current state:
 
-- `auth whoami` targets `/v1/fetchers/me`
-- submit commands target `/v1/reports:bulkIngest`
-- no Wire-native commands yet
+- `auth whoami` now targets `/api/v1/agents/me` with fallback to `/v1/fetchers/me`
+- submit and bulk-submit now target Wire endpoints by default
+- status supports:
+  - `--source-id`
+  - `--receipt-id`
+  - legacy `--report-id` fallback
+- the CLI still keeps legacy metrics/fetcher introspection compatibility because Wire-native metrics do not exist yet
 
 ### 5. Bluesky submitter
 
@@ -234,10 +243,14 @@ Files:
 
 - `news-indexer-bluesky/src/bin/submitter_bluesky.rs`
 
-Why it bypasses Wire:
+Current state:
 
-- posts to `/api/v3/reports/bulk_ingest`
-- is a stable machine producer that should have first-class provenance and reputation
+- now supports `SUBMIT_PROTOCOL=wire|legacy|auto`
+- defaults to `auto`, which resolves to Wire for fetcher-key style tokens
+- uses stable `source_id = Bluesky URI`
+- stores Wire receipts in a local submission ledger:
+  - `indexer_bluesky_wire_submission`
+- preserves safe rollback via legacy mode
 
 ### 6. Report processor direct submit + raw publish
 
@@ -268,112 +281,102 @@ Why it bypasses Wire:
 
 ## Internal Producers To Wrap or Migrate First
 
-### Priority 1: Bluesky submitter
+### Completed migrations
 
-Files:
+- `news-indexer-bluesky/src/bin/submitter_bluesky.rs` -> Wire-native by default
+- `cli/cleanapp/*` machine submission flows -> Wire-native by default
+- `openclaw/cleanapp_ingest_skill/*` -> Wire-native
 
-- `news-indexer-bluesky/src/bin/submitter_bluesky.rs`
-
-Why first:
-
-- already batch-oriented
-- already has stable external identifiers (`uri`)
-- already machine-originated
-- high-value provenance win with low migration complexity
-
-What it should gain:
-
-- stable source identity in Wire
-- lane assignment
-- receipts
-- future reputation tracking
-
-### Priority 2: CleanApp CLI
-
-Files:
-
-- `cli/cleanapp/src/commands/auth/whoami.ts`
-- `cli/cleanapp/src/commands/reports/submit.ts`
-- `cli/cleanapp/src/commands/reports/bulk_submit.ts`
-
-Why second:
-
-- this is the public developer tool
-- if Wire is canonical, the CLI should teach Wire, not v1 fetcher ingest
-
-What it should gain:
-
-- immediate alignment between docs and reality
-- stable path for external agents and partner automations
-
-### Priority 3: OpenClaw skill package
-
-Files:
-
-- `openclaw/cleanapp_ingest_skill/*`
-
-Why third:
-
-- same reason as CLI, but specifically for autonomous agent ecosystems
-- should align with the canonical machine-ingest story
-
-What it should gain:
-
-- direct Wire receipts and status
-- cleaner policy story for external swarms
-
-### Priority 4: Legacy v3 bulk-ingest producers
-
-Files:
-
-- `report-listener/handlers/handlers.go`
-- `news-indexer-bluesky/src/bin/submitter_bluesky.rs`
-- any other submitters still posting to `/api/v3/reports/bulk_ingest`
-
-Why fourth:
-
-- these are still machine-ingest paths, but they use the older route
-- they should either:
-  - be migrated to Wire, or
-  - be wrapped into Wire internally
-
-### Priority 5: Report processor direct path
+### Priority 1: Report processor direct path
 
 Files:
 
 - `report-processor/handlers/handlers.go`
 
-Why fifth:
+Why first now:
 
-- this is the most architecturally important bypass, but also the highest-risk migration
-- it likely needs an explicit internal-Wire adapter, not a naive endpoint swap
+- this is the highest-value remaining machine-originated bypass
+- it creates reports and publishes `report.raw` directly
+- it is where provenance and lane assignment still disappear entirely
+
+What it should gain:
+
+- stable source identity
+- Wire receipts
+- lane assignment
+- reputation tracking
+- eventual reward/promotion eligibility
+
+### Priority 2: Legacy v3 machine ingest callers
+
+Files:
+
+- `report-listener/handlers/handlers.go`
+- any remaining callers posting to:
+  - `POST /api/v3/reports/bulk_ingest`
+  - `POST /api/v4/reports/bulk_ingest`
+
+Why second now:
+
+- they now have a legacy-to-Wire mirroring path available
+- they still do not receive Wire responses directly
+- they are the next obvious population to either wrap or migrate explicitly
+
+### Priority 3: Direct v1 fetcher ingest callers
+
+Files:
+
+- `report-listener/handlers/ingest_v1.go`
+- any producers still posting to `/v1/reports:bulkIngest`
+
+Why third now:
+
+- Wire still uses v1 internally, so this cannot be deleted yet
+- but direct external use of v1 still bypasses Wire receipts and reputation semantics
+
+What it should gain:
+
+- eventual collapse behind a pure Wire ingest core once Wire no longer delegates to v1
+
+### Priority 4: Internal admin promotion path
+
+Files:
+
+- `report-listener/handlers/internal_ingest_admin.go`
+
+Why fourth:
+
+- this is intentionally outside Wire, but should eventually emit provenance-compatible moderation events if the Wire model becomes canonical system-wide
 
 ## Legacy Migration Summary
 
-Current state:
+Current state after migration PRs:
 
 - Wire exists and works.
-- v1 fetcher ingest still exists and is the actual persistence/publish core.
-- several internal and external machine producers still bypass Wire.
+- v1 fetcher ingest still exists and is still the actual persistence/publish core used under Wire.
+- the following real producers are now Wire-native by default:
+  - `news-indexer-bluesky`
+  - `@cleanapp/cli`
+  - `openclaw/cleanapp_ingest_skill`
+- legacy `/api/v3/reports/bulk_ingest` now mirrors new ingests into Wire submission/receipt records for provenance, without changing its legacy response contract.
+- the largest remaining bypass is `report-processor`.
 
 Recommended migration order:
 
-1. `news-indexer-bluesky` -> move to Wire
-2. `cli/cleanapp` -> add Wire-native auth/submit/status commands and make them the default machine path
-3. `openclaw/cleanapp_ingest_skill` -> retarget to Wire
-4. selected legacy `/api/v3/reports/bulk_ingest` producers -> migrate or wrap
-5. `report-processor` -> design an internal Wire adapter and migrate last
+1. `report-processor` -> design an internal Wire adapter and migrate last
+2. remaining direct `/api/v3/reports/bulk_ingest` callers -> migrate explicitly
+3. remaining direct `/v1/reports:bulkIngest` callers -> migrate once Wire no longer depends on v1 internally
 
 Migration policy recommendation:
 
 - Do not delete v1 or v3 ingest immediately.
-- First migrate callers.
-- Then convert old machine-ingest routes into thin wrappers over Wire.
-- Only after that should Wire become the sole canonical machine-ingest core.
+- First migrate remaining callers.
+- Keep the legacy v3 machine route mirrored into Wire for auditability.
+- Only delete v1 direct usage once Wire no longer depends on v1 internally.
 
 ## Top 5 Production Risks
 
-### 1. Wire is not yet the canonical machine-ingest path
+### 1. Wire is still not the sole canonical machine-ingest path
 
 Risk:
 
@@ -403,56 +406,53 @@ Risk:
 - reward/economics cannot yet be trusted for production incentives
 - corroboration vs duplicate distinction is still absent
 
-### 5. Public tooling still teaches the old path
+### 5. Compatibility mirroring is one-way
 
 Risk:
 
-- developers and agents will keep integrating against v1 fetcher ingest instead of Wire
-- this locks in the bypass problem
+- legacy `/api/v3/reports/bulk_ingest` callers now create Wire provenance records internally
+- but they still do not receive Wire receipt semantics directly
+- this can hide migration debt if not tracked explicitly
 
 ## Next 3 Smallest Production-Safe PRs
 
-### PR 1: Make CLI Wire-native
+### PR 1: Migrate report-processor through an internal Wire adapter
 
 Scope:
 
-- add Wire-native commands or flip existing machine-submit commands to:
-  - `POST /api/v1/agent-reports:submit`
-  - `POST /api/v1/agent-reports:batchSubmit`
-  - `GET /api/v1/agents/me`
-  - `GET /api/v1/agent-reports/status/{source_id}`
-
-Why this is safe:
-
-- low blast radius
-- no runtime ingestion-core changes
-- immediately aligns public developer tooling with Wire
-
-### PR 2: Retarget OpenClaw skill package to Wire
-
-Scope:
-
-- change `openclaw/cleanapp_ingest_skill` from `/v1/reports:bulkIngest` to Wire endpoints
-- update docs and dry-run examples
-
-Why this is safe:
-
-- no backend behavior change
-- closes a major ecosystem/documentation mismatch
-
-### PR 3: Migrate Bluesky submitter to Wire
-
-Scope:
-
-- have `news-indexer-bluesky/src/bin/submitter_bluesky.rs` emit a Wire envelope
-- preserve stable `source_id` via Bluesky URI
-- keep retry behavior idempotent
+- replace direct report creation + `report.raw` publish path with a Wire-aware internal submission path
+- preserve existing behavior while gaining source identity and receipts
 
 Why this is safe:
 
 - one contained internal producer
-- high-value provenance gain
-- minimal risk if rolled behind a config flag or alternate endpoint variable
+- biggest remaining provenance gap
+
+### PR 2: Add a first-class migration map for remaining legacy callers
+
+Scope:
+
+- enumerate all remaining direct callers of `/api/v3/reports/bulk_ingest` and `/v1/reports:bulkIngest`
+- assign each to:
+  - migrate
+  - wrap
+  - retire
+
+Why this is safe:
+
+- no runtime behavior change
+- reduces hidden bypass risk
+
+### PR 3: Decouple Wire from direct v1 ingest dependency
+
+Scope:
+
+- move the normalized persistence/publish core into Wire-owned ingest helpers
+- keep v1 as a thin compatibility facade instead of Wire calling v1
+
+Why this is safe:
+
+- this is the architectural step that finally makes Wire canonical in practice, not just in producer routing
 
 ## Recommended Canonical Direction
 
