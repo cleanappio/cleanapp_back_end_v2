@@ -126,9 +126,20 @@ for svc in ${SOURCE_SERVICES}; do
   echo "== build from source: ${svc} =="
   cd "${REMOTE_STAGE_DIR}/${svc}"
   CLOUDSDK_CONFIG="${CLOUDSDK_CONFIG:-/home/deployer/.config/gcloud}" ./build_image.sh -e dev
-  build_version="$(awk -F= '$1=="BUILD_VERSION"{print $2}' .version)"
-  docker_image="$(sed -n 's/^DOCKER_IMAGE="\(cleanapp-docker-repo\/[^\"]*\)"/\1/p' build_image.sh | head -n1)"
-  if [[ -z "${docker_image}" || -z "${build_version}" ]]; then
+  build_version=""
+  if [[ -f .version ]]; then
+    build_version="$(awk -F= '$1=="BUILD_VERSION"{print $2}' .version | tr -d "\"'[:space:]")"
+  fi
+  if [[ -z "${build_version}" && -f build_version.txt ]]; then
+    build_version="$(tr -d "\"'[:space:]" < build_version.txt)"
+  fi
+  if [[ -z "${build_version}" ]]; then
+    # Some legacy build_image.sh scripts publish directly to the environment tag
+    # instead of writing a version file. In that case, promote from :dev.
+    build_version="dev"
+  fi
+  docker_image="$(sed -nE 's/^DOCKER_IMAGE="?([^"]+)"?/\1/p' build_image.sh | head -n1)"
+  if [[ -z "${docker_image}" ]]; then
     echo "ERROR: could not determine image metadata for ${svc}" >&2
     exit 4
   fi
