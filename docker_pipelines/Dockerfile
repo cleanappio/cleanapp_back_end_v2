@@ -3,6 +3,7 @@ FROM golang:1.24-alpine AS builder
 WORKDIR /src
 
 # Cache deps
+COPY go-common /src/go-common
 COPY go.mod go.sum ./
 RUN go mod download
 
@@ -34,4 +35,3 @@ RUN update-ca-certificates
 EXPOSE 8090/tcp
 EXPOSE 8091/tcp
 CMD "./pipelines" "--port=${PIPELINES_PORT}" "--mysql_password=${MYSQL_APP_PASSWORD}" "--mysql_host=cleanapp_db" "--eth_network_url=${ETH_NETWORK_URL}" "--eth_private_key=${KITN_PRIVATE_KEY}" "--contract_address=${CONTRACT_ADDRESS}" "--users_table=${USERS_TABLE}"
-
