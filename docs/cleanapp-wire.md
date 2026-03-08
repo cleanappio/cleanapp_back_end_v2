@@ -257,6 +257,7 @@ Current state:
 Files:
 
 - `news-indexer/src/bin/submitter_twitter.rs`
+- `platform_blueprint/deploy/prod/docker-compose.yml`
 
 Current state:
 
@@ -264,7 +265,8 @@ Current state:
 - uses stable `source_id = twitter:<external_id>`
 - maps twitter-originated items into `cleanapp-wire.v1` envelopes
 - preserves idempotent retries through stable `source_id`
-- rollout can remain safe by keeping `legacy` available as an override
+- is now running in production with `SUBMIT_PROTOCOL=auto`, resolving to Wire through a dedicated Wire fetcher key
+- rollout remains safe because `legacy` is still available as an override
 
 ### 7. GitHub submitter
 
@@ -278,6 +280,7 @@ Current state:
 - uses stable `source_id = github_issue:<external_id>`
 - maps GitHub issue items into `cleanapp-wire.v1` envelopes
 - preserves idempotent retries through stable `source_id`
+- currently migrated in code; no prod runtime cutover was required because this submitter is not part of the active prod compose set
 
 ### 8. Reddit dump reader
 
@@ -293,6 +296,7 @@ Current state:
 - defaults to `auto`, which resolves to Wire for fetcher-key style tokens
 - posts batches directly to `POST /api/v1/agent-reports:batchSubmit` in Wire mode
 - preserves safe rollback through explicit `legacy` mode
+- currently migrated in code/tooling; there is no standing prod service to cut over
 
 ### 9. Report processor match flow (migrated)
 
@@ -329,7 +333,7 @@ Why it bypasses Wire:
 ### Completed migrations
 
 - `news-indexer-bluesky/src/bin/submitter_bluesky.rs` -> Wire-native by default
-- `news-indexer/src/bin/submitter_twitter.rs` -> Wire-capable with safe `SUBMIT_PROTOCOL` rollout
+- `news-indexer/src/bin/submitter_twitter.rs` -> Wire-native in production via `SUBMIT_PROTOCOL=auto` and a dedicated Wire fetcher key
 - `news-indexer/src/bin/submitter_github.rs` -> Wire-capable with safe `SUBMIT_PROTOCOL` rollout
 - `tools/reddit_dump_reader/src/main.rs` -> Wire-capable with safe protocol override
 - `cli/cleanapp/*` machine submission flows -> Wire-native by default
