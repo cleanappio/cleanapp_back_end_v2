@@ -60,11 +60,6 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	reportsSubmissionToken, err := appenv.Secret("REPORTS_SUBMISSION_TOKEN", "")
-	if err != nil {
-		return nil, err
-	}
-
 	config := &Config{
 		DBHost:     appenv.String("DB_HOST", "localhost"),
 		DBPort:     appenv.String("DB_PORT", "3306"),
@@ -83,7 +78,7 @@ func Load() (*Config, error) {
 		ReportsSubmissionURL:      appenv.String("REPORTS_SUBMISSION_URL", ""),
 		ReportsSubmissionWireURL:  appenv.String("REPORTS_SUBMISSION_WIRE_URL", ""),
 		ReportsSubmissionProtocol: appenv.String("REPORTS_SUBMISSION_PROTOCOL", "legacy"),
-		ReportsSubmissionToken:    reportsSubmissionToken,
+		ReportsSubmissionToken:    appenv.String("REPORTS_SUBMISSION_TOKEN", ""),
 		TagServiceURL:             appenv.String("TAG_SERVICE_URL", "http://localhost:8083"),
 
 		AMQPHost:                    appenv.String("AMQP_HOST", "localhost"),
