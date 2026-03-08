@@ -400,7 +400,7 @@ Current state after migration PRs:
 Recommended migration order:
 
 1. migrate or wrap all remaining `/api/v3/reports/bulk_ingest` and `/api/v4/reports/bulk_ingest` callers so they receive Wire receipts or explicit receipt-compatible metadata
-2. keep `/v1/reports:bulkIngest` compatible for now, then collapse once Wire no longer depends on v1 internally
+2. keep `/v1/reports:bulkIngest` compatible for now, then collapse once external callers have migrated off the legacy response contract
 3. optionally emit Wire-compatible moderation/provenance events for internal admin/moderation flows
 
 Migration policy recommendation:
@@ -408,7 +408,7 @@ Migration policy recommendation:
 - Do not delete v1 or v3 ingest immediately.
 - First migrate remaining legacy callers.
 - Keep the legacy v3 machine route mirrored into Wire for auditability.
-- Only delete v1 direct usage once Wire no longer depends on v1 internally.
+- Only delete v1 direct usage once external callers no longer depend on the legacy response contract.
 
 ## Top 5 Production Risks
 
