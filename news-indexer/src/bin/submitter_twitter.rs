@@ -27,6 +27,7 @@ struct GeneralConfig {
 struct SubmitConfig {
     endpoint_url: Option<String>,
     token: Option<String>,
+    protocol: Option<String>,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -35,12 +36,53 @@ struct Args {
     #[arg(long, env = "DB_URL")] db_url: Option<String>,
     #[arg(long, env = "SUBMIT_ENDPOINT_URL")] endpoint_url: Option<String>,
     #[arg(long, env = "SUBMIT_TOKEN")] token: Option<String>,
+    #[arg(long, env = "SUBMIT_PROTOCOL", default_value = "auto")] protocol: String,
 
     #[arg(long, env = "SUBMIT_BATCH_SIZE", default_value_t = 300)] batch_size: usize,
     #[arg(long, default_value_t = 0)] limit_total: u64,
     #[arg(long)] since_created: Option<String>,
     /// Interval between submit cycles when limit_total = 0 (seconds)
     #[arg(long, env = "SUBMIT_INTERVAL_SECS", default_value_t = 300)] interval_secs: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SubmitProtocol {
+    Auto,
+    Legacy,
+    Wire,
+}
+
+impl SubmitProtocol {
+    fn parse(raw: &str) -> Result<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "" | "auto" => Ok(Self::Auto),
+            "legacy" => Ok(Self::Legacy),
+            "wire" => Ok(Self::Wire),
+            other => anyhow::bail!("unsupported submit protocol: {}", other),
+        }
+    }
+
+    fn resolve(self, token: &str) -> Self {
+        match self {
+            Self::Auto => {
+                if token.starts_with("cleanapp_fk_live_") || token.starts_with("cleanapp_fk_test_")
+                {
+                    Self::Wire
+                } else {
+                    Self::Legacy
+                }
+            }
+            other => other,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct WireBatchResponse {
+    submitted: u64,
+    accepted: u64,
+    rejected: u64,
+    duplicates: u64,
 }
 
 #[tokio::main]
@@ -69,11 +111,17 @@ async fn main() -> Result<()> {
         .clone()
         .or_else(|| cfg.as_ref().and_then(|c| c.submit.as_ref().and_then(|s| s.token.clone())))
         .context("token must be provided via --token or config.submit.token")?;
+    let configured_protocol = cfg
+        .as_ref()
+        .and_then(|c| c.submit.as_ref().and_then(|s| s.protocol.as_deref()))
+        .unwrap_or(&args.protocol)
+        .to_string();
+    let protocol = SubmitProtocol::parse(&configured_protocol)?.resolve(&token);
 
     let batch_size = args.batch_size.min(1000).max(1);
     info!(
-        "submitter_twitter: start endpoint={} batch_size={} limit_total={} since_created={:?}",
-        endpoint_url, batch_size, args.limit_total, args.since_created
+        "submitter_twitter: start endpoint={} protocol={:?} batch_size={} limit_total={} since_created={:?}",
+        endpoint_url, protocol, batch_size, args.limit_total, args.since_created
     );
 
     let pool = Pool::new(mysql_async::Opts::from_url(&db_url)?);
@@ -317,62 +365,18 @@ async fn main() -> Result<()> {
             items.push(item);
         }
 
-        let payload = json!({
-            "source": "twitter",
-            "items": items,
-        });
+        let submit_result = match protocol {
+            SubmitProtocol::Legacy => submit_legacy_twitter(&client, &endpoint_url, &token, &items).await,
+            SubmitProtocol::Wire => submit_wire_twitter(&client, &endpoint_url, &token, &items).await,
+            SubmitProtocol::Auto => unreachable!("auto should have been resolved before submit"),
+        };
 
-        let resp = client
-            .post(format!(
-                "{}/api/v3/reports/bulk_ingest",
-                endpoint_url.trim_end_matches('/')
-            ))
-            .bearer_auth(&token)
-            .json(&payload)
-            .send()
-            .await;
-
-        match resp {
-            Ok(r) => {
-                if !r.status().is_success() {
-                    let status = r.status();
-                    let text = r.text().await.unwrap_or_default();
-                    warn!("submit failed http {}: {}", status, text);
-                    if status.as_u16() == 413 {
-                        let new_size = std::cmp::max(50, effective_batch_size / 2);
-                        if new_size < effective_batch_size {
-                            info!(
-                                "reducing effective_batch_size from {} to {} due to 413",
-                                effective_batch_size, new_size
-                            );
-                            effective_batch_size = new_size;
-                        }
-                    }
-                    sleep(StdDuration::from_secs(5)).await;
-                    continue;
-                }
-                let v: serde_json::Value = r.json().await.unwrap_or_else(|_| json!({}));
-                let inserted = v.get("inserted").and_then(|x| x.as_u64()).unwrap_or(0);
-                let updated = v.get("updated").and_then(|x| x.as_u64()).unwrap_or(0);
-                let skipped = v.get("skipped").and_then(|x| x.as_u64()).unwrap_or(0);
-                let errs = v
-                    .get("errors")
-                    .and_then(|x| x.as_array())
-                    .map(|a| a.len() as u64)
-                    .unwrap_or(0);
+        match submit_result {
+            Ok((inserted, updated, skipped, errs)) => {
                 total_inserted += inserted;
                 total_updated += updated;
                 total_skipped += skipped;
                 total_errors += errs;
-                if errs > 0 {
-                    let sample = v
-                        .get("errors")
-                        .and_then(|x| x.as_array())
-                        .and_then(|a| a.get(0))
-                        .cloned()
-                        .unwrap_or(json!({}));
-                    warn!("batch errors={} sample={}", errs, sample);
-                }
                 info!(
                     "submitted batch: rows={} inserted={} updated={} skipped={} (totals: ins={} upd={} skp={} err={})",
                     rows.len(),
@@ -386,7 +390,18 @@ async fn main() -> Result<()> {
                 );
             }
             Err(e) => {
-                warn!("http error: {}", e);
+                let msg = e.to_string();
+                warn!("submit failed: {}", msg);
+                if msg.contains("status 413") {
+                    let new_size = std::cmp::max(50, effective_batch_size / 2);
+                    if new_size < effective_batch_size {
+                        info!(
+                            "reducing effective_batch_size from {} to {} due to 413",
+                            effective_batch_size, new_size
+                        );
+                        effective_batch_size = new_size;
+                    }
+                }
                 sleep(StdDuration::from_secs(5)).await;
                 continue;
             }
@@ -442,4 +457,204 @@ fn truncate_chars(s: &str, max_chars: usize) -> String {
     s.chars().take(max_chars).collect()
 }
 
+async fn submit_legacy_twitter(
+    client: &reqwest::Client,
+    endpoint_url: &str,
+    token: &str,
+    items: &[serde_json::Value],
+) -> Result<(u64, u64, u64, u64)> {
+    let payload = json!({
+        "source": "twitter",
+        "items": items,
+    });
+
+    let resp = client
+        .post(format!(
+            "{}/api/v3/reports/bulk_ingest",
+            endpoint_url.trim_end_matches('/')
+        ))
+        .bearer_auth(token)
+        .json(&payload)
+        .send()
+        .await?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        anyhow::bail!("legacy submit failed with status {}: {}", status, text);
+    }
+
+    let v: serde_json::Value = resp.json().await.unwrap_or_else(|_| json!({}));
+    let inserted = v.get("inserted").and_then(|x| x.as_u64()).unwrap_or(0);
+    let updated = v.get("updated").and_then(|x| x.as_u64()).unwrap_or(0);
+    let skipped = v.get("skipped").and_then(|x| x.as_u64()).unwrap_or(0);
+    let errs = v
+        .get("errors")
+        .and_then(|x| x.as_array())
+        .map(|a| a.len() as u64)
+        .unwrap_or(0);
+    if errs > 0 {
+        let sample = v
+            .get("errors")
+            .and_then(|x| x.as_array())
+            .and_then(|a| a.first())
+            .cloned()
+            .unwrap_or(json!({}));
+        warn!("legacy batch errors={} sample={}", errs, sample);
+    }
+    Ok((inserted, updated, skipped, errs))
+}
+
+async fn submit_wire_twitter(
+    client: &reqwest::Client,
+    endpoint_url: &str,
+    token: &str,
+    items: &[serde_json::Value],
+) -> Result<(u64, u64, u64, u64)> {
+    let payload = json!({
+        "items": items.iter().map(twitter_item_to_wire_submission).collect::<Vec<_>>(),
+    });
+
+    let resp = client
+        .post(format!(
+            "{}/api/v1/agent-reports:batchSubmit",
+            endpoint_url.trim_end_matches('/')
+        ))
+        .bearer_auth(token)
+        .json(&payload)
+        .send()
+        .await?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        anyhow::bail!("wire submit failed with status {}: {}", status, text);
+    }
+
+    let wire: WireBatchResponse = resp.json().await.context("parse wire batch response")?;
+    info!(
+        "wire submitted batch: rows={} submitted={} accepted={} duplicates={} rejected={}",
+        items.len(),
+        wire.submitted,
+        wire.accepted,
+        wire.duplicates,
+        wire.rejected
+    );
+    Ok((wire.accepted, wire.duplicates, 0, wire.rejected))
+}
+
+fn twitter_item_to_wire_submission(item: &serde_json::Value) -> serde_json::Value {
+    let external_id = item
+        .get("external_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    let title = item.get("title").and_then(|v| v.as_str()).unwrap_or_default();
+    let description = item
+        .get("content")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    let observed_at = item
+        .get("created_at")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    let score = item.get("score").and_then(|v| v.as_f64()).unwrap_or(0.7);
+    let tags = item
+        .get("tags")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let image_base64 = item
+        .get("image_base64")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    let metadata = item.get("metadata").cloned().unwrap_or_else(|| json!({}));
+    let url = item.get("url").and_then(|v| v.as_str()).unwrap_or_default();
+
+    let mut evidence = vec![];
+    if !url.is_empty() {
+        evidence.push(json!({
+            "evidence_id": "source-url",
+            "type": "media_link",
+            "uri": url,
+            "mime_type": "text/html",
+            "captured_at": observed_at,
+        }));
+    }
+    if !image_base64.is_empty() {
+        evidence.push(json!({
+            "evidence_id": "inline-image",
+            "type": "inline_image",
+            "mime_type": "application/octet-stream",
+            "captured_at": observed_at,
+        }));
+    }
+
+    let metadata_obj = metadata.as_object().cloned().unwrap_or_default();
+    let brand_name = metadata_obj
+        .get("brand_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    let brand_display_name = metadata_obj
+        .get("brand_display_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+
+    let mut submission = json!({
+        "schema_version": "cleanapp-wire.v1",
+        "source_id": format!("twitter:{}", external_id),
+        "submitted_at": observed_at,
+        "observed_at": observed_at,
+        "agent": {
+            "agent_id": "news_submitter_twitter",
+            "agent_name": "CleanApp Twitter Submitter",
+            "agent_type": "internal_fetcher",
+            "operator_type": "internal",
+            "auth_method": "api_key",
+        },
+        "provenance": {
+            "generation_method": "twitter_submitter",
+            "upstream_sources": [{"kind": "tweet_id", "value": external_id}],
+            "chain_of_custody": ["news-indexer-twitter", "wire_batch_submit"],
+        },
+        "report": {
+            "domain": "digital",
+            "problem_type": "social_platform_report",
+            "title": title,
+            "description": description,
+            "language": metadata_obj.get("lang").and_then(|v| v.as_str()).unwrap_or("en"),
+            "severity": wire_severity(score),
+            "confidence": score,
+            "digital_context": {
+                "platform": "twitter",
+                "url": url,
+                "metadata": metadata,
+            },
+            "evidence_bundle": evidence,
+            "tags": tags,
+        },
+    });
+
+    if !brand_name.is_empty() || !brand_display_name.is_empty() {
+        submission["report"]["target_entity"] = json!({
+            "target_type": "brand",
+            "name": if !brand_display_name.is_empty() { brand_display_name } else { brand_name },
+        });
+    }
+    if !image_base64.is_empty() {
+        submission["extensions"] = json!({
+            "image_base64": image_base64,
+        });
+    }
+    submission
+}
+
+fn wire_severity(score: f64) -> &'static str {
+    if score >= 0.9 {
+        "high"
+    } else if score >= 0.8 {
+        "medium"
+    } else {
+        "low"
+    }
+}
 

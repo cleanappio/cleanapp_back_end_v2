@@ -21,7 +21,7 @@ use urlencoding::encode;
 use futures_util::TryStreamExt;
 
 #[derive(Parser, Debug, Clone)]
-#[command(author, version, about = "Stream Reddit dumps into CleanApp bulk_ingest", long_about = None)]
+#[command(author, version, about = "Stream Reddit dumps into CleanApp (Wire-first, legacy-compatible)", long_about = None)]
 struct Args {
     /// Input file paths or URLs (supports .gz, .zst, .xz, or plain NDJSON)
     #[arg(long = "inputs", required = true)]
@@ -35,9 +35,13 @@ struct Args {
     #[arg(long = "fetcher-token", env = "CLEANAPP_FETCHER_TOKEN")]
     fetcher_token: Option<String>,
 
-    /// Source label for bulk_ingest (defaults to reddit_dump)
+    /// Source label used in legacy compatibility mode (defaults to reddit_dump)
     #[arg(long = "source", default_value = "reddit_dump")]
     source: String,
+
+    /// Submission protocol (auto resolves based on token shape)
+    #[arg(long = "submit-protocol", env = "CLEANAPP_SUBMIT_PROTOCOL", default_value = "auto")]
+    submit_protocol: String,
 
     /// Maximum items to ingest (for testing)
     #[arg(long = "max-items")]
@@ -119,6 +123,38 @@ struct BulkItem {
     metadata: JsonValue,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SubmitProtocol {
+    Auto,
+    Legacy,
+    Wire,
+}
+
+impl SubmitProtocol {
+    fn parse(raw: &str) -> Result<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "" | "auto" => Ok(Self::Auto),
+            "legacy" => Ok(Self::Legacy),
+            "wire" => Ok(Self::Wire),
+            other => Err(anyhow!("unsupported submit protocol: {}", other)),
+        }
+    }
+
+    fn resolve(self, token: &str) -> Self {
+        match self {
+            Self::Auto => {
+                if token.starts_with("cleanapp_fk_live_") || token.starts_with("cleanapp_fk_test_")
+                {
+                    Self::Wire
+                } else {
+                    Self::Legacy
+                }
+            }
+            other => other,
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     env_logger::init();
@@ -136,6 +172,7 @@ async fn main() -> Result<()> {
         .fetcher_token
         .clone()
         .context("--fetcher-token or CLEANAPP_FETCHER_TOKEN is required")?;
+    let submit_protocol = SubmitProtocol::parse(&args.submit_protocol)?.resolve(&fetcher_token);
 
     let batch_size = args.batch_size.clamp(1, 1000);
     let max_items = args.max_items.unwrap_or(usize::MAX);
@@ -152,6 +189,14 @@ async fn main() -> Result<()> {
 
     let inputs = args.inputs.clone();
     let rps = args.requests_per_second;
+    info!(
+        "reddit_dump_reader: start backend={} protocol={:?} inputs={} batch_size={} concurrency={}",
+        backend_url,
+        submit_protocol,
+        inputs.len(),
+        batch_size,
+        args.concurrency.max(1)
+    );
     let mut tasks = Vec::with_capacity(inputs.len());
     for input in inputs {
         let args = args.clone();
@@ -175,6 +220,7 @@ async fn main() -> Result<()> {
                 batch_size,
                 &backend_url,
                 &fetcher_token,
+                submit_protocol,
                 rps,
             )
             .await;
@@ -225,6 +271,7 @@ async fn process_input(
     batch_size: usize,
     backend_url: &str,
     fetcher_token: &str,
+    submit_protocol: SubmitProtocol,
     rps: usize,
 ) -> Result<usize> {
     let reader = open_reader(input, client, args.gcs_token.as_deref()).await?;
@@ -239,10 +286,17 @@ async fn process_input(
         Duration::ZERO
     };
 
-    let endpoint = format!(
-        "{}/api/v3/reports/bulk_ingest",
-        backend_url.trim_end_matches('/')
-    );
+    let endpoint = match submit_protocol {
+        SubmitProtocol::Legacy => format!(
+            "{}/api/v3/reports/bulk_ingest",
+            backend_url.trim_end_matches('/')
+        ),
+        SubmitProtocol::Wire => format!(
+            "{}/api/v1/agent-reports:batchSubmit",
+            backend_url.trim_end_matches('/')
+        ),
+        SubmitProtocol::Auto => unreachable!("auto should have been resolved before processing"),
+    };
 
     while let Some(line) = lines.next_line().await? {
         if line.trim().is_empty() {
@@ -336,7 +390,7 @@ async fn process_input(
                             tokio::time::sleep(min_interval - elapsed).await;
                         }
                     }
-                    submit_batch(&endpoint, fetcher_token, &args.source, &buffer, client).await?;
+                    submit_batch(&endpoint, fetcher_token, &args.source, &buffer, client, submit_protocol).await?;
                     last_submit = Instant::now();
                     buffer.clear();
                 }
@@ -345,7 +399,7 @@ async fn process_input(
     }
 
     if !args.dry_run && !buffer.is_empty() {
-        submit_batch(&endpoint, fetcher_token, &args.source, &buffer, client).await?;
+        submit_batch(&endpoint, fetcher_token, &args.source, &buffer, client, submit_protocol).await?;
     }
 
     Ok(converted)
@@ -540,29 +594,35 @@ async fn submit_batch(
     source: &str,
     items: &[BulkItem],
     client: &reqwest::Client,
+    protocol: SubmitProtocol,
 ) -> Result<()> {
-    let payload = json!({
-        "source": source,
-        "items": items.iter().map(|it| {
-            // Merge our flags with existing metadata
-            let mut meta = it.metadata.clone();
-            if let Some(obj) = meta.as_object_mut() {
-                obj.insert("needs_ai_review".to_string(), json!(true));
-                obj.insert("bulk_mode".to_string(), json!(true));
-            }
-            json!({
-                "external_id": it.external_id,
-                "title": it.title,
-                "content": it.content,
-                "url": it.url,
-                "created_at": it.created_at,
-                "updated_at": it.created_at,
-                "score": it.score,
-                "tags": [],
-                "metadata": meta,
-            })
-        }).collect::<Vec<_>>()
-    });
+    let payload = match protocol {
+        SubmitProtocol::Legacy => json!({
+            "source": source,
+            "items": items.iter().map(|it| {
+                let mut meta = it.metadata.clone();
+                if let Some(obj) = meta.as_object_mut() {
+                    obj.insert("needs_ai_review".to_string(), json!(true));
+                    obj.insert("bulk_mode".to_string(), json!(true));
+                }
+                json!({
+                    "external_id": it.external_id,
+                    "title": it.title,
+                    "content": it.content,
+                    "url": it.url,
+                    "created_at": it.created_at,
+                    "updated_at": it.created_at,
+                    "score": it.score,
+                    "tags": [],
+                    "metadata": meta,
+                })
+            }).collect::<Vec<_>>()
+        }),
+        SubmitProtocol::Wire => json!({
+            "items": items.iter().map(reddit_item_to_wire_submission).collect::<Vec<_>>()
+        }),
+        SubmitProtocol::Auto => unreachable!("auto should have been resolved before submission"),
+    };
 
     let mut attempt = 0u32;
     let mut delay = Duration::from_secs(1);
@@ -579,24 +639,47 @@ async fn submit_batch(
             Ok(r) if r.status().is_success() => {
                 let status = r.status();
                 let elapsed = start.elapsed();
-                match r.json::<BulkIngestResponse>().await {
-                    Ok(stats) => {
-                        info!(
-                            "batch submitted status={} total={} inserted={} skipped={} duration={}ms",
-                            status,
-                            items.len(),
-                            stats.inserted + stats.updated,
-                            stats.skipped,
-                            elapsed.as_millis()
-                        );
-                    }
-                    Err(e) => {
-                        warn!(
-                            "batch submitted status={} total={} but failed to parse stats: {e}",
-                            status,
-                            items.len()
-                        );
-                    }
+                match protocol {
+                    SubmitProtocol::Legacy => match r.json::<BulkIngestResponse>().await {
+                        Ok(stats) => {
+                            info!(
+                                "legacy batch submitted status={} total={} inserted={} skipped={} duration={}ms",
+                                status,
+                                items.len(),
+                                stats.inserted + stats.updated,
+                                stats.skipped,
+                                elapsed.as_millis()
+                            );
+                        }
+                        Err(e) => {
+                            warn!(
+                                "legacy batch submitted status={} total={} but failed to parse stats: {e}",
+                                status,
+                                items.len()
+                            );
+                        }
+                    },
+                    SubmitProtocol::Wire => match r.json::<WireBatchResponse>().await {
+                        Ok(stats) => {
+                            info!(
+                                "wire batch submitted status={} total={} accepted={} duplicates={} rejected={} duration={}ms",
+                                status,
+                                items.len(),
+                                stats.accepted,
+                                stats.duplicates,
+                                stats.rejected,
+                                elapsed.as_millis()
+                            );
+                        }
+                        Err(e) => {
+                            warn!(
+                                "wire batch submitted status={} total={} but failed to parse stats: {e}",
+                                status,
+                                items.len()
+                            );
+                        }
+                    },
+                    SubmitProtocol::Auto => unreachable!("auto should have been resolved before submission"),
                 }
                 return Ok(());
             }
@@ -643,6 +726,90 @@ struct BulkIngestResponse {
 struct BulkError {
     i: usize,
     reason: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct WireBatchResponse {
+    accepted: u64,
+    rejected: u64,
+    duplicates: u64,
+}
+
+fn reddit_item_to_wire_submission(it: &BulkItem) -> JsonValue {
+    let kind = it
+        .metadata
+        .get("kind")
+        .and_then(|v| v.as_str())
+        .unwrap_or("submission");
+    let subreddit = it
+        .metadata
+        .get("subreddit")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    let source_prefix = if kind == "comment" {
+        "reddit_comment"
+    } else {
+        "reddit_submission"
+    };
+    json!({
+        "schema_version": "cleanapp-wire.v1",
+        "source_id": format!("{}:{}", source_prefix, it.external_id),
+        "submitted_at": it.created_at,
+        "observed_at": it.created_at,
+        "agent": {
+            "agent_id": "reddit_dump_reader",
+            "agent_name": "CleanApp Reddit Dump Reader",
+            "agent_type": "machine_agent",
+            "operator_type": "human_supervised",
+            "auth_method": "api_key",
+        },
+        "provenance": {
+            "generation_method": "reddit_dump_import",
+            "upstream_sources": [{"kind": kind, "value": it.external_id}],
+            "chain_of_custody": ["reddit_dump_reader", "wire_batch_submit"],
+        },
+        "report": {
+            "domain": "digital",
+            "problem_type": if kind == "comment" { "reddit_comment" } else { "reddit_submission" },
+            "title": it.title,
+            "description": it.content,
+            "language": "en",
+            "severity": wire_severity(it.score),
+            "confidence": normalize_wire_score(it.score),
+            "target_entity": {
+                "target_type": "subreddit",
+                "name": subreddit,
+            },
+            "digital_context": {
+                "platform": "reddit",
+                "url": it.url,
+                "metadata": it.metadata,
+            },
+            "evidence_bundle": [{
+                "evidence_id": "source-url",
+                "type": "media_link",
+                "uri": it.url,
+                "mime_type": "text/html",
+                "captured_at": it.created_at,
+            }],
+            "tags": ["reddit", kind],
+        },
+    })
+}
+
+fn normalize_wire_score(score: f64) -> f64 {
+    score.max(0.0).min(1.0)
+}
+
+fn wire_severity(score: f64) -> &'static str {
+    let s = normalize_wire_score(score);
+    if s >= 0.9 {
+        "high"
+    } else if s >= 0.8 {
+        "medium"
+    } else {
+        "low"
+    }
 }
 
 #[cfg(test)]

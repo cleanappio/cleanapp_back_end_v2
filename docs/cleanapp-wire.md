@@ -1,6 +1,6 @@
 # CleanApp Wire Audit
 
-Status audited against repository state at commit `871fc3451836` on 2026-03-08.
+Status audited against repository state after the machine-producer migration pass on 2026-03-08.
 
 Note: no standalone audit-matrix file was attached with the request. The matrix below is derived from the acceptance sections in `/Users/anon16/Downloads/casp_spec_for_clean_app.md`, with `CASP` interpreted as `CleanApp Wire`.
 
@@ -31,7 +31,7 @@ That means the protocol is real, but the system architecture is transitional.
 
 The largest implementation gap is architectural, not endpoint-level:
 
-1. legacy `/api/v3/reports/bulk_ingest` and `/api/v4/reports/bulk_ingest` callers still do not receive Wire-native receipts/status semantics directly
+1. legacy `/api/v3/reports/bulk_ingest` and `/api/v4/reports/bulk_ingest` compatibility callers still do not receive Wire-native receipts/status semantics directly
 2. Wire still depends on the older v1 ingest implementation for canonical report persistence/publish rather than owning that core directly
 3. dedupe clustering, rewards, and integrity controls are mostly scaffolding rather than full production behavior
 
@@ -60,7 +60,7 @@ The largest implementation gap is architectural, not endpoint-level:
 | Validation rules | Partial | `report-listener/handlers/cleanapp_wire_v1.go` | Core schema/field/confidence validation is implemented with machine-readable codes. MIME allowlists, timestamp drift checks, and richer category compatibility validation are not yet present. |
 | Queue and processing architecture | Partial | `report-listener/handlers/cleanapp_wire_v1.go`, `report-listener/handlers/ingest_v1.go`, `report-listener/config/config.go`, `report-analyze-pipeline` consumers | Wire currently publishes into the existing `report.raw` flow through v1 ingest. The dedicated `casp.*` / Wire-native queue graph from the spec does not exist yet. |
 | Governance and auditability | Partial | `report-listener/database/cleanapp_wire_v1.go`, `report-listener/database/migration_helpers.go`, `report-listener/handlers/internal_fetcher_admin.go`, `report-listener/handlers/fetcher_promotion_v1.go` | Submission records, receipts, promotion requests, and moderation events exist. Full decision traces, rule-versioning, and reconstruction of every lane decision are not yet implemented. |
-| Rollout plan | Partial | `report-listener/main.go`, `report-listener/handlers/ingest_v1.go`, `cli/cleanapp`, `openclaw/cleanapp_ingest_skill`, `news-indexer-bluesky/src/bin/submitter_bluesky.rs`, `report-processor/handlers/handlers.go` | Wire is now the default path for the Bluesky submitter, the npm CLI, the OpenClaw ingest skill, and `report-processor`. Legacy v1 ingest now translates into Wire semantics internally. The remaining migration gap is mainly legacy v3/v4 machine-ingest callers, which are mirrored into Wire provenance but do not yet receive Wire-native receipts directly. |
+| Rollout plan | Partial | `report-listener/main.go`, `report-listener/handlers/ingest_v1.go`, `cli/cleanapp`, `openclaw/cleanapp_ingest_skill`, `news-indexer-bluesky/src/bin/submitter_bluesky.rs`, `news-indexer/src/bin/submitter_twitter.rs`, `news-indexer/src/bin/submitter_github.rs`, `tools/reddit_dump_reader/src/main.rs`, `report-processor/handlers/handlers.go` | Wire is now the default or preferred path for the Bluesky submitter, twitter submitter, github submitter, the Reddit dump reader, the npm CLI, the OpenClaw ingest skill, and `report-processor`. Legacy v1 ingest now translates into Wire semantics internally. The remaining migration gap is mainly legacy v3/v4 machine-ingest callers, which are mirrored into Wire provenance but do not yet receive Wire-native receipts directly. |
 | Operational metrics | Partial | `report-listener/database/fetcher_keys_v1.go`, `report-listener/database/cleanapp_wire_v1.go`, `report-listener/database/ingestion_audit_v1.go` | Basic usage quotas and ingestion audits exist. The richer operational metrics suite from the spec is not fully implemented. |
 | Non-negotiable rules | Partial | `report-listener/main.go`, `news-indexer-bluesky/src/bin/submitter_bluesky.rs`, `openclaw/cleanapp_ingest_skill/ingest.py`, `cli/cleanapp/src/commands/reports/submit.ts`, `report-processor/handlers/handlers.go`, `report-listener/handlers/handlers.go` | Rule 1 is substantially true for the major machine producers now migrated onto Wire. The remaining exception is compatibility traffic through legacy v3/v4 bulk-ingest routes, which still return legacy responses even though provenance is mirrored into Wire internally. Rules around rewards, provenance integrity, and duplicate-vs-corroboration are still only partial. |
 
@@ -252,7 +252,49 @@ Current state:
   - `indexer_bluesky_wire_submission`
 - preserves safe rollback via legacy mode
 
-### 6. Report processor match flow (migrated)
+### 6. Twitter submitter
+
+Files:
+
+- `news-indexer/src/bin/submitter_twitter.rs`
+
+Current state:
+
+- now supports `SUBMIT_PROTOCOL=wire|legacy|auto`
+- uses stable `source_id = twitter:<external_id>`
+- maps twitter-originated items into `cleanapp-wire.v1` envelopes
+- preserves idempotent retries through stable `source_id`
+- rollout can remain safe by keeping `legacy` available as an override
+
+### 7. GitHub submitter
+
+Files:
+
+- `news-indexer/src/bin/submitter_github.rs`
+
+Current state:
+
+- now supports `SUBMIT_PROTOCOL=wire|legacy|auto`
+- uses stable `source_id = github_issue:<external_id>`
+- maps GitHub issue items into `cleanapp-wire.v1` envelopes
+- preserves idempotent retries through stable `source_id`
+
+### 8. Reddit dump reader
+
+Files:
+
+- `tools/reddit_dump_reader/src/main.rs`
+- `tools/reddit_dump_reader/README.md`
+
+Current state:
+
+- now supports `--submit-protocol auto|wire|legacy`
+- uses stable `source_id` values derived from Reddit record ids
+- defaults to `auto`, which resolves to Wire for fetcher-key style tokens
+- posts batches directly to `POST /api/v1/agent-reports:batchSubmit` in Wire mode
+- preserves safe rollback through explicit `legacy` mode
+
+### 9. Report processor match flow (migrated)
 
 Files:
 
@@ -270,7 +312,7 @@ Why it still matters:
 - this is no longer an ingest bypass
 - it is now a Wire-native internal producer, but it still participates in downstream event publication outside the receipt layer
 
-### 7. Internal admin promotion path
+### 10. Internal admin promotion path
 
 Files:
 
@@ -287,11 +329,14 @@ Why it bypasses Wire:
 ### Completed migrations
 
 - `news-indexer-bluesky/src/bin/submitter_bluesky.rs` -> Wire-native by default
+- `news-indexer/src/bin/submitter_twitter.rs` -> Wire-capable with safe `SUBMIT_PROTOCOL` rollout
+- `news-indexer/src/bin/submitter_github.rs` -> Wire-capable with safe `SUBMIT_PROTOCOL` rollout
+- `tools/reddit_dump_reader/src/main.rs` -> Wire-capable with safe protocol override
 - `cli/cleanapp/*` machine submission flows -> Wire-native by default
 - `openclaw/cleanapp_ingest_skill/*` -> Wire-native
 - `report-processor/handlers/handlers.go` -> Wire-native by default for report creation
 
-### Priority 1: Legacy v3 machine ingest callers
+### Priority 1: Legacy v3/v4 compatibility callers
 
 Files:
 
@@ -300,7 +345,7 @@ Files:
   - `POST /api/v3/reports/bulk_ingest`
   - `POST /api/v4/reports/bulk_ingest`
 
-Why second now:
+Why first now:
 
 - they now have a legacy-to-Wire mirroring path available
 - they still do not receive Wire responses directly
@@ -338,20 +383,23 @@ Current state after migration PRs:
 
 - Wire exists and works.
 - v1 fetcher ingest still exists and is still the actual persistence/publish core used under Wire.
-- the following real producers are now Wire-native by default:
+- the following real producers are now Wire-native by default or Wire-capable with explicit rollout controls:
   - `news-indexer-bluesky`
+  - `news-indexer` twitter submitter
+  - `news-indexer` github submitter
+  - `reddit_dump_reader`
   - `@cleanapp/cli`
   - `openclaw/cleanapp_ingest_skill`
   - `report-processor`
 - direct `/v1/reports:bulkIngest` now translates submissions into Wire semantics internally while preserving its legacy response contract
 - legacy `/api/v3/reports/bulk_ingest` now mirrors new ingests into Wire submission/receipt records for provenance, without changing its legacy response contract
-- the largest remaining compatibility gap is legacy `/api/v3` and `/api/v4` machine-ingest callers
+- the largest remaining compatibility gap is legacy `/api/v3` and `/api/v4` compatibility callers that still return legacy-only response contracts
 
 Recommended migration order:
 
-1. remaining direct `/api/v3/reports/bulk_ingest` and `/api/v4/reports/bulk_ingest` callers -> migrate explicitly
-2. remaining direct `/v1/reports:bulkIngest` callers -> keep compatible for now, then collapse once Wire no longer depends on v1 internally
-3. internal admin/moderation paths -> optionally emit Wire-compatible moderation/provenance events
+1. migrate or wrap all remaining `/api/v3/reports/bulk_ingest` and `/api/v4/reports/bulk_ingest` callers so they receive Wire receipts or explicit receipt-compatible metadata
+2. keep `/v1/reports:bulkIngest` compatible for now, then collapse once Wire no longer depends on v1 internally
+3. optionally emit Wire-compatible moderation/provenance events for internal admin/moderation flows
 
 Migration policy recommendation:
 
