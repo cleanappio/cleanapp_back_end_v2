@@ -158,12 +158,23 @@ type preparedBulkIngestItem struct {
 	needsAIReview  bool
 }
 
+type legacyWireReceiptMetadata struct {
+	SourceID       string `json:"source_id"`
+	ReceiptID      string `json:"receipt_id"`
+	SubmissionID   string `json:"submission_id"`
+	Status         string `json:"status"`
+	Lane           string `json:"lane"`
+	ReportSeq      int    `json:"report_seq,omitempty"`
+	NextCheckAfter string `json:"next_check_after,omitempty"`
+}
+
 // BulkIngestResponse contains per-batch stats
 type BulkIngestResponse struct {
-	Inserted int         `json:"inserted"`
-	Updated  int         `json:"updated"`
-	Skipped  int         `json:"skipped"`
-	Errors   []BulkError `json:"errors"`
+	Inserted     int                         `json:"inserted"`
+	Updated      int                         `json:"updated"`
+	Skipped      int                         `json:"skipped"`
+	Errors       []BulkError                 `json:"errors"`
+	WireReceipts []legacyWireReceiptMetadata `json:"wire_receipts,omitempty"`
 }
 
 // TwitterReplyEvent is sent to RabbitMQ to trigger X reply for twitter-sourced reports
@@ -529,8 +540,11 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 	log.Printf("bulk_ingest source=%s total=%d inserted=%d skipped=%d duration=%s", req.Source, len(req.Items), resp.Inserted, resp.Skipped, time.Since(start))
 
 	if len(newItems) > 0 {
-		if err := h.mirrorLegacyBulkIngestToWire(c.Request.Context(), fetcherID, req.Source, newItems); err != nil {
+		wireReceipts, err := h.mirrorLegacyBulkIngestToWire(c.Request.Context(), fetcherID, req.Source, newItems)
+		if err != nil {
 			log.Printf("bulk_ingest: wire mirror failed source=%s err=%v", req.Source, err)
+		} else if len(wireReceipts) > 0 {
+			resp.WireReceipts = wireReceipts
 		}
 	}
 

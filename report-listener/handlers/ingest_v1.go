@@ -97,13 +97,14 @@ type v1BulkIngestMedia struct {
 }
 
 type v1BulkIngestItemResult struct {
-	SourceID   string `json:"source_id"`
-	Status     string `json:"status"` // accepted|duplicate|rejected
-	ReportSeq  int    `json:"report_seq,omitempty"`
-	Reason     string `json:"reason,omitempty"`
-	Queued     bool   `json:"queued"`
-	Visibility string `json:"visibility,omitempty"`
-	TrustLevel string `json:"trust_level,omitempty"`
+	SourceID   string                     `json:"source_id"`
+	Status     string                     `json:"status"` // accepted|duplicate|rejected
+	ReportSeq  int                        `json:"report_seq,omitempty"`
+	Reason     string                     `json:"reason,omitempty"`
+	Queued     bool                       `json:"queued"`
+	Visibility string                     `json:"visibility,omitempty"`
+	TrustLevel string                     `json:"trust_level,omitempty"`
+	Wire       *legacyWireReceiptMetadata `json:"wire,omitempty"`
 }
 
 type v1BulkIngestResponse struct {
@@ -594,6 +595,15 @@ func v1BulkIngestItemResultFromWireReceipt(receipt cleanAppWireReceiptResponse) 
 		Queued:     len(receipt.Errors) == 0,
 		Visibility: normalizeVisibility(laneToVisibility(receipt.Lane), "shadow"),
 		TrustLevel: normalizeTrustLevel(laneToTrustLevel(receipt.Lane), "unverified"),
+		Wire: &legacyWireReceiptMetadata{
+			SourceID:       receipt.SourceID,
+			ReceiptID:      receipt.ReceiptID,
+			SubmissionID:   receipt.SubmissionID,
+			Status:         receipt.Status,
+			Lane:           receipt.Lane,
+			ReportSeq:      receipt.ReportID,
+			NextCheckAfter: receipt.NextCheckAfter,
+		},
 	}
 	switch {
 	case receipt.IdempotencyReplay:

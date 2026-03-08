@@ -10,20 +10,42 @@ import (
 	"report-listener/database"
 )
 
-func (h *Handlers) mirrorLegacyBulkIngestToWire(ctx context.Context, fetcherID, source string, items []preparedBulkIngestItem) error {
+func legacyWireReceiptMetadataFromRecord(receipt *database.WireReceipt) legacyWireReceiptMetadata {
+	meta := legacyWireReceiptMetadata{
+		SourceID:     receipt.SourceID,
+		ReceiptID:    receipt.ReceiptID,
+		SubmissionID: receipt.SubmissionID,
+		Status:       receipt.Status,
+		Lane:         receipt.Lane,
+	}
+	if receipt.ReportSeq.Valid {
+		meta.ReportSeq = int(receipt.ReportSeq.Int64)
+	}
+	if receipt.NextCheckAfter.Valid {
+		meta.NextCheckAfter = receipt.NextCheckAfter.Time.UTC().Format(time.RFC3339)
+	}
+	return meta
+}
+
+func (h *Handlers) mirrorLegacyBulkIngestToWire(ctx context.Context, fetcherID, source string, items []preparedBulkIngestItem) ([]legacyWireReceiptMetadata, error) {
 	fetcher, err := h.db.GetFetcherV1ByID(ctx, fetcherID)
 	if err != nil {
-		return fmt.Errorf("lookup fetcher: %w", err)
+		return nil, fmt.Errorf("lookup fetcher: %w", err)
 	}
 
+	metadata := make([]legacyWireReceiptMetadata, 0, len(items))
 	for _, it := range items {
 		if strings.TrimSpace(it.ext) == "" {
 			continue
 		}
 		if _, err := h.db.GetWireSubmissionByFetcherAndSource(ctx, fetcherID, it.ext); err == nil {
+			receipt, rerr := h.db.GetLatestWireReceiptBySource(ctx, fetcherID, it.ext)
+			if rerr == nil {
+				metadata = append(metadata, legacyWireReceiptMetadataFromRecord(receipt))
+			}
 			continue
 		} else if err != sql.ErrNoRows {
-			return fmt.Errorf("lookup existing wire submission: %w", err)
+			return nil, fmt.Errorf("lookup existing wire submission: %w", err)
 		}
 
 		sub := cleanAppWireSubmission{
@@ -103,7 +125,7 @@ func (h *Handlers) mirrorLegacyBulkIngestToWire(ctx context.Context, fetcherID, 
 		sub, generatedSubmissionID := normalizeCleanAppWireSubmission(sub)
 		materialHash, err := cleanAppWireMaterialHash(sub)
 		if err != nil {
-			return fmt.Errorf("material hash: %w", err)
+			return nil, fmt.Errorf("material hash: %w", err)
 		}
 		quality := computeCleanAppWireSubmissionQuality(sub)
 		lane := assignCleanAppWireLane(h.cfg, fetcher.Tier, quality, len(sub.Report.EvidenceBundle), sub.Delivery.RequestedLane)
@@ -145,11 +167,12 @@ func (h *Handlers) mirrorLegacyBulkIngestToWire(ctx context.Context, fetcherID, 
 			NextCheckAfter:    sql.NullTime{Time: now.Add(2 * time.Minute), Valid: true},
 		}
 		if err := h.db.InsertWireSubmissionAndReceipt(ctx, submissionRecord, receiptRecord); err != nil {
-			return fmt.Errorf("insert mirrored wire submission: %w", err)
+			return nil, fmt.Errorf("insert mirrored wire submission: %w", err)
 		}
+		metadata = append(metadata, legacyWireReceiptMetadataFromRecord(receiptRecord))
 		_ = h.db.EnsureWireReputationProfile(ctx, fetcherID)
 		_ = h.db.IncrementWireReputationSample(ctx, fetcherID)
 	}
 
-	return nil
+	return metadata, nil
 }

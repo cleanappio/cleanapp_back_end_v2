@@ -170,7 +170,7 @@ Current state:
 
 - legacy `/api/v3` and `/api/v4` bulk ingest still execute their existing external contract
 - accepted machine-originated submissions are mirrored into Wire provenance/receipt state internally
-- callers still do not receive Wire-native receipt/status semantics directly
+- callers now receive optional `wire_receipts` metadata carrying `receipt_id`, `submission_id`, `status`, `lane`, and `next_check_after` without breaking the old response shape
 
 Why it still matters:
 
@@ -192,7 +192,7 @@ Route:
 Current state:
 
 - direct `/v1/reports:bulkIngest` calls are now translated item-by-item into Wire submissions internally
-- callers still receive the legacy v1 response shape
+- callers still receive the legacy v1 response shape, but each item now includes optional nested `wire` metadata with `receipt_id`, `submission_id`, `status`, `lane`, and `next_check_after`
 
 Important nuance:
 
@@ -478,6 +478,10 @@ Why this is safe:
 
 - incremental compatibility improvement
 - reduces silent dependence on legacy-only semantics
+
+Status:
+
+- complete
 
 ### PR 3: Migrate or wrap remaining legacy v3/v4 machine callers
 
