@@ -349,6 +349,9 @@ services:
       - DB_NAME=cleanapp
       - JWT_SECRET=${CLEANAPP_IO_JWT_SECRET}
       - REPORTS_SUBMISSION_URL=http://cleanapp_service:8080
+      - REPORTS_SUBMISSION_WIRE_URL=http://cleanapp_report_listener:8080
+      - REPORTS_SUBMISSION_PROTOCOL=wire
+      - REPORTS_SUBMISSION_TOKEN=${REPORT_PROCESSOR_SUBMITTER_TOKEN}
       - TAG_SERVICE_URL=http://cleanapp_report_tags_service:8080
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - REPORTS_RADIUS_METERS=35.0

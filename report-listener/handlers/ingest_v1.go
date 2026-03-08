@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"report-listener/database"
 	"report-listener/middleware"
 
 	"github.com/gin-gonic/gin"
@@ -71,22 +72,28 @@ type v1FetcherMeResponse struct {
 }
 
 type v1BulkIngestRequest struct {
-	Items []struct {
-		SourceID     string   `json:"source_id"`
-		Title        string   `json:"title"`
-		Description  string   `json:"description"`
-		Lat          *float64 `json:"lat,omitempty"`
-		Lng          *float64 `json:"lng,omitempty"`
-		CollectedAt  string   `json:"collected_at,omitempty"`
-		AgentID      string   `json:"agent_id,omitempty"`
-		AgentVersion string   `json:"agent_version,omitempty"`
-		SourceType   string   `json:"source_type,omitempty"`
-		Media        []struct {
-			URL         string `json:"url,omitempty"`
-			SHA256      string `json:"sha256,omitempty"`
-			ContentType string `json:"content_type,omitempty"`
-		} `json:"media,omitempty"`
-	} `json:"items"`
+	Items []v1BulkIngestItem `json:"items"`
+}
+
+type v1BulkIngestItem struct {
+	SourceID     string              `json:"source_id"`
+	Title        string              `json:"title"`
+	Description  string              `json:"description"`
+	Lat          *float64            `json:"lat,omitempty"`
+	Lng          *float64            `json:"lng,omitempty"`
+	CollectedAt  string              `json:"collected_at,omitempty"`
+	AgentID      string              `json:"agent_id,omitempty"`
+	AgentVersion string              `json:"agent_version,omitempty"`
+	SourceType   string              `json:"source_type,omitempty"`
+	ImageBase64  string              `json:"image_base64,omitempty"`
+	Tags         []string            `json:"tags,omitempty"`
+	Media        []v1BulkIngestMedia `json:"media,omitempty"`
+}
+
+type v1BulkIngestMedia struct {
+	URL         string `json:"url,omitempty"`
+	SHA256      string `json:"sha256,omitempty"`
+	ContentType string `json:"content_type,omitempty"`
 }
 
 type v1BulkIngestItemResult struct {
@@ -385,39 +392,23 @@ func (h *Handlers) BulkIngestV1(c *gin.Context) {
 		return
 	}
 
-	// Collect source IDs for duplicate detection.
-	sourceIDs := make([]string, 0, len(req.Items))
-	for _, it := range req.Items {
-		if strings.TrimSpace(it.SourceID) != "" {
-			sourceIDs = append(sourceIDs, it.SourceID)
-		}
-	}
-	existing, err := h.db.GetExistingReportSeqsV1(c.Request.Context(), fetcherID, sourceIDs)
+	resp := v1BulkIngestResponse{Submitted: len(req.Items)}
+	key, fetcher, err := h.db.GetFetcherKeyAndFetcherV1(c.Request.Context(), keyID)
 	if err != nil {
-		log.Printf("v1 bulkIngest: duplicate check failed: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "duplicate check failed"})
+		log.Printf("v1 bulkIngest: failed to load fetcher/key context: %v", err)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
-
-	type prepared struct {
-		idx         int
-		sourceID    string
-		title       string
-		description string
-		lat         float64
-		lng         float64
-		collectedAt *time.Time
-		agentID     string
-		agentVer    string
-		sourceType  string
-		seq         int
-		duplicate   bool
+	auth := cleanAppWireAuthContext{
+		FetcherID: fetcherID,
+		KeyID:     keyID,
+		Tier:      fetcher.Tier,
+		Status:    fetcher.Status,
+		Scopes:    key.Scopes,
 	}
 
-	preparedItems := make([]prepared, 0, len(req.Items))
-	resp := v1BulkIngestResponse{Submitted: len(req.Items)}
-
-	for i, it := range req.Items {
+	serverFailure := false
+	for _, it := range req.Items {
 		sourceID := strings.TrimSpace(it.SourceID)
 		if sourceID == "" {
 			resp.Items = append(resp.Items, v1BulkIngestItemResult{
@@ -440,245 +431,29 @@ func (h *Handlers) BulkIngestV1(c *gin.Context) {
 			continue
 		}
 
-		lat := 0.0
-		lng := 0.0
-		if it.Lat != nil {
-			lat = *it.Lat
-		}
-		if it.Lng != nil {
-			lng = *it.Lng
-		}
-
-		seq, dup := existing[sourceID]
-		p := prepared{
-			idx:         i,
-			sourceID:    sourceID,
-			title:       clampStr(it.Title, 255),
-			description: clampStr(it.Description, 8192),
-			lat:         lat,
-			lng:         lng,
-			collectedAt: parseRFC3339(it.CollectedAt),
-			agentID:     clampStr(it.AgentID, 255),
-			agentVer:    clampStr(it.AgentVersion, 64),
-			sourceType:  clampStr(it.SourceType, 32),
-			seq:         seq,
-			duplicate:   dup,
-		}
-		if p.description == "" {
-			p.description = p.title
-		}
-		preparedItems = append(preparedItems, p)
-	}
-
-	// Insert new reports + report_raw rows in a single transaction.
-	// Default visibility/trust come from fetcher defaults (normally shadow/unverified).
-	newOnes := make([]prepared, 0, len(preparedItems))
-	for _, p := range preparedItems {
-		if !p.duplicate && p.seq == 0 && p.sourceID != "" {
-			newOnes = append(newOnes, p)
-		}
-	}
-
-	if len(newOnes) > 0 {
-		tx, err := h.db.DB().BeginTx(c.Request.Context(), nil)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "begin tx failed"})
-			return
-		}
-		defer tx.Rollback()
-
-		reporterID := "fetcher_v1:" + fetcherID
-		// For v1 quarantine ingestion, allow text-only items. Store an empty (non-NULL) blob so
-		// downstream analyzers can treat it as "no image" (attaching a 1x1 placeholder can cause
-		// LLM vision APIs to hard-fail).
-		img := []byte{}
-
-		// Insert reports in chunks (keeps MySQL packet reasonable).
-		const chunkSize = 200
-		for i := 0; i < len(newOnes); i += chunkSize {
-			end := i + chunkSize
-			if end > len(newOnes) {
-				end = len(newOnes)
-			}
-			chunk := newOnes[i:end]
-
-			vals := make([]string, 0, len(chunk))
-			args := make([]interface{}, 0, len(chunk)*9)
-			for _, it := range chunk {
-				vals = append(vals, "(?, ?, ?, ?, ?, ?, ?, ?, ?)")
-				args = append(args,
-					reporterID,
-					0, // team unknown
-					"",
-					it.lat,
-					it.lng,
-					0.0,
-					0.0,
-					img,
-					clampStr(it.title, 255),
-				)
-			}
-
-			res, err := tx.ExecContext(c.Request.Context(),
-				fmt.Sprintf("INSERT INTO reports (id, team, action_id, latitude, longitude, x, y, image, description) VALUES %s", strings.Join(vals, ",")),
-				args...,
-			)
-			if err != nil {
-				log.Printf("v1 bulkIngest: insert reports failed: %v", err)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "insert reports failed"})
-				return
-			}
-			firstID, _ := res.LastInsertId()
-			rows, _ := res.RowsAffected()
-			for j := 0; j < int(rows); j++ {
-				newOnes[i+j].seq = int(firstID) + j
-			}
-		}
-
-		// Insert report_raw metadata.
-		rawVals := make([]string, 0, len(newOnes))
-		rawArgs := make([]interface{}, 0, len(newOnes)*14)
-		promotedAt := interface{}(nil)
-		if defVis == "public" {
-			promotedAt = time.Now().UTC()
-		}
-		for _, it := range newOnes {
-			rawVals = append(rawVals, "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)")
-			rawArgs = append(rawArgs,
-				it.seq,
-				fetcherID,
-				it.sourceID,
-				nullable(it.agentID),
-				nullable(it.agentVer),
-				nullableTime(it.collectedAt),
-				nullable(it.sourceType),
-				defVis,
-				defTrust,
-				promotedAt,
-			)
-		}
-
-		if _, err := tx.ExecContext(c.Request.Context(),
-			fmt.Sprintf("INSERT INTO report_raw (report_seq, fetcher_id, source_id, agent_id, agent_version, collected_at, source_type, visibility, trust_level, promoted_to_public_at, spam_score) VALUES %s", strings.Join(rawVals, ",")),
-			rawArgs...,
-		); err != nil {
-			log.Printf("v1 bulkIngest: insert report_raw failed: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "insert report_raw failed"})
-			return
-		}
-
-		if err := tx.Commit(); err != nil {
-			log.Printf("v1 bulkIngest: commit failed: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "commit failed"})
-			return
-		}
-
-		// Update preparedItems seqs for new inserts.
-		seqBySource := make(map[string]int, len(newOnes))
-		for _, it := range newOnes {
-			seqBySource[it.sourceID] = it.seq
-		}
-		for i := range preparedItems {
-			if preparedItems[i].seq == 0 && !preparedItems[i].duplicate {
-				if s, ok := seqBySource[preparedItems[i].sourceID]; ok {
-					preparedItems[i].seq = s
-				}
-			}
-		}
-	}
-
-	// Load the actual visibility/trust values from DB for response + publish payloads.
-	// (Duplicates may have been promoted since first ingest.)
-	type visTrust struct {
-		vis   string
-		trust string
-	}
-	visBySeq := map[int]visTrust{}
-	seqs := make([]int, 0, len(preparedItems))
-	seqSeen := map[int]bool{}
-	for _, it := range preparedItems {
-		if it.seq > 0 && !seqSeen[it.seq] {
-			seqSeen[it.seq] = true
-			seqs = append(seqs, it.seq)
-		}
-	}
-	if len(seqs) > 0 {
-		ph := make([]string, 0, len(seqs))
-		args := make([]interface{}, 0, len(seqs))
-		for _, s := range seqs {
-			ph = append(ph, "?")
-			args = append(args, s)
-		}
-		q := fmt.Sprintf(`SELECT report_seq, visibility, trust_level FROM report_raw WHERE report_seq IN (%s)`, strings.Join(ph, ","))
-		rows, err := h.db.DB().QueryContext(c.Request.Context(), q, args...)
-		if err != nil {
-			log.Printf("v1 bulkIngest: failed to load report_raw vis/trust: %v", err)
-		} else {
-			defer rows.Close()
-			for rows.Next() {
-				var seq int
-				var vis, trust string
-				if err := rows.Scan(&seq, &vis, &trust); err != nil {
-					continue
-				}
-				visBySeq[seq] = visTrust{
-					vis:   normalizeVisibility(vis, defVis),
-					trust: normalizeTrustLevel(trust, defTrust),
-				}
-			}
-		}
-	}
-
-	// Publish to RabbitMQ for analysis (includes duplicates; idempotent-ish on the analyzer side).
-	queuedFailures := 0
-	for _, it := range preparedItems {
-		if it.sourceID == "" || it.seq == 0 {
-			continue
-		}
-		if h.rabbitmqPublisher == nil || !h.rabbitmqPublisher.IsConnected() {
-			queuedFailures++
-			continue
-		}
-		vt := visBySeq[it.seq]
-		msg := map[string]interface{}{
-			"seq":         it.seq,
-			"description": it.description,
-			"latitude":    it.lat,
-			"longitude":   it.lng,
-			"fetcher_id":  fetcherID,
-			"source_id":   it.sourceID,
-			"visibility":  normalizeVisibility(vt.vis, defVis),
-		}
-		if err := h.rabbitmqPublisher.PublishWithRoutingKey(h.cfg.RabbitRawReportRoutingKey, msg); err != nil {
-			log.Printf("v1 bulkIngest: publish failed seq=%d: %v", it.seq, err)
-			queuedFailures++
-		}
-	}
-
-	// Build response items.
-	for _, it := range preparedItems {
-		if it.sourceID == "" {
-			continue
-		}
-		if it.seq == 0 && !it.duplicate {
-			// rejected already (e.g. missing source_id)
-			continue
-		}
-		status := "accepted"
-		if it.duplicate {
-			status = "duplicate"
+		sub := legacyV1ItemToCleanAppWireSubmission(fetcher, it)
+		receipt, code := h.processCleanAppWireSubmissionInternal(
+			c.Request.Context(),
+			auth,
+			sub,
+			c.ClientIP(),
+			c.GetHeader("User-Agent"),
+			c.GetHeader("X-Request-Id"),
+			"",
+		)
+		itemResp := v1BulkIngestItemResultFromWireReceipt(receipt)
+		resp.Items = append(resp.Items, itemResp)
+		switch itemResp.Status {
+		case "duplicate":
 			resp.Duplicates++
-		} else {
+		case "rejected":
+			resp.Rejected++
+		default:
 			resp.Accepted++
 		}
-		resp.Items = append(resp.Items, v1BulkIngestItemResult{
-			SourceID:   it.sourceID,
-			Status:     status,
-			ReportSeq:  it.seq,
-			Queued:     queuedFailures == 0, // coarse-grained (per-request)
-			Visibility: normalizeVisibility(visBySeq[it.seq].vis, defVis),
-			TrustLevel: normalizeTrustLevel(visBySeq[it.seq].trust, defTrust),
-		})
+		if code >= 500 {
+			serverFailure = true
+		}
 	}
 
 	// best-effort audit
@@ -691,17 +466,150 @@ func (h *Handlers) BulkIngestV1(c *gin.Context) {
 	rejectJSON, _ := json.Marshal(rejectReasons)
 	_ = h.db.InsertIngestionAuditV1(c.Request.Context(), fetcherID, keyID, "/v1/reports:bulkIngest", resp.Submitted, resp.Accepted+resp.Duplicates, resp.Rejected, rejectJSON, int(time.Since(start).Milliseconds()), c.ClientIP(), c.GetHeader("User-Agent"), c.GetHeader("X-Request-Id"))
 
-	// If we couldn't queue for analysis, return 503 so clients can retry (idempotency makes it safe).
-	if queuedFailures > 0 {
+	// If any item hit an internal failure, return 503 so clients can retry safely.
+	if serverFailure {
 		c.JSON(http.StatusServiceUnavailable, gin.H{
-			"error":   "queued_failed",
-			"details": "accepted into quarantine but could not queue for analysis; retry the same request safely",
+			"error":   "wire_ingest_failed",
+			"details": "one or more items could not be fully ingested; retry the same request safely",
 			"result":  resp,
 		})
 		return
 	}
 
 	c.JSON(http.StatusOK, resp)
+}
+
+func legacyV1ItemToCleanAppWireSubmission(fetcher *database.FetcherV1, it v1BulkIngestItem) cleanAppWireSubmission {
+	now := time.Now().UTC().Format(time.RFC3339)
+	sub := cleanAppWireSubmission{
+		SchemaVersion: cleanAppWireSchemaV1,
+		SourceID:      strings.TrimSpace(it.SourceID),
+		SubmittedAt:   now,
+		ObservedAt:    strings.TrimSpace(it.CollectedAt),
+	}
+
+	sub.Agent.AgentID = strings.TrimSpace(it.AgentID)
+	if sub.Agent.AgentID == "" {
+		sub.Agent.AgentID = "legacy-v1-fetcher-" + fetcher.FetcherID
+	}
+	sub.Agent.AgentName = strings.TrimSpace(fetcher.Name)
+	sub.Agent.AgentType = "fetcher"
+	sub.Agent.OperatorType = strings.TrimSpace(fetcher.OwnerType)
+	sub.Agent.AuthMethod = "api_key"
+	sub.Agent.SoftwareVersion = strings.TrimSpace(it.AgentVersion)
+
+	sub.Provenance.GenerationMethod = "legacy_v1_bulk_ingest"
+	sub.Provenance.ChainOfCustody = []string{"legacy_v1_bulk_ingest", "wire_adapter"}
+	sub.Provenance.HumanInLoop = false
+
+	sub.Report.Title = clampStr(it.Title, 255)
+	sub.Report.Description = clampStr(it.Description, 8192)
+	if sub.Report.Title == "" {
+		sub.Report.Title = sub.Report.Description
+	}
+	if sub.Report.Title == "" {
+		sub.Report.Title = "Legacy machine report"
+	}
+	sub.Report.Confidence = 0.95
+	sub.Report.Tags = append([]string(nil), it.Tags...)
+	sub.Report.TargetEntity.Name = strings.TrimSpace(fetcher.Name)
+	sub.Report.TargetEntity.TargetType = "organization"
+	sub.Report.Language = "en"
+
+	if it.Lat != nil && it.Lng != nil {
+		sub.Report.Domain = "physical"
+		sub.Report.Location = &struct {
+			Kind            string  `json:"kind,omitempty"`
+			Lat             float64 `json:"lat"`
+			Lng             float64 `json:"lng"`
+			Geohash         string  `json:"geohash,omitempty"`
+			AddressText     string  `json:"address_text,omitempty"`
+			PlaceConfidence float64 `json:"place_confidence,omitempty"`
+		}{
+			Kind:            "coordinate",
+			Lat:             *it.Lat,
+			Lng:             *it.Lng,
+			PlaceConfidence: 1,
+		}
+	} else {
+		sub.Report.Domain = "digital"
+		sub.Report.DigitalContext = map[string]any{
+			"legacy_v1":   true,
+			"source_type": strings.TrimSpace(it.SourceType),
+		}
+	}
+
+	sub.Report.ProblemType = normalizeWireSlug(it.SourceType)
+	if sub.Report.ProblemType == "" {
+		if sub.Report.Domain == "physical" {
+			sub.Report.ProblemType = "legacy_physical_ingest"
+		} else {
+			sub.Report.ProblemType = "legacy_digital_ingest"
+		}
+	}
+
+	for _, media := range it.Media {
+		sub.Report.EvidenceBundle = append(sub.Report.EvidenceBundle, struct {
+			EvidenceID string `json:"evidence_id,omitempty"`
+			Type       string `json:"type"`
+			URI        string `json:"uri,omitempty"`
+			SHA256     string `json:"sha256,omitempty"`
+			MIMEType   string `json:"mime_type,omitempty"`
+			CapturedAt string `json:"captured_at,omitempty"`
+		}{
+			Type:       "media_link",
+			URI:        strings.TrimSpace(media.URL),
+			SHA256:     strings.TrimSpace(media.SHA256),
+			MIMEType:   strings.TrimSpace(media.ContentType),
+			CapturedAt: strings.TrimSpace(it.CollectedAt),
+		})
+	}
+	if strings.TrimSpace(it.ImageBase64) != "" {
+		sub.Report.EvidenceBundle = append(sub.Report.EvidenceBundle, struct {
+			EvidenceID string `json:"evidence_id,omitempty"`
+			Type       string `json:"type"`
+			URI        string `json:"uri,omitempty"`
+			SHA256     string `json:"sha256,omitempty"`
+			MIMEType   string `json:"mime_type,omitempty"`
+			CapturedAt string `json:"captured_at,omitempty"`
+		}{
+			EvidenceID: "inline-image",
+			Type:       "inline_image",
+			MIMEType:   "application/octet-stream",
+			CapturedAt: strings.TrimSpace(it.CollectedAt),
+		})
+		if sub.Extensions == nil {
+			sub.Extensions = map[string]any{}
+		}
+		sub.Extensions["image_base64"] = strings.TrimSpace(it.ImageBase64)
+	}
+
+	return sub
+}
+
+func v1BulkIngestItemResultFromWireReceipt(receipt cleanAppWireReceiptResponse) v1BulkIngestItemResult {
+	out := v1BulkIngestItemResult{
+		SourceID:   receipt.SourceID,
+		ReportSeq:  receipt.ReportID,
+		Queued:     len(receipt.Errors) == 0,
+		Visibility: normalizeVisibility(laneToVisibility(receipt.Lane), "shadow"),
+		TrustLevel: normalizeTrustLevel(laneToTrustLevel(receipt.Lane), "unverified"),
+	}
+	switch {
+	case receipt.IdempotencyReplay:
+		out.Status = "duplicate"
+	case len(receipt.Errors) > 0:
+		out.Status = "rejected"
+		out.Queued = false
+		out.Visibility = ""
+		out.TrustLevel = ""
+		if len(receipt.Errors) > 0 {
+			out.Reason = receipt.Errors[0].Message
+		}
+	default:
+		out.Status = "accepted"
+	}
+	return out
 }
 
 func nullableTime(t *time.Time) interface{} {

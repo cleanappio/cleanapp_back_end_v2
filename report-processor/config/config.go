@@ -22,8 +22,11 @@ type Config struct {
 	OpenAIAPIKey string
 	OpenAIModel  string
 
-	ReportsSubmissionURL string
-	TagServiceURL        string
+	ReportsSubmissionURL      string
+	ReportsSubmissionWireURL  string
+	ReportsSubmissionProtocol string
+	ReportsSubmissionToken    string
+	TagServiceURL             string
 
 	AMQPHost                    string
 	AMQPPort                    string
@@ -57,6 +60,10 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	reportsSubmissionToken, err := appenv.Secret("REPORTS_SUBMISSION_TOKEN", "")
+	if err != nil {
+		return nil, err
+	}
 
 	config := &Config{
 		DBHost:     appenv.String("DB_HOST", "localhost"),
@@ -73,8 +80,11 @@ func Load() (*Config, error) {
 		OpenAIAPIKey: appenv.String("OPENAI_API_KEY", ""),
 		OpenAIModel:  appenv.String("OPENAI_MODEL", "gpt-4o"),
 
-		ReportsSubmissionURL: appenv.String("REPORTS_SUBMISSION_URL", ""),
-		TagServiceURL:        appenv.String("TAG_SERVICE_URL", "http://localhost:8083"),
+		ReportsSubmissionURL:      appenv.String("REPORTS_SUBMISSION_URL", ""),
+		ReportsSubmissionWireURL:  appenv.String("REPORTS_SUBMISSION_WIRE_URL", ""),
+		ReportsSubmissionProtocol: appenv.String("REPORTS_SUBMISSION_PROTOCOL", "legacy"),
+		ReportsSubmissionToken:    reportsSubmissionToken,
+		TagServiceURL:             appenv.String("TAG_SERVICE_URL", "http://localhost:8083"),
 
 		AMQPHost:                    appenv.String("AMQP_HOST", "localhost"),
 		AMQPPort:                    appenv.String("AMQP_PORT", "5672"),

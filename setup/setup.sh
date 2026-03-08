@@ -328,6 +328,7 @@ TWITTER_BEARER_TOKEN=\$(gcloud secrets versions access latest --secret="TWITTER_
 GEMINI_API_KEY=\$(gcloud secrets versions access latest --secret="GEMINI_API_KEY_${SECRET_SUFFIX}" | tr -d '\r')
 CLEANAPP_TWITTER_FETCHER_TOKEN=\$(gcloud secrets versions access latest --secret="CLEANAPP_TWITTER_FETCHER_TOKEN_${SECRET_SUFFIX}" | tr -d '\r')
 BLUESKY_SUBMITTER_TOKEN=\$(gcloud secrets versions access latest --secret="BLUESKY_SUBMITTER_TOKEN_${SECRET_SUFFIX}" | tr -d '\r')
+REPORT_PROCESSOR_SUBMITTER_TOKEN=\$(gcloud secrets versions access latest --secret="REPORT_PROCESSOR_SUBMITTER_TOKEN_${SECRET_SUFFIX}" | tr -d '\r')
 # OAuth 1.0a user-context for replier-twitter
 TWITTER_API_KEY=\$(gcloud secrets versions access latest --secret="TWITTER_API_KEY_${SECRET_SUFFIX}" | tr -d '\r')
 TWITTER_API_SECRET=\$(gcloud secrets versions access latest --secret="TWITTER_API_SECRET_${SECRET_SUFFIX}" | tr -d '\r')
@@ -762,6 +763,9 @@ services:
       - DB_NAME=cleanapp
       - JWT_SECRET=${CLEANAPP_IO_JWT_SECRET}
       - REPORTS_SUBMISSION_URL=http://cleanapp_service:8080
+      - REPORTS_SUBMISSION_WIRE_URL=http://cleanapp_report_listener:8080
+      - REPORTS_SUBMISSION_PROTOCOL=wire
+      - REPORTS_SUBMISSION_TOKEN=\${REPORT_PROCESSOR_SUBMITTER_TOKEN}
       - TAG_SERVICE_URL=http://cleanapp_report_tags_service:8080
       - OPENAI_API_KEY=\${OPENAI_API_KEY}
       - REPORTS_RADIUS_METERS=35.0

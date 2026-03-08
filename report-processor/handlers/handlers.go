@@ -3,14 +3,20 @@ package handlers
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
+	"cleanapp-common/httpx"
 	"report_processor/config"
 	"report_processor/database"
 	"report_processor/models"
@@ -28,6 +34,26 @@ type Handlers struct {
 	openaiClient      *openai.Client
 	tagClient         *services.TagClient
 	rabbitmqPublisher *rabbitmq.Publisher
+}
+
+type wireSubmitResponse struct {
+	ReceiptID         string `json:"receipt_id"`
+	SubmissionID      string `json:"submission_id"`
+	SourceID          string `json:"source_id"`
+	Status            string `json:"status"`
+	Lane              string `json:"lane"`
+	ReportID          int    `json:"report_id,omitempty"`
+	IdempotencyReplay bool   `json:"idempotency_replay"`
+}
+
+type wireStatusResponse struct {
+	SourceID          string `json:"source_id"`
+	ReceiptID         string `json:"receipt_id"`
+	SubmissionID      string `json:"submission_id"`
+	Status            string `json:"status"`
+	Lane              string `json:"lane"`
+	ReportID          int    `json:"report_id,omitempty"`
+	IdempotencyReplay bool   `json:"idempotency_replay"`
 }
 
 // NewHandlers creates a new handlers instance
@@ -359,7 +385,16 @@ func (h *Handlers) compareImages(image1, image2 []byte, originalDescription stri
 
 // submitReport submits a report to the reports submission service and returns the new report's sequence number
 func (h *Handlers) submitReport(ctx context.Context, req models.MatchReportRequest) (int, error) {
-	if h.config.ReportsSubmissionURL == "" {
+	switch h.reportsSubmissionProtocol() {
+	case "wire":
+		return h.submitReportViaWire(ctx, req)
+	default:
+		return h.submitReportLegacy(ctx, req)
+	}
+}
+
+func (h *Handlers) submitReportLegacy(ctx context.Context, req models.MatchReportRequest) (int, error) {
+	if strings.TrimSpace(h.config.ReportsSubmissionURL) == "" {
 		log.Printf("Reports submission URL not configured, skipping submission")
 		return 0, nil
 	}
@@ -384,13 +419,16 @@ func (h *Handlers) submitReport(ctx context.Context, req models.MatchReportReque
 	}
 
 	// Create HTTP client with timeout
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-	}
+	client := httpx.NewClient(30 * time.Second)
 
 	// Submit the report
 	url := h.config.ReportsSubmissionURL + "/report"
-	resp, err := client.Post(url, "application/json", bytes.NewBuffer(jsonData))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return 0, fmt.Errorf("failed to build report submission request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(httpReq)
 	if err != nil {
 		return 0, fmt.Errorf("failed to submit report: %w", err)
 	}
@@ -443,6 +481,193 @@ func (h *Handlers) submitReport(ctx context.Context, req models.MatchReportReque
 	}
 
 	return response.Seq, nil
+}
+
+func (h *Handlers) submitReportViaWire(ctx context.Context, req models.MatchReportRequest) (int, error) {
+	wireBaseURL := strings.TrimSpace(h.config.ReportsSubmissionWireURL)
+	if wireBaseURL == "" {
+		if h.config.ReportsSubmissionProtocol == "wire" {
+			return 0, fmt.Errorf("wire submission requested but REPORTS_SUBMISSION_WIRE_URL is not configured")
+		}
+		return h.submitReportLegacy(ctx, req)
+	}
+	if strings.TrimSpace(h.config.ReportsSubmissionToken) == "" {
+		if h.config.ReportsSubmissionProtocol == "wire" {
+			return 0, fmt.Errorf("wire submission requested but REPORTS_SUBMISSION_TOKEN is not configured")
+		}
+		return h.submitReportLegacy(ctx, req)
+	}
+
+	body, sourceID, err := h.buildWireSubmissionPayload(req)
+	if err != nil {
+		return 0, err
+	}
+
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return 0, fmt.Errorf("failed to marshal wire payload: %w", err)
+	}
+
+	client := httpx.NewClient(30 * time.Second)
+	submitURL := strings.TrimRight(wireBaseURL, "/") + "/api/v1/agent-reports:submit"
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, submitURL, bytes.NewBuffer(payload))
+	if err != nil {
+		return 0, fmt.Errorf("failed to build wire request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+h.config.ReportsSubmissionToken)
+
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		if h.config.ReportsSubmissionProtocol == "auto" {
+			log.Printf("Wire submission failed for report %s, falling back to legacy submit: %v", req.ID, err)
+			return h.submitReportLegacy(ctx, req)
+		}
+		return 0, fmt.Errorf("failed to submit report via wire: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		if h.config.ReportsSubmissionProtocol == "auto" {
+			log.Printf("Wire submission returned status %d for report %s, falling back to legacy submit", resp.StatusCode, req.ID)
+			return h.submitReportLegacy(ctx, req)
+		}
+		return 0, fmt.Errorf("wire submission failed with status %d", resp.StatusCode)
+	}
+
+	var wireResp wireSubmitResponse
+	if err := json.NewDecoder(resp.Body).Decode(&wireResp); err != nil {
+		return 0, fmt.Errorf("failed to decode wire response: %w", err)
+	}
+	if wireResp.ReportID > 0 {
+		log.Printf("Successfully submitted report %s via Wire with seq %d (lane=%s receipt=%s)", req.ID, wireResp.ReportID, wireResp.Lane, wireResp.ReceiptID)
+		return wireResp.ReportID, nil
+	}
+
+	statusResp, err := h.lookupWireStatusBySourceID(ctx, client, wireBaseURL, sourceID)
+	if err != nil {
+		return 0, fmt.Errorf("wire submission accepted but status lookup failed: %w", err)
+	}
+	if statusResp.ReportID <= 0 {
+		return 0, fmt.Errorf("wire submission accepted but no report id was assigned yet for source_id %s", sourceID)
+	}
+	log.Printf("Successfully submitted report %s via Wire with seq %d after status lookup (lane=%s receipt=%s)", req.ID, statusResp.ReportID, statusResp.Lane, statusResp.ReceiptID)
+	return statusResp.ReportID, nil
+}
+
+func (h *Handlers) buildWireSubmissionPayload(req models.MatchReportRequest) (map[string]any, string, error) {
+	sourceID := strings.TrimSpace(req.ID)
+	if sourceID == "" {
+		return nil, "", fmt.Errorf("report id is required for wire submission")
+	}
+	submittedAt := time.Now().UTC().Format(time.RFC3339)
+	inlineImage := base64.StdEncoding.EncodeToString(req.Image)
+	imageHash := sha256.Sum256(req.Image)
+	title := strings.TrimSpace(req.Annotation)
+	if title == "" {
+		title = "Matched report submission"
+	}
+	if len(title) > 255 {
+		title = title[:255]
+	}
+	description := strings.TrimSpace(req.Annotation)
+	if description == "" {
+		description = fmt.Sprintf("Matched report submission %s", sourceID)
+	}
+
+	body := map[string]any{
+		"schema_version": "cleanapp-wire.v1",
+		"source_id":      sourceID,
+		"submitted_at":   submittedAt,
+		"observed_at":    submittedAt,
+		"agent": map[string]any{
+			"agent_id":         "report-processor",
+			"agent_name":       "report-processor",
+			"agent_type":       "internal_service",
+			"operator_type":    "internal",
+			"auth_method":      "api_key",
+			"software_version": "report-processor",
+		},
+		"provenance": map[string]any{
+			"generation_method": "report_processor_match",
+			"chain_of_custody":  []string{"report_processor_match", "wire_submit"},
+			"human_in_loop":     false,
+		},
+		"report": map[string]any{
+			"domain":       "physical",
+			"problem_type": "matched_report_submission",
+			"title":        title,
+			"description":  description,
+			"language":     "en",
+			"confidence":   0.95,
+			"location": map[string]any{
+				"kind":             "coordinate",
+				"lat":              req.Latitude,
+				"lng":              req.Longitude,
+				"place_confidence": 1.0,
+			},
+			"target_entity": map[string]any{
+				"target_type": "organization",
+				"name":        "report-processor",
+			},
+			"evidence_bundle": []map[string]any{
+				{
+					"evidence_id": "inline-image",
+					"type":        "inline_image",
+					"sha256":      hex.EncodeToString(imageHash[:]),
+					"mime_type":   "application/octet-stream",
+					"captured_at": submittedAt,
+				},
+			},
+			"tags": req.Tags,
+		},
+		"extensions": map[string]any{
+			"image_base64": inlineImage,
+			"source_type":  "vision",
+			"x":            req.X,
+			"y":            req.Y,
+		},
+	}
+	return body, sourceID, nil
+}
+
+func (h *Handlers) lookupWireStatusBySourceID(ctx context.Context, client *http.Client, wireBaseURL, sourceID string) (*wireStatusResponse, error) {
+	statusURL := strings.TrimRight(wireBaseURL, "/") + "/api/v1/agent-reports/status/" + url.PathEscape(sourceID)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, statusURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build wire status request: %w", err)
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+h.config.ReportsSubmissionToken)
+
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to lookup wire status: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("wire status lookup failed with status %d", resp.StatusCode)
+	}
+
+	var statusResp wireStatusResponse
+	if err := json.NewDecoder(resp.Body).Decode(&statusResp); err != nil {
+		return nil, fmt.Errorf("failed to decode wire status response: %w", err)
+	}
+	return &statusResp, nil
+}
+
+func (h *Handlers) reportsSubmissionProtocol() string {
+	mode := strings.ToLower(strings.TrimSpace(h.config.ReportsSubmissionProtocol))
+	switch mode {
+	case "wire":
+		return "wire"
+	case "auto":
+		if strings.TrimSpace(h.config.ReportsSubmissionWireURL) != "" && strings.HasPrefix(strings.TrimSpace(h.config.ReportsSubmissionToken), "cleanapp_fk_") {
+			return "wire"
+		}
+		return "legacy"
+	default:
+		return "legacy"
+	}
 }
 
 // GetResponse gets a specific response by seq

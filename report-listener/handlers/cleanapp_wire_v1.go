@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -457,6 +458,10 @@ func (h *Handlers) GetCleanAppWireStatusV1(c *gin.Context) {
 }
 
 func (h *Handlers) processCleanAppWireSubmission(ctx context.Context, c *gin.Context, auth cleanAppWireAuthContext, sub cleanAppWireSubmission) (cleanAppWireReceiptResponse, int) {
+	return h.processCleanAppWireSubmissionInternal(ctx, auth, sub, c.ClientIP(), c.GetHeader("User-Agent"), c.GetHeader("X-Request-Id"), "/api/v1/agent-reports:submit")
+}
+
+func (h *Handlers) processCleanAppWireSubmissionInternal(ctx context.Context, auth cleanAppWireAuthContext, sub cleanAppWireSubmission, clientIP, userAgent, requestID, auditEndpoint string) (cleanAppWireReceiptResponse, int) {
 	sub, generatedSubmissionID := normalizeCleanAppWireSubmission(sub)
 	errors := validateCleanAppWireSubmission(sub, h.cfg.CleanAppWireStrictSignature)
 	if len(errors) > 0 {
@@ -546,22 +551,7 @@ func (h *Handlers) processCleanAppWireSubmission(ctx context.Context, c *gin.Con
 	trustLevel := laneToTrustLevel(lane)
 
 	itemReq := v1BulkIngestRequest{
-		Items: []struct {
-			SourceID     string   `json:"source_id"`
-			Title        string   `json:"title"`
-			Description  string   `json:"description"`
-			Lat          *float64 `json:"lat,omitempty"`
-			Lng          *float64 `json:"lng,omitempty"`
-			CollectedAt  string   `json:"collected_at,omitempty"`
-			AgentID      string   `json:"agent_id,omitempty"`
-			AgentVersion string   `json:"agent_version,omitempty"`
-			SourceType   string   `json:"source_type,omitempty"`
-			Media        []struct {
-				URL         string `json:"url,omitempty"`
-				SHA256      string `json:"sha256,omitempty"`
-				ContentType string `json:"content_type,omitempty"`
-			} `json:"media,omitempty"`
-		}{
+		Items: []v1BulkIngestItem{
 			{
 				SourceID:     sub.SourceID,
 				Title:        sub.Report.Title,
@@ -570,6 +560,8 @@ func (h *Handlers) processCleanAppWireSubmission(ctx context.Context, c *gin.Con
 				AgentID:      sub.Agent.AgentID,
 				AgentVersion: sub.Agent.SoftwareVersion,
 				SourceType:   cleanAppWireSourceType(sub),
+				ImageBase64:  cleanAppWireInlineImageBase64(sub),
+				Tags:         append([]string(nil), sub.Report.Tags...),
 			},
 		},
 	}
@@ -578,11 +570,7 @@ func (h *Handlers) processCleanAppWireSubmission(ctx context.Context, c *gin.Con
 		itemReq.Items[0].Lng = &sub.Report.Location.Lng
 	}
 	for _, ev := range sub.Report.EvidenceBundle {
-		itemReq.Items[0].Media = append(itemReq.Items[0].Media, struct {
-			URL         string `json:"url,omitempty"`
-			SHA256      string `json:"sha256,omitempty"`
-			ContentType string `json:"content_type,omitempty"`
-		}{
+		itemReq.Items[0].Media = append(itemReq.Items[0].Media, v1BulkIngestMedia{
 			URL:         ev.URI,
 			SHA256:      ev.SHA256,
 			ContentType: ev.MIMEType,
@@ -667,7 +655,9 @@ func (h *Handlers) processCleanAppWireSubmission(ctx context.Context, c *gin.Con
 	}
 	_ = h.db.EnsureWireReputationProfile(ctx, auth.FetcherID)
 	_ = h.db.IncrementWireReputationSample(ctx, auth.FetcherID)
-	_ = h.db.InsertIngestionAuditV1(ctx, auth.FetcherID, auth.KeyID, "/api/v1/agent-reports:submit", 1, 1, 0, nil, 0, c.ClientIP(), c.GetHeader("User-Agent"), c.GetHeader("X-Request-Id"))
+	if auditEndpoint != "" {
+		_ = h.db.InsertIngestionAuditV1(ctx, auth.FetcherID, auth.KeyID, auditEndpoint, 1, 1, 0, nil, 0, clientIP, userAgent, requestID)
+	}
 
 	return cleanAppWireReceiptResponse{
 		ReceiptID:         receiptID,
@@ -938,6 +928,34 @@ func cleanAppWireSourceType(sub cleanAppWireSubmission) string {
 	}
 }
 
+func cleanAppWireInlineImageBase64(sub cleanAppWireSubmission) string {
+	if sub.Extensions == nil {
+		return ""
+	}
+	for _, key := range []string{"image_base64", "inline_image_b64"} {
+		if raw, ok := sub.Extensions[key]; ok {
+			if s, ok := raw.(string); ok {
+				return strings.TrimSpace(s)
+			}
+		}
+	}
+	return ""
+}
+
+func decodeWireInlineBytes(raw string) ([]byte, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	if idx := strings.Index(raw, ","); idx >= 0 && strings.Contains(raw[:idx], ";base64") {
+		raw = raw[idx+1:]
+	}
+	if b, err := base64.StdEncoding.DecodeString(raw); err == nil {
+		return b, nil
+	}
+	return base64.RawStdEncoding.DecodeString(raw)
+}
+
 func cleanAppWireWarningsForSubmission(sub cleanAppWireSubmission, lane string) []string {
 	var warnings []string
 	if lane == wireLaneQuarantine || lane == wireLaneShadow {
@@ -1088,6 +1106,13 @@ func (h *Handlers) cleanAppWireIngestSingleViaV1(ctx context.Context, auth clean
 
 	reporterID := "fetcher_v1:" + auth.FetcherID
 	img := []byte{}
+	if strings.TrimSpace(it.ImageBase64) != "" {
+		decoded, err := decodeWireInlineBytes(it.ImageBase64)
+		if err != nil {
+			return v1BulkIngestItemResult{}, "INVALID_INLINE_IMAGE", http.StatusBadRequest
+		}
+		img = decoded
+	}
 
 	tx, err := h.db.DB().BeginTx(ctx, nil)
 	if err != nil {
@@ -1161,6 +1186,7 @@ func (h *Handlers) cleanAppWireIngestSingleViaV1(ctx context.Context, auth clean
 		"fetcher_id":  auth.FetcherID,
 		"source_id":   it.SourceID,
 		"visibility":  visibility,
+		"tags":        it.Tags,
 	}
 	if err := h.rabbitmqPublisher.PublishWithRoutingKey(h.cfg.RabbitRawReportRoutingKey, msg); err != nil {
 		return v1BulkIngestItemResult{
