@@ -208,6 +208,36 @@ type cleanAppWireAuthContext struct {
 	Scopes    []string
 }
 
+type cleanAppWireIngestCoreMedia struct {
+	URL         string
+	SHA256      string
+	ContentType string
+}
+
+type cleanAppWireIngestCoreItem struct {
+	SourceID     string
+	Title        string
+	Description  string
+	Lat          *float64
+	Lng          *float64
+	CollectedAt  string
+	AgentID      string
+	AgentVersion string
+	SourceType   string
+	ImageBase64  string
+	Tags         []string
+	Media        []cleanAppWireIngestCoreMedia
+}
+
+type cleanAppWireIngestCoreResult struct {
+	SourceID   string
+	Status     string
+	ReportSeq  int
+	Queued     bool
+	Visibility string
+	TrustLevel string
+}
+
 func (h *Handlers) RegisterAgentV1(c *gin.Context) {
 	h.RegisterFetcherV1(c)
 }
@@ -550,34 +580,8 @@ func (h *Handlers) processCleanAppWireSubmissionInternal(ctx context.Context, au
 	visibility := laneToVisibility(lane)
 	trustLevel := laneToTrustLevel(lane)
 
-	itemReq := v1BulkIngestRequest{
-		Items: []v1BulkIngestItem{
-			{
-				SourceID:     sub.SourceID,
-				Title:        sub.Report.Title,
-				Description:  cleanAppWireDescription(sub),
-				CollectedAt:  chooseObservedAt(sub),
-				AgentID:      sub.Agent.AgentID,
-				AgentVersion: sub.Agent.SoftwareVersion,
-				SourceType:   cleanAppWireSourceType(sub),
-				ImageBase64:  cleanAppWireInlineImageBase64(sub),
-				Tags:         append([]string(nil), sub.Report.Tags...),
-			},
-		},
-	}
-	if sub.Report.Location != nil {
-		itemReq.Items[0].Lat = &sub.Report.Location.Lat
-		itemReq.Items[0].Lng = &sub.Report.Location.Lng
-	}
-	for _, ev := range sub.Report.EvidenceBundle {
-		itemReq.Items[0].Media = append(itemReq.Items[0].Media, v1BulkIngestMedia{
-			URL:         ev.URI,
-			SHA256:      ev.SHA256,
-			ContentType: ev.MIMEType,
-		})
-	}
-
-	v1resp, errCode, httpStatus := h.cleanAppWireIngestSingleViaV1(ctx, auth, itemReq, visibility, trustLevel)
+	coreItem := cleanAppWireIngestCoreItemFromSubmission(sub)
+	ingestResp, errCode, httpStatus := h.cleanAppWireIngestCore(ctx, auth, coreItem, visibility, trustLevel)
 	if httpStatus >= 500 {
 		return cleanAppWireReceiptResponse{
 			ReceiptID:         newReceiptID(),
@@ -619,8 +623,8 @@ func (h *Handlers) processCleanAppWireSubmissionInternal(ctx context.Context, au
 		DeliveryJSON:      h.db.MarshalJSON(sub.Delivery),
 		ExtensionsJSON:    h.db.MarshalJSON(sub.Extensions),
 	}
-	if v1resp.ReportSeq > 0 {
-		submissionRecord.ReportSeq = sql.NullInt64{Int64: int64(v1resp.ReportSeq), Valid: true}
+	if ingestResp.ReportSeq > 0 {
+		submissionRecord.ReportSeq = sql.NullInt64{Int64: int64(ingestResp.ReportSeq), Valid: true}
 	}
 
 	receiptRecord := &database.WireReceipt{
@@ -630,12 +634,12 @@ func (h *Handlers) processCleanAppWireSubmissionInternal(ctx context.Context, au
 		SourceID:          sub.SourceID,
 		Status:            status,
 		Lane:              lane,
-		IdempotencyReplay: v1resp.Status == "duplicate",
+		IdempotencyReplay: ingestResp.Status == "duplicate",
 		WarningsJSON:      h.db.MarshalJSON(cleanAppWireWarningsForSubmission(sub, lane)),
 		NextCheckAfter:    nextCheckAfter,
 	}
-	if v1resp.ReportSeq > 0 {
-		receiptRecord.ReportSeq = sql.NullInt64{Int64: int64(v1resp.ReportSeq), Valid: true}
+	if ingestResp.ReportSeq > 0 {
+		receiptRecord.ReportSeq = sql.NullInt64{Int64: int64(ingestResp.ReportSeq), Valid: true}
 	}
 
 	if err := h.db.InsertWireSubmissionAndReceipt(ctx, submissionRecord, receiptRecord); err != nil {
@@ -666,12 +670,38 @@ func (h *Handlers) processCleanAppWireSubmissionInternal(ctx context.Context, au
 		ReceivedAt:        now.Format(time.RFC3339),
 		Status:            status,
 		Lane:              lane,
-		ReportID:          v1resp.ReportSeq,
-		IdempotencyReplay: v1resp.Status == "duplicate",
+		ReportID:          ingestResp.ReportSeq,
+		IdempotencyReplay: ingestResp.Status == "duplicate",
 		Warnings:          cleanAppWireWarningsForSubmission(sub, lane),
 		NextCheckAfter:    nextCheckAfter.Time.UTC().Format(time.RFC3339),
 		SubmissionQuality: quality,
 	}, http.StatusOK
+}
+
+func cleanAppWireIngestCoreItemFromSubmission(sub cleanAppWireSubmission) cleanAppWireIngestCoreItem {
+	item := cleanAppWireIngestCoreItem{
+		SourceID:     sub.SourceID,
+		Title:        sub.Report.Title,
+		Description:  cleanAppWireDescription(sub),
+		CollectedAt:  chooseObservedAt(sub),
+		AgentID:      sub.Agent.AgentID,
+		AgentVersion: sub.Agent.SoftwareVersion,
+		SourceType:   cleanAppWireSourceType(sub),
+		ImageBase64:  cleanAppWireInlineImageBase64(sub),
+		Tags:         append([]string(nil), sub.Report.Tags...),
+	}
+	if sub.Report.Location != nil {
+		item.Lat = &sub.Report.Location.Lat
+		item.Lng = &sub.Report.Location.Lng
+	}
+	for _, ev := range sub.Report.EvidenceBundle {
+		item.Media = append(item.Media, cleanAppWireIngestCoreMedia{
+			URL:         ev.URI,
+			SHA256:      ev.SHA256,
+			ContentType: ev.MIMEType,
+		})
+	}
+	return item
 }
 
 func (h *Handlers) cleanAppWireReceiptRecordToResponse(receipt *database.WireReceipt, quality float64) cleanAppWireReceiptResponse {
@@ -1068,20 +1098,15 @@ func round2(v float64) float64 {
 	return float64(int(v*100+0.5)) / 100
 }
 
-func (h *Handlers) cleanAppWireIngestSingleViaV1(ctx context.Context, auth cleanAppWireAuthContext, req v1BulkIngestRequest, visibility, trustLevel string) (v1BulkIngestItemResult, string, int) {
-	if len(req.Items) != 1 {
-		return v1BulkIngestItemResult{}, "INVALID_BATCH", http.StatusBadRequest
-	}
-
-	it := req.Items[0]
-	existing, err := h.db.GetExistingReportSeqsV1(ctx, auth.FetcherID, []string{it.SourceID})
+func (h *Handlers) cleanAppWireIngestCore(ctx context.Context, auth cleanAppWireAuthContext, item cleanAppWireIngestCoreItem, visibility, trustLevel string) (cleanAppWireIngestCoreResult, string, int) {
+	existing, err := h.db.GetExistingReportSeqsV1(ctx, auth.FetcherID, []string{item.SourceID})
 	if err != nil {
-		return v1BulkIngestItemResult{}, "IDEMPOTENCY_LOOKUP_FAILED", http.StatusInternalServerError
+		return cleanAppWireIngestCoreResult{}, "IDEMPOTENCY_LOOKUP_FAILED", http.StatusInternalServerError
 	}
 
-	if seq, dup := existing[it.SourceID]; dup {
-		return v1BulkIngestItemResult{
-			SourceID:   it.SourceID,
+	if seq, dup := existing[item.SourceID]; dup {
+		return cleanAppWireIngestCoreResult{
+			SourceID:   item.SourceID,
 			Status:     "duplicate",
 			ReportSeq:  seq,
 			Queued:     true,
@@ -1090,33 +1115,33 @@ func (h *Handlers) cleanAppWireIngestSingleViaV1(ctx context.Context, auth clean
 		}, "", http.StatusOK
 	}
 
-	title := clampStr(it.Title, 255)
-	description := clampStr(it.Description, 8192)
+	title := clampStr(item.Title, 255)
+	description := clampStr(item.Description, 8192)
 	if description == "" {
 		description = title
 	}
 	lat := 0.0
 	lng := 0.0
-	if it.Lat != nil {
-		lat = *it.Lat
+	if item.Lat != nil {
+		lat = *item.Lat
 	}
-	if it.Lng != nil {
-		lng = *it.Lng
+	if item.Lng != nil {
+		lng = *item.Lng
 	}
 
 	reporterID := "fetcher_v1:" + auth.FetcherID
 	img := []byte{}
-	if strings.TrimSpace(it.ImageBase64) != "" {
-		decoded, err := decodeWireInlineBytes(it.ImageBase64)
+	if strings.TrimSpace(item.ImageBase64) != "" {
+		decoded, err := decodeWireInlineBytes(item.ImageBase64)
 		if err != nil {
-			return v1BulkIngestItemResult{}, "INVALID_INLINE_IMAGE", http.StatusBadRequest
+			return cleanAppWireIngestCoreResult{}, "INVALID_INLINE_IMAGE", http.StatusBadRequest
 		}
 		img = decoded
 	}
 
 	tx, err := h.db.DB().BeginTx(ctx, nil)
 	if err != nil {
-		return v1BulkIngestItemResult{}, "BEGIN_TX_FAILED", http.StatusInternalServerError
+		return cleanAppWireIngestCoreResult{}, "BEGIN_TX_FAILED", http.StatusInternalServerError
 	}
 	defer tx.Rollback()
 
@@ -1133,7 +1158,7 @@ func (h *Handlers) cleanAppWireIngestSingleViaV1(ctx context.Context, auth clean
 		title,
 	)
 	if err != nil {
-		return v1BulkIngestItemResult{}, "REPORT_INSERT_FAILED", http.StatusInternalServerError
+		return cleanAppWireIngestCoreResult{}, "REPORT_INSERT_FAILED", http.StatusInternalServerError
 	}
 	firstID, _ := res.LastInsertId()
 	seq := int(firstID)
@@ -1145,11 +1170,11 @@ func (h *Handlers) cleanAppWireIngestSingleViaV1(ctx context.Context, auth clean
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
 		seq,
 		auth.FetcherID,
-		it.SourceID,
-		nullable(it.AgentID),
-		nullable(it.AgentVersion),
-		nullableTime(parseRFC3339(it.CollectedAt)),
-		nullable(it.SourceType),
+		item.SourceID,
+		nullable(item.AgentID),
+		nullable(item.AgentVersion),
+		nullableTime(parseRFC3339(item.CollectedAt)),
+		nullable(item.SourceType),
 		visibility,
 		trustLevel,
 		func() interface{} {
@@ -1160,16 +1185,16 @@ func (h *Handlers) cleanAppWireIngestSingleViaV1(ctx context.Context, auth clean
 		}(),
 	)
 	if err != nil {
-		return v1BulkIngestItemResult{}, "REPORT_RAW_INSERT_FAILED", http.StatusInternalServerError
+		return cleanAppWireIngestCoreResult{}, "REPORT_RAW_INSERT_FAILED", http.StatusInternalServerError
 	}
 
 	if err := tx.Commit(); err != nil {
-		return v1BulkIngestItemResult{}, "COMMIT_FAILED", http.StatusInternalServerError
+		return cleanAppWireIngestCoreResult{}, "COMMIT_FAILED", http.StatusInternalServerError
 	}
 
 	if h.rabbitmqPublisher == nil || !h.rabbitmqPublisher.IsConnected() {
-		return v1BulkIngestItemResult{
-			SourceID:   it.SourceID,
+		return cleanAppWireIngestCoreResult{
+			SourceID:   item.SourceID,
 			Status:     "accepted",
 			ReportSeq:  seq,
 			Queued:     false,
@@ -1184,13 +1209,13 @@ func (h *Handlers) cleanAppWireIngestSingleViaV1(ctx context.Context, auth clean
 		"latitude":    lat,
 		"longitude":   lng,
 		"fetcher_id":  auth.FetcherID,
-		"source_id":   it.SourceID,
+		"source_id":   item.SourceID,
 		"visibility":  visibility,
-		"tags":        it.Tags,
+		"tags":        item.Tags,
 	}
 	if err := h.rabbitmqPublisher.PublishWithRoutingKey(h.cfg.RabbitRawReportRoutingKey, msg); err != nil {
-		return v1BulkIngestItemResult{
-			SourceID:   it.SourceID,
+		return cleanAppWireIngestCoreResult{
+			SourceID:   item.SourceID,
 			Status:     "accepted",
 			ReportSeq:  seq,
 			Queued:     false,
@@ -1199,12 +1224,55 @@ func (h *Handlers) cleanAppWireIngestSingleViaV1(ctx context.Context, auth clean
 		}, "QUEUE_PUBLISH_FAILED", http.StatusServiceUnavailable
 	}
 
-	return v1BulkIngestItemResult{
-		SourceID:   it.SourceID,
+	return cleanAppWireIngestCoreResult{
+		SourceID:   item.SourceID,
 		Status:     "accepted",
 		ReportSeq:  seq,
 		Queued:     true,
 		Visibility: visibility,
 		TrustLevel: trustLevel,
 	}, "", http.StatusOK
+}
+
+func cleanAppWireIngestCoreResultToV1ItemResult(res cleanAppWireIngestCoreResult) v1BulkIngestItemResult {
+	return v1BulkIngestItemResult{
+		SourceID:   res.SourceID,
+		Status:     res.Status,
+		ReportSeq:  res.ReportSeq,
+		Queued:     res.Queued,
+		Visibility: res.Visibility,
+		TrustLevel: res.TrustLevel,
+	}
+}
+
+func v1BulkIngestItemToCleanAppWireIngestCoreItem(it v1BulkIngestItem) cleanAppWireIngestCoreItem {
+	item := cleanAppWireIngestCoreItem{
+		SourceID:     it.SourceID,
+		Title:        it.Title,
+		Description:  it.Description,
+		Lat:          it.Lat,
+		Lng:          it.Lng,
+		CollectedAt:  it.CollectedAt,
+		AgentID:      it.AgentID,
+		AgentVersion: it.AgentVersion,
+		SourceType:   it.SourceType,
+		ImageBase64:  it.ImageBase64,
+		Tags:         append([]string(nil), it.Tags...),
+	}
+	for _, media := range it.Media {
+		item.Media = append(item.Media, cleanAppWireIngestCoreMedia{
+			URL:         media.URL,
+			SHA256:      media.SHA256,
+			ContentType: media.ContentType,
+		})
+	}
+	return item
+}
+
+func (h *Handlers) cleanAppWireIngestSingleViaV1(ctx context.Context, auth cleanAppWireAuthContext, req v1BulkIngestRequest, visibility, trustLevel string) (v1BulkIngestItemResult, string, int) {
+	if len(req.Items) != 1 {
+		return v1BulkIngestItemResult{}, "INVALID_BATCH", http.StatusBadRequest
+	}
+	coreResp, errCode, httpStatus := h.cleanAppWireIngestCore(ctx, auth, v1BulkIngestItemToCleanAppWireIngestCoreItem(req.Items[0]), visibility, trustLevel)
+	return cleanAppWireIngestCoreResultToV1ItemResult(coreResp), errCode, httpStatus
 }
