@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 
 	// "cleanapp/backend/area_index"
@@ -473,19 +474,27 @@ func ReadReportEmailStatus(db *sql.DB, args *api.ReadReportArgs) (*api.ReportEma
 		Status: "pending",
 	}
 
-	var lastProcessedAt sql.NullTime
-	if err := db.QueryRow(`SELECT MAX(created_at) FROM sent_reports_emails WHERE seq = ?`, args.Seq).Scan(&lastProcessedAt); err != nil {
+	var lastProcessedAtRaw any
+	if err := db.QueryRow(`SELECT MAX(created_at) FROM sent_reports_emails WHERE seq = ?`, args.Seq).Scan(&lastProcessedAtRaw); err != nil {
 		return nil, err
 	}
-	if lastProcessedAt.Valid {
-		resp.LastEmailSentAt = lastProcessedAt.Time.UTC().Format(time.RFC3339)
+	lastProcessedAt, err := normalizeNullableTime(lastProcessedAtRaw)
+	if err != nil {
+		return nil, err
+	}
+	if lastProcessedAt != nil {
+		resp.LastEmailSentAt = lastProcessedAt.UTC().Format(time.RFC3339)
 	}
 
-	var nextAttemptAt sql.NullTime
+	var nextAttemptAtRaw any
 	var retryReason sql.NullString
-	retryErr := db.QueryRow(`SELECT next_attempt_at, reason FROM email_report_retry WHERE seq = ? LIMIT 1`, args.Seq).Scan(&nextAttemptAt, &retryReason)
+	retryErr := db.QueryRow(`SELECT next_attempt_at, reason FROM email_report_retry WHERE seq = ? LIMIT 1`, args.Seq).Scan(&nextAttemptAtRaw, &retryReason)
 	if retryErr != nil && retryErr != sql.ErrNoRows {
 		return nil, retryErr
+	}
+	nextAttemptAt, err := normalizeNullableTime(nextAttemptAtRaw)
+	if err != nil {
+		return nil, err
 	}
 
 	rows, err := db.Query(`
@@ -501,12 +510,16 @@ func ReadReportEmailStatus(db *sql.DB, args *api.ReadReportArgs) (*api.ReportEma
 
 	for rows.Next() {
 		var recipient api.ReportEmailDeliveryRecipient
-		var sentAt sql.NullTime
-		if err := rows.Scan(&recipient.Email, &recipient.DeliverySource, &recipient.DeliveryStatus, &sentAt); err != nil {
+		var sentAtRaw any
+		if err := rows.Scan(&recipient.Email, &recipient.DeliverySource, &recipient.DeliveryStatus, &sentAtRaw); err != nil {
 			return nil, err
 		}
-		if sentAt.Valid {
-			recipient.SentAt = sentAt.Time.UTC().Format(time.RFC3339)
+		sentAt, err := normalizeNullableTime(sentAtRaw)
+		if err != nil {
+			return nil, err
+		}
+		if sentAt != nil {
+			recipient.SentAt = sentAt.UTC().Format(time.RFC3339)
 		}
 		resp.Recipients = append(resp.Recipients, recipient)
 	}
@@ -523,19 +536,54 @@ func ReadReportEmailStatus(db *sql.DB, args *api.ReadReportArgs) (*api.ReportEma
 		}
 	case retryErr == nil:
 		resp.Status = "pending_retry"
-		if nextAttemptAt.Valid {
-			resp.NextAttemptAt = nextAttemptAt.Time.UTC().Format(time.RFC3339)
+		if nextAttemptAt != nil {
+			resp.NextAttemptAt = nextAttemptAt.UTC().Format(time.RFC3339)
 		}
 		if retryReason.Valid {
 			resp.RetryReason = retryReason.String
 		}
-	case lastProcessedAt.Valid:
+	case lastProcessedAt != nil:
 		resp.Status = "processed_no_delivery"
 	default:
 		resp.Status = "pending"
 	}
 
 	return resp, nil
+}
+
+func normalizeNullableTime(v any) (*time.Time, error) {
+	switch x := v.(type) {
+	case nil:
+		return nil, nil
+	case time.Time:
+		t := x
+		return &t, nil
+	case []byte:
+		return parseNullableTimeString(string(x))
+	case string:
+		return parseNullableTimeString(x)
+	default:
+		return nil, fmt.Errorf("unsupported time value type %T", v)
+	}
+}
+
+func parseNullableTimeString(raw string) (*time.Time, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	layouts := []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02 15:04:05.999999",
+		"2006-01-02 15:04:05",
+	}
+	for _, layout := range layouts {
+		if parsed, err := time.Parse(layout, raw); err == nil {
+			return &parsed, nil
+		}
+	}
+	return nil, fmt.Errorf("could not parse time value %q", raw)
 }
 
 func ReadReferral(db *sql.DB, key string) (string, error) {
