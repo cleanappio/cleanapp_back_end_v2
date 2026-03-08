@@ -168,6 +168,35 @@ func (s *EmailService) recordBrandEmailSent(ctx context.Context, brandName, emai
 	return nil
 }
 
+// recordReportEmailDelivery records that a specific report notification was sent to a specific recipient.
+func (s *EmailService) recordReportEmailDelivery(ctx context.Context, seq int64, email, deliverySource string) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO report_email_deliveries (
+			seq, recipient_email, delivery_status, delivery_source, provider, sent_at
+		) VALUES (?, ?, 'sent', ?, 'sendgrid', NOW())
+		ON DUPLICATE KEY UPDATE
+			delivery_status = VALUES(delivery_status),
+			delivery_source = VALUES(delivery_source),
+			provider = VALUES(provider),
+			sent_at = VALUES(sent_at),
+			updated_at = NOW()
+	`, seq, strings.TrimSpace(email), deliverySource)
+	if err != nil {
+		return fmt.Errorf("failed to record report email delivery for seq %d to %s: %w", seq, email, err)
+	}
+	return nil
+}
+
+func (s *EmailService) recordReportEmailDeliveries(ctx context.Context, seqs []int64, emails []string, deliverySource string) {
+	for _, seq := range seqs {
+		for _, emailAddr := range emails {
+			if err := s.recordReportEmailDelivery(ctx, seq, emailAddr, deliverySource); err != nil {
+				log.Warnf("Failed to record report email delivery for seq %d to %s: %v", seq, emailAddr, err)
+			}
+		}
+	}
+}
+
 // getDailyEmailCount returns the number of emails sent today for a specific brand
 func (s *EmailService) getDailyEmailCount(ctx context.Context, brandName string) (int, error) {
 	var count int
@@ -204,7 +233,6 @@ func NewEmailService(cfg *config.Config) (*EmailService, error) {
 		time.Sleep(waitInterval)
 		waitInterval *= 2 // Exponential backoff: 1s, 2s, 4s, 8s, ...
 	}
-
 
 	// Create email sender
 	emailSender := email.NewEmailSender(cfg)
@@ -653,6 +681,7 @@ func (s *EmailService) ProcessBrandNotifications() error {
 				log.Warnf("Failed to record email sent to %s: %v", emailAddr, err)
 			}
 		}
+		s.recordReportEmailDeliveries(ctx, summary.ReportSeqs, cleanEmails, "aggregate_brand")
 
 		for _, seq := range summary.ReportSeqs {
 			if err := s.markReportAsProcessed(ctx, seq); err != nil {
@@ -1052,6 +1081,10 @@ func (s *EmailService) sendEmailsToInferredContacts(ctx context.Context, report 
 			log.Warnf("Failed to record brand email sent for %s to %s: %v", brandName, emailAddr, recordErr)
 			// Continue - don't fail the whole operation
 		}
+
+		if recordErr := s.recordReportEmailDelivery(ctx, report.Seq, emailAddr, "inferred_contact"); recordErr != nil {
+			log.Warnf("Failed to record report email delivery for seq %d to %s: %v", report.Seq, emailAddr, recordErr)
+		}
 	}
 
 	return nil
@@ -1121,6 +1154,10 @@ func (s *EmailService) sendEmailsForArea(ctx context.Context, report models.Repo
 		if recordErr := s.recordEmailSent(ctx, emailAddr); recordErr != nil {
 			log.Warnf("Failed to record email sent to %s: %v", emailAddr, recordErr)
 			// Continue - don't fail the whole operation for history tracking
+		}
+
+		if recordErr := s.recordReportEmailDelivery(ctx, report.Seq, emailAddr, "area_contact"); recordErr != nil {
+			log.Warnf("Failed to record report email delivery for seq %d to %s: %v", report.Seq, emailAddr, recordErr)
 		}
 	}
 
@@ -1409,6 +1446,46 @@ func verifyAndCreateTables(db *sql.DB) error {
 
 	if err != nil {
 		return fmt.Errorf("failed to check if email_recipient_history table exists: %w", err)
+	}
+
+	// Check if report_email_deliveries table exists
+	var reportEmailDeliveriesExists int
+	err = db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM information_schema.tables
+		WHERE table_schema = DATABASE()
+		AND table_name = 'report_email_deliveries'
+	`).Scan(&reportEmailDeliveriesExists)
+	if err != nil {
+		return fmt.Errorf("failed to check if report_email_deliveries table exists: %w", err)
+	}
+
+	if reportEmailDeliveriesExists == 0 {
+		log.Info("Creating report_email_deliveries table...")
+		createReportEmailDeliveriesSQL := `
+			CREATE TABLE report_email_deliveries (
+				id BIGINT AUTO_INCREMENT PRIMARY KEY,
+				seq INT NOT NULL,
+				recipient_email VARCHAR(255) NOT NULL,
+				delivery_status VARCHAR(32) NOT NULL DEFAULT 'sent',
+				delivery_source VARCHAR(64) NOT NULL DEFAULT 'inferred_contact',
+				provider VARCHAR(32) NOT NULL DEFAULT 'sendgrid',
+				sent_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+				UNIQUE KEY uq_report_email_delivery (seq, recipient_email),
+				INDEX idx_report_email_delivery_seq (seq),
+				INDEX idx_report_email_delivery_sent_at (sent_at),
+				INDEX idx_report_email_delivery_recipient (recipient_email)
+			) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+		`
+		_, err = db.ExecContext(ctx, createReportEmailDeliveriesSQL)
+		if err != nil {
+			return fmt.Errorf("failed to create report_email_deliveries table: %w", err)
+		}
+		log.Info("report_email_deliveries table created successfully")
+	} else {
+		log.Info("report_email_deliveries table already exists")
 	}
 
 	if recipientHistoryTableExists == 0 {

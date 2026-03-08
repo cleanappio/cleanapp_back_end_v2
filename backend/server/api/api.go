@@ -90,6 +90,23 @@ type ReadReportResponse struct {
 	Image    []byte `json:"image"`
 }
 
+type ReportEmailDeliveryRecipient struct {
+	Email          string `json:"email"`
+	DeliverySource string `json:"delivery_source"`
+	DeliveryStatus string `json:"delivery_status"`
+	SentAt         string `json:"sent_at,omitempty"`
+}
+
+type ReportEmailStatusResponse struct {
+	Seq             int                            `json:"seq"`
+	Status          string                         `json:"status"`
+	LastEmailSentAt string                         `json:"last_email_sent_at,omitempty"`
+	NextAttemptAt   string                         `json:"next_attempt_at,omitempty"`
+	RetryReason     string                         `json:"retry_reason,omitempty"`
+	RecipientCount  int                            `json:"recipient_count"`
+	Recipients      []ReportEmailDeliveryRecipient `json:"recipients,omitempty"`
+}
+
 type ReferralQuery struct {
 	RefKey string `form:"refkey"` // A key in format <IPAddress>:<screenwidth>:<screenheight>
 }

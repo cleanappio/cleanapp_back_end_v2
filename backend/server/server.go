@@ -24,6 +24,7 @@ const (
 	EndPointUser              = "/update_or_create_user"
 	EndPointReport            = "/report"
 	EndPointReadReport        = "/read_report"
+	EndPointReadReportEmail   = "/read_report_email_status"
 	EndPointGetMap            = "/get_map"
 	EndPointGetStats          = "/get_stats"
 	EndPointGetTeams          = "/get_teams"
@@ -114,6 +115,7 @@ func StartService() {
 	router.POST(EndPointPrivacyAndTOC, UpdatePrivacyAndTOC)
 	router.POST(EndPointReport, Report)
 	router.POST(EndPointReadReport, ReadReport)
+	router.POST(EndPointReadReportEmail, ReadReportEmailStatus)
 	router.POST(EndPointGetMap, GetMap)
 	router.POST(EndPointGetStats, GetStats)
 	router.POST(EndPointGetTeams, GetTeams)

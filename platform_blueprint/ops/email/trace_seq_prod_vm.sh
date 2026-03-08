@@ -81,6 +81,10 @@ echo "== sent_reports_emails (processed marker) =="
 mysql_q "SELECT seq,created_at FROM sent_reports_emails WHERE seq=${seq} LIMIT 5;"
 echo
 
+echo "== report_email_deliveries (actual recipients) =="
+mysql_q "SELECT seq,recipient_email,delivery_status,delivery_source,sent_at FROM report_email_deliveries WHERE seq=${seq} ORDER BY sent_at ASC LIMIT 20;" | mask_emails
+echo
+
 if [[ -n "${brand_name}" ]]; then
   echo "== brand context =="
   echo "brand_name=${brand_name}"

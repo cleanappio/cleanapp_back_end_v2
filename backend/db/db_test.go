@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"cleanapp/backend/server/api"
 	"cleanapp/backend/util"
@@ -680,6 +681,77 @@ func TestReadReport(t *testing.T) {
 			if !reflect.DeepEqual(response, testCase.expectResponse) {
 				t.Errorf("%s, readReport: expected %v, got %v", testCase.name, testCase.expectResponse, response)
 			}
+		}
+	})
+}
+
+func TestReadReportEmailStatus(t *testing.T) {
+	recordColumns := []string{"id"}
+	deliveryColumns := []string{"recipient_email", "delivery_source", "delivery_status", "sent_at"}
+	retryColumns := []string{"next_attempt_at", "reason"}
+
+	t.Run("owner sees sent recipients", func(t *testing.T) {
+		setUp()
+		defer tearDown()
+
+		sentAt := time.Date(2026, time.March, 8, 10, 0, 0, 0, time.UTC)
+		secondSentAt := sentAt.Add(time.Second)
+
+		mock.ExpectQuery("SELECT id FROM reports WHERE seq = (.+)").
+			WithArgs(123).
+			WillReturnRows(sqlmock.NewRows(recordColumns).AddRow("0x1234"))
+		mock.ExpectQuery("SELECT MAX\\(created_at\\) FROM sent_reports_emails WHERE seq = (.+)").
+			WithArgs(123).
+			WillReturnRows(sqlmock.NewRows([]string{"created_at"}).AddRow(sentAt))
+		mock.ExpectQuery("SELECT next_attempt_at, reason FROM email_report_retry WHERE seq = (.+) LIMIT 1").
+			WithArgs(123).
+			WillReturnError(sql.ErrNoRows)
+		mock.ExpectQuery("SELECT recipient_email, delivery_source, delivery_status, sent_at FROM report_email_deliveries WHERE seq = (.+) ORDER BY sent_at ASC, id ASC").
+			WithArgs(123).
+			WillReturnRows(sqlmock.NewRows(deliveryColumns).
+				AddRow("ops@example.com", "inferred_contact", "sent", sentAt).
+				AddRow("info@example.com", "inferred_contact", "sent", secondSentAt))
+
+		resp, err := ReadReportEmailStatus(db, &api.ReadReportArgs{Version: "2.0", Id: "0x1234", Seq: 123})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.Status != "sent" {
+			t.Fatalf("expected status sent, got %q", resp.Status)
+		}
+		if resp.RecipientCount != 2 {
+			t.Fatalf("expected 2 recipients, got %d", resp.RecipientCount)
+		}
+	})
+
+	t.Run("owner sees pending retry", func(t *testing.T) {
+		setUp()
+		defer tearDown()
+
+		nextAttemptAt := time.Date(2026, time.March, 8, 11, 0, 0, 0, time.UTC)
+
+		mock.ExpectQuery("SELECT id FROM reports WHERE seq = (.+)").
+			WithArgs(456).
+			WillReturnRows(sqlmock.NewRows(recordColumns).AddRow("0x1234"))
+		mock.ExpectQuery("SELECT MAX\\(created_at\\) FROM sent_reports_emails WHERE seq = (.+)").
+			WithArgs(456).
+			WillReturnRows(sqlmock.NewRows([]string{"created_at"}).AddRow(nil))
+		mock.ExpectQuery("SELECT next_attempt_at, reason FROM email_report_retry WHERE seq = (.+) LIMIT 1").
+			WithArgs(456).
+			WillReturnRows(sqlmock.NewRows(retryColumns).AddRow(nextAttemptAt, "await_contact_discovery"))
+		mock.ExpectQuery("SELECT recipient_email, delivery_source, delivery_status, sent_at FROM report_email_deliveries WHERE seq = (.+) ORDER BY sent_at ASC, id ASC").
+			WithArgs(456).
+			WillReturnRows(sqlmock.NewRows(deliveryColumns))
+
+		resp, err := ReadReportEmailStatus(db, &api.ReadReportArgs{Version: "2.0", Id: "0x1234", Seq: 456})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.Status != "pending_retry" {
+			t.Fatalf("expected status pending_retry, got %q", resp.Status)
+		}
+		if resp.RetryReason != "await_contact_discovery" {
+			t.Fatalf("expected retry reason await_contact_discovery, got %q", resp.RetryReason)
 		}
 	})
 }

@@ -218,6 +218,22 @@ CREATE TABLE IF NOT EXISTS sent_reports_emails (
   INDEX idx_seq (seq)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS report_email_deliveries (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  seq INT NOT NULL,
+  recipient_email VARCHAR(255) NOT NULL,
+  delivery_status VARCHAR(32) NOT NULL DEFAULT 'sent',
+  delivery_source VARCHAR(64) NOT NULL DEFAULT 'inferred_contact',
+  provider VARCHAR(32) NOT NULL DEFAULT 'sendgrid',
+  sent_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_report_email_delivery (seq, recipient_email),
+  INDEX idx_report_email_delivery_seq (seq),
+  INDEX idx_report_email_delivery_sent_at (sent_at),
+  INDEX idx_report_email_delivery_recipient (recipient_email)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Report status table (active/resolved) used by public report APIs for filtering.
 CREATE TABLE IF NOT EXISTS report_status (
   seq INT NOT NULL,

@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"math/big"
 	"time"
@@ -19,6 +20,11 @@ import (
 	ethcommon "github.com/ethereum/go-ethereum/common"
 	_ "github.com/go-sql-driver/mysql"
 	// geojson "github.com/paulmach/go.geojson"
+)
+
+var (
+	ErrReportNotFound = errors.New("report not found")
+	ErrReportNotOwner = errors.New("report does not belong to requester")
 )
 
 func CreateOrUpdateUser(db *sql.DB, u *api.UserArgs, teamGen func(string) util.TeamColor, disbursers []*disburse.Disburser) (*api.UserResp, error) {
@@ -447,6 +453,89 @@ func ReadReport(db *sql.DB, args *api.ReadReportArgs) (*api.ReadReportResponse, 
 	}
 
 	return ret, nil
+}
+
+func ReadReportEmailStatus(db *sql.DB, args *api.ReadReportArgs) (*api.ReportEmailStatusResponse, error) {
+	var ownerID string
+	err := db.QueryRow(`SELECT id FROM reports WHERE seq = ?`, args.Seq).Scan(&ownerID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("%w: %d", ErrReportNotFound, args.Seq)
+		}
+		return nil, err
+	}
+	if ownerID != args.Id {
+		return nil, fmt.Errorf("%w: %d", ErrReportNotOwner, args.Seq)
+	}
+
+	resp := &api.ReportEmailStatusResponse{
+		Seq:    args.Seq,
+		Status: "pending",
+	}
+
+	var lastProcessedAt sql.NullTime
+	if err := db.QueryRow(`SELECT MAX(created_at) FROM sent_reports_emails WHERE seq = ?`, args.Seq).Scan(&lastProcessedAt); err != nil {
+		return nil, err
+	}
+	if lastProcessedAt.Valid {
+		resp.LastEmailSentAt = lastProcessedAt.Time.UTC().Format(time.RFC3339)
+	}
+
+	var nextAttemptAt sql.NullTime
+	var retryReason sql.NullString
+	retryErr := db.QueryRow(`SELECT next_attempt_at, reason FROM email_report_retry WHERE seq = ? LIMIT 1`, args.Seq).Scan(&nextAttemptAt, &retryReason)
+	if retryErr != nil && retryErr != sql.ErrNoRows {
+		return nil, retryErr
+	}
+
+	rows, err := db.Query(`
+		SELECT recipient_email, delivery_source, delivery_status, sent_at
+		FROM report_email_deliveries
+		WHERE seq = ?
+		ORDER BY sent_at ASC, id ASC
+	`, args.Seq)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var recipient api.ReportEmailDeliveryRecipient
+		var sentAt sql.NullTime
+		if err := rows.Scan(&recipient.Email, &recipient.DeliverySource, &recipient.DeliveryStatus, &sentAt); err != nil {
+			return nil, err
+		}
+		if sentAt.Valid {
+			recipient.SentAt = sentAt.Time.UTC().Format(time.RFC3339)
+		}
+		resp.Recipients = append(resp.Recipients, recipient)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	resp.RecipientCount = len(resp.Recipients)
+	switch {
+	case len(resp.Recipients) > 0:
+		resp.Status = "sent"
+		if resp.LastEmailSentAt == "" {
+			resp.LastEmailSentAt = resp.Recipients[len(resp.Recipients)-1].SentAt
+		}
+	case retryErr == nil:
+		resp.Status = "pending_retry"
+		if nextAttemptAt.Valid {
+			resp.NextAttemptAt = nextAttemptAt.Time.UTC().Format(time.RFC3339)
+		}
+		if retryReason.Valid {
+			resp.RetryReason = retryReason.String
+		}
+	case lastProcessedAt.Valid:
+		resp.Status = "processed_no_delivery"
+	default:
+		resp.Status = "pending"
+	}
+
+	return resp, nil
 }
 
 func ReadReferral(db *sql.DB, key string) (string, error) {
