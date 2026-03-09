@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"log"
 	"math/rand"
@@ -804,6 +805,68 @@ func (h *Handlers) GetSearchReports(c *gin.Context) {
 
 		c.JSON(http.StatusOK, response)
 	}
+}
+
+func normalizeGeometryPayload(raw interface{}) ([]byte, error) {
+	if raw == nil {
+		return nil, fmt.Errorf("geometry is required")
+	}
+
+	blob, err := json.Marshal(raw)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal geometry: %w", err)
+	}
+
+	var probe map[string]interface{}
+	if err := json.Unmarshal(blob, &probe); err != nil {
+		return nil, fmt.Errorf("invalid geometry payload: %w", err)
+	}
+
+	typ, _ := probe["type"].(string)
+	switch typ {
+	case "Feature":
+		geom, ok := probe["geometry"]
+		if !ok {
+			return nil, fmt.Errorf("feature missing geometry")
+		}
+		return json.Marshal(geom)
+	case "Polygon", "MultiPolygon":
+		return blob, nil
+	default:
+		return nil, fmt.Errorf("unsupported geometry type: %s", typ)
+	}
+}
+
+// GetReportsByGeometry returns reports within a supplied GeoJSON geometry.
+func (h *Handlers) GetReportsByGeometry(c *gin.Context) {
+	var req models.ReportsByGeometryRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})
+		return
+	}
+
+	geometryJSON, err := normalizeGeometryPayload(req.Geometry)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	n := req.N
+	if n <= 0 {
+		n = 250
+	}
+
+	reports, err := h.db.GetReportsByGeometry(c.Request.Context(), string(geometryJSON), req.Classification, n)
+	if err != nil {
+		log.Printf("Failed to get reports by geometry: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve reports"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"reports": reports,
+		"count":   len(reports),
+	})
 }
 
 // GetReportBySeq returns a specific report by sequence ID

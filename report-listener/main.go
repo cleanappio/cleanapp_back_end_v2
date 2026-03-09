@@ -150,6 +150,9 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 		// Get reports by latitude/longitude within radius endpoint
 		api.GET("/reports/by-latlng-lite", h.GetReportsByLatLngLite)
 
+		// Get reports within a supplied polygonal geometry
+		api.POST("/reports/by-geometry", h.GetReportsByGeometry)
+
 		// Get reports by brand name endpoint
 		api.GET("/reports/by-brand", h.GetReportsByBrand)
 
@@ -196,6 +199,9 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 
 		// Get reports by latitude/longitude within radius (lite) endpoint
 		apiV4.GET("/reports/by-latlng-lite", h.GetReportsByLatLngLite)
+
+		// Get reports within a supplied polygonal geometry
+		apiV4.POST("/reports/by-geometry", h.GetReportsByGeometry)
 
 		// Get reports by brand name endpoint
 		apiV4.GET("/reports/by-brand", h.GetReportsByBrand)

@@ -1394,6 +1394,144 @@ func (d *Database) GetReportsByLatLngLite(ctx context.Context, latitude, longitu
 	return result, nil
 }
 
+// GetReportsByGeometry retrieves public reports that fall within the supplied GeoJSON geometry.
+// geometryJSON must be a GeoJSON Geometry object string (Polygon or MultiPolygon).
+func (d *Database) GetReportsByGeometry(ctx context.Context, geometryJSON string, classification string, n int) ([]models.ReportWithAnalysis, error) {
+	const maxGeometryReportsLimit = 100000
+
+	if strings.TrimSpace(geometryJSON) == "" {
+		return []models.ReportWithAnalysis{}, nil
+	}
+	if n <= 0 {
+		n = 200
+	}
+	if n > maxGeometryReportsLimit {
+		n = maxGeometryReportsLimit
+	}
+
+	if classification == "" {
+		classification = "physical"
+	}
+
+	reportsQuery := fmt.Sprintf(`
+		SELECT DISTINCT r.seq, r.ts, r.id, r.latitude, r.longitude
+		FROM reports r
+		JOIN reports_geometry rg ON r.seq = rg.seq
+		INNER JOIN report_analysis ra ON r.seq = ra.seq
+		LEFT JOIN report_raw rr ON r.seq = rr.report_seq
+		LEFT JOIN report_status rs ON r.seq = rs.seq
+		LEFT JOIN reports_owners ro ON r.seq = ro.seq
+		WHERE ST_Within(rg.geom, ST_SRID(ST_GeomFromGeoJSON(?), 4326))
+		AND (rs.status IS NULL OR rs.status = 'active')
+		AND ra.is_valid = TRUE
+		AND ra.classification = ?
+		AND %s
+		AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE)
+		ORDER BY r.ts DESC
+		LIMIT ?
+	`, PublicVisibilityWhereSQL)
+
+	reportRows, err := d.db.QueryContext(ctx, reportsQuery, geometryJSON, classification, n)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query reports by geometry: %w", err)
+	}
+	defer reportRows.Close()
+
+	var reportSeqs []int
+	var reports []models.Report
+	for reportRows.Next() {
+		var report models.Report
+		err := reportRows.Scan(
+			&report.Seq,
+			&report.Timestamp,
+			&report.ID,
+			&report.Latitude,
+			&report.Longitude,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan report: %w", err)
+		}
+		reports = append(reports, report)
+		reportSeqs = append(reportSeqs, report.Seq)
+	}
+
+	if err = reportRows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating reports by geometry: %w", err)
+	}
+
+	if len(reports) == 0 {
+		return []models.ReportWithAnalysis{}, nil
+	}
+
+	placeholders := make([]string, len(reportSeqs))
+	args := make([]interface{}, len(reportSeqs))
+	for i, seq := range reportSeqs {
+		placeholders[i] = "?"
+		args[i] = seq
+	}
+
+	analysesQuery := fmt.Sprintf(`
+		SELECT
+			ra.seq, ra.source, ra.analysis_text,
+			ra.title, ra.description, ra.brand_name, ra.brand_display_name,
+			ra.litter_probability, ra.hazard_probability, ra.digital_bug_probability,
+			ra.severity_level, ra.summary, ra.language, ra.classification, ra.created_at
+		FROM report_analysis ra
+		WHERE ra.seq IN (%s)
+		ORDER BY ra.seq DESC, ra.language ASC
+	`, strings.Join(placeholders, ","))
+
+	analysisRows, err := d.db.QueryContext(ctx, analysesQuery, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query analyses by geometry: %w", err)
+	}
+	defer analysisRows.Close()
+
+	analysesBySeq := make(map[int][]models.ReportAnalysis)
+	for analysisRows.Next() {
+		var analysis models.ReportAnalysis
+		err := analysisRows.Scan(
+			&analysis.Seq,
+			&analysis.Source,
+			&analysis.AnalysisText,
+			&analysis.Title,
+			&analysis.Description,
+			&analysis.BrandName,
+			&analysis.BrandDisplayName,
+			&analysis.LitterProbability,
+			&analysis.HazardProbability,
+			&analysis.DigitalBugProbability,
+			&analysis.SeverityLevel,
+			&analysis.Summary,
+			&analysis.Language,
+			&analysis.Classification,
+			&analysis.CreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan analysis by geometry: %w", err)
+		}
+		analysesBySeq[analysis.Seq] = append(analysesBySeq[analysis.Seq], analysis)
+	}
+
+	if err = analysisRows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating analyses by geometry: %w", err)
+	}
+
+	var result []models.ReportWithAnalysis
+	for _, report := range reports {
+		analyses := analysesBySeq[report.Seq]
+		if len(analyses) == 0 {
+			continue
+		}
+		result = append(result, models.ReportWithAnalysis{
+			Report:   report,
+			Analysis: analyses,
+		})
+	}
+
+	return result, nil
+}
+
 // GetReportsByBrandName retrieves reports with analysis by brand name
 // PERFORMANCE: Skip report_status and reports_owners checks for speed
 // These tables are sparsely populated and add 40+ seconds to large brand queries

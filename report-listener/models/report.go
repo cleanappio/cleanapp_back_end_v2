@@ -65,6 +65,14 @@ type ReportWithAnalysis struct {
 	Analysis []ReportAnalysis `json:"analysis"`
 }
 
+// ReportsByGeometryRequest selects reports inside a polygonal geometry.
+// Geometry may be a GeoJSON Geometry object or a GeoJSON Feature wrapper.
+type ReportsByGeometryRequest struct {
+	Geometry       interface{} `json:"geometry"`
+	Classification string      `json:"classification"`
+	N              int         `json:"n"`
+}
+
 // ReportBatch represents a batch of reports to be broadcasted
 type ReportBatch struct {
 	Reports             []ReportWithAnalysis `json:"reports"`
