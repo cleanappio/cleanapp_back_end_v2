@@ -14,6 +14,7 @@ type Config struct {
 	DBUser     string
 	DBPassword string
 	DBName     string
+	JWTSecret  string
 
 	Port                    string
 	RequestBodyLimitBytes   int64
@@ -58,6 +59,10 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	jwtSecret, err := appenv.Secret("JWT_SECRET", "")
+	if err != nil {
+		return nil, err
+	}
 	amqpUser, err := appenv.StringRequiredInProd("AMQP_USER", "")
 	if err != nil {
 		return nil, err
@@ -72,6 +77,7 @@ func Load() (*Config, error) {
 		DBUser:     appenv.String("DB_USER", "server"),
 		DBPassword: dbPassword,
 		DBName:     appenv.String("DB_NAME", "cleanapp"),
+		JWTSecret:  jwtSecret,
 
 		Port:                    appenv.String("PORT", "8080"),
 		RequestBodyLimitBytes:   appenv.Int64("REQUEST_BODY_LIMIT_BYTES", 2*1024*1024),

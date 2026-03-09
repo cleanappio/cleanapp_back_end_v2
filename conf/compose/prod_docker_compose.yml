@@ -147,6 +147,7 @@ services:
       - DB_USER=server
       - DB_PASSWORD=${MYSQL_APP_PASSWORD}
       - DB_NAME=cleanapp
+      - JWT_SECRET=${CLEANAPP_IO_JWT_SECRET}
       - BROADCAST_INTERVAL=1s
       - LOG_LEVEL=info
       - GIN_MODE=release

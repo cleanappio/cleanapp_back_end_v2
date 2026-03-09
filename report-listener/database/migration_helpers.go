@@ -232,3 +232,145 @@ func ensureCleanAppWireTables(ctx context.Context, db *sql.DB) error {
 	}
 	return nil
 }
+
+func ensureCaseTables(ctx context.Context, db *sql.DB) error {
+	stmts := []string{
+		`CREATE TABLE IF NOT EXISTS saved_clusters (
+			cluster_id VARCHAR(64) NOT NULL,
+			source_type VARCHAR(32) NOT NULL,
+			classification VARCHAR(32) NOT NULL DEFAULT 'physical',
+			geometry_json JSON NULL,
+			seed_report_seq INT NULL,
+			report_count INT NOT NULL DEFAULT 0,
+			summary TEXT NULL,
+			stats_json JSON NULL,
+			analysis_json JSON NULL,
+			created_by_user_id VARCHAR(255) NOT NULL,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			PRIMARY KEY (cluster_id),
+			KEY idx_saved_clusters_created_by (created_by_user_id, created_at),
+			KEY idx_saved_clusters_seed (seed_report_seq),
+			CONSTRAINT fk_saved_clusters_seed FOREIGN KEY (seed_report_seq) REFERENCES reports(seq) ON DELETE SET NULL
+		) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
+		`CREATE TABLE IF NOT EXISTS cases (
+			case_id VARCHAR(64) NOT NULL,
+			slug VARCHAR(128) NOT NULL,
+			title VARCHAR(255) NOT NULL,
+			type VARCHAR(64) NOT NULL DEFAULT 'incident',
+			status VARCHAR(32) NOT NULL DEFAULT 'open',
+			classification VARCHAR(32) NOT NULL DEFAULT 'physical',
+			summary TEXT NULL,
+			uncertainty_notes TEXT NULL,
+			geometry_json JSON NULL,
+			anchor_report_seq INT NULL,
+			anchor_lat DOUBLE NULL,
+			anchor_lng DOUBLE NULL,
+			building_id VARCHAR(128) NULL,
+			parcel_id VARCHAR(128) NULL,
+			severity_score FLOAT NOT NULL DEFAULT 0,
+			urgency_score FLOAT NOT NULL DEFAULT 0,
+			confidence_score FLOAT NOT NULL DEFAULT 0,
+			exposure_score FLOAT NOT NULL DEFAULT 0,
+			criticality_score FLOAT NOT NULL DEFAULT 0,
+			trend_score FLOAT NOT NULL DEFAULT 0,
+			first_seen_at TIMESTAMP NULL,
+			last_seen_at TIMESTAMP NULL,
+			created_by_user_id VARCHAR(255) NOT NULL,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			PRIMARY KEY (case_id),
+			UNIQUE KEY uniq_cases_slug (slug),
+			KEY idx_cases_status_updated (status, updated_at),
+			KEY idx_cases_created_by (created_by_user_id, created_at),
+			KEY idx_cases_anchor_report (anchor_report_seq),
+			CONSTRAINT fk_cases_anchor_report FOREIGN KEY (anchor_report_seq) REFERENCES reports(seq) ON DELETE SET NULL
+		) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
+		`CREATE TABLE IF NOT EXISTS case_reports (
+			case_id VARCHAR(64) NOT NULL,
+			seq INT NOT NULL,
+			link_reason VARCHAR(128) NOT NULL DEFAULT 'manual',
+			confidence FLOAT NOT NULL DEFAULT 1.0,
+			attached_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (case_id, seq),
+			KEY idx_case_reports_seq (seq),
+			CONSTRAINT fk_case_reports_case FOREIGN KEY (case_id) REFERENCES cases(case_id) ON DELETE CASCADE,
+			CONSTRAINT fk_case_reports_report FOREIGN KEY (seq) REFERENCES reports(seq) ON DELETE CASCADE
+		) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
+		`CREATE TABLE IF NOT EXISTS case_clusters (
+			case_id VARCHAR(64) NOT NULL,
+			cluster_id VARCHAR(64) NOT NULL,
+			linked_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (case_id, cluster_id),
+			CONSTRAINT fk_case_clusters_case FOREIGN KEY (case_id) REFERENCES cases(case_id) ON DELETE CASCADE,
+			CONSTRAINT fk_case_clusters_cluster FOREIGN KEY (cluster_id) REFERENCES saved_clusters(cluster_id) ON DELETE CASCADE
+		) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
+		`CREATE TABLE IF NOT EXISTS case_escalation_targets (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			case_id VARCHAR(64) NOT NULL,
+			role_type VARCHAR(64) NOT NULL DEFAULT 'contact',
+			organization VARCHAR(255) NULL,
+			display_name VARCHAR(255) NULL,
+			email VARCHAR(255) NULL,
+			phone VARCHAR(64) NULL,
+			target_source VARCHAR(64) NOT NULL DEFAULT 'suggested',
+			confidence_score FLOAT NOT NULL DEFAULT 0,
+			rationale TEXT NULL,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (id),
+			KEY idx_case_escalation_targets_case (case_id),
+			KEY idx_case_escalation_targets_email (email),
+			CONSTRAINT fk_case_escalation_targets_case FOREIGN KEY (case_id) REFERENCES cases(case_id) ON DELETE CASCADE
+		) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
+		`CREATE TABLE IF NOT EXISTS case_escalation_actions (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			case_id VARCHAR(64) NOT NULL,
+			target_id BIGINT UNSIGNED NULL,
+			channel VARCHAR(32) NOT NULL DEFAULT 'email',
+			status VARCHAR(32) NOT NULL DEFAULT 'draft',
+			subject TEXT NULL,
+			body TEXT NULL,
+			attachments_json JSON NULL,
+			sent_by_user_id VARCHAR(255) NULL,
+			provider_message_id VARCHAR(255) NULL,
+			sent_at TIMESTAMP NULL,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (id),
+			KEY idx_case_escalation_actions_case (case_id, created_at),
+			KEY idx_case_escalation_actions_target (target_id),
+			CONSTRAINT fk_case_escalation_actions_case FOREIGN KEY (case_id) REFERENCES cases(case_id) ON DELETE CASCADE,
+			CONSTRAINT fk_case_escalation_actions_target FOREIGN KEY (target_id) REFERENCES case_escalation_targets(id) ON DELETE SET NULL
+		) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
+		`CREATE TABLE IF NOT EXISTS case_resolution_signals (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			case_id VARCHAR(64) NOT NULL,
+			source_type VARCHAR(64) NOT NULL,
+			summary TEXT NOT NULL,
+			linked_report_seq INT NULL,
+			metadata_json JSON NULL,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (id),
+			KEY idx_case_resolution_signals_case (case_id, created_at),
+			KEY idx_case_resolution_signals_report (linked_report_seq),
+			CONSTRAINT fk_case_resolution_signals_case FOREIGN KEY (case_id) REFERENCES cases(case_id) ON DELETE CASCADE,
+			CONSTRAINT fk_case_resolution_signals_report FOREIGN KEY (linked_report_seq) REFERENCES reports(seq) ON DELETE SET NULL
+		) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
+		`CREATE TABLE IF NOT EXISTS case_audit_events (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			case_id VARCHAR(64) NOT NULL,
+			event_type VARCHAR(64) NOT NULL,
+			actor_user_id VARCHAR(255) NULL,
+			payload_json JSON NULL,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (id),
+			KEY idx_case_audit_events_case (case_id, created_at),
+			CONSTRAINT fk_case_audit_events_case FOREIGN KEY (case_id) REFERENCES cases(case_id) ON DELETE CASCADE
+		) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
+	}
+	for _, stmt := range stmts {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("failed to ensure case table: %w", err)
+		}
+	}
+	return nil
+}

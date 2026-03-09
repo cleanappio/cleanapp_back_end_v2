@@ -128,6 +128,8 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 	{
 		api.GET("/version", versionHandler)
 		api.POST("/intelligence/query", h.QueryIntelligence)
+		api.POST("/clusters/analyze", h.AnalyzeCluster)
+		api.POST("/clusters/from-report", h.AnalyzeClusterFromReport)
 
 		// WebSocket endpoint for report listening
 		api.GET("/reports/listen", h.ListenReports)
@@ -171,6 +173,15 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 		{
 			protected.POST("/bulk_ingest", h.BulkIngest)
 		}
+
+		cases := api.Group("/cases")
+		cases.Use(middleware.AuthMiddleware(cfg, svc.GetHandlers().Db()))
+		{
+			cases.POST("", h.CreateCase)
+			cases.GET("/:case_id", h.GetCase)
+			cases.POST("/:case_id/reports", h.AddReportsToCase)
+			cases.POST("/:case_id/status", h.UpdateCaseStatus)
+		}
 	}
 
 	// API v4 routes (alias for v3 - for backwards compatibility with frontend)
@@ -178,6 +189,8 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 	{
 		apiV4.GET("/version", versionHandler)
 		apiV4.POST("/intelligence/query", h.QueryIntelligence)
+		apiV4.POST("/clusters/analyze", h.AnalyzeCluster)
+		apiV4.POST("/clusters/from-report", h.AnalyzeClusterFromReport)
 
 		// WebSocket endpoint for report listening
 		apiV4.GET("/reports/listen", h.ListenReports)
@@ -220,6 +233,15 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 		protectedV4.Use(middleware.FetcherAuthMiddleware(svc.GetHandlers().Db()))
 		{
 			protectedV4.POST("/bulk_ingest", h.BulkIngest)
+		}
+
+		casesV4 := apiV4.Group("/cases")
+		casesV4.Use(middleware.AuthMiddleware(cfg, svc.GetHandlers().Db()))
+		{
+			casesV4.POST("", h.CreateCase)
+			casesV4.GET("/:case_id", h.GetCase)
+			casesV4.POST("/:case_id/reports", h.AddReportsToCase)
+			casesV4.POST("/:case_id/status", h.UpdateCaseStatus)
 		}
 	}
 
