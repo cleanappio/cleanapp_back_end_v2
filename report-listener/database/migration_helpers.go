@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
-	"strings"
 
 	"report-listener/publicid"
 )
@@ -69,18 +68,27 @@ func ensureReportsPublicID(ctx context.Context, db *sql.DB) error {
 	}
 
 	for {
-		filled, err := backfillReportPublicIDs(ctx, db, 5000)
+		filled, err := backfillReportPublicIDs(ctx, db, 50000)
 		if err != nil {
 			return err
 		}
+		if filled > 0 {
+			log.Printf("reports.public_id migration progress: filled=%d", filled)
+		}
+		if filled == 0 {
+			break
+		}
+	}
+
+	for {
 		cleared, err := clearDuplicateReportPublicIDs(ctx, db)
 		if err != nil {
 			return err
 		}
-		if filled > 0 || cleared > 0 {
-			log.Printf("reports.public_id migration progress: filled=%d cleared_duplicates=%d", filled, cleared)
+		if cleared > 0 {
+			log.Printf("reports.public_id duplicate cleanup progress: cleared=%d", cleared)
 		}
-		if filled == 0 && cleared == 0 {
+		if cleared == 0 {
 			break
 		}
 	}
@@ -109,78 +117,34 @@ func ensureReportsPublicID(ctx context.Context, db *sql.DB) error {
 }
 
 func backfillReportPublicIDs(ctx context.Context, db *sql.DB, batchSize int) (int, error) {
-	rows, err := db.QueryContext(ctx, `
-		SELECT seq
-		FROM reports
+	// MySQL evaluates RANDOM_BYTES() per row here, so we can fill large batches
+	// without shipping millions of generated IDs from the app layer.
+	result, err := db.ExecContext(ctx, `
+		UPDATE reports
+		SET public_id = CONCAT(
+			'rpt_',
+			REPLACE(
+				REPLACE(
+					REPLACE(TO_BASE64(RANDOM_BYTES(16)), '+', '-'),
+					'/',
+					'_'
+				),
+				'=',
+				''
+			)
+		)
 		WHERE public_id IS NULL OR public_id = ''
 		ORDER BY seq ASC
 		LIMIT ?
 	`, batchSize)
 	if err != nil {
-		return 0, fmt.Errorf("failed to load reports missing public_id: %w", err)
-	}
-	defer rows.Close()
-
-	var seqs []int
-	for rows.Next() {
-		var seq int
-		if err := rows.Scan(&seq); err != nil {
-			return 0, fmt.Errorf("failed to scan report seq for public_id backfill: %w", err)
-		}
-		seqs = append(seqs, seq)
-	}
-	if err := rows.Err(); err != nil {
-		return 0, fmt.Errorf("failed iterating reports missing public_id: %w", err)
-	}
-	if len(seqs) == 0 {
-		return 0, nil
-	}
-
-	used := make(map[string]struct{}, len(seqs))
-	publicIDs := make([]string, 0, len(seqs))
-	for range seqs {
-		publicID, err := nextReportPublicID(used)
-		if err != nil {
-			return 0, err
-		}
-		publicIDs = append(publicIDs, publicID)
-	}
-
-	query, args := buildReportPublicIDBatchUpdate(seqs, publicIDs)
-	result, err := db.ExecContext(ctx, query, args...)
-	if err != nil {
-		return 0, fmt.Errorf("failed to batch update report public_id values: %w", err)
+		return 0, fmt.Errorf("failed to backfill report public_id values: %w", err)
 	}
 	affected, err := result.RowsAffected()
 	if err != nil {
-		return 0, fmt.Errorf("failed to read batch-updated report count: %w", err)
+		return 0, fmt.Errorf("failed to read backfilled report count: %w", err)
 	}
 	return int(affected), nil
-}
-
-func buildReportPublicIDBatchUpdate(seqs []int, publicIDs []string) (string, []any) {
-	var query strings.Builder
-	args := make([]any, 0, len(seqs)*3)
-
-	query.WriteString(`
-		UPDATE reports
-		SET public_id = CASE seq
-	`)
-	for i, seq := range seqs {
-		query.WriteString(" WHEN ? THEN ?")
-		args = append(args, seq, publicIDs[i])
-	}
-	query.WriteString(" END WHERE seq IN (")
-	for i, seq := range seqs {
-		if i > 0 {
-			query.WriteString(",")
-		}
-		query.WriteString("?")
-		args = append(args, seq)
-	}
-	query.WriteString(`) AND (public_id IS NULL OR public_id = '')`)
-
-	return query.String(), args
 }
 
 func clearDuplicateReportPublicIDs(ctx context.Context, db *sql.DB) (int, error) {
