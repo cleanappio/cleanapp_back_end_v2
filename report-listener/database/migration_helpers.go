@@ -67,17 +67,19 @@ func ensureReportsPublicID(ctx context.Context, db *sql.DB) error {
 		}
 	}
 
+	lastSeq := 0
 	for {
-		filled, err := backfillReportPublicIDs(ctx, db, 50000)
+		filled, nextSeq, err := backfillReportPublicIDs(ctx, db, lastSeq, 50000)
 		if err != nil {
 			return err
 		}
 		if filled > 0 {
-			log.Printf("reports.public_id migration progress: filled=%d", filled)
+			log.Printf("reports.public_id migration progress: filled=%d through_seq=%d", filled, nextSeq)
 		}
 		if filled == 0 {
 			break
 		}
+		lastSeq = nextSeq
 	}
 
 	for {
@@ -116,7 +118,40 @@ func ensureReportsPublicID(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
-func backfillReportPublicIDs(ctx context.Context, db *sql.DB, batchSize int) (int, error) {
+func backfillReportPublicIDs(ctx context.Context, db *sql.DB, afterSeq int, batchSize int) (int, int, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT seq
+		FROM reports
+		WHERE seq > ? AND (public_id IS NULL OR public_id = '')
+		ORDER BY seq ASC
+		LIMIT ?
+	`, afterSeq, batchSize)
+	if err != nil {
+		return 0, afterSeq, fmt.Errorf("failed to load report public_id backfill range: %w", err)
+	}
+	defer rows.Close()
+
+	firstSeq := 0
+	lastSeq := afterSeq
+	selected := 0
+	for rows.Next() {
+		var seq int
+		if err := rows.Scan(&seq); err != nil {
+			return 0, afterSeq, fmt.Errorf("failed to scan report seq for public_id backfill: %w", err)
+		}
+		if selected == 0 {
+			firstSeq = seq
+		}
+		lastSeq = seq
+		selected++
+	}
+	if err := rows.Err(); err != nil {
+		return 0, afterSeq, fmt.Errorf("failed iterating report public_id backfill range: %w", err)
+	}
+	if selected == 0 {
+		return 0, afterSeq, nil
+	}
+
 	// MySQL evaluates RANDOM_BYTES() per row here, so we can fill large batches
 	// without shipping millions of generated IDs from the app layer.
 	result, err := db.ExecContext(ctx, `
@@ -133,18 +168,16 @@ func backfillReportPublicIDs(ctx context.Context, db *sql.DB, batchSize int) (in
 				''
 			)
 		)
-		WHERE public_id IS NULL OR public_id = ''
-		ORDER BY seq ASC
-		LIMIT ?
-	`, batchSize)
+		WHERE seq >= ? AND seq <= ? AND (public_id IS NULL OR public_id = '')
+	`, firstSeq, lastSeq)
 	if err != nil {
-		return 0, fmt.Errorf("failed to backfill report public_id values: %w", err)
+		return 0, afterSeq, fmt.Errorf("failed to backfill report public_id values: %w", err)
 	}
 	affected, err := result.RowsAffected()
 	if err != nil {
-		return 0, fmt.Errorf("failed to read backfilled report count: %w", err)
+		return 0, afterSeq, fmt.Errorf("failed to read backfilled report count: %w", err)
 	}
-	return int(affected), nil
+	return int(affected), lastSeq, nil
 }
 
 func clearDuplicateReportPublicIDs(ctx context.Context, db *sql.DB) (int, error) {
