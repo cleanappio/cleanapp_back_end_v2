@@ -22,7 +22,7 @@ func main() {
 	}
 	defer db.Close()
 
-	timeout := 30 * time.Minute
+	timeout := time.Duration(0)
 	if raw := os.Getenv("MIGRATION_TIMEOUT"); raw != "" {
 		parsed, err := time.ParseDuration(raw)
 		if err != nil {
@@ -31,7 +31,11 @@ func main() {
 		timeout = parsed
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx := context.Background()
+	cancel := func() {}
+	if timeout > 0 {
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+	}
 	defer cancel()
 
 	if err := database.RunMigrations(ctx, db.DB()); err != nil {

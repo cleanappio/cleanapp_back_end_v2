@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"strings"
 
 	"report-listener/publicid"
 )
@@ -68,13 +69,16 @@ func ensureReportsPublicID(ctx context.Context, db *sql.DB) error {
 	}
 
 	for {
-		filled, err := backfillReportPublicIDs(ctx, db, 1000)
+		filled, err := backfillReportPublicIDs(ctx, db, 5000)
 		if err != nil {
 			return err
 		}
 		cleared, err := clearDuplicateReportPublicIDs(ctx, db)
 		if err != nil {
 			return err
+		}
+		if filled > 0 || cleared > 0 {
+			log.Printf("reports.public_id migration progress: filled=%d cleared_duplicates=%d", filled, cleared)
 		}
 		if filled == 0 && cleared == 0 {
 			break
@@ -132,37 +136,51 @@ func backfillReportPublicIDs(ctx context.Context, db *sql.DB, batchSize int) (in
 		return 0, nil
 	}
 
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return 0, fmt.Errorf("failed to start public_id backfill transaction: %w", err)
-	}
-	defer tx.Rollback()
-
-	stmt, err := tx.PrepareContext(ctx, `
-		UPDATE reports
-		SET public_id = ?
-		WHERE seq = ? AND (public_id IS NULL OR public_id = '')
-	`)
-	if err != nil {
-		return 0, fmt.Errorf("failed to prepare public_id backfill statement: %w", err)
-	}
-	defer stmt.Close()
-
 	used := make(map[string]struct{}, len(seqs))
-	for _, seq := range seqs {
+	publicIDs := make([]string, 0, len(seqs))
+	for range seqs {
 		publicID, err := nextReportPublicID(used)
 		if err != nil {
 			return 0, err
 		}
-		if _, err := stmt.ExecContext(ctx, publicID, seq); err != nil {
-			return 0, fmt.Errorf("failed to update report %d public_id: %w", seq, err)
-		}
+		publicIDs = append(publicIDs, publicID)
 	}
 
-	if err := tx.Commit(); err != nil {
-		return 0, fmt.Errorf("failed to commit public_id backfill: %w", err)
+	query, args := buildReportPublicIDBatchUpdate(seqs, publicIDs)
+	result, err := db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, fmt.Errorf("failed to batch update report public_id values: %w", err)
 	}
-	return len(seqs), nil
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("failed to read batch-updated report count: %w", err)
+	}
+	return int(affected), nil
+}
+
+func buildReportPublicIDBatchUpdate(seqs []int, publicIDs []string) (string, []any) {
+	var query strings.Builder
+	args := make([]any, 0, len(seqs)*3)
+
+	query.WriteString(`
+		UPDATE reports
+		SET public_id = CASE seq
+	`)
+	for i, seq := range seqs {
+		query.WriteString(" WHEN ? THEN ?")
+		args = append(args, seq, publicIDs[i])
+	}
+	query.WriteString(" END WHERE seq IN (")
+	for i, seq := range seqs {
+		if i > 0 {
+			query.WriteString(",")
+		}
+		query.WriteString("?")
+		args = append(args, seq)
+	}
+	query.WriteString(`) AND (public_id IS NULL OR public_id = '')`)
+
+	return query.String(), args
 }
 
 func clearDuplicateReportPublicIDs(ctx context.Context, db *sql.DB) (int, error) {
