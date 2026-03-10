@@ -7,6 +7,7 @@ import (
 // Report represents a report from the reports table
 type Report struct {
 	Seq             int        `json:"seq" db:"seq"`
+	PublicID        string     `json:"public_id" db:"public_id"`
 	Timestamp       time.Time  `json:"timestamp" db:"ts"`
 	ID              string     `json:"id" db:"id"`
 	Team            int        `json:"team" db:"team"`
@@ -47,10 +48,13 @@ type ReportAnalysis struct {
 
 // MinimalAnalysis represents only the essential analysis fields for lite API responses
 type MinimalAnalysis struct {
-	SeverityLevel  float64 `json:"severity_level"`
-	Classification string  `json:"classification"`
-	Language       string  `json:"language"`
-	Title          string  `json:"title"`
+	SeverityLevel    float64 `json:"severity_level"`
+	Classification   string  `json:"classification"`
+	Language         string  `json:"language"`
+	Title            string  `json:"title"`
+	Summary          string  `json:"summary"`
+	BrandName        string  `json:"brand_name,omitempty"`
+	BrandDisplayName string  `json:"brand_display_name,omitempty"`
 }
 
 // ReportWithMinimalAnalysis represents a report with minimal analysis data

@@ -140,9 +140,6 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 		// Get last N analyzed reports endpoint
 		api.GET("/reports/last", h.GetLastNAnalyzedReports)
 
-		// Get report by sequence ID endpoint
-		api.GET("/reports/by-seq", h.GetReportBySeq)
-
 		// Get last N reports by ID endpoint
 		api.GET("/reports/by-id", h.GetLastNReportsByID)
 
@@ -169,6 +166,23 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 
 		// Get raw image by sequence number endpoint
 		api.GET("/reports/rawimage", h.GetRawImageBySeq)
+
+		detailRoutes := api.Group("/reports")
+		detailRoutes.Use(
+			edge.RateLimitMiddleware(edge.RateLimitConfig{
+				RPS:   cfg.PublicDetailRateLimitRPS,
+				Burst: cfg.PublicDetailRateLimitBurst,
+			}),
+			middleware.PublicDetailAbuseMonitor(middleware.PublicDetailAbuseConfig{
+				Window:    cfg.PublicDetailAbuseWindow,
+				MaxHits:   cfg.PublicDetailAbuseMaxHits,
+				MaxMisses: cfg.PublicDetailAbuseMaxMisses,
+			}),
+		)
+		{
+			detailRoutes.GET("/by-public-id", h.GetReportByPublicID)
+			detailRoutes.GET("/by-seq", h.GetReportBySeq)
+		}
 
 		// Protected bulk ingest endpoint
 		protected := api.Group("/reports")
@@ -207,9 +221,6 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 		// Get last N analyzed reports endpoint
 		apiV4.GET("/reports/last", h.GetLastNAnalyzedReports)
 
-		// Get report by sequence ID endpoint
-		apiV4.GET("/reports/by-seq", h.GetReportBySeq)
-
 		// Get last N reports by ID endpoint
 		apiV4.GET("/reports/by-id", h.GetLastNReportsByID)
 
@@ -236,6 +247,23 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 
 		// Get raw image by sequence number endpoint
 		apiV4.GET("/reports/rawimage", h.GetRawImageBySeq)
+
+		detailRoutesV4 := apiV4.Group("/reports")
+		detailRoutesV4.Use(
+			edge.RateLimitMiddleware(edge.RateLimitConfig{
+				RPS:   cfg.PublicDetailRateLimitRPS,
+				Burst: cfg.PublicDetailRateLimitBurst,
+			}),
+			middleware.PublicDetailAbuseMonitor(middleware.PublicDetailAbuseConfig{
+				Window:    cfg.PublicDetailAbuseWindow,
+				MaxHits:   cfg.PublicDetailAbuseMaxHits,
+				MaxMisses: cfg.PublicDetailAbuseMaxMisses,
+			}),
+		)
+		{
+			detailRoutesV4.GET("/by-public-id", h.GetReportByPublicID)
+			detailRoutesV4.GET("/by-seq", h.GetReportBySeq)
+		}
 
 		// Protected bulk ingest endpoint
 		protectedV4 := apiV4.Group("/reports")

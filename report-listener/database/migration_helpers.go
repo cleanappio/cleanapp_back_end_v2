@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+
+	"report-listener/publicid"
 )
 
 func ensureUTF8MB4(ctx context.Context, db *sql.DB) error {
@@ -33,6 +35,220 @@ func indexExists(ctx context.Context, db *sql.DB, tableName, indexName string) (
 		return false, fmt.Errorf("failed to check if index exists: %w", err)
 	}
 	return count > 0, nil
+}
+
+func columnExists(ctx context.Context, db *sql.DB, tableName, columnName string) (bool, error) {
+	var count int
+	err := db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM INFORMATION_SCHEMA.COLUMNS
+		WHERE TABLE_SCHEMA = DATABASE()
+		AND TABLE_NAME = ?
+		AND COLUMN_NAME = ?`,
+		tableName, columnName,
+	).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("failed to check if column exists: %w", err)
+	}
+	return count > 0, nil
+}
+
+func ensureReportsPublicID(ctx context.Context, db *sql.DB) error {
+	exists, err := columnExists(ctx, db, "reports", "public_id")
+	if err != nil {
+		return fmt.Errorf("failed to check reports.public_id column: %w", err)
+	}
+	if !exists {
+		if _, err := db.ExecContext(ctx, `
+			ALTER TABLE reports
+			ADD COLUMN public_id VARCHAR(32) NULL AFTER seq
+		`); err != nil {
+			return fmt.Errorf("failed to add reports.public_id column: %w", err)
+		}
+	}
+
+	for {
+		filled, err := backfillReportPublicIDs(ctx, db, 1000)
+		if err != nil {
+			return err
+		}
+		cleared, err := clearDuplicateReportPublicIDs(ctx, db)
+		if err != nil {
+			return err
+		}
+		if filled == 0 && cleared == 0 {
+			break
+		}
+	}
+
+	if _, err := db.ExecContext(ctx, `
+		ALTER TABLE reports
+		MODIFY COLUMN public_id VARCHAR(32) NOT NULL
+	`); err != nil {
+		return fmt.Errorf("failed to enforce reports.public_id NOT NULL: %w", err)
+	}
+
+	indexReady, err := indexExists(ctx, db, "reports", "uq_reports_public_id")
+	if err != nil {
+		return fmt.Errorf("failed to check reports.public_id index: %w", err)
+	}
+	if !indexReady {
+		if _, err := db.ExecContext(ctx, `
+			ALTER TABLE reports
+			ADD UNIQUE INDEX uq_reports_public_id (public_id)
+		`); err != nil {
+			return fmt.Errorf("failed to add reports.public_id unique index: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func backfillReportPublicIDs(ctx context.Context, db *sql.DB, batchSize int) (int, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT seq
+		FROM reports
+		WHERE public_id IS NULL OR public_id = ''
+		ORDER BY seq ASC
+		LIMIT ?
+	`, batchSize)
+	if err != nil {
+		return 0, fmt.Errorf("failed to load reports missing public_id: %w", err)
+	}
+	defer rows.Close()
+
+	var seqs []int
+	for rows.Next() {
+		var seq int
+		if err := rows.Scan(&seq); err != nil {
+			return 0, fmt.Errorf("failed to scan report seq for public_id backfill: %w", err)
+		}
+		seqs = append(seqs, seq)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("failed iterating reports missing public_id: %w", err)
+	}
+	if len(seqs) == 0 {
+		return 0, nil
+	}
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("failed to start public_id backfill transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.PrepareContext(ctx, `
+		UPDATE reports
+		SET public_id = ?
+		WHERE seq = ? AND (public_id IS NULL OR public_id = '')
+	`)
+	if err != nil {
+		return 0, fmt.Errorf("failed to prepare public_id backfill statement: %w", err)
+	}
+	defer stmt.Close()
+
+	used := make(map[string]struct{}, len(seqs))
+	for _, seq := range seqs {
+		publicID, err := nextReportPublicID(used)
+		if err != nil {
+			return 0, err
+		}
+		if _, err := stmt.ExecContext(ctx, publicID, seq); err != nil {
+			return 0, fmt.Errorf("failed to update report %d public_id: %w", seq, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("failed to commit public_id backfill: %w", err)
+	}
+	return len(seqs), nil
+}
+
+func clearDuplicateReportPublicIDs(ctx context.Context, db *sql.DB) (int, error) {
+	var duplicatePublicID string
+	err := db.QueryRowContext(ctx, `
+		SELECT public_id
+		FROM reports
+		WHERE public_id IS NOT NULL AND public_id <> ''
+		GROUP BY public_id
+		HAVING COUNT(*) > 1
+		LIMIT 1
+	`).Scan(&duplicatePublicID)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("failed to detect duplicate report public_id values: %w", err)
+	}
+
+	rows, err := db.QueryContext(ctx, `
+		SELECT seq
+		FROM reports
+		WHERE public_id = ?
+		ORDER BY seq ASC
+	`, duplicatePublicID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to load duplicate public_id rows: %w", err)
+	}
+	defer rows.Close()
+
+	var seqs []int
+	for rows.Next() {
+		var seq int
+		if err := rows.Scan(&seq); err != nil {
+			return 0, fmt.Errorf("failed to scan duplicate public_id seq: %w", err)
+		}
+		seqs = append(seqs, seq)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("failed iterating duplicate public_id rows: %w", err)
+	}
+	if len(seqs) <= 1 {
+		return 0, nil
+	}
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("failed to start duplicate public_id cleanup transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.PrepareContext(ctx, `UPDATE reports SET public_id = ? WHERE seq = ?`)
+	if err != nil {
+		return 0, fmt.Errorf("failed to prepare duplicate public_id cleanup statement: %w", err)
+	}
+	defer stmt.Close()
+
+	used := map[string]struct{}{duplicatePublicID: {}}
+	for _, seq := range seqs[1:] {
+		publicID, err := nextReportPublicID(used)
+		if err != nil {
+			return 0, err
+		}
+		if _, err := stmt.ExecContext(ctx, publicID, seq); err != nil {
+			return 0, fmt.Errorf("failed to replace duplicate public_id for report %d: %w", seq, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("failed to commit duplicate public_id cleanup: %w", err)
+	}
+	return len(seqs) - 1, nil
+}
+
+func nextReportPublicID(used map[string]struct{}) (string, error) {
+	for {
+		publicID, err := publicid.NewReportID()
+		if err != nil {
+			return "", fmt.Errorf("failed to generate report public_id: %w", err)
+		}
+		if _, exists := used[publicID]; exists {
+			continue
+		}
+		used[publicID] = struct{}{}
+		return publicID, nil
+	}
 }
 
 func ensureFetcherTables(ctx context.Context, db *sql.DB) error {

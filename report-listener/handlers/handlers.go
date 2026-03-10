@@ -19,6 +19,7 @@ import (
 	"report-listener/database"
 	"report-listener/intelligence"
 	"report-listener/models"
+	"report-listener/publicid"
 	"report-listener/rabbitmq"
 	brandutil "report-listener/utils"
 	ws "report-listener/websocket"
@@ -431,10 +432,19 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 		}
 		chunk := newItems[i:end]
 		vals := make([]string, 0, len(chunk))
-		args := make([]interface{}, 0, len(chunk)*9)
+		args := make([]interface{}, 0, len(chunk)*10)
 		for _, it := range chunk {
-			vals = append(vals, "(?, ?, ?, ?, ?, ?, ?, ?, ?)")
+			reportPublicID, err := publicid.NewReportID()
+			if err != nil {
+				log.Printf("ERROR: generate report public_id failed: %v", err)
+				tx.Rollback()
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "generate report public_id failed"})
+				return
+			}
+
+			vals = append(vals, "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
 			args = append(args,
+				reportPublicID,
 				reporterID,
 				it.team,
 				"",
@@ -447,7 +457,7 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 			)
 		}
 		res, err := tx.ExecContext(c.Request.Context(),
-			fmt.Sprintf("INSERT INTO reports (id, team, action_id, latitude, longitude, x, y, image, description) VALUES %s", strings.Join(vals, ",")),
+			fmt.Sprintf("INSERT INTO reports (public_id, id, team, action_id, latitude, longitude, x, y, image, description) VALUES %s", strings.Join(vals, ",")),
 			args...,
 		)
 		if err != nil {
@@ -611,8 +621,8 @@ func (h *Handlers) GetLastNAnalyzedReports(c *gin.Context) {
 		limit = MaxReportsLimit
 	}
 
-	// Get the full_data parameter from query string, default to true if not provided
-	fullDataStr := c.DefaultQuery("full_data", "true")
+	// Default to lite browse payloads; full detail should be fetched on demand.
+	fullDataStr := c.DefaultQuery("full_data", "false")
 	fullData, err := strconv.ParseBool(fullDataStr)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'full_data' parameter. Must be 'true' or 'false'."})
@@ -856,9 +866,30 @@ func (h *Handlers) GetReportsByGeometry(c *gin.Context) {
 		n = 250
 	}
 
-	reports, err := h.db.GetReportsByGeometry(c.Request.Context(), string(geometryJSON), req.Classification, n)
+	fullDataStr := c.DefaultQuery("full_data", "false")
+	fullData, err := strconv.ParseBool(fullDataStr)
 	if err != nil {
-		log.Printf("Failed to get reports by geometry: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'full_data' parameter. Must be 'true' or 'false'."})
+		return
+	}
+
+	if fullData {
+		reports, err := h.db.GetReportsByGeometry(c.Request.Context(), string(geometryJSON), req.Classification, n)
+		if err != nil {
+			log.Printf("Failed to get reports by geometry: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve reports"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"reports": reports,
+			"count":   len(reports),
+		})
+		return
+	}
+
+	reports, err := h.db.GetReportsByGeometryLite(c.Request.Context(), string(geometryJSON), req.Classification, n)
+	if err != nil {
+		log.Printf("Failed to get lite reports by geometry: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve reports"})
 		return
 	}
@@ -889,6 +920,31 @@ func (h *Handlers) GetReportBySeq(c *gin.Context) {
 	if err != nil {
 		log.Printf("Failed to get report by seq %d: %v", seq, err)
 		if err.Error() == fmt.Sprintf("report with seq %d not found", seq) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Report not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve report"})
+		return
+	}
+
+	c.JSON(http.StatusOK, reportWithAnalysis)
+}
+
+func (h *Handlers) GetReportByPublicID(c *gin.Context) {
+	publicID := strings.TrimSpace(c.Query("public_id"))
+	if publicID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing 'public_id' parameter"})
+		return
+	}
+	if !publicid.IsReportID(publicID) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'public_id' parameter"})
+		return
+	}
+
+	reportWithAnalysis, err := h.db.GetReportByPublicID(c.Request.Context(), publicID)
+	if err != nil {
+		log.Printf("Failed to get report by public_id %s: %v", publicID, err)
+		if err.Error() == fmt.Sprintf("report with public_id %s not found", publicID) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Report not found"})
 			return
 		}
@@ -987,26 +1043,52 @@ func (h *Handlers) GetReportsByLatLng(c *gin.Context) {
 		radiusKm = 100
 	}
 
-	// Get the reports from the database
-	reports, err := h.db.GetReportsByLatLng(c.Request.Context(), latitude, longitude, radiusKm, n)
+	fullDataStr := c.DefaultQuery("full_data", "false")
+	fullData, err := strconv.ParseBool(fullDataStr)
 	if err != nil {
-		log.Printf("Failed to get reports by lat/lng (%.6f, %.6f, radius: %fkm): %v", latitude, longitude, radiusKm, err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'full_data' parameter. Must be 'true' or 'false'."})
+		return
+	}
+
+	if fullData {
+		reports, err := h.db.GetReportsByLatLng(c.Request.Context(), latitude, longitude, radiusKm, n)
+		if err != nil {
+			log.Printf("Failed to get reports by lat/lng (%.6f, %.6f, radius: %fkm): %v", latitude, longitude, radiusKm, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve reports"})
+			return
+		}
+
+		response := models.ReportBatch{
+			Reports: reports,
+			Count:   len(reports),
+			FromSeq: 0,
+			ToSeq:   0,
+		}
+		if len(reports) > 0 {
+			response.FromSeq = reports[0].Report.Seq
+			response.ToSeq = reports[len(reports)-1].Report.Seq
+		}
+
+		c.JSON(http.StatusOK, response)
+		return
+	}
+
+	reports, err := h.db.GetReportsByLatLngLite(c.Request.Context(), latitude, longitude, radiusKm, n)
+	if err != nil {
+		log.Printf("Failed to get lite reports by lat/lng (%.6f, %.6f, radius: %fkm): %v", latitude, longitude, radiusKm, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve reports"})
 		return
 	}
 
-	// Create the response in the same format as other endpoints
-	response := models.ReportBatch{
-		Reports: reports,
-		Count:   len(reports),
-		FromSeq: 0,
-		ToSeq:   0,
+	response := gin.H{
+		"reports":  reports,
+		"count":    len(reports),
+		"from_seq": 0,
+		"to_seq":   0,
 	}
-
-	// Set FromSeq and ToSeq if there are reports
 	if len(reports) > 0 {
-		response.FromSeq = reports[0].Report.Seq
-		response.ToSeq = reports[len(reports)-1].Report.Seq
+		response["from_seq"] = reports[0].Report.Seq
+		response["to_seq"] = reports[len(reports)-1].Report.Seq
 	}
 
 	c.JSON(http.StatusOK, response)
@@ -1074,18 +1156,15 @@ func (h *Handlers) GetReportsByLatLngLite(c *gin.Context) {
 		return
 	}
 
-	// Create the response in the same format as other endpoints
-	response := models.ReportBatch{
-		Reports: reports,
-		Count:   len(reports),
-		FromSeq: 0,
-		ToSeq:   0,
+	response := gin.H{
+		"reports":  reports,
+		"count":    len(reports),
+		"from_seq": 0,
+		"to_seq":   0,
 	}
-
-	// Set FromSeq and ToSeq if there are reports
 	if len(reports) > 0 {
-		response.FromSeq = reports[0].Report.Seq
-		response.ToSeq = reports[len(reports)-1].Report.Seq
+		response["from_seq"] = reports[0].Report.Seq
+		response["to_seq"] = reports[len(reports)-1].Report.Seq
 	}
 
 	c.JSON(http.StatusOK, response)
@@ -1113,8 +1192,22 @@ func (h *Handlers) GetReportsByBrand(c *gin.Context) {
 		limit = MaxReportsLimit
 	}
 
-	// Get the reports from the database
-	reports, err := h.db.GetReportsByBrandName(c.Request.Context(), brandName, limit)
+	fullDataStr := c.DefaultQuery("full_data", "false")
+	fullData, err := strconv.ParseBool(fullDataStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'full_data' parameter. Must be 'true' or 'false'."})
+		return
+	}
+
+	var (
+		reportsFull []models.ReportWithAnalysis
+		reportsLite []models.ReportWithMinimalAnalysis
+	)
+	if fullData {
+		reportsFull, err = h.db.GetReportsByBrandName(c.Request.Context(), brandName, limit)
+	} else {
+		reportsLite, err = h.db.GetReportsByBrandNameLite(c.Request.Context(), brandName, limit)
+	}
 	if err != nil {
 		log.Printf("Failed to get reports by brand '%s': %v", brandName, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve reports"})
@@ -1122,7 +1215,10 @@ func (h *Handlers) GetReportsByBrand(c *gin.Context) {
 	}
 
 	// Get counts with a bounded timeout to avoid slow/full-table scans blocking UI.
-	totalCount := len(reports)
+	totalCount := len(reportsFull)
+	if !fullData {
+		totalCount = len(reportsLite)
+	}
 	highPriorityCount := 0
 	mediumPriorityCount := 0
 
@@ -1166,20 +1262,36 @@ func (h *Handlers) GetReportsByBrand(c *gin.Context) {
 	}
 
 	// Create the response in the same format as other endpoints
-	response := models.ReportBatch{
-		Reports:             reports,
-		Count:               len(reports),
-		TotalCount:          totalCount,
-		HighPriorityCount:   highPriorityCount,
-		MediumPriorityCount: mediumPriorityCount,
-		FromSeq:             0,
-		ToSeq:               0,
+	if fullData {
+		response := models.ReportBatch{
+			Reports:             reportsFull,
+			Count:               len(reportsFull),
+			TotalCount:          totalCount,
+			HighPriorityCount:   highPriorityCount,
+			MediumPriorityCount: mediumPriorityCount,
+			FromSeq:             0,
+			ToSeq:               0,
+		}
+		if len(reportsFull) > 0 {
+			response.FromSeq = reportsFull[0].Report.Seq
+			response.ToSeq = reportsFull[len(reportsFull)-1].Report.Seq
+		}
+		c.JSON(http.StatusOK, response)
+		return
 	}
 
-	// Set FromSeq and ToSeq if there are reports
-	if len(reports) > 0 {
-		response.FromSeq = reports[0].Report.Seq
-		response.ToSeq = reports[len(reports)-1].Report.Seq
+	response := gin.H{
+		"reports":               reportsLite,
+		"count":                 len(reportsLite),
+		"total_count":           totalCount,
+		"high_priority_count":   highPriorityCount,
+		"medium_priority_count": mediumPriorityCount,
+		"from_seq":              0,
+		"to_seq":                0,
+	}
+	if len(reportsLite) > 0 {
+		response["from_seq"] = reportsLite[0].Report.Seq
+		response["to_seq"] = reportsLite[len(reportsLite)-1].Report.Seq
 	}
 
 	c.JSON(http.StatusOK, response)

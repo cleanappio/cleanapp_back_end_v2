@@ -20,6 +20,7 @@ func RunMigrations(ctx context.Context, db *sql.DB) error {
 		{ID: "0008_cleanapp_wire_tables", Description: "create CleanApp Wire intake tables", Up: func(ctx context.Context, db *sql.DB) error { return ensureCleanAppWireTables(ctx, db) }},
 		{ID: "0009_case_tables", Description: "create case and saved cluster tables", Up: func(ctx context.Context, db *sql.DB) error { return ensureCaseTables(ctx, db) }},
 		{ID: "0010_case_email_deliveries", Description: "create case email deliveries table", Up: func(ctx context.Context, db *sql.DB) error { return ensureCaseEmailDeliveriesTable(ctx, db) }},
+		{ID: "0011_reports_public_id", Description: "add and backfill reports public_id column", Up: func(ctx context.Context, db *sql.DB) error { return ensureReportsPublicID(ctx, db) }},
 	})
 }
 

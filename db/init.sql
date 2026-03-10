@@ -54,6 +54,7 @@ SHOW COLUMNS FROM users_shadow;
 -- Create the report table.
 CREATE TABLE IF NOT EXISTS reports(
   seq INT NOT NULL AUTO_INCREMENT,
+  public_id VARCHAR(32) NOT NULL,
   ts TIMESTAMP default current_timestamp,
   id VARCHAR(255) NOT NULL,
   team INT NOT NULL, -- 0 UNKNOWN, 1 BLUE, 2 GREEN, see map.go
@@ -65,6 +66,7 @@ CREATE TABLE IF NOT EXISTS reports(
   action_id VARCHAR(32),
   description VARCHAR(255),
   PRIMARY KEY (seq),
+  UNIQUE INDEX uq_reports_public_id (public_id),
   INDEX id_index (id),
   INDEX action_idx (action_id),
   INDEX latitude_index (latitude),

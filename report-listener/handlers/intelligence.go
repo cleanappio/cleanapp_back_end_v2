@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"net/url"
 	"regexp"
 	"sort"
 	"strconv"
@@ -612,7 +611,7 @@ func reportSnippetToExample(r database.ReportSnippet, baseURL, orgID string) Int
 		Category:  channel,
 		Title:     truncateText(title, 140),
 		Snippet:   truncateText(snippet, 220),
-		URL:       buildReportPermalink(baseURL, orgID, r.Seq),
+		URL:       buildReportPermalink(baseURL, r.Classification, r.PublicID),
 	}
 }
 
@@ -1110,12 +1109,23 @@ func collectEvidenceReports(ctx *database.IntelligenceContext) []database.Report
 	return ctx.RepresentativeReports
 }
 
-func buildReportPermalink(baseURL, orgID string, seq int) string {
+func buildReportPermalink(baseURL, classification, publicID string) string {
 	if strings.TrimSpace(baseURL) == "" {
 		baseURL = "https://cleanapp.io"
 	}
-	org := url.PathEscape(strings.ToLower(strings.TrimSpace(orgID)))
-	return fmt.Sprintf("%s/digital/%s/report/%d", strings.TrimRight(baseURL, "/"), org, seq)
+	publicID = strings.TrimSpace(publicID)
+	if publicID == "" {
+		return ""
+	}
+	switch strings.ToLower(strings.TrimSpace(classification)) {
+	case "digital":
+		classification = "digital"
+	case "physical":
+		classification = "physical"
+	default:
+		classification = "reports"
+	}
+	return fmt.Sprintf("%s/%s/report/%s", strings.TrimRight(baseURL, "/"), classification, publicID)
 }
 
 func truncateText(s string, max int) string {

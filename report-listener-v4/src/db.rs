@@ -57,6 +57,7 @@ pub fn fetch_reports_by_brand(
     let report_rows: Vec<my::Row> = conn.exec(
         r#"
         SELECT DISTINCT r.seq,
+               r.public_id,
                DATE_FORMAT(r.ts, '%Y-%m-%d %H:%i:%s') AS ts,
                r.id,
                r.latitude,
@@ -92,24 +93,29 @@ pub fn fetch_reports_by_brand(
     let mut seqs: Vec<i64> = Vec::with_capacity(report_rows.len());
     for mut row in report_rows {
         let seq: i64 = row.take::<i64, _>(0).unwrap_or(0);
-        let ts: String = row
+        let public_id: String = row
             .take::<Option<String>, _>(1)
             .unwrap_or(None)
             .unwrap_or_default();
-        let id: String = row
+        let ts: String = row
             .take::<Option<String>, _>(2)
             .unwrap_or(None)
             .unwrap_or_default();
-        let lat: f64 = row.take::<Option<f64>, _>(3).unwrap_or(None).unwrap_or(0.0);
-        let lon: f64 = row.take::<Option<f64>, _>(4).unwrap_or(None).unwrap_or(0.0);
-        let image: Vec<u8> = row
-            .take::<Option<Vec<u8>>, _>(5)
+        let id: String = row
+            .take::<Option<String>, _>(3)
             .unwrap_or(None)
             .unwrap_or_default();
-        let last_email_sent_at: Option<String> = row.take::<Option<String>, _>(6).unwrap_or(None);
-        let source_timestamp: Option<String> = row.take::<Option<String>, _>(7).unwrap_or(None);
+        let lat: f64 = row.take::<Option<f64>, _>(4).unwrap_or(None).unwrap_or(0.0);
+        let lon: f64 = row.take::<Option<f64>, _>(5).unwrap_or(None).unwrap_or(0.0);
+        let image: Vec<u8> = row
+            .take::<Option<Vec<u8>>, _>(6)
+            .unwrap_or(None)
+            .unwrap_or_default();
+        let last_email_sent_at: Option<String> = row.take::<Option<String>, _>(7).unwrap_or(None);
+        let source_timestamp: Option<String> = row.take::<Option<String>, _>(8).unwrap_or(None);
         reports.push(Report {
             seq,
+            public_id,
             timestamp: ts,
             id,
             latitude: lat,
@@ -240,6 +246,7 @@ pub fn fetch_report_points(pool: &my::Pool, classification: &str) -> Result<Vec<
     let mut conn = pool.get_conn()?;
     let base = r#"
         SELECT r.seq,
+               r.public_id,
                COALESCE(MAX(ra.severity_level), 0.0) AS severity_level,
                r.latitude,
                r.longitude
@@ -254,12 +261,12 @@ pub fn fetch_report_points(pool: &my::Pool, classification: &str) -> Result<Vec<
     "#;
     let sql = if classification.eq_ignore_ascii_case("all") {
         format!(
-            "{} GROUP BY r.seq, r.latitude, r.longitude ORDER BY r.seq DESC",
+            "{} GROUP BY r.seq, r.public_id, r.latitude, r.longitude ORDER BY r.seq DESC",
             base
         )
     } else {
         format!(
-            "{} AND ra.classification = ? GROUP BY r.seq, r.latitude, r.longitude ORDER BY r.seq DESC",
+            "{} AND ra.classification = ? GROUP BY r.seq, r.public_id, r.latitude, r.longitude ORDER BY r.seq DESC",
             base
         )
     };
@@ -273,11 +280,16 @@ pub fn fetch_report_points(pool: &my::Pool, classification: &str) -> Result<Vec<
     let mut out: Vec<ReportPoint> = Vec::with_capacity(rows.len());
     for mut row in rows {
         let seq: i64 = row.take::<i64, _>(0).unwrap_or(0);
-        let severity_level: f64 = row.take::<Option<f64>, _>(1).unwrap_or(None).unwrap_or(0.0);
-        let latitude: f64 = row.take::<Option<f64>, _>(2).unwrap_or(None).unwrap_or(0.0);
-        let longitude: f64 = row.take::<Option<f64>, _>(3).unwrap_or(None).unwrap_or(0.0);
+        let public_id: String = row
+            .take::<Option<String>, _>(1)
+            .unwrap_or(None)
+            .unwrap_or_default();
+        let severity_level: f64 = row.take::<Option<f64>, _>(2).unwrap_or(None).unwrap_or(0.0);
+        let latitude: f64 = row.take::<Option<f64>, _>(3).unwrap_or(None).unwrap_or(0.0);
+        let longitude: f64 = row.take::<Option<f64>, _>(4).unwrap_or(None).unwrap_or(0.0);
         out.push(ReportPoint {
             seq,
+            public_id,
             severity_level,
             latitude,
             longitude,
@@ -289,9 +301,10 @@ pub fn fetch_report_points(pool: &my::Pool, classification: &str) -> Result<Vec<
 pub fn fetch_report_by_seq(pool: &my::Pool, seq: i64) -> Result<ReportWithAnalysis> {
     let mut conn = pool.get_conn()?;
     // fetch report
-    let report_row: Option<(i64, String, String, f64, f64, Vec<u8>, Option<String>, Option<String>)> = conn.exec_first(
+    let report_row: Option<(i64, String, String, String, f64, f64, Vec<u8>, Option<String>, Option<String>)> = conn.exec_first(
         r#"
         SELECT r.seq,
+               r.public_id,
                DATE_FORMAT(r.ts, '%Y-%m-%d %H:%i:%s') AS ts,
                r.id,
                r.latitude,
@@ -310,10 +323,11 @@ pub fn fetch_report_by_seq(pool: &my::Pool, seq: i64) -> Result<ReportWithAnalys
         "#,
         (seq,))?;
 
-    let (seq_v, ts, id, lat, lon, image, last_email_sent_at, source_timestamp) =
+    let (seq_v, public_id, ts, id, lat, lon, image, last_email_sent_at, source_timestamp) =
         report_row.ok_or_else(|| anyhow::anyhow!("report not found or unavailable"))?;
     let report = Report {
         seq: seq_v,
+        public_id,
         timestamp: ts,
         id,
         latitude: lat,

@@ -493,6 +493,7 @@ func (d *Database) listCaseReports(ctx context.Context, caseID string) ([]models
 		SELECT
 			cr.case_id,
 			cr.seq,
+			COALESCE(r.public_id, '') AS public_id,
 			cr.link_reason,
 			cr.confidence,
 			cr.attached_at,
@@ -509,7 +510,7 @@ func (d *Database) listCaseReports(ctx context.Context, caseID string) ([]models
 		JOIN reports r ON r.seq = cr.seq
 		LEFT JOIN report_analysis ra ON ra.seq = r.seq
 		WHERE cr.case_id = ?
-		GROUP BY cr.case_id, cr.seq, cr.link_reason, cr.confidence, cr.attached_at, r.latitude, r.longitude, r.ts
+			GROUP BY cr.case_id, cr.seq, r.public_id, cr.link_reason, cr.confidence, cr.attached_at, r.latitude, r.longitude, r.ts
 		ORDER BY cr.attached_at ASC, cr.seq ASC
 	`, caseID)
 	if err != nil {
@@ -522,7 +523,7 @@ func (d *Database) listCaseReports(ctx context.Context, caseID string) ([]models
 		var item models.CaseReportLink
 		var lastSent sql.NullTime
 		if err := rows.Scan(
-			&item.CaseID, &item.Seq, &item.LinkReason, &item.Confidence, &item.AttachedAt,
+			&item.CaseID, &item.Seq, &item.PublicID, &item.LinkReason, &item.Confidence, &item.AttachedAt,
 			&item.Title, &item.Summary, &item.Classification, &item.SeverityLevel,
 			&item.Latitude, &item.Longitude, &item.ReportTimestamp, &lastSent, &item.RecipientCount,
 		); err != nil {

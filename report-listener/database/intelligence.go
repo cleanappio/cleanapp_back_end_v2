@@ -25,6 +25,7 @@ type SeverityDistribution struct {
 
 type ReportSnippet struct {
 	Seq            int
+	PublicID       string
 	Title          string
 	Summary        string
 	Classification string
@@ -439,12 +440,14 @@ func (d *Database) getReportSnippets(ctx context.Context, org string, keywords [
 	query := `
 		SELECT
 			ra.seq,
+			COALESCE(r.public_id, '') AS public_id,
 			COALESCE(NULLIF(ra.title, ''), '(untitled report)') AS title,
 			COALESCE(NULLIF(ra.summary, ''), COALESCE(NULLIF(ra.description, ''), '(no summary available)')) AS summary,
 			COALESCE(NULLIF(ra.classification, ''), 'unknown') AS classification,
 			COALESCE(ra.severity_level, 0) AS severity_level,
 			COALESCE(ra.updated_at, ra.created_at) AS updated_at
 		FROM report_analysis ra
+		INNER JOIN reports r ON r.seq = ra.seq
 		WHERE ra.brand_name = ?
 		AND ra.is_valid = TRUE
 	`
@@ -472,7 +475,7 @@ func (d *Database) getReportSnippets(ctx context.Context, org string, keywords [
 	result := make([]ReportSnippet, 0, limit)
 	for rows.Next() {
 		var item ReportSnippet
-		if scanErr := rows.Scan(&item.Seq, &item.Title, &item.Summary, &item.Classification, &item.SeverityLevel, &item.UpdatedAt); scanErr != nil {
+		if scanErr := rows.Scan(&item.Seq, &item.PublicID, &item.Title, &item.Summary, &item.Classification, &item.SeverityLevel, &item.UpdatedAt); scanErr != nil {
 			return nil, scanErr
 		}
 		result = append(result, item)
@@ -493,12 +496,14 @@ func (d *Database) GetFallbackReportSnippets(ctx context.Context, org string, li
 	rows, err := d.db.QueryContext(ctx, `
 		SELECT
 			ra.seq,
+			COALESCE(r.public_id, '') AS public_id,
 			COALESCE(NULLIF(ra.title, ''), '(untitled report)') AS title,
 			COALESCE(NULLIF(ra.summary, ''), COALESCE(NULLIF(ra.description, ''), '(no summary available)')) AS summary,
 			COALESCE(NULLIF(ra.classification, ''), 'unknown') AS classification,
 			COALESCE(ra.severity_level, 0) AS severity_level,
 			COALESCE(ra.updated_at, ra.created_at, UTC_TIMESTAMP()) AS updated_at
 		FROM report_analysis ra
+		INNER JOIN reports r ON r.seq = ra.seq
 		WHERE ra.brand_name = ?
 		AND ra.is_valid = TRUE
 		AND ra.seq > 0
@@ -513,7 +518,7 @@ func (d *Database) GetFallbackReportSnippets(ctx context.Context, org string, li
 	out := make([]ReportSnippet, 0, limit)
 	for rows.Next() {
 		var item ReportSnippet
-		if scanErr := rows.Scan(&item.Seq, &item.Title, &item.Summary, &item.Classification, &item.SeverityLevel, &item.UpdatedAt); scanErr != nil {
+		if scanErr := rows.Scan(&item.Seq, &item.PublicID, &item.Title, &item.Summary, &item.Classification, &item.SeverityLevel, &item.UpdatedAt); scanErr != nil {
 			return nil, scanErr
 		}
 		out = append(out, item)
@@ -538,6 +543,7 @@ func (d *Database) GetPreferredReportSnippetBySeq(ctx context.Context, org strin
 		var item ReportSnippet
 		err := d.db.QueryRowContext(ctx, query, args...).Scan(
 			&item.Seq,
+			&item.PublicID,
 			&item.Title,
 			&item.Summary,
 			&item.Classification,
@@ -556,12 +562,14 @@ func (d *Database) GetPreferredReportSnippetBySeq(ctx context.Context, org strin
 	baseSelect := `
 		SELECT
 			ra.seq,
+			COALESCE(r.public_id, '') AS public_id,
 			COALESCE(NULLIF(ra.title, ''), '(untitled report)') AS title,
 			COALESCE(NULLIF(ra.summary, ''), COALESCE(NULLIF(ra.description, ''), '(no summary available)')) AS summary,
 			COALESCE(NULLIF(ra.classification, ''), 'unknown') AS classification,
 			COALESCE(ra.severity_level, 0) AS severity_level,
 			COALESCE(ra.updated_at, ra.created_at, UTC_TIMESTAMP()) AS updated_at
 		FROM report_analysis ra
+		INNER JOIN reports r ON r.seq = ra.seq
 		WHERE ra.brand_name = ?
 		AND ra.seq = ?
 		AND ra.is_valid = TRUE
@@ -616,12 +624,14 @@ func (d *Database) getRecurringSnippets(ctx context.Context, org string, keyword
 	query := `
 		SELECT
 			ra.seq,
+			COALESCE(r.public_id, '') AS public_id,
 			COALESCE(NULLIF(ra.title, ''), '(untitled report)') AS title,
 			COALESCE(NULLIF(ra.summary, ''), COALESCE(NULLIF(ra.description, ''), '(no summary available)')) AS summary,
 			COALESCE(NULLIF(ra.classification, ''), 'unknown') AS classification,
 			COALESCE(ra.severity_level, 0) AS severity_level,
 			COALESCE(ra.updated_at, ra.created_at) AS updated_at
 		FROM report_analysis ra
+		INNER JOIN reports r ON r.seq = ra.seq
 		WHERE ra.brand_name = ?
 		AND ra.is_valid = TRUE
 		AND ra.title IN (` + strings.Join(placeholders, ",") + `)
@@ -652,7 +662,7 @@ func (d *Database) getRecurringSnippets(ctx context.Context, org string, keyword
 	result := make([]ReportSnippet, 0, limit)
 	for rows.Next() {
 		var item ReportSnippet
-		if scanErr := rows.Scan(&item.Seq, &item.Title, &item.Summary, &item.Classification, &item.SeverityLevel, &item.UpdatedAt); scanErr != nil {
+		if scanErr := rows.Scan(&item.Seq, &item.PublicID, &item.Title, &item.Summary, &item.Classification, &item.SeverityLevel, &item.UpdatedAt); scanErr != nil {
 			return nil, scanErr
 		}
 		result = append(result, item)
@@ -892,12 +902,14 @@ func (d *Database) getReportsForIssue(ctx context.Context, org, issue string, ex
 	query := `
 		SELECT
 			ra.seq,
+			COALESCE(r.public_id, '') AS public_id,
 			COALESCE(NULLIF(ra.title, ''), '(untitled report)') AS title,
 			COALESCE(NULLIF(ra.summary, ''), COALESCE(NULLIF(ra.description, ''), '(no summary available)')) AS summary,
 			COALESCE(NULLIF(ra.classification, ''), 'unknown') AS classification,
 			COALESCE(ra.severity_level, 0) AS severity_level,
 			COALESCE(ra.updated_at, ra.created_at) AS updated_at
 		FROM report_analysis ra
+		INNER JOIN reports r ON r.seq = ra.seq
 		WHERE ra.brand_name = ?
 		AND ra.is_valid = TRUE
 		AND COALESCE(NULLIF(ra.title, ''), '(untitled report)') = ?
@@ -919,7 +931,7 @@ func (d *Database) getReportsForIssue(ctx context.Context, org, issue string, ex
 	out := make([]ReportSnippet, 0, limit)
 	for rows.Next() {
 		var item ReportSnippet
-		if scanErr := rows.Scan(&item.Seq, &item.Title, &item.Summary, &item.Classification, &item.SeverityLevel, &item.UpdatedAt); scanErr != nil {
+		if scanErr := rows.Scan(&item.Seq, &item.PublicID, &item.Title, &item.Summary, &item.Classification, &item.SeverityLevel, &item.UpdatedAt); scanErr != nil {
 			return nil, scanErr
 		}
 		out = append(out, item)

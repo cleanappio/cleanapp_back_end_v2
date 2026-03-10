@@ -14,6 +14,7 @@ import (
 
 	"report-listener/config"
 	"report-listener/database"
+	"report-listener/publicid"
 
 	"github.com/gin-gonic/gin"
 )
@@ -1145,8 +1146,14 @@ func (h *Handlers) cleanAppWireIngestCore(ctx context.Context, auth cleanAppWire
 	}
 	defer tx.Rollback()
 
+	reportPublicID, err := publicid.NewReportID()
+	if err != nil {
+		return cleanAppWireIngestCoreResult{}, "REPORT_PUBLIC_ID_GENERATION_FAILED", http.StatusInternalServerError
+	}
+
 	res, err := tx.ExecContext(ctx,
-		"INSERT INTO reports (id, team, action_id, latitude, longitude, x, y, image, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		"INSERT INTO reports (public_id, id, team, action_id, latitude, longitude, x, y, image, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		reportPublicID,
 		reporterID,
 		0,
 		"",

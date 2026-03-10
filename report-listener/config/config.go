@@ -16,12 +16,17 @@ type Config struct {
 	DBName     string
 	JWTSecret  string
 
-	Port                    string
-	RequestBodyLimitBytes   int64
-	AllowedOrigins          []string
-	WebSocketAllowedOrigins []string
-	RateLimitRPS            float64
-	RateLimitBurst          int
+	Port                       string
+	RequestBodyLimitBytes      int64
+	AllowedOrigins             []string
+	WebSocketAllowedOrigins    []string
+	RateLimitRPS               float64
+	RateLimitBurst             int
+	PublicDetailRateLimitRPS   float64
+	PublicDetailRateLimitBurst int
+	PublicDetailAbuseWindow    time.Duration
+	PublicDetailAbuseMaxHits   int
+	PublicDetailAbuseMaxMisses int
 
 	BroadcastInterval time.Duration
 
@@ -80,12 +85,17 @@ func Load() (*Config, error) {
 		DBName:     appenv.String("DB_NAME", "cleanapp"),
 		JWTSecret:  jwtSecret,
 
-		Port:                    appenv.String("PORT", "8080"),
-		RequestBodyLimitBytes:   appenv.Int64("REQUEST_BODY_LIMIT_BYTES", 2*1024*1024),
-		AllowedOrigins:          defaultOrigins(),
-		WebSocketAllowedOrigins: defaultWSOrigins(),
-		RateLimitRPS:            appenv.Float64("RATE_LIMIT_RPS", 20),
-		RateLimitBurst:          appenv.Int("RATE_LIMIT_BURST", 40),
+		Port:                       appenv.String("PORT", "8080"),
+		RequestBodyLimitBytes:      appenv.Int64("REQUEST_BODY_LIMIT_BYTES", 2*1024*1024),
+		AllowedOrigins:             defaultOrigins(),
+		WebSocketAllowedOrigins:    defaultWSOrigins(),
+		RateLimitRPS:               appenv.Float64("RATE_LIMIT_RPS", 20),
+		RateLimitBurst:             appenv.Int("RATE_LIMIT_BURST", 40),
+		PublicDetailRateLimitRPS:   appenv.Float64("PUBLIC_DETAIL_RATE_LIMIT_RPS", 1.5),
+		PublicDetailRateLimitBurst: appenv.Int("PUBLIC_DETAIL_RATE_LIMIT_BURST", 8),
+		PublicDetailAbuseWindow:    appenv.Duration("PUBLIC_DETAIL_ABUSE_WINDOW", 10*time.Minute),
+		PublicDetailAbuseMaxHits:   appenv.Int("PUBLIC_DETAIL_ABUSE_MAX_HITS", 60),
+		PublicDetailAbuseMaxMisses: appenv.Int("PUBLIC_DETAIL_ABUSE_MAX_MISSES", 12),
 
 		BroadcastInterval: appenv.Duration("BROADCAST_INTERVAL", time.Second),
 		LogLevel:          appenv.String("LOG_LEVEL", "info"),
@@ -120,6 +130,9 @@ func Load() (*Config, error) {
 
 	if config.BroadcastInterval <= 0 {
 		config.BroadcastInterval = time.Second
+	}
+	if config.PublicDetailAbuseWindow <= 0 {
+		config.PublicDetailAbuseWindow = 10 * time.Minute
 	}
 
 	return config, validate(config)

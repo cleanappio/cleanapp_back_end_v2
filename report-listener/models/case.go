@@ -96,6 +96,7 @@ type CaseClusterLink struct {
 type CaseReportLink struct {
 	CaseID          string     `json:"case_id" db:"case_id"`
 	Seq             int        `json:"seq" db:"seq"`
+	PublicID        string     `json:"public_id" db:"public_id"`
 	LinkReason      string     `json:"link_reason" db:"link_reason"`
 	Confidence      float64    `json:"confidence" db:"confidence"`
 	AttachedAt      time.Time  `json:"attached_at" db:"attached_at"`
