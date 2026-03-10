@@ -8,6 +8,7 @@ import (
 	"math"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -127,6 +128,31 @@ func (h *Handlers) AnalyzeClusterFromReport(c *gin.Context) {
 
 	response := analyzeClusterReports(reports, classification, "seed_report", req.Seq, nil, suggestedTargets)
 	c.JSON(http.StatusOK, response)
+}
+
+func (h *Handlers) GetCasesByReportSeq(c *gin.Context) {
+	seqParam := strings.TrimSpace(c.Query("seq"))
+	if seqParam == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "seq is required"})
+		return
+	}
+
+	seq, err := strconv.Atoi(seqParam)
+	if err != nil || seq <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "seq must be a positive integer"})
+		return
+	}
+
+	items, err := h.db.GetCasesByReportSeq(c.Request.Context(), seq)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load cases for report"})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.ReportCasesResponse{
+		Seq:   seq,
+		Cases: items,
+	})
 }
 
 func (h *Handlers) CreateCase(c *gin.Context) {

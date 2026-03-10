@@ -155,6 +155,9 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 		// Get reports within a supplied polygonal geometry
 		api.POST("/reports/by-geometry", h.GetReportsByGeometry)
 
+		// Get case summaries linked to a report
+		api.GET("/reports/cases", h.GetCasesByReportSeq)
+
 		// Get reports by brand name endpoint
 		api.GET("/reports/by-brand", h.GetReportsByBrand)
 
@@ -218,6 +221,9 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 
 		// Get reports within a supplied polygonal geometry
 		apiV4.POST("/reports/by-geometry", h.GetReportsByGeometry)
+
+		// Get case summaries linked to a report
+		apiV4.GET("/reports/cases", h.GetCasesByReportSeq)
 
 		// Get reports by brand name endpoint
 		apiV4.GET("/reports/by-brand", h.GetReportsByBrand)

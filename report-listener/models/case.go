@@ -184,6 +184,25 @@ type CaseDetail struct {
 	AuditEvents       []CaseAuditEvent       `json:"audit_events"`
 }
 
+type ReportCaseSummary struct {
+	CaseID                string    `json:"case_id" db:"case_id"`
+	Slug                  string    `json:"slug" db:"slug"`
+	Title                 string    `json:"title" db:"title"`
+	Status                string    `json:"status" db:"status"`
+	Classification        string    `json:"classification" db:"classification"`
+	Summary               string    `json:"summary" db:"summary"`
+	SeverityScore         float64   `json:"severity_score" db:"severity_score"`
+	UrgencyScore          float64   `json:"urgency_score" db:"urgency_score"`
+	UpdatedAt             time.Time `json:"updated_at" db:"updated_at"`
+	EscalationTargetCount int       `json:"escalation_target_count" db:"escalation_target_count"`
+	DeliveryCount         int       `json:"delivery_count" db:"delivery_count"`
+}
+
+type ReportCasesResponse struct {
+	Seq   int                 `json:"seq"`
+	Cases []ReportCaseSummary `json:"cases"`
+}
+
 type CreateCaseEscalationTargetRequest struct {
 	RoleType        string  `json:"role_type"`
 	Organization    string  `json:"organization"`

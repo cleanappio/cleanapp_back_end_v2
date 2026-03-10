@@ -336,6 +336,64 @@ func (d *Database) GetCaseDetail(ctx context.Context, caseID string) (*models.Ca
 	return &detail, nil
 }
 
+func (d *Database) GetCasesByReportSeq(ctx context.Context, seq int) ([]models.ReportCaseSummary, error) {
+	rows, err := d.db.QueryContext(ctx, `
+		SELECT
+			c.case_id,
+			c.slug,
+			c.title,
+			c.status,
+			c.classification,
+			COALESCE(c.summary, ''),
+			c.severity_score,
+			c.urgency_score,
+			c.updated_at,
+			COALESCE(t.target_count, 0) AS escalation_target_count,
+			COALESCE(del.delivery_count, 0) AS delivery_count
+		FROM case_reports cr
+		JOIN cases c ON c.case_id = cr.case_id
+		LEFT JOIN (
+			SELECT case_id, COUNT(*) AS target_count
+			FROM case_escalation_targets
+			GROUP BY case_id
+		) t ON t.case_id = c.case_id
+		LEFT JOIN (
+			SELECT case_id, COUNT(*) AS delivery_count
+			FROM case_email_deliveries
+			WHERE delivery_status = 'sent'
+			GROUP BY case_id
+		) del ON del.case_id = c.case_id
+		WHERE cr.seq = ?
+		ORDER BY c.updated_at DESC, c.created_at DESC
+	`, seq)
+	if err != nil {
+		return nil, fmt.Errorf("list cases by report seq: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]models.ReportCaseSummary, 0)
+	for rows.Next() {
+		var item models.ReportCaseSummary
+		if err := rows.Scan(
+			&item.CaseID,
+			&item.Slug,
+			&item.Title,
+			&item.Status,
+			&item.Classification,
+			&item.Summary,
+			&item.SeverityScore,
+			&item.UrgencyScore,
+			&item.UpdatedAt,
+			&item.EscalationTargetCount,
+			&item.DeliveryCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
 func (d *Database) SuggestEscalationTargetsByGeometry(ctx context.Context, geometryJSON string, reportSeqs []int, limit int) ([]models.CaseEscalationTarget, error) {
 	if limit <= 0 {
 		limit = 8
