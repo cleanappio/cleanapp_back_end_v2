@@ -19,6 +19,7 @@ func RunMigrations(ctx context.Context, db *sql.DB) error {
 		{ID: "0007_report_analysis_needs_ai_review", Description: "ensure report_analysis needs_ai_review column", Up: ensureNeedsAIReviewColumnStep},
 		{ID: "0008_cleanapp_wire_tables", Description: "create CleanApp Wire intake tables", Up: func(ctx context.Context, db *sql.DB) error { return ensureCleanAppWireTables(ctx, db) }},
 		{ID: "0009_case_tables", Description: "create case and saved cluster tables", Up: func(ctx context.Context, db *sql.DB) error { return ensureCaseTables(ctx, db) }},
+		{ID: "0010_case_email_deliveries", Description: "create case email deliveries table", Up: func(ctx context.Context, db *sql.DB) error { return ensureCaseEmailDeliveriesTable(ctx, db) }},
 	})
 }
 

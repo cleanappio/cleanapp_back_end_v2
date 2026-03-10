@@ -397,3 +397,33 @@ func ensureCaseTables(ctx context.Context, db *sql.DB) error {
 	}
 	return nil
 }
+
+func ensureCaseEmailDeliveriesTable(ctx context.Context, db *sql.DB) error {
+	stmt := `CREATE TABLE IF NOT EXISTS case_email_deliveries (
+		id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+		case_id VARCHAR(64) NOT NULL,
+		action_id BIGINT UNSIGNED NULL,
+		target_id BIGINT UNSIGNED NULL,
+		recipient_email VARCHAR(255) NOT NULL,
+		delivery_status VARCHAR(32) NOT NULL DEFAULT 'sent',
+		delivery_source VARCHAR(64) NOT NULL DEFAULT 'case_target',
+		provider VARCHAR(32) NOT NULL DEFAULT 'sendgrid',
+		provider_message_id VARCHAR(255) NULL,
+		sent_at TIMESTAMP NULL,
+		error_message TEXT NULL,
+		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+		PRIMARY KEY (id),
+		KEY idx_case_email_deliveries_case (case_id, created_at),
+		KEY idx_case_email_deliveries_action (action_id),
+		KEY idx_case_email_deliveries_target (target_id),
+		KEY idx_case_email_deliveries_recipient (recipient_email),
+		CONSTRAINT fk_case_email_deliveries_case FOREIGN KEY (case_id) REFERENCES cases(case_id) ON DELETE CASCADE,
+		CONSTRAINT fk_case_email_deliveries_action FOREIGN KEY (action_id) REFERENCES case_escalation_actions(id) ON DELETE SET NULL,
+		CONSTRAINT fk_case_email_deliveries_target FOREIGN KEY (target_id) REFERENCES case_escalation_targets(id) ON DELETE SET NULL
+	) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`
+	if _, err := db.ExecContext(ctx, stmt); err != nil {
+		return fmt.Errorf("failed to ensure case email deliveries table: %w", err)
+	}
+	return nil
+}
