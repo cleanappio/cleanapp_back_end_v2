@@ -324,6 +324,9 @@ func (d *Database) GetCaseDetail(ctx context.Context, caseID string) (*models.Ca
 	if detail.EscalationActions, err = d.listCaseEscalationActions(ctx, caseID); err != nil {
 		return nil, err
 	}
+	if detail.EmailDeliveries, err = d.listCaseEmailDeliveries(ctx, caseID); err != nil {
+		return nil, err
+	}
 	if detail.ResolutionSignals, err = d.listCaseResolutionSignals(ctx, caseID); err != nil {
 		return nil, err
 	}
@@ -567,6 +570,183 @@ func (d *Database) listCaseEscalationActions(ctx context.Context, caseID string)
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+func (d *Database) listCaseEmailDeliveries(ctx context.Context, caseID string) ([]models.CaseEmailDelivery, error) {
+	rows, err := d.db.QueryContext(ctx, `
+		SELECT id, case_id, action_id, target_id, recipient_email, delivery_status,
+			delivery_source, provider, COALESCE(provider_message_id, ''), sent_at,
+			COALESCE(error_message, ''), created_at
+		FROM case_email_deliveries
+		WHERE case_id = ?
+		ORDER BY created_at ASC, id ASC
+	`, caseID)
+	if err != nil {
+		return nil, fmt.Errorf("list case email deliveries: %w", err)
+	}
+	defer rows.Close()
+
+	var items []models.CaseEmailDelivery
+	for rows.Next() {
+		var item models.CaseEmailDelivery
+		var actionID sql.NullInt64
+		var targetID sql.NullInt64
+		var sentAt sql.NullTime
+		if err := rows.Scan(
+			&item.ID, &item.CaseID, &actionID, &targetID, &item.RecipientEmail, &item.DeliveryStatus,
+			&item.DeliverySource, &item.Provider, &item.ProviderMessageID, &sentAt, &item.ErrorMessage,
+			&item.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		if actionID.Valid {
+			item.ActionID = &actionID.Int64
+		}
+		if targetID.Valid {
+			item.TargetID = &targetID.Int64
+		}
+		if sentAt.Valid {
+			item.SentAt = &sentAt.Time
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (d *Database) CreateCaseEscalationActions(ctx context.Context, caseID string, targetIDs []int64, subject, body, actorUserID string) ([]models.CaseEscalationTarget, []models.CaseEscalationAction, error) {
+	targets, err := d.listCaseEscalationTargets(ctx, caseID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(targets) == 0 {
+		return nil, nil, fmt.Errorf("no escalation targets for case %s", caseID)
+	}
+
+	selected := make([]models.CaseEscalationTarget, 0, len(targets))
+	allowAll := len(targetIDs) == 0
+	allowed := make(map[int64]struct{}, len(targetIDs))
+	for _, id := range targetIDs {
+		allowed[id] = struct{}{}
+	}
+	for _, target := range targets {
+		if strings.TrimSpace(target.Email) == "" {
+			continue
+		}
+		if !allowAll {
+			if _, ok := allowed[target.ID]; !ok {
+				continue
+			}
+		}
+		selected = append(selected, target)
+	}
+	if len(selected) == 0 {
+		return nil, nil, fmt.Errorf("no email-capable escalation targets selected")
+	}
+
+	tx, err := d.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	actions := make([]models.CaseEscalationAction, 0, len(selected))
+	for _, target := range selected {
+		result, err := tx.ExecContext(ctx, `
+			INSERT INTO case_escalation_actions (
+				case_id, target_id, channel, status, subject, body, sent_by_user_id
+			) VALUES (?, ?, 'email', 'pending', ?, ?, ?)
+		`, caseID, target.ID, subject, body, emptyOrNil(actorUserID))
+		if err != nil {
+			return nil, nil, fmt.Errorf("insert case escalation action: %w", err)
+		}
+		actionID, err := result.LastInsertId()
+		if err != nil {
+			return nil, nil, fmt.Errorf("get case escalation action id: %w", err)
+		}
+		actions = append(actions, models.CaseEscalationAction{
+			ID:           actionID,
+			CaseID:       caseID,
+			TargetID:     &target.ID,
+			Channel:      "email",
+			Status:       "pending",
+			Subject:      subject,
+			Body:         body,
+			SentByUserID: actorUserID,
+		})
+	}
+
+	payload := map[string]interface{}{
+		"target_ids":   targetIDs,
+		"target_count": len(selected),
+		"subject":      subject,
+	}
+	if err := insertCaseAuditEventTx(ctx, tx, caseID, "case_escalation_requested", actorUserID, payload); err != nil {
+		return nil, nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, nil, err
+	}
+	return selected, actions, nil
+}
+
+func (d *Database) RecordCaseEscalationDeliveries(ctx context.Context, caseID string, actions []models.CaseEscalationAction, deliveries []models.CaseEmailDelivery, actorUserID string) error {
+	tx, err := d.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	for _, delivery := range deliveries {
+		_, err := tx.ExecContext(ctx, `
+			INSERT INTO case_email_deliveries (
+				case_id, action_id, target_id, recipient_email, delivery_status,
+				delivery_source, provider, provider_message_id, sent_at, error_message
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, caseID, delivery.ActionID, delivery.TargetID, delivery.RecipientEmail, delivery.DeliveryStatus,
+			emptyOrDefault(delivery.DeliverySource, "case_target"), emptyOrDefault(delivery.Provider, "sendgrid"),
+			emptyOrNil(delivery.ProviderMessageID), delivery.SentAt, emptyOrNil(delivery.ErrorMessage))
+		if err != nil {
+			return fmt.Errorf("insert case email delivery: %w", err)
+		}
+	}
+
+	for _, action := range actions {
+		status := "failed"
+		var providerMessageID interface{}
+		var sentAt interface{}
+		for _, delivery := range deliveries {
+			if delivery.ActionID != nil && action.ID == *delivery.ActionID {
+				if delivery.DeliveryStatus == "sent" {
+					status = "sent"
+					providerMessageID = emptyOrNil(delivery.ProviderMessageID)
+					sentAt = delivery.SentAt
+					break
+				}
+				if status != "sent" {
+					status = delivery.DeliveryStatus
+				}
+			}
+		}
+		_, err := tx.ExecContext(ctx, `
+			UPDATE case_escalation_actions
+			SET status = ?, provider_message_id = ?, sent_at = ?, created_at = created_at
+			WHERE id = ? AND case_id = ?
+		`, status, providerMessageID, sentAt, action.ID, caseID)
+		if err != nil {
+			return fmt.Errorf("update case escalation action: %w", err)
+		}
+	}
+
+	payload := map[string]interface{}{
+		"action_count":   len(actions),
+		"delivery_count": len(deliveries),
+	}
+	if err := insertCaseAuditEventTx(ctx, tx, caseID, "case_escalation_recorded", actorUserID, payload); err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
 
 func (d *Database) listCaseResolutionSignals(ctx context.Context, caseID string) ([]models.CaseResolutionSignal, error) {

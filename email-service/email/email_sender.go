@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"image"
+	"strings"
 	"time"
 
 	"email-service/config"
@@ -26,6 +27,15 @@ const (
 type EmailSender struct {
 	config *config.Config
 	client *sendgrid.Client
+}
+
+type CustomEmailSendResult struct {
+	Email             string    `json:"email"`
+	Status            string    `json:"status"`
+	Provider          string    `json:"provider"`
+	ProviderMessageID string    `json:"provider_message_id,omitempty"`
+	SentAt            time.Time `json:"sent_at,omitempty"`
+	Error             string    `json:"error,omitempty"`
 }
 
 // NewEmailSender creates a new email sender
@@ -105,6 +115,27 @@ func (e *EmailSender) SendAggregateEmail(recipients []string, summary *models.Br
 	return nil
 }
 
+func (e *EmailSender) SendCustomEmails(recipients []string, subject, textBody, htmlBody string) []CustomEmailSendResult {
+	results := make([]CustomEmailSendResult, 0, len(recipients))
+	for _, recipient := range recipients {
+		msgID, err := e.sendOneCustomEmail(recipient, subject, textBody, htmlBody)
+		result := CustomEmailSendResult{
+			Email:    recipient,
+			Provider: "sendgrid",
+		}
+		if err != nil {
+			result.Status = "failed"
+			result.Error = err.Error()
+		} else {
+			result.Status = "sent"
+			result.ProviderMessageID = msgID
+			result.SentAt = time.Now().UTC()
+		}
+		results = append(results, result)
+	}
+	return results
+}
+
 // sendOneAggregateEmail sends an aggregate notification to a single recipient
 func (e *EmailSender) sendOneAggregateEmail(recipient string, summary *models.BrandReportSummary, optOutURL string) error {
 	from := mail.NewEmail(e.config.SendGridFromName, e.config.SendGridFromEmail)
@@ -155,6 +186,41 @@ func (e *EmailSender) sendOneAggregateEmail(recipient string, summary *models.Br
 		body = body[:512] + "..."
 	}
 	return fmt.Errorf("sendgrid returned status %d for %s (in %s): %s", response.StatusCode, recipient, duration, body)
+}
+
+func (e *EmailSender) sendOneCustomEmail(recipient, subject, textBody, htmlBody string) (string, error) {
+	from := mail.NewEmail(e.config.SendGridFromName, e.config.SendGridFromEmail)
+	to := mail.NewEmail(recipient, recipient)
+
+	message := mail.NewV3Mail()
+	message.SetFrom(from)
+	message.Subject = subject
+
+	p := mail.NewPersonalization()
+	p.AddTos(to)
+	message.AddPersonalizations(p)
+	message.AddContent(mail.NewContent("text/plain", textBody))
+	if strings.TrimSpace(htmlBody) != "" {
+		message.AddContent(mail.NewContent("text/html", htmlBody))
+	}
+
+	start := time.Now()
+	response, err := e.client.Send(message)
+	if err != nil {
+		return "", err
+	}
+	duration := time.Since(start)
+	if response.StatusCode >= 200 && response.StatusCode < 300 {
+		msgID := strings.Join(response.Headers["X-Message-Id"], ",")
+		log.Infof("Custom email accepted by SendGrid for %s (status=%d, id=%s, in %s)", recipient, response.StatusCode, msgID, duration)
+		return msgID, nil
+	}
+
+	body := response.Body
+	if len(body) > 512 {
+		body = body[:512] + "..."
+	}
+	return "", fmt.Errorf("sendgrid returned status %d for %s (in %s): %s", response.StatusCode, recipient, duration, body)
 }
 
 // getAggregateEmailText returns the plain text content for aggregate emails

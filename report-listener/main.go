@@ -181,6 +181,9 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 			cases.GET("/:case_id", h.GetCase)
 			cases.POST("/:case_id/reports", h.AddReportsToCase)
 			cases.POST("/:case_id/status", h.UpdateCaseStatus)
+			cases.GET("/:case_id/escalations", h.GetCaseEscalations)
+			cases.POST("/:case_id/escalations/draft", h.DraftCaseEscalation)
+			cases.POST("/:case_id/escalations/send", h.SendCaseEscalation)
 		}
 	}
 
@@ -242,6 +245,9 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 			casesV4.GET("/:case_id", h.GetCase)
 			casesV4.POST("/:case_id/reports", h.AddReportsToCase)
 			casesV4.POST("/:case_id/status", h.UpdateCaseStatus)
+			casesV4.GET("/:case_id/escalations", h.GetCaseEscalations)
+			casesV4.POST("/:case_id/escalations/draft", h.DraftCaseEscalation)
+			casesV4.POST("/:case_id/escalations/send", h.SendCaseEscalation)
 		}
 	}
 

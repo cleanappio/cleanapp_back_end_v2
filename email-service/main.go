@@ -40,6 +40,11 @@ func main() {
 		apiV3.GET("/version", func(c *gin.Context) { c.JSON(200, version.Get("email-service")) })
 		apiV3.POST("/optout", handler.HandleOptOut)
 	}
+	internal := router.Group("/internal")
+	internal.Use(handlers.InternalAdminToken(cfg.InternalAdminToken))
+	{
+		internal.POST("/case-escalations/send", handler.HandleSendCaseEscalation)
+	}
 	router.GET("/opt-out", handler.HandleOptOutLink)
 	router.GET("/health", handler.HandleHealth)
 	router.GET("/version", func(c *gin.Context) { c.JSON(200, version.Get("email-service")) })

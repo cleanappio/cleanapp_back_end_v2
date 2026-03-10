@@ -40,6 +40,7 @@ type Config struct {
 	GeminiModel                 string
 	IntelligenceFreeTierMaxTurn int
 	IntelligenceBaseURL         string
+	EmailServiceURL             string
 
 	FetcherKeyEnv                  string
 	FetcherRegisterMaxPerHourPerIP int
@@ -102,6 +103,7 @@ func Load() (*Config, error) {
 		GeminiModel:                 appenv.String("GEMINI_MODEL", "gemini-2.5-flash"),
 		IntelligenceFreeTierMaxTurn: appenv.Int("INTELLIGENCE_FREE_MAX_TURNS", 5),
 		IntelligenceBaseURL:         strings.TrimRight(appenv.String("INTELLIGENCE_BASE_URL", "https://cleanapp.io"), "/"),
+		EmailServiceURL:             strings.TrimRight(appenv.String("EMAIL_SERVICE_URL", "http://cleanapp_email_service:8080"), "/"),
 
 		FetcherKeyEnv:                  strings.ToLower(appenv.String("FETCHER_KEY_ENV", "live")),
 		FetcherRegisterMaxPerHourPerIP: appenv.Int("FETCHER_REGISTER_MAX_PER_HOUR_PER_IP", 5),

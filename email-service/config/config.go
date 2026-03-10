@@ -37,9 +37,10 @@ type Config struct {
 	NoValidEmailsMaxBackoffHours  int
 	NoValidEmailsMaxRetries       int
 
-	AllowedOrigins []string
-	RateLimitRPS   float64
-	RateLimitBurst int
+	AllowedOrigins     []string
+	RateLimitRPS       float64
+	RateLimitBurst     int
+	InternalAdminToken string
 }
 
 func Load() (*Config, error) {
@@ -62,6 +63,7 @@ func Load() (*Config, error) {
 	cfg.AllowedOrigins = appenv.Strings("ALLOWED_ORIGINS")
 	cfg.RateLimitRPS = float64(appenv.Int("RATE_LIMIT_RPS", 10))
 	cfg.RateLimitBurst = appenv.Int("RATE_LIMIT_BURST", 20)
+	cfg.InternalAdminToken = appenv.String("INTERNAL_ADMIN_TOKEN", "")
 
 	throttleDays, err := strconv.Atoi(appenv.String("EMAIL_THROTTLE_DAYS", "7"))
 	if err != nil || throttleDays <= 0 {

@@ -17,7 +17,7 @@ This first slice is intentionally conservative:
 - polygon/geometry and nearby-report analysis are implemented
 - case creation and report linking are implemented
 - escalation target suggestion is implemented
-- case-specific outbound email sending is **not** implemented yet
+- case-specific outbound email drafting, sending, and delivery tracking are implemented
 - automatic case matching/reopen logic is **not** implemented yet
 
 ## Data model
@@ -30,6 +30,7 @@ Owned by `report-listener` migrations:
 - `case_clusters`
 - `case_escalation_targets`
 - `case_escalation_actions`
+- `case_email_deliveries`
 - `case_resolution_signals`
 - `case_audit_events`
 
@@ -66,10 +67,46 @@ Routes:
 - `GET /api/v3/cases/:case_id`
 - `POST /api/v3/cases/:case_id/reports`
 - `POST /api/v3/cases/:case_id/status`
+- `GET /api/v3/cases/:case_id/escalations`
+- `POST /api/v3/cases/:case_id/escalations/draft`
+- `POST /api/v3/cases/:case_id/escalations/send`
 - `POST /api/v4/cases`
 - `GET /api/v4/cases/:case_id`
 - `POST /api/v4/cases/:case_id/reports`
 - `POST /api/v4/cases/:case_id/status`
+- `GET /api/v4/cases/:case_id/escalations`
+- `POST /api/v4/cases/:case_id/escalations/draft`
+- `POST /api/v4/cases/:case_id/escalations/send`
+
+### Case escalation flow
+
+The report-listener now acts as the public/authenticated case facade.
+
+It:
+
+- drafts a case escalation email from case title/summary/reports
+- creates durable `case_escalation_actions`
+- calls the email-service internal endpoint
+- records per-recipient delivery truth in `case_email_deliveries`
+
+The email-service remains the actual SendGrid executor. It is not bypassed.
+
+Internal email-service route:
+
+- `POST /internal/case-escalations/send`
+
+Protected by:
+
+- `INTERNAL_ADMIN_TOKEN`
+
+Case escalation API responses now expose:
+
+- targets
+- actions
+- deliveries
+- provider message ids
+- sent timestamps
+- per-recipient failures
 
 ## Authentication
 
@@ -112,13 +149,13 @@ The response returns incident hypotheses with:
 ## Current limitations
 
 1. A polygon is a workspace scope, not automatically a case.
-2. Case escalations are stored as durable targets/actions, but case email send execution is not yet wired.
-3. New reports are not yet auto-matched into open cases.
-4. `report_clusters` is not the canonical case backbone; the new case tables are.
+2. New reports are not yet auto-matched into open cases.
+3. `report_clusters` is not the canonical case backbone; the new case tables are.
+4. Case escalation currently sends simple text/html summaries; richer attachment/memo generation is still future work.
 
 ## Intended next steps
 
 1. Add case detail views on web.
-2. Add case-specific escalation send flow through email service.
-3. Add automatic case matching/reopen suggestions during analysis.
-4. Make mobile case-aware after web workspace flow is stable.
+2. Add automatic case matching/reopen suggestions during analysis.
+3. Make mobile case-aware after web workspace flow is stable.
+4. Improve case escalation drafting with richer memo/attachment generation.

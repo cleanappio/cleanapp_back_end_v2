@@ -139,6 +139,21 @@ type CaseEscalationAction struct {
 	CreatedAt         time.Time  `json:"created_at" db:"created_at"`
 }
 
+type CaseEmailDelivery struct {
+	ID                int64      `json:"id" db:"id"`
+	CaseID            string     `json:"case_id" db:"case_id"`
+	ActionID          *int64     `json:"action_id,omitempty" db:"action_id"`
+	TargetID          *int64     `json:"target_id,omitempty" db:"target_id"`
+	RecipientEmail    string     `json:"recipient_email" db:"recipient_email"`
+	DeliveryStatus    string     `json:"delivery_status" db:"delivery_status"`
+	DeliverySource    string     `json:"delivery_source" db:"delivery_source"`
+	Provider          string     `json:"provider" db:"provider"`
+	ProviderMessageID string     `json:"provider_message_id" db:"provider_message_id"`
+	SentAt            *time.Time `json:"sent_at,omitempty" db:"sent_at"`
+	ErrorMessage      string     `json:"error_message" db:"error_message"`
+	CreatedAt         time.Time  `json:"created_at" db:"created_at"`
+}
+
 type CaseResolutionSignal struct {
 	ID              int64     `json:"id" db:"id"`
 	CaseID          string    `json:"case_id" db:"case_id"`
@@ -164,6 +179,7 @@ type CaseDetail struct {
 	Clusters          []SavedCluster         `json:"clusters"`
 	EscalationTargets []CaseEscalationTarget `json:"escalation_targets"`
 	EscalationActions []CaseEscalationAction `json:"escalation_actions"`
+	EmailDeliveries   []CaseEmailDelivery    `json:"email_deliveries"`
 	ResolutionSignals []CaseResolutionSignal `json:"resolution_signals"`
 	AuditEvents       []CaseAuditEvent       `json:"audit_events"`
 }
@@ -207,4 +223,33 @@ type UpdateCaseStatusRequest struct {
 	Summary     string      `json:"summary"`
 	Payload     interface{} `json:"payload"`
 	ActorUserID string      `json:"actor_user_id,omitempty"`
+}
+
+type DraftCaseEscalationRequest struct {
+	TargetIDs []int64 `json:"target_ids"`
+	Subject   string  `json:"subject"`
+	Body      string  `json:"body"`
+}
+
+type SendCaseEscalationRequest struct {
+	TargetIDs   []int64 `json:"target_ids"`
+	Subject     string  `json:"subject"`
+	Body        string  `json:"body"`
+	ActorUserID string  `json:"actor_user_id,omitempty"`
+}
+
+type CaseEscalationDraftResponse struct {
+	CaseID      string                 `json:"case_id"`
+	Subject     string                 `json:"subject"`
+	Body        string                 `json:"body"`
+	Targets     []CaseEscalationTarget `json:"targets"`
+	LinkedCount int                    `json:"linked_count"`
+}
+
+type CaseEscalationSendResponse struct {
+	CaseID     string                 `json:"case_id"`
+	Subject    string                 `json:"subject"`
+	Body       string                 `json:"body"`
+	Actions    []CaseEscalationAction `json:"actions"`
+	Deliveries []CaseEmailDelivery    `json:"deliveries"`
 }
