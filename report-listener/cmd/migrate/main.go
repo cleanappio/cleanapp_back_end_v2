@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"os"
 	"time"
 
 	"report-listener/config"
@@ -21,7 +22,16 @@ func main() {
 	}
 	defer db.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	timeout := 30 * time.Minute
+	if raw := os.Getenv("MIGRATION_TIMEOUT"); raw != "" {
+		parsed, err := time.ParseDuration(raw)
+		if err != nil {
+			log.Fatalf("invalid MIGRATION_TIMEOUT %q: %v", raw, err)
+		}
+		timeout = parsed
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	if err := database.RunMigrations(ctx, db.DB()); err != nil {
