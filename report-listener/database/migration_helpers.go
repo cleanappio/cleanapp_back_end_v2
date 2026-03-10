@@ -3,8 +3,11 @@ package database
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
+
+	mysqlDriver "github.com/go-sql-driver/mysql"
 
 	"report-listener/publicid"
 )
@@ -95,13 +98,6 @@ func ensureReportsPublicID(ctx context.Context, db *sql.DB) error {
 		}
 	}
 
-	if _, err := db.ExecContext(ctx, `
-		ALTER TABLE reports
-		MODIFY COLUMN public_id VARCHAR(32) NOT NULL
-	`); err != nil {
-		return fmt.Errorf("failed to enforce reports.public_id NOT NULL: %w", err)
-	}
-
 	indexReady, err := indexExists(ctx, db, "reports", "uq_reports_public_id")
 	if err != nil {
 		return fmt.Errorf("failed to check reports.public_id index: %w", err)
@@ -109,13 +105,126 @@ func ensureReportsPublicID(ctx context.Context, db *sql.DB) error {
 	if !indexReady {
 		if _, err := db.ExecContext(ctx, `
 			ALTER TABLE reports
+			ALGORITHM=INPLACE,
+			LOCK=NONE,
 			ADD UNIQUE INDEX uq_reports_public_id (public_id)
 		`); err != nil {
 			return fmt.Errorf("failed to add reports.public_id unique index: %w", err)
 		}
 	}
 
+	notNull, err := columnIsNotNull(ctx, db, "reports", "public_id")
+	if err != nil {
+		return fmt.Errorf("failed to check reports.public_id nullability: %w", err)
+	}
+	if !notNull {
+		if err := enforceReportsPublicIDWrites(ctx, db); err != nil {
+			return err
+		}
+	}
+
 	return nil
+}
+
+func columnIsNotNull(ctx context.Context, db *sql.DB, tableName, columnName string) (bool, error) {
+	var nullable string
+	err := db.QueryRowContext(ctx, `
+		SELECT IS_NULLABLE
+		FROM INFORMATION_SCHEMA.COLUMNS
+		WHERE TABLE_SCHEMA = DATABASE()
+		AND TABLE_NAME = ?
+		AND COLUMN_NAME = ?`,
+		tableName, columnName,
+	).Scan(&nullable)
+	if err != nil {
+		return false, fmt.Errorf("failed to load column nullability: %w", err)
+	}
+	return nullable == "NO", nil
+}
+
+func enforceReportsPublicIDWrites(ctx context.Context, db *sql.DB) error {
+	if _, err := db.ExecContext(ctx, `
+		ALTER TABLE reports
+		ALGORITHM=INPLACE,
+		LOCK=NONE,
+		MODIFY COLUMN public_id VARCHAR(32) NOT NULL
+	`); err == nil {
+		return nil
+	} else {
+		var mysqlErr *mysqlDriver.MySQLError
+		if !errors.As(err, &mysqlErr) || (mysqlErr.Number != 1845 && mysqlErr.Number != 1114) {
+			return fmt.Errorf("failed to enforce reports.public_id NOT NULL: %w", err)
+		}
+		log.Printf("warn: reports.public_id NOT NULL rewrite skipped on existing table: %v", err)
+	}
+
+	if err := ensureReportPublicIDTrigger(ctx, db,
+		"reports_public_id_before_insert",
+		`CREATE TRIGGER reports_public_id_before_insert
+		BEFORE INSERT ON reports
+		FOR EACH ROW
+		SET NEW.public_id = IF(
+			NEW.public_id IS NULL OR NEW.public_id = '',
+			CONCAT(
+				'rpt_',
+				REPLACE(
+					REPLACE(
+						REPLACE(TO_BASE64(RANDOM_BYTES(16)), '+', '-'),
+						'/',
+						'_'
+					),
+					'=',
+					''
+				)
+			),
+			NEW.public_id
+		)`); err != nil {
+		return err
+	}
+
+	if err := ensureReportPublicIDTrigger(ctx, db,
+		"reports_public_id_before_update",
+		`CREATE TRIGGER reports_public_id_before_update
+		BEFORE UPDATE ON reports
+		FOR EACH ROW
+		SET NEW.public_id = IF(
+			NEW.public_id IS NULL OR NEW.public_id = '' OR NEW.public_id <> OLD.public_id,
+			OLD.public_id,
+			NEW.public_id
+		)`); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func ensureReportPublicIDTrigger(ctx context.Context, db *sql.DB, triggerName, ddl string) error {
+	exists, err := triggerExists(ctx, db, triggerName)
+	if err != nil {
+		return fmt.Errorf("failed to check trigger %s: %w", triggerName, err)
+	}
+	if exists {
+		return nil
+	}
+	if _, err := db.ExecContext(ctx, ddl); err != nil {
+		return fmt.Errorf("failed to create trigger %s: %w", triggerName, err)
+	}
+	return nil
+}
+
+func triggerExists(ctx context.Context, db *sql.DB, triggerName string) (bool, error) {
+	var count int
+	err := db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM INFORMATION_SCHEMA.TRIGGERS
+		WHERE TRIGGER_SCHEMA = DATABASE()
+		AND TRIGGER_NAME = ?`,
+		triggerName,
+	).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("failed to check trigger existence: %w", err)
+	}
+	return count > 0, nil
 }
 
 func backfillReportPublicIDs(ctx context.Context, db *sql.DB, afterSeq int, batchSize int) (int, int, error) {
