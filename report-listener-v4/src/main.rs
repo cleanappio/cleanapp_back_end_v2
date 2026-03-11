@@ -74,6 +74,7 @@ async fn run() -> Result<()> {
         .route("/api/v4/brands/summary", get(get_brands_summary))
         .route("/api/v4/reports/by-brand", get(get_reports_by_brand))
         .route("/api/v4/reports/points", get(get_report_points))
+        .route("/api/v4/reports/by-public-id", get(get_report_by_public_id))
         .route("/api/v4/reports/by-seq", get(get_report_by_seq))
         .merge(openapi::routes())
         .with_state(pool.clone())
@@ -199,6 +200,12 @@ struct BySeqParams {
     seq: i64,
 }
 
+#[derive(Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
+struct ByPublicIdParams {
+    public_id: String,
+}
+
 /// GET /api/v4/reports/by-seq
 #[utoipa::path(
     get,
@@ -212,6 +219,30 @@ async fn get_report_by_seq(
 ) -> Result<Json<ReportWithAnalysis>, (StatusCode, String)> {
     let item = db::fetch_report_by_seq(&pool, params.seq).map_err(internal_error)?;
     Ok(Json(item))
+}
+
+/// GET /api/v4/reports/by-public-id
+#[utoipa::path(
+    get,
+    path = "/api/v4/reports/by-public-id",
+    params(ByPublicIdParams),
+    responses((status = 200, description = "Report by public id", body = ReportWithAnalysis))
+)]
+async fn get_report_by_public_id(
+    axum::extract::State(pool): axum::extract::State<my::Pool>,
+    Query(params): Query<ByPublicIdParams>,
+) -> Result<Json<ReportWithAnalysis>, (StatusCode, String)> {
+    match db::fetch_report_by_public_id(&pool, &params.public_id) {
+        Ok(item) => Ok(Json(item)),
+        Err(err) => {
+            let message = err.to_string();
+            if message.contains("not found") {
+                Err((StatusCode::NOT_FOUND, message))
+            } else {
+                Err(internal_error(err))
+            }
+        }
+    }
 }
 
 fn internal_error<E: std::fmt::Display>(e: E) -> (StatusCode, String) {

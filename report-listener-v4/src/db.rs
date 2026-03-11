@@ -432,3 +432,151 @@ pub fn fetch_report_by_seq(pool: &my::Pool, seq: i64) -> Result<ReportWithAnalys
         analysis: analyses,
     })
 }
+
+pub fn fetch_report_by_public_id(pool: &my::Pool, public_id: &str) -> Result<ReportWithAnalysis> {
+    let mut conn = pool.get_conn()?;
+    let report_row: Option<(
+        i64,
+        String,
+        String,
+        String,
+        f64,
+        f64,
+        Vec<u8>,
+        Option<String>,
+        Option<String>,
+    )> = conn.exec_first(
+        r#"
+        SELECT r.seq,
+               r.public_id,
+               DATE_FORMAT(r.ts, '%Y-%m-%d %H:%i:%s') AS ts,
+               r.id,
+               r.latitude,
+               r.longitude,
+               COALESCE(r.image, '') AS image,
+               (SELECT DATE_FORMAT(MAX(created_at), '%Y-%m-%d %H:%i:%s') FROM sent_reports_emails WHERE seq = r.seq) as last_email_sent_at,
+               DATE_FORMAT(ei.source_timestamp, '%Y-%m-%d %H:%i:%s') as source_timestamp
+        FROM reports r
+        LEFT JOIN report_status rs ON r.seq = rs.seq
+        LEFT JOIN reports_owners ro ON r.seq = ro.seq
+        LEFT JOIN external_ingest_index ei ON r.seq = ei.seq
+        WHERE r.public_id = ?
+          AND (rs.status IS NULL OR rs.status = 'active')
+          AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE)
+        LIMIT 1
+        "#,
+        (public_id,),
+    )?;
+
+    let (seq, public_id, ts, id, lat, lon, image, last_email_sent_at, source_timestamp) =
+        report_row.ok_or_else(|| anyhow::anyhow!("report not found or unavailable"))?;
+    let report = Report {
+        seq,
+        public_id,
+        timestamp: ts,
+        id,
+        latitude: lat,
+        longitude: lon,
+        image,
+        last_email_sent_at,
+        source_timestamp,
+    };
+
+    let rows: Vec<my::Row> = conn.exec(
+        r#"
+        SELECT
+            ra.seq, ra.source, ra.analysis_text, ra.analysis_image,
+            ra.title, ra.description, ra.brand_name, ra.brand_display_name,
+            ra.litter_probability, ra.hazard_probability, ra.digital_bug_probability,
+            ra.severity_level, ra.summary, ra.language, ra.classification,
+            DATE_FORMAT(ra.created_at, '%Y-%m-%d %H:%i:%s') AS created_at
+        FROM report_analysis ra
+        WHERE ra.seq = ?
+        ORDER BY ra.language ASC
+        "#,
+        (seq,),
+    )?;
+
+    let mut analyses: Vec<ReportAnalysis> = Vec::with_capacity(rows.len());
+    for mut row in rows {
+        let seq: i64 = row.take::<i64, _>(0).unwrap_or(0);
+        let source: String = row.take::<String, _>(1).unwrap_or_default();
+        let analysis_text: String = row
+            .take::<Option<String>, _>(2)
+            .unwrap_or(None)
+            .unwrap_or_default();
+        let analysis_image: Vec<u8> = row
+            .take::<Option<Vec<u8>>, _>(3)
+            .unwrap_or(None)
+            .unwrap_or_default();
+        let title: String = row
+            .take::<Option<String>, _>(4)
+            .unwrap_or(None)
+            .unwrap_or_default();
+        let description: String = row
+            .take::<Option<String>, _>(5)
+            .unwrap_or(None)
+            .unwrap_or_default();
+        let brand_name: String = row
+            .take::<Option<String>, _>(6)
+            .unwrap_or(None)
+            .unwrap_or_default();
+        let brand_display_name: String = row
+            .take::<Option<String>, _>(7)
+            .unwrap_or(None)
+            .unwrap_or_default();
+        let litter_probability: f64 = row.take::<Option<f64>, _>(8).unwrap_or(None).unwrap_or(0.0);
+        let hazard_probability: f64 = row.take::<Option<f64>, _>(9).unwrap_or(None).unwrap_or(0.0);
+        let digital_bug_probability: f64 = row
+            .take::<Option<f64>, _>(10)
+            .unwrap_or(None)
+            .unwrap_or(0.0);
+        let severity_level: f64 = row
+            .take::<Option<f64>, _>(11)
+            .unwrap_or(None)
+            .unwrap_or(0.0);
+        let summary: String = row
+            .take::<Option<String>, _>(12)
+            .unwrap_or(None)
+            .unwrap_or_default();
+        let language: String = row
+            .take::<Option<String>, _>(13)
+            .unwrap_or(None)
+            .unwrap_or_else(|| "en".to_string());
+        let classification: String = row
+            .take::<Option<String>, _>(14)
+            .unwrap_or(None)
+            .unwrap_or_else(|| "physical".to_string());
+        let created_at: String = row
+            .take::<Option<String>, _>(15)
+            .unwrap_or(None)
+            .unwrap_or_default();
+        analyses.push(ReportAnalysis {
+            seq,
+            source,
+            analysis_text,
+            analysis_image,
+            title,
+            description,
+            brand_name,
+            brand_display_name,
+            litter_probability,
+            hazard_probability,
+            digital_bug_probability,
+            severity_level,
+            summary,
+            language,
+            classification,
+            created_at,
+        });
+    }
+
+    if analyses.is_empty() {
+        return Err(anyhow::anyhow!("report analysis not found"));
+    }
+
+    Ok(ReportWithAnalysis {
+        report,
+        analysis: analyses,
+    })
+}

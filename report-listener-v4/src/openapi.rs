@@ -9,6 +9,7 @@ use crate::models::{BrandSummaryItem, Report, ReportBatch, ReportPoint, ReportWi
         crate::get_brands_summary,
         crate::get_reports_by_brand,
         crate::get_report_points,
+        crate::get_report_by_public_id,
         crate::get_report_by_seq,
     ),
     components(
