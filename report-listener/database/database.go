@@ -1059,6 +1059,117 @@ func (d *Database) GetReportBySeq(ctx context.Context, seq int) (*models.ReportW
 	}, nil
 }
 
+func (d *Database) GetReportsBySeqs(ctx context.Context, seqs []int) ([]models.ReportWithAnalysis, error) {
+	if len(seqs) == 0 {
+		return []models.ReportWithAnalysis{}, nil
+	}
+
+	inClause, args := buildIntInClause(seqs)
+	reportsQuery := fmt.Sprintf(`
+		SELECT DISTINCT r.seq, r.public_id, r.ts, r.id, r.latitude, r.longitude
+		FROM reports r
+		INNER JOIN report_analysis ra ON r.seq = ra.seq
+		LEFT JOIN report_raw rr ON r.seq = rr.report_seq
+		LEFT JOIN report_status rs ON r.seq = rs.seq
+		LEFT JOIN reports_owners ro ON r.seq = ro.seq
+		WHERE r.seq IN (%s)
+		AND (rs.status IS NULL OR rs.status = 'active')
+		AND ra.is_valid = TRUE
+		AND %s
+		AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE)
+		ORDER BY r.ts DESC
+	`, inClause, PublicVisibilityWhereSQL)
+
+	reportRows, err := d.db.QueryContext(ctx, reportsQuery, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query reports by seqs: %w", err)
+	}
+	defer reportRows.Close()
+
+	var reports []models.Report
+	var reportSeqs []int
+	for reportRows.Next() {
+		var report models.Report
+		if err := reportRows.Scan(
+			&report.Seq,
+			&report.PublicID,
+			&report.Timestamp,
+			&report.ID,
+			&report.Latitude,
+			&report.Longitude,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan report by seqs: %w", err)
+		}
+		reports = append(reports, report)
+		reportSeqs = append(reportSeqs, report.Seq)
+	}
+	if err := reportRows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating reports by seqs: %w", err)
+	}
+	if len(reports) == 0 {
+		return []models.ReportWithAnalysis{}, nil
+	}
+
+	inClause, args = buildIntInClause(reportSeqs)
+	analysesQuery := fmt.Sprintf(`
+		SELECT 
+			ra.seq, ra.source, ra.analysis_text, NULL as analysis_image,
+			ra.title, ra.description, ra.brand_name, ra.brand_display_name,
+			ra.litter_probability, ra.hazard_probability, ra.digital_bug_probability,
+			ra.severity_level, ra.summary, ra.language, ra.classification,
+			COALESCE(ra.inferred_contact_emails, ''), ra.created_at
+		FROM report_analysis ra
+		WHERE ra.seq IN (%s)
+		ORDER BY ra.seq DESC, ra.language ASC
+	`, inClause)
+
+	analysisRows, err := d.db.QueryContext(ctx, analysesQuery, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query analyses by seqs: %w", err)
+	}
+	defer analysisRows.Close()
+
+	analysesBySeq := make(map[int][]models.ReportAnalysis, len(reportSeqs))
+	for analysisRows.Next() {
+		var analysis models.ReportAnalysis
+		if err := analysisRows.Scan(
+			&analysis.Seq,
+			&analysis.Source,
+			&analysis.AnalysisText,
+			&analysis.AnalysisImage,
+			&analysis.Title,
+			&analysis.Description,
+			&analysis.BrandName,
+			&analysis.BrandDisplayName,
+			&analysis.LitterProbability,
+			&analysis.HazardProbability,
+			&analysis.DigitalBugProbability,
+			&analysis.SeverityLevel,
+			&analysis.Summary,
+			&analysis.Language,
+			&analysis.Classification,
+			&analysis.InferredContactEmails,
+			&analysis.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan analysis by seqs: %w", err)
+		}
+		analysesBySeq[analysis.Seq] = append(analysesBySeq[analysis.Seq], analysis)
+	}
+	if err := analysisRows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating analyses by seqs: %w", err)
+	}
+
+	result := make([]models.ReportWithAnalysis, 0, len(reports))
+	for _, report := range reports {
+		analyses := analysesBySeq[report.Seq]
+		if len(analyses) == 0 {
+			continue
+		}
+		result = append(result, models.ReportWithAnalysis{Report: report, Analysis: analyses})
+	}
+	return result, nil
+}
+
 // GetReportByPublicID retrieves a single report with analysis by public identifier.
 func (d *Database) GetReportByPublicID(ctx context.Context, publicID string) (*models.ReportWithAnalysis, error) {
 	reportQuery := fmt.Sprintf(`
