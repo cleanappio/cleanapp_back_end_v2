@@ -1,9 +1,10 @@
 use std::net::SocketAddr;
+use std::time::Duration;
 
 use anyhow::Result;
 use axum::{
-    extract::Query,
-    http::{header, HeaderValue, Method, StatusCode},
+    extract::{Query, State},
+    http::{header, HeaderMap, HeaderValue, Method, StatusCode},
     response::IntoResponse,
     routing::get,
     Json, Router,
@@ -21,9 +22,18 @@ mod cfg;
 mod db;
 mod models;
 mod openapi;
+mod security;
 
 use cfg::Config;
 use models::{BrandSummaryItem, ReportBatch, ReportPoint, ReportWithAnalysis};
+use security::{client_key, DetailAbuseMonitor, TokenBucketLimiter};
+
+#[derive(Clone)]
+struct AppState {
+    pool: my::Pool,
+    detail_limiter: TokenBucketLimiter,
+    detail_abuse_monitor: DetailAbuseMonitor,
+}
 
 fn build_version() -> &'static str {
     option_env!("CLEANAPP_BUILD_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"))
@@ -67,6 +77,19 @@ async fn run() -> Result<()> {
         .map(|origin| HeaderValue::from_str(origin))
         .collect::<std::result::Result<_, _>>()?;
 
+    let state = AppState {
+        pool: pool.clone(),
+        detail_limiter: TokenBucketLimiter::new(
+            cfg.public_detail_rate_limit_rps,
+            cfg.public_detail_rate_limit_burst,
+        ),
+        detail_abuse_monitor: DetailAbuseMonitor::new(
+            Duration::from_secs(cfg.public_detail_abuse_window_seconds.max(1)),
+            cfg.public_detail_abuse_max_hits,
+            cfg.public_detail_abuse_max_misses,
+        ),
+    };
+
     let app = Router::new()
         .route("/api/v4/health", get(health))
         .route("/api/v4/version", get(version))
@@ -77,7 +100,7 @@ async fn run() -> Result<()> {
         .route("/api/v4/reports/by-public-id", get(get_report_by_public_id))
         .route("/api/v4/reports/by-seq", get(get_report_by_seq))
         .merge(openapi::routes())
-        .with_state(pool.clone())
+        .with_state(state)
         .layer(
             ServiceBuilder::new()
                 .layer(TraceLayer::new_for_http())
@@ -140,10 +163,10 @@ struct BrandSummaryParams {
     )
 )]
 async fn get_brands_summary(
-    axum::extract::State(pool): axum::extract::State<my::Pool>,
+    State(state): State<AppState>,
     Query(params): Query<BrandSummaryParams>,
 ) -> Result<Json<Vec<BrandSummaryItem>>, (StatusCode, String)> {
-    let items = db::fetch_brand_summaries(&pool, &params.classification, &params.lang)
+    let items = db::fetch_brand_summaries(&state.pool, &params.classification, &params.lang)
         .map_err(internal_error)?;
     Ok(Json(items))
 }
@@ -163,12 +186,12 @@ struct ReportsByBrandParams {
     responses((status = 200, description = "Reports by brand", body = ReportBatch))
 )]
 async fn get_reports_by_brand(
-    axum::extract::State(pool): axum::extract::State<my::Pool>,
+    State(state): State<AppState>,
     Query(params): Query<ReportsByBrandParams>,
 ) -> Result<Json<ReportBatch>, (StatusCode, String)> {
-    let limit = params.n.unwrap_or(1000) as usize;
+    let limit = params.n.unwrap_or(25).min(100) as usize;
     let batch =
-        db::fetch_reports_by_brand(&pool, &params.brand_name, limit).map_err(internal_error)?;
+        db::fetch_reports_by_brand(&state.pool, &params.brand_name, limit).map_err(internal_error)?;
     Ok(Json(batch))
 }
 
@@ -186,11 +209,11 @@ struct PointsParams {
     responses((status = 200, description = "Report points", body = [ReportPoint]))
 )]
 async fn get_report_points(
-    axum::extract::State(pool): axum::extract::State<my::Pool>,
+    State(state): State<AppState>,
     Query(params): Query<PointsParams>,
 ) -> Result<Json<Vec<ReportPoint>>, (StatusCode, String)> {
     let classification = params.classification.unwrap_or_else(|| "all".to_string());
-    let items = db::fetch_report_points(&pool, &classification).map_err(internal_error)?;
+    let items = db::fetch_report_points(&state.pool, &classification).map_err(internal_error)?;
     Ok(Json(items))
 }
 
@@ -214,11 +237,26 @@ struct ByPublicIdParams {
     responses((status = 200, description = "Report by seq", body = ReportWithAnalysis))
 )]
 async fn get_report_by_seq(
-    axum::extract::State(pool): axum::extract::State<my::Pool>,
+    State(state): State<AppState>,
+    headers: HeaderMap,
     Query(params): Query<BySeqParams>,
 ) -> Result<Json<ReportWithAnalysis>, (StatusCode, String)> {
-    let item = db::fetch_report_by_seq(&pool, params.seq).map_err(internal_error)?;
-    Ok(Json(item))
+    let client = enforce_detail_access(&state, &headers)?;
+    match db::fetch_report_by_seq(&state.pool, params.seq) {
+        Ok(item) => {
+            state.detail_abuse_monitor.record(&client, true);
+            Ok(Json(item))
+        }
+        Err(err) => {
+            let message = err.to_string();
+            if message.contains("not found") {
+                state.detail_abuse_monitor.record(&client, false);
+                Err((StatusCode::NOT_FOUND, message))
+            } else {
+                Err(internal_error(err))
+            }
+        }
+    }
 }
 
 /// GET /api/v4/reports/by-public-id
@@ -229,20 +267,34 @@ async fn get_report_by_seq(
     responses((status = 200, description = "Report by public id", body = ReportWithAnalysis))
 )]
 async fn get_report_by_public_id(
-    axum::extract::State(pool): axum::extract::State<my::Pool>,
+    State(state): State<AppState>,
+    headers: HeaderMap,
     Query(params): Query<ByPublicIdParams>,
 ) -> Result<Json<ReportWithAnalysis>, (StatusCode, String)> {
-    match db::fetch_report_by_public_id(&pool, &params.public_id) {
-        Ok(item) => Ok(Json(item)),
+    let client = enforce_detail_access(&state, &headers)?;
+    match db::fetch_report_by_public_id(&state.pool, &params.public_id) {
+        Ok(item) => {
+            state.detail_abuse_monitor.record(&client, true);
+            Ok(Json(item))
+        }
         Err(err) => {
             let message = err.to_string();
             if message.contains("not found") {
+                state.detail_abuse_monitor.record(&client, false);
                 Err((StatusCode::NOT_FOUND, message))
             } else {
                 Err(internal_error(err))
             }
         }
     }
+}
+
+fn enforce_detail_access(state: &AppState, headers: &HeaderMap) -> Result<String, (StatusCode, String)> {
+    let client = client_key(headers);
+    if !state.detail_limiter.allow(&client) {
+        return Err((StatusCode::TOO_MANY_REQUESTS, "rate limit exceeded".to_string()));
+    }
+    Ok(client)
 }
 
 fn internal_error<E: std::fmt::Display>(e: E) -> (StatusCode, String) {

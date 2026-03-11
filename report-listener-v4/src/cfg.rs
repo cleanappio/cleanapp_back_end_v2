@@ -11,6 +11,11 @@ pub struct Config {
     pub db_name: String,
     pub http_port: u16,
     pub allowed_origins: Vec<String>,
+    pub public_detail_rate_limit_rps: f64,
+    pub public_detail_rate_limit_burst: usize,
+    pub public_detail_abuse_window_seconds: u64,
+    pub public_detail_abuse_max_hits: usize,
+    pub public_detail_abuse_max_misses: usize,
 }
 
 impl Config {
@@ -26,6 +31,12 @@ impl Config {
             "ALLOWED_ORIGINS",
             "https://cleanapp.io,https://www.cleanapp.io,https://api.cleanapp.io,https://live.cleanapp.io,http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173",
         );
+        let public_detail_rate_limit_rps = envx::parse("PUBLIC_DETAIL_RATE_LIMIT_RPS", "1.5");
+        let public_detail_rate_limit_burst = envx::parse("PUBLIC_DETAIL_RATE_LIMIT_BURST", "8");
+        let public_detail_abuse_window_seconds =
+            envx::parse("PUBLIC_DETAIL_ABUSE_WINDOW_SECONDS", "600");
+        let public_detail_abuse_max_hits = envx::parse("PUBLIC_DETAIL_ABUSE_MAX_HITS", "60");
+        let public_detail_abuse_max_misses = envx::parse("PUBLIC_DETAIL_ABUSE_MAX_MISSES", "12");
         Ok(Self {
             db_host,
             db_port,
@@ -34,6 +45,11 @@ impl Config {
             db_name,
             http_port,
             allowed_origins,
+            public_detail_rate_limit_rps,
+            public_detail_rate_limit_burst,
+            public_detail_abuse_window_seconds,
+            public_detail_abuse_max_hits,
+            public_detail_abuse_max_misses,
         })
     }
 }

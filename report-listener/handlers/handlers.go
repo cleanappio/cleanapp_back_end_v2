@@ -19,6 +19,7 @@ import (
 	"report-listener/database"
 	"report-listener/intelligence"
 	"report-listener/models"
+	"report-listener/publicdiscovery"
 	"report-listener/publicid"
 	"report-listener/rabbitmq"
 	brandutil "report-listener/utils"
@@ -57,6 +58,7 @@ type Handlers struct {
 	rabbitmqReplier   *rabbitmq.Publisher
 	cfg               *config.Config
 	geminiClient      *intelligence.Client
+	discoveryCodec    *publicdiscovery.Codec
 
 	brandCountsMu    sync.RWMutex
 	brandCountsCache map[string]brandCountsCacheEntry
@@ -72,6 +74,10 @@ func NewHandlers(
 ) *Handlers {
 	geminiClient := intelligence.NewClient(cfg.GeminiAPIKey, cfg.GeminiModel)
 	upgrader.CheckOrigin = edge.WebSocketOriginChecker(cfg.WebSocketAllowedOrigins)
+	discoveryCodec, err := publicdiscovery.NewCodec(cfg.JWTSecret)
+	if err != nil {
+		panic(err)
+	}
 
 	return &Handlers{
 		hub:               hub,
@@ -81,6 +87,7 @@ func NewHandlers(
 		cfg:               cfg,
 		geminiClient:      geminiClient,
 		brandCountsCache:  make(map[string]brandCountsCacheEntry),
+		discoveryCodec:    discoveryCodec,
 	}
 }
 

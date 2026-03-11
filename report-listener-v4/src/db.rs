@@ -245,9 +245,7 @@ pub fn fetch_reports_by_brand(
 pub fn fetch_report_points(pool: &my::Pool, classification: &str) -> Result<Vec<ReportPoint>> {
     let mut conn = pool.get_conn()?;
     let base = r#"
-        SELECT r.seq,
-               r.public_id,
-               COALESCE(MAX(ra.severity_level), 0.0) AS severity_level,
+        SELECT COALESCE(MAX(ra.severity_level), 0.0) AS severity_level,
                r.latitude,
                r.longitude
         FROM reports r
@@ -279,17 +277,10 @@ pub fn fetch_report_points(pool: &my::Pool, classification: &str) -> Result<Vec<
 
     let mut out: Vec<ReportPoint> = Vec::with_capacity(rows.len());
     for mut row in rows {
-        let seq: i64 = row.take::<i64, _>(0).unwrap_or(0);
-        let public_id: String = row
-            .take::<Option<String>, _>(1)
-            .unwrap_or(None)
-            .unwrap_or_default();
-        let severity_level: f64 = row.take::<Option<f64>, _>(2).unwrap_or(None).unwrap_or(0.0);
-        let latitude: f64 = row.take::<Option<f64>, _>(3).unwrap_or(None).unwrap_or(0.0);
-        let longitude: f64 = row.take::<Option<f64>, _>(4).unwrap_or(None).unwrap_or(0.0);
+        let severity_level: f64 = row.take::<Option<f64>, _>(0).unwrap_or(None).unwrap_or(0.0);
+        let latitude: f64 = row.take::<Option<f64>, _>(1).unwrap_or(None).unwrap_or(0.0);
+        let longitude: f64 = row.take::<Option<f64>, _>(2).unwrap_or(None).unwrap_or(0.0);
         out.push(ReportPoint {
-            seq,
-            public_id,
             severity_level,
             latitude,
             longitude,

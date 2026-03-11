@@ -184,6 +184,33 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 			detailRoutes.GET("/by-seq", h.GetReportBySeq)
 		}
 
+		publicDiscovery := api.Group("/public/discovery")
+		publicDiscovery.Use(
+			edge.RateLimitMiddleware(edge.RateLimitConfig{
+				RPS:   cfg.PublicDiscoveryRateLimitRPS,
+				Burst: cfg.PublicDiscoveryRateLimitBurst,
+			}),
+		)
+		{
+			publicDiscovery.GET("/last", h.GetPublicDiscoveryLast)
+			publicDiscovery.GET("/search", h.GetPublicDiscoverySearch)
+			publicDiscovery.GET("/by-brand", h.GetPublicDiscoveryByBrand)
+			publicDiscovery.GET("/by-latlng", h.GetPublicDiscoveryByLatLng)
+			publicDiscovery.GET("/brands/summary", h.GetPublicDiscoveryBrandSummaries)
+			publicDiscovery.GET("/physical-points", h.GetPublicDiscoveryPhysicalPoints)
+		}
+
+		publicResolve := api.Group("/public")
+		publicResolve.Use(
+			edge.RateLimitMiddleware(edge.RateLimitConfig{
+				RPS:   cfg.PublicResolveRateLimitRPS,
+				Burst: cfg.PublicResolveRateLimitBurst,
+			}),
+		)
+		{
+			publicResolve.GET("/resolve", h.ResolvePublicDiscoveryToken)
+		}
+
 		// Protected bulk ingest endpoint
 		protected := api.Group("/reports")
 		protected.Use(middleware.FetcherAuthMiddleware(svc.GetHandlers().Db()))
@@ -263,6 +290,33 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 		{
 			detailRoutesV4.GET("/by-public-id", h.GetReportByPublicID)
 			detailRoutesV4.GET("/by-seq", h.GetReportBySeq)
+		}
+
+		publicDiscoveryV4 := apiV4.Group("/public/discovery")
+		publicDiscoveryV4.Use(
+			edge.RateLimitMiddleware(edge.RateLimitConfig{
+				RPS:   cfg.PublicDiscoveryRateLimitRPS,
+				Burst: cfg.PublicDiscoveryRateLimitBurst,
+			}),
+		)
+		{
+			publicDiscoveryV4.GET("/last", h.GetPublicDiscoveryLast)
+			publicDiscoveryV4.GET("/search", h.GetPublicDiscoverySearch)
+			publicDiscoveryV4.GET("/by-brand", h.GetPublicDiscoveryByBrand)
+			publicDiscoveryV4.GET("/by-latlng", h.GetPublicDiscoveryByLatLng)
+			publicDiscoveryV4.GET("/brands/summary", h.GetPublicDiscoveryBrandSummaries)
+			publicDiscoveryV4.GET("/physical-points", h.GetPublicDiscoveryPhysicalPoints)
+		}
+
+		publicResolveV4 := apiV4.Group("/public")
+		publicResolveV4.Use(
+			edge.RateLimitMiddleware(edge.RateLimitConfig{
+				RPS:   cfg.PublicResolveRateLimitRPS,
+				Burst: cfg.PublicResolveRateLimitBurst,
+			}),
+		)
+		{
+			publicResolveV4.GET("/resolve", h.ResolvePublicDiscoveryToken)
 		}
 
 		// Protected bulk ingest endpoint
