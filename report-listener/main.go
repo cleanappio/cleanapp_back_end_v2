@@ -132,6 +132,7 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 		api.GET("/version", versionHandler)
 		api.POST("/clusters/analyze", h.AnalyzeCluster)
 		api.POST("/clusters/from-report", h.AnalyzeClusterFromReport)
+		api.POST("/cases/match-cluster", h.MatchCluster)
 
 		// Health check endpoint
 		api.GET("/reports/health", h.HealthCheck)
@@ -277,6 +278,8 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 		cases.Use(middleware.AuthMiddleware(cfg, svc.GetHandlers().Db()))
 		{
 			cases.POST("", h.CreateCase)
+			cases.POST("/upsert-from-cluster", h.UpsertCaseFromCluster)
+			cases.POST("/merge", h.MergeCases)
 			cases.GET("/:case_id", h.GetCase)
 			cases.POST("/:case_id/reports", h.AddReportsToCase)
 			cases.POST("/:case_id/status", h.UpdateCaseStatus)
@@ -292,6 +295,7 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 		apiV4.GET("/version", versionHandler)
 		apiV4.POST("/clusters/analyze", h.AnalyzeCluster)
 		apiV4.POST("/clusters/from-report", h.AnalyzeClusterFromReport)
+		apiV4.POST("/cases/match-cluster", h.MatchCluster)
 
 		// Health check endpoint
 		apiV4.GET("/reports/health", h.HealthCheck)
@@ -436,6 +440,8 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 		casesV4.Use(middleware.AuthMiddleware(cfg, svc.GetHandlers().Db()))
 		{
 			casesV4.POST("", h.CreateCase)
+			casesV4.POST("/upsert-from-cluster", h.UpsertCaseFromCluster)
+			casesV4.POST("/merge", h.MergeCases)
 			casesV4.GET("/:case_id", h.GetCase)
 			casesV4.POST("/:case_id/reports", h.AddReportsToCase)
 			casesV4.POST("/:case_id/status", h.UpdateCaseStatus)

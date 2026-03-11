@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
@@ -14,6 +15,7 @@ import (
 	"unicode"
 
 	"github.com/gin-gonic/gin"
+	"report-listener/geojsonx"
 	"report-listener/middleware"
 	"report-listener/models"
 )
@@ -64,13 +66,24 @@ func (h *Handlers) AnalyzeCluster(c *gin.Context) {
 		return
 	}
 
-	suggestedTargets, err := h.db.SuggestEscalationTargetsByGeometry(c.Request.Context(), string(geometryJSON), reportSeqs(reports), 8)
+	suggestedTargets, err := h.suggestEscalationTargets(c.Request.Context(), string(geometryJSON), reports, 8)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to derive escalation targets"})
 		return
 	}
 
 	response := analyzeClusterReports(reports, classification, "geometry", 0, json.RawMessage(geometryJSON), suggestedTargets)
+	response.CandidateCases, err = h.findCaseMatchCandidates(
+		c.Request.Context(),
+		classification,
+		string(geometryJSON),
+		reports,
+		extractHypothesisMatchTexts(response.Hypotheses),
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load nearby cases"})
+		return
+	}
 	c.JSON(http.StatusOK, response)
 }
 
@@ -120,14 +133,86 @@ func (h *Handlers) AnalyzeClusterFromReport(c *gin.Context) {
 	}
 	reports = filtered
 
-	suggestedTargets, err := h.db.SuggestEscalationTargetsByGeometry(c.Request.Context(), "", reportSeqs(reports), 8)
+	suggestedTargets, err := h.suggestEscalationTargets(c.Request.Context(), "", reports, 8)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to derive escalation targets"})
 		return
 	}
 
 	response := analyzeClusterReports(reports, classification, "seed_report", req.Seq, nil, suggestedTargets)
+	response.CandidateCases, err = h.findCaseMatchCandidates(
+		c.Request.Context(),
+		classification,
+		"",
+		reports,
+		extractHypothesisMatchTexts(response.Hypotheses),
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load nearby cases"})
+		return
+	}
 	c.JSON(http.StatusOK, response)
+}
+
+func (h *Handlers) MatchCluster(c *gin.Context) {
+	var req models.MatchClusterRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})
+		return
+	}
+
+	classification := strings.TrimSpace(req.Classification)
+	if classification == "" {
+		classification = "physical"
+	}
+
+	var geometryJSON string
+	if req.Geometry != nil {
+		geometryBlob, err := normalizeGeometryPayload(req.Geometry)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		geometryJSON = string(geometryBlob)
+	}
+
+	reports := make([]models.ReportWithAnalysis, 0)
+	if len(req.ReportSeqs) > 0 {
+		loaded, err := h.db.GetReportsBySeqs(c.Request.Context(), req.ReportSeqs)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load reports for matching"})
+			return
+		}
+		reports = loaded
+	} else if geometryJSON != "" {
+		n := req.N
+		if n <= 0 {
+			n = 250
+		}
+		loaded, err := h.db.GetReportsByGeometry(c.Request.Context(), geometryJSON, classification, n)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load reports for matching"})
+			return
+		}
+		reports = loaded
+	}
+
+	candidates, err := h.findCaseMatchCandidates(
+		c.Request.Context(),
+		classification,
+		geometryJSON,
+		reports,
+		[]string{req.Title, req.Summary},
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to match cluster to cases"})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.MatchClusterResponse{
+		Classification: classification,
+		CandidateCases: candidates,
+	})
 }
 
 func (h *Handlers) GetCasesByReportSeq(c *gin.Context) {
@@ -224,20 +309,85 @@ func (h *Handlers) CreateCase(c *gin.Context) {
 			RoleType:        target.RoleType,
 			Organization:    target.Organization,
 			DisplayName:     target.DisplayName,
+			Channel:         target.Channel,
 			Email:           target.Email,
 			Phone:           target.Phone,
+			Website:         target.Website,
+			ContactURL:      target.ContactURL,
+			SocialPlatform:  target.SocialPlatform,
+			SocialHandle:    target.SocialHandle,
 			TargetSource:    target.TargetSource,
 			ConfidenceScore: target.ConfidenceScore,
 			Rationale:       target.Rationale,
 		})
 	}
 	if len(targets) == 0 {
-		autoTargets, err := h.db.SuggestEscalationTargetsByGeometry(c.Request.Context(), geometryJSON, req.ReportSeqs, 8)
+		autoTargetReports := make([]models.ReportWithAnalysis, 0, len(req.ReportSeqs)+1)
+		if len(req.ReportSeqs) > 0 {
+			autoTargetReports, err = h.db.GetReportsBySeqs(c.Request.Context(), req.ReportSeqs)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load reports for escalation target discovery"})
+				return
+			}
+		}
+		if len(autoTargetReports) == 0 && anchorReport != nil {
+			autoTargetReports = append(autoTargetReports, *anchorReport)
+		}
+		autoTargets, err := h.suggestEscalationTargets(c.Request.Context(), geometryJSON, autoTargetReports, 8)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to suggest escalation targets"})
 			return
 		}
 		targets = autoTargets
+	}
+
+	reportsForMatching := make([]models.ReportWithAnalysis, 0, len(req.ReportSeqs)+1)
+	if len(req.ReportSeqs) > 0 {
+		reportsForMatching, err = h.db.GetReportsBySeqs(c.Request.Context(), req.ReportSeqs)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load reports for case matching"})
+			return
+		}
+	}
+	if len(reportsForMatching) == 0 && anchorReport != nil {
+		reportsForMatching = append(reportsForMatching, *anchorReport)
+	}
+
+	matchTexts := []string{req.Title, req.Summary, req.ClusterSummary}
+	candidateCases := make([]models.CaseMatchCandidate, 0)
+	if existingCaseID := strings.TrimSpace(req.ExistingCaseID); existingCaseID == "" || !req.ForceNewCase {
+		candidateCases, err = h.findCaseMatchCandidates(
+			c.Request.Context(),
+			emptyDefault(req.Classification, "physical"),
+			geometryJSON,
+			reportsForMatching,
+			matchTexts,
+		)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load matching cases"})
+			return
+		}
+	}
+
+	targetCaseID := strings.TrimSpace(req.ExistingCaseID)
+	matchScore := 0.0
+	matchReason := ""
+	if targetCaseID == "" && !req.ForceNewCase {
+		if preferred := preferredCaseMatchCandidate(candidateCases); preferred != nil {
+			targetCaseID = preferred.CaseID
+			matchScore = preferred.MatchScore
+			matchReason = strings.Join(preferred.MatchReasons, "; ")
+		}
+	} else if targetCaseID != "" {
+		matchScore = 1
+		matchReason = "case selected explicitly"
+		for _, candidate := range candidateCases {
+			if candidate.CaseID == targetCaseID {
+				matchScore = candidate.MatchScore
+				matchReason = strings.Join(candidate.MatchReasons, "; ")
+				break
+			}
+		}
 	}
 
 	caseRecord := &models.Case{
@@ -266,13 +416,47 @@ func (h *Handlers) CreateCase(c *gin.Context) {
 		caseRecord.FirstSeenAt = &ts
 		caseRecord.LastSeenAt = &ts
 	}
+	if geometryJSON != "" {
+		caseRecord.AggregateGeometryJSON, caseRecord.AggregateBBoxJSON, _ = geojsonx.BuildAggregateGeometryJSON([]string{geometryJSON})
+	}
+	caseRecord.ClusterCount = len(clusterIDs)
+	caseRecord.LinkedReportCount = len(req.ReportSeqs)
+	if len(clusterIDs) > 0 {
+		now := time.Now().UTC()
+		caseRecord.LastClusterAt = &now
+	}
 
 	auditPayload := gin.H{
-		"report_seqs":    req.ReportSeqs,
-		"anchor_seq":     req.AnchorReportSeq,
-		"cluster_ids":    clusterIDs,
-		"target_count":   len(targets),
-		"classification": caseRecord.Classification,
+		"report_seqs":     req.ReportSeqs,
+		"anchor_seq":      req.AnchorReportSeq,
+		"cluster_ids":     clusterIDs,
+		"target_count":    len(targets),
+		"classification":  caseRecord.Classification,
+		"existing_case":   targetCaseID,
+		"candidate_cases": candidateCases,
+	}
+
+	if targetCaseID != "" {
+		clusterLinks := make([]models.CaseClusterLink, 0, len(clusterIDs))
+		for _, clusterID := range clusterIDs {
+			clusterLinks = append(clusterLinks, models.CaseClusterLink{
+				CaseID:      targetCaseID,
+				ClusterID:   clusterID,
+				MatchScore:  matchScore,
+				MatchReason: matchReason,
+			})
+		}
+		if err := h.db.AttachClusterToCase(c.Request.Context(), targetCaseID, req.ReportSeqs, clusterLinks, targets, userID, auditPayload); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to attach cluster to case"})
+			return
+		}
+		detail, err := h.db.GetCaseDetail(c.Request.Context(), targetCaseID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "cluster attached but failed to load case"})
+			return
+		}
+		c.JSON(http.StatusOK, detail)
+		return
 	}
 	if err := h.db.CreateCase(c.Request.Context(), caseRecord, req.ReportSeqs, clusterIDs, targets, auditPayload); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create case"})
@@ -285,6 +469,33 @@ func (h *Handlers) CreateCase(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusCreated, detail)
+}
+
+func (h *Handlers) UpsertCaseFromCluster(c *gin.Context) {
+	h.CreateCase(c)
+}
+
+func (h *Handlers) MergeCases(c *gin.Context) {
+	var req models.MergeCasesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})
+		return
+	}
+	if strings.TrimSpace(req.TargetCaseID) == "" || len(req.SourceCaseIDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "target_case_id and source_case_ids are required"})
+		return
+	}
+	userID := middleware.GetUserIDFromContext(c)
+	if err := h.db.MergeCases(c.Request.Context(), req.TargetCaseID, req.SourceCaseIDs, userID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to merge cases"})
+		return
+	}
+	detail, err := h.db.GetCaseDetail(c.Request.Context(), req.TargetCaseID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "cases merged but failed to load target case"})
+		return
+	}
+	c.JSON(http.StatusOK, detail)
 }
 
 func (h *Handlers) GetCase(c *gin.Context) {
@@ -432,6 +643,124 @@ func analyzeClusterReports(
 		Hypotheses:       hypotheses,
 		SuggestedTargets: suggestedTargets,
 	}
+}
+
+func extractHypothesisMatchTexts(hypotheses []models.ClusterIncidentHypothesis) []string {
+	texts := make([]string, 0, len(hypotheses))
+	for _, hypothesis := range hypotheses {
+		if title := strings.TrimSpace(hypothesis.Title); title != "" {
+			texts = append(texts, title)
+		}
+	}
+	return texts
+}
+
+func preferredCaseMatchCandidate(candidates []models.CaseMatchCandidate) *models.CaseMatchCandidate {
+	if len(candidates) == 0 {
+		return nil
+	}
+	if candidates[0].MatchScore < 0.58 {
+		return nil
+	}
+	return &candidates[0]
+}
+
+func (h *Handlers) findCaseMatchCandidates(
+	ctx context.Context,
+	classification string,
+	geometryJSON string,
+	reports []models.ReportWithAnalysis,
+	matchTexts []string,
+) ([]models.CaseMatchCandidate, error) {
+	clusterBounds := clusterBoundsForMatching(geometryJSON, reports)
+	candidates, err := h.db.ListOpenCasesForMatching(ctx, classification, clusterBounds, 12)
+	if err != nil {
+		return nil, err
+	}
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+
+	clusterSeqSet := make(map[int]struct{}, len(reports))
+	clusterTextParts := make([]string, 0, len(matchTexts)+len(reports))
+	clusterTextParts = append(clusterTextParts, matchTexts...)
+	for _, report := range reports {
+		clusterSeqSet[report.Report.Seq] = struct{}{}
+		if analysis := preferredAnalysis(&report); analysis != nil {
+			clusterTextParts = append(clusterTextParts, firstNonEmpty(analysis.Title, analysis.Summary, analysis.Description))
+		}
+	}
+	clusterTokens := tokenizeForCluster(strings.Join(clusterTextParts, " "))
+	clusterLat, clusterLng, clusterCenterOK := clusterCenterForMatching(clusterBounds, reports)
+
+	matched := make([]models.CaseMatchCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		score := 0.12
+		reasons := make([]string, 0, 4)
+		sharedCount := sharedCaseReports(clusterSeqSet, candidate.LinkedReportSeqs)
+		candidate.SharedReportCount = sharedCount
+		if sharedCount > 0 {
+			denominator := maxInt(len(clusterSeqSet), len(candidate.LinkedReportSeqs))
+			if denominator <= 0 {
+				denominator = sharedCount
+			}
+			sharedRatio := float64(sharedCount) / float64(denominator)
+			score += 0.56 * sharedRatio
+			reasons = append(reasons, fmt.Sprintf("%d shared reports", sharedCount))
+		}
+
+		candidateBounds := boundsForCaseCandidate(candidate)
+		if clusterBounds != nil && candidateBounds != nil {
+			overlap := clusterBounds.IntersectionRatio(*candidateBounds)
+			if overlap > 0 {
+				score += math.Min(0.22, overlap*0.35)
+				reasons = append(reasons, "overlapping area")
+			}
+		}
+
+		if clusterCenterOK {
+			if candidateLat, candidateLng, ok := caseCandidateCenter(candidate, candidateBounds); ok {
+				distance := caseMatchDistanceMeters(clusterLat, clusterLng, candidateLat, candidateLng)
+				switch {
+				case distance <= 60:
+					score += 0.18
+					reasons = append(reasons, "same location")
+				case distance <= 150:
+					score += 0.12
+					reasons = append(reasons, "nearby location")
+				case distance <= 300:
+					score += 0.06
+				}
+			}
+		}
+
+		titleSimilarity := tokenSetSimilarity(clusterTokens, tokenizeForCluster(candidate.Title+" "+candidate.Summary))
+		if titleSimilarity > 0 {
+			score += 0.16 * titleSimilarity
+			if titleSimilarity >= 0.3 {
+				reasons = append(reasons, "shared incident language")
+			}
+		}
+
+		if candidate.ClusterCount > 1 {
+			score += math.Min(0.05, float64(candidate.ClusterCount)*0.01)
+		}
+
+		if score < 0.35 && sharedCount == 0 {
+			continue
+		}
+		candidate.MatchScore = math.Min(1, score)
+		candidate.MatchReasons = dedupeStrings(reasons)
+		matched = append(matched, candidate)
+	}
+
+	sort.Slice(matched, func(i, j int) bool {
+		if matched[i].MatchScore == matched[j].MatchScore {
+			return matched[i].UpdatedAt.After(matched[j].UpdatedAt)
+		}
+		return matched[i].MatchScore > matched[j].MatchScore
+	})
+	return matched, nil
 }
 
 func buildHypotheses(nodes []clusterNode, classification string) []models.ClusterIncidentHypothesis {
@@ -732,6 +1061,135 @@ func ensureUniqueSlug(base string) string {
 	return fmt.Sprintf("%s-%s", base, hex.EncodeToString(sum[:4]))
 }
 
+func clusterBoundsForMatching(geometryJSON string, reports []models.ReportWithAnalysis) *geojsonx.Bounds {
+	if strings.TrimSpace(geometryJSON) != "" {
+		if bounds, err := geojsonx.BoundsFromJSON(geometryJSON); err == nil && bounds != nil && bounds.Valid() {
+			return bounds
+		}
+	}
+	var bounds *geojsonx.Bounds
+	for _, report := range reports {
+		lat := report.Report.Latitude
+		lng := report.Report.Longitude
+		if lat == 0 && lng == 0 {
+			continue
+		}
+		if bounds == nil {
+			copyBounds := geojsonx.NewBounds(lng, lat, lng, lat)
+			bounds = &copyBounds
+			continue
+		}
+		bounds.West = math.Min(bounds.West, lng)
+		bounds.South = math.Min(bounds.South, lat)
+		bounds.East = math.Max(bounds.East, lng)
+		bounds.North = math.Max(bounds.North, lat)
+	}
+	return bounds
+}
+
+func clusterCenterForMatching(bounds *geojsonx.Bounds, reports []models.ReportWithAnalysis) (float64, float64, bool) {
+	if bounds != nil && bounds.Valid() {
+		lat, lng := bounds.Center()
+		return lat, lng, true
+	}
+	var totalLat float64
+	var totalLng float64
+	var count int
+	for _, report := range reports {
+		if report.Report.Latitude == 0 && report.Report.Longitude == 0 {
+			continue
+		}
+		totalLat += report.Report.Latitude
+		totalLng += report.Report.Longitude
+		count++
+	}
+	if count == 0 {
+		return 0, 0, false
+	}
+	return totalLat / float64(count), totalLng / float64(count), true
+}
+
+func boundsForCaseCandidate(candidate models.CaseMatchCandidate) *geojsonx.Bounds {
+	if bounds, err := geojsonx.ParseBoundsJSON(candidate.AggregateBBoxJSON); err == nil && bounds != nil && bounds.Valid() {
+		return bounds
+	}
+	if bounds, err := geojsonx.BoundsFromJSON(candidate.AggregateGeometryJSON); err == nil && bounds != nil && bounds.Valid() {
+		return bounds
+	}
+	if bounds, err := geojsonx.BoundsFromJSON(candidate.GeometryJSON); err == nil && bounds != nil && bounds.Valid() {
+		return bounds
+	}
+	return nil
+}
+
+func caseCandidateCenter(candidate models.CaseMatchCandidate, bounds *geojsonx.Bounds) (float64, float64, bool) {
+	if candidate.AnchorLat != nil && candidate.AnchorLng != nil {
+		return *candidate.AnchorLat, *candidate.AnchorLng, true
+	}
+	if bounds == nil || !bounds.Valid() {
+		return 0, 0, false
+	}
+	lat, lng := bounds.Center()
+	return lat, lng, true
+}
+
+func sharedCaseReports(clusterSeqSet map[int]struct{}, caseSeqs []int) int {
+	if len(clusterSeqSet) == 0 || len(caseSeqs) == 0 {
+		return 0
+	}
+	count := 0
+	for _, seq := range caseSeqs {
+		if _, ok := clusterSeqSet[seq]; ok {
+			count++
+		}
+	}
+	return count
+}
+
+func tokenSetSimilarity(a, b map[string]struct{}) float64 {
+	if len(a) == 0 || len(b) == 0 {
+		return 0
+	}
+	intersection := 0
+	for token := range a {
+		if _, ok := b[token]; ok {
+			intersection++
+		}
+	}
+	if intersection == 0 {
+		return 0
+	}
+	union := len(a) + len(b) - intersection
+	if union <= 0 {
+		return 0
+	}
+	return float64(intersection) / float64(union)
+}
+
+func caseMatchDistanceMeters(lat1, lon1, lat2, lon2 float64) float64 {
+	return haversineKm(lat1, lon1, lat2, lon2) * 1000
+}
+
+func dedupeStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		if _, exists := seen[trimmed]; exists {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		out = append(out, trimmed)
+	}
+	return out
+}
+
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {
@@ -763,6 +1221,13 @@ func min(a, b int) int {
 }
 
 func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func maxInt(a, b int) int {
 	if a > b {
 		return a
 	}

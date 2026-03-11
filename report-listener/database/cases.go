@@ -85,13 +85,23 @@ func (d *Database) CreateSavedCluster(ctx context.Context, cluster *models.Saved
 	if cluster.Classification == "" {
 		cluster.Classification = "physical"
 	}
+	if err := populateClusterGeometryMetadata(cluster); err != nil {
+		return fmt.Errorf("derive cluster geometry metadata: %w", err)
+	}
+
+	bboxJSON, err := marshalNullableJSON(cluster.BBoxJSON)
+	if err != nil {
+		return fmt.Errorf("marshal cluster bbox: %w", err)
+	}
 
 	_, err = d.db.ExecContext(ctx, `
 		INSERT INTO saved_clusters (
-			cluster_id, source_type, classification, geometry_json, seed_report_seq,
+			cluster_id, source_type, classification, geometry_json, bbox_json,
+			centroid_lat, centroid_lng, cluster_fingerprint, seed_report_seq,
 			report_count, summary, stats_json, analysis_json, created_by_user_id
-		) VALUES (?, ?, ?, NULLIF(?, ''), ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), ?)
-	`, cluster.ClusterID, cluster.SourceType, cluster.Classification, geometryJSON, cluster.SeedReportSeq,
+		) VALUES (?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), ?)
+	`, cluster.ClusterID, cluster.SourceType, cluster.Classification, geometryJSON, bboxJSON,
+		cluster.CentroidLat, cluster.CentroidLng, cluster.ClusterFingerprint, cluster.SeedReportSeq,
 		cluster.ReportCount, cluster.Summary, statsJSON, analysisJSON, cluster.CreatedByUserID)
 	if err != nil {
 		return fmt.Errorf("insert saved cluster: %w", err)
@@ -140,16 +150,20 @@ func (d *Database) CreateCase(
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO cases (
 			case_id, slug, title, type, status, classification, summary, uncertainty_notes,
-			geometry_json, anchor_report_seq, anchor_lat, anchor_lng, building_id, parcel_id,
+			geometry_json, aggregate_geometry_json, aggregate_bbox_json,
+			anchor_report_seq, anchor_lat, anchor_lng, building_id, parcel_id,
 			severity_score, urgency_score, confidence_score, exposure_score, criticality_score, trend_score,
-			first_seen_at, last_seen_at, created_by_user_id
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			cluster_count, linked_report_count, first_seen_at, last_seen_at, last_cluster_at, merged_into_case_id,
+			created_by_user_id
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, caseRecord.CaseID, caseRecord.Slug, caseRecord.Title, caseRecord.Type, caseRecord.Status,
 		caseRecord.Classification, caseRecord.Summary, caseRecord.UncertaintyNotes, geometryJSON,
+		caseRecord.AggregateGeometryJSON, caseRecord.AggregateBBoxJSON,
 		caseRecord.AnchorReportSeq, caseRecord.AnchorLat, caseRecord.AnchorLng, nullableStringPtr(caseRecord.BuildingID),
 		nullableStringPtr(caseRecord.ParcelID), caseRecord.SeverityScore, caseRecord.UrgencyScore,
 		caseRecord.ConfidenceScore, caseRecord.ExposureScore, caseRecord.CriticalityScore, caseRecord.TrendScore,
-		caseRecord.FirstSeenAt, caseRecord.LastSeenAt, caseRecord.CreatedByUserID)
+		caseRecord.ClusterCount, caseRecord.LinkedReportCount, caseRecord.FirstSeenAt, caseRecord.LastSeenAt,
+		caseRecord.LastClusterAt, nullableStringPtr(caseRecord.MergedIntoCaseID), caseRecord.CreatedByUserID)
 	if err != nil {
 		return fmt.Errorf("insert case: %w", err)
 	}
@@ -175,19 +189,26 @@ func (d *Database) CreateCase(
 	}
 
 	for _, target := range targets {
-		if strings.TrimSpace(target.Email) == "" && strings.TrimSpace(target.Phone) == "" {
+		if !hasCaseEscalationContactMethod(target) {
 			continue
 		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO case_escalation_targets (
-				case_id, role_type, organization, display_name, email, phone,
+				case_id, role_type, organization, display_name, channel, email, phone,
+				website, contact_url, social_platform, social_handle,
 				target_source, confidence_score, rationale
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`, caseRecord.CaseID, emptyOrDefault(target.RoleType, "contact"), emptyOrNil(target.Organization),
-			emptyOrNil(target.DisplayName), emptyOrNil(target.Email), emptyOrNil(target.Phone),
-			emptyOrDefault(target.TargetSource, "suggested"), target.ConfidenceScore, emptyOrNil(target.Rationale)); err != nil {
+			emptyOrNil(target.DisplayName), emptyOrDefault(caseEscalationTargetChannel(target), "email"),
+			emptyOrNil(target.Email), emptyOrNil(target.Phone), emptyOrNil(target.Website), emptyOrNil(target.ContactURL),
+			emptyOrNil(target.SocialPlatform), emptyOrNil(target.SocialHandle), emptyOrDefault(target.TargetSource, "suggested"),
+			target.ConfidenceScore, emptyOrNil(target.Rationale)); err != nil {
 			return fmt.Errorf("insert escalation target: %w", err)
 		}
+	}
+
+	if err := d.recomputeCaseAggregateTx(ctx, tx, caseRecord.CaseID); err != nil {
+		return err
 	}
 
 	if err := insertCaseAuditEventTx(ctx, tx, caseRecord.CaseID, "case_created", caseRecord.CreatedByUserID, auditPayload); err != nil {
@@ -268,29 +289,37 @@ func (d *Database) UpdateCaseStatus(ctx context.Context, caseID, status, summary
 func (d *Database) GetCaseDetail(ctx context.Context, caseID string) (*models.CaseDetail, error) {
 	var detail models.CaseDetail
 	var (
-		geometryJSON sql.NullString
-		buildingID   sql.NullString
-		parcelID     sql.NullString
-		firstSeenAt  sql.NullTime
-		lastSeenAt   sql.NullTime
+		geometryJSON          sql.NullString
+		aggregateGeometryJSON sql.NullString
+		aggregateBBoxJSON     sql.NullString
+		buildingID            sql.NullString
+		parcelID              sql.NullString
+		firstSeenAt           sql.NullTime
+		lastSeenAt            sql.NullTime
+		lastClusterAt         sql.NullTime
+		mergedIntoCaseID      sql.NullString
 	)
 
 	err := d.db.QueryRowContext(ctx, `
 		SELECT
 			case_id, slug, title, type, status, classification, summary, uncertainty_notes,
-			COALESCE(CAST(geometry_json AS CHAR), ''), anchor_report_seq, anchor_lat, anchor_lng,
+			COALESCE(CAST(geometry_json AS CHAR), ''), COALESCE(CAST(aggregate_geometry_json AS CHAR), ''),
+			COALESCE(CAST(aggregate_bbox_json AS CHAR), ''), anchor_report_seq, anchor_lat, anchor_lng,
 			building_id, parcel_id, severity_score, urgency_score, confidence_score,
-			exposure_score, criticality_score, trend_score, first_seen_at, last_seen_at,
+			exposure_score, criticality_score, trend_score, cluster_count, linked_report_count,
+			first_seen_at, last_seen_at, last_cluster_at, merged_into_case_id,
 			created_by_user_id, created_at, updated_at
 		FROM cases
 		WHERE case_id = ?
 	`, caseID).Scan(
 		&detail.Case.CaseID, &detail.Case.Slug, &detail.Case.Title, &detail.Case.Type, &detail.Case.Status,
 		&detail.Case.Classification, &detail.Case.Summary, &detail.Case.UncertaintyNotes, &geometryJSON,
-		&detail.Case.AnchorReportSeq, &detail.Case.AnchorLat, &detail.Case.AnchorLng, &buildingID, &parcelID,
+		&aggregateGeometryJSON, &aggregateBBoxJSON, &detail.Case.AnchorReportSeq, &detail.Case.AnchorLat, &detail.Case.AnchorLng, &buildingID, &parcelID,
 		&detail.Case.SeverityScore, &detail.Case.UrgencyScore, &detail.Case.ConfidenceScore,
 		&detail.Case.ExposureScore, &detail.Case.CriticalityScore, &detail.Case.TrendScore,
-		&firstSeenAt, &lastSeenAt, &detail.Case.CreatedByUserID, &detail.Case.CreatedAt, &detail.Case.UpdatedAt,
+		&detail.Case.ClusterCount, &detail.Case.LinkedReportCount,
+		&firstSeenAt, &lastSeenAt, &lastClusterAt, &mergedIntoCaseID,
+		&detail.Case.CreatedByUserID, &detail.Case.CreatedAt, &detail.Case.UpdatedAt,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -299,6 +328,8 @@ func (d *Database) GetCaseDetail(ctx context.Context, caseID string) (*models.Ca
 		return nil, fmt.Errorf("load case: %w", err)
 	}
 	detail.Case.GeometryJSON = geometryJSON.String
+	detail.Case.AggregateGeometryJSON = aggregateGeometryJSON.String
+	detail.Case.AggregateBBoxJSON = aggregateBBoxJSON.String
 	if buildingID.Valid {
 		detail.Case.BuildingID = &buildingID.String
 	}
@@ -310,6 +341,12 @@ func (d *Database) GetCaseDetail(ctx context.Context, caseID string) (*models.Ca
 	}
 	if lastSeenAt.Valid {
 		detail.Case.LastSeenAt = &lastSeenAt.Time
+	}
+	if lastClusterAt.Valid {
+		detail.Case.LastClusterAt = &lastClusterAt.Time
+	}
+	if mergedIntoCaseID.Valid && strings.TrimSpace(mergedIntoCaseID.String) != "" {
+		detail.Case.MergedIntoCaseID = &mergedIntoCaseID.String
 	}
 
 	if detail.LinkedReports, err = d.listCaseReports(ctx, caseID); err != nil {
@@ -429,6 +466,7 @@ func (d *Database) SuggestEscalationTargetsByGeometry(ctx context.Context, geome
 				RoleType:        "contact",
 				Organization:    org,
 				DisplayName:     org,
+				Channel:         "email",
 				Email:           email,
 				TargetSource:    "area_contact",
 				ConfidenceScore: 0.9,
@@ -475,6 +513,7 @@ func (d *Database) SuggestEscalationTargetsByGeometry(ctx context.Context, geome
 			seen[key] = struct{}{}
 			results = append(results, models.CaseEscalationTarget{
 				RoleType:        "contact",
+				Channel:         "email",
 				Email:           email,
 				TargetSource:    "inferred_contact",
 				ConfidenceScore: 0.6,
@@ -540,6 +579,7 @@ func (d *Database) listCaseReports(ctx context.Context, caseID string) ([]models
 func (d *Database) listCaseClusters(ctx context.Context, caseID string) ([]models.SavedCluster, error) {
 	rows, err := d.db.QueryContext(ctx, `
 		SELECT sc.cluster_id, sc.source_type, sc.classification, COALESCE(CAST(sc.geometry_json AS CHAR), ''),
+			COALESCE(CAST(sc.bbox_json AS CHAR), ''), sc.centroid_lat, sc.centroid_lng, COALESCE(sc.cluster_fingerprint, ''),
 			sc.seed_report_seq, sc.report_count, COALESCE(sc.summary, ''), COALESCE(CAST(sc.stats_json AS CHAR), ''),
 			COALESCE(CAST(sc.analysis_json AS CHAR), ''), sc.created_by_user_id, sc.created_at, sc.updated_at
 		FROM case_clusters cc
@@ -556,7 +596,8 @@ func (d *Database) listCaseClusters(ctx context.Context, caseID string) ([]model
 	for rows.Next() {
 		var item models.SavedCluster
 		if err := rows.Scan(
-			&item.ClusterID, &item.SourceType, &item.Classification, &item.GeometryJSON, &item.SeedReportSeq,
+			&item.ClusterID, &item.SourceType, &item.Classification, &item.GeometryJSON, &item.BBoxJSON,
+			&item.CentroidLat, &item.CentroidLng, &item.ClusterFingerprint, &item.SeedReportSeq,
 			&item.ReportCount, &item.Summary, &item.StatsJSON, &item.AnalysisJSON,
 			&item.CreatedByUserID, &item.CreatedAt, &item.UpdatedAt,
 		); err != nil {
@@ -570,8 +611,9 @@ func (d *Database) listCaseClusters(ctx context.Context, caseID string) ([]model
 func (d *Database) listCaseEscalationTargets(ctx context.Context, caseID string) ([]models.CaseEscalationTarget, error) {
 	rows, err := d.db.QueryContext(ctx, `
 		SELECT id, case_id, role_type, COALESCE(organization, ''), COALESCE(display_name, ''),
-			COALESCE(email, ''), COALESCE(phone, ''), target_source, confidence_score,
-			COALESCE(rationale, ''), created_at
+			COALESCE(channel, ''), COALESCE(email, ''), COALESCE(phone, ''), COALESCE(website, ''),
+			COALESCE(contact_url, ''), COALESCE(social_platform, ''), COALESCE(social_handle, ''),
+			target_source, confidence_score, COALESCE(rationale, ''), created_at
 		FROM case_escalation_targets
 		WHERE case_id = ?
 		ORDER BY confidence_score DESC, created_at ASC
@@ -586,7 +628,9 @@ func (d *Database) listCaseEscalationTargets(ctx context.Context, caseID string)
 		var item models.CaseEscalationTarget
 		if err := rows.Scan(
 			&item.ID, &item.CaseID, &item.RoleType, &item.Organization, &item.DisplayName,
-			&item.Email, &item.Phone, &item.TargetSource, &item.ConfidenceScore, &item.Rationale, &item.CreatedAt,
+			&item.Channel, &item.Email, &item.Phone, &item.Website, &item.ContactURL,
+			&item.SocialPlatform, &item.SocialHandle, &item.TargetSource, &item.ConfidenceScore,
+			&item.Rationale, &item.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -883,6 +927,33 @@ func emptyOrDefault(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func hasCaseEscalationContactMethod(target models.CaseEscalationTarget) bool {
+	return strings.TrimSpace(target.Email) != "" ||
+		strings.TrimSpace(target.Phone) != "" ||
+		strings.TrimSpace(target.Website) != "" ||
+		strings.TrimSpace(target.ContactURL) != "" ||
+		strings.TrimSpace(target.SocialHandle) != ""
+}
+
+func caseEscalationTargetChannel(target models.CaseEscalationTarget) string {
+	if channel := strings.TrimSpace(target.Channel); channel != "" {
+		return channel
+	}
+	if strings.TrimSpace(target.Email) != "" {
+		return "email"
+	}
+	if strings.TrimSpace(target.Phone) != "" {
+		return "phone"
+	}
+	if strings.TrimSpace(target.SocialHandle) != "" {
+		return "social"
+	}
+	if strings.TrimSpace(target.Website) != "" || strings.TrimSpace(target.ContactURL) != "" {
+		return "website"
+	}
+	return ""
 }
 
 func splitPossibleEmails(raw string) []string {

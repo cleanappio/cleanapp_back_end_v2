@@ -43,54 +43,89 @@ type ClusterAnalysisResponse struct {
 	Stats            ClusterStats                `json:"stats"`
 	Hypotheses       []ClusterIncidentHypothesis `json:"hypotheses"`
 	SuggestedTargets []CaseEscalationTarget      `json:"suggested_targets"`
+	CandidateCases   []CaseMatchCandidate        `json:"candidate_cases"`
 }
 
 type SavedCluster struct {
-	ClusterID       string    `json:"cluster_id" db:"cluster_id"`
-	SourceType      string    `json:"source_type" db:"source_type"`
-	Classification  string    `json:"classification" db:"classification"`
-	GeometryJSON    string    `json:"geometry_json" db:"geometry_json"`
-	SeedReportSeq   *int      `json:"seed_report_seq,omitempty" db:"seed_report_seq"`
-	ReportCount     int       `json:"report_count" db:"report_count"`
-	Summary         string    `json:"summary" db:"summary"`
-	StatsJSON       string    `json:"stats_json" db:"stats_json"`
-	AnalysisJSON    string    `json:"analysis_json" db:"analysis_json"`
-	CreatedByUserID string    `json:"created_by_user_id" db:"created_by_user_id"`
-	CreatedAt       time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at" db:"updated_at"`
+	ClusterID          string    `json:"cluster_id" db:"cluster_id"`
+	SourceType         string    `json:"source_type" db:"source_type"`
+	Classification     string    `json:"classification" db:"classification"`
+	GeometryJSON       string    `json:"geometry_json" db:"geometry_json"`
+	BBoxJSON           string    `json:"bbox_json" db:"bbox_json"`
+	CentroidLat        *float64  `json:"centroid_lat,omitempty" db:"centroid_lat"`
+	CentroidLng        *float64  `json:"centroid_lng,omitempty" db:"centroid_lng"`
+	ClusterFingerprint string    `json:"cluster_fingerprint" db:"cluster_fingerprint"`
+	SeedReportSeq      *int      `json:"seed_report_seq,omitempty" db:"seed_report_seq"`
+	ReportCount        int       `json:"report_count" db:"report_count"`
+	Summary            string    `json:"summary" db:"summary"`
+	StatsJSON          string    `json:"stats_json" db:"stats_json"`
+	AnalysisJSON       string    `json:"analysis_json" db:"analysis_json"`
+	CreatedByUserID    string    `json:"created_by_user_id" db:"created_by_user_id"`
+	CreatedAt          time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at" db:"updated_at"`
 }
 
 type Case struct {
-	CaseID           string     `json:"case_id" db:"case_id"`
-	Slug             string     `json:"slug" db:"slug"`
-	Title            string     `json:"title" db:"title"`
-	Type             string     `json:"type" db:"type"`
-	Status           string     `json:"status" db:"status"`
-	Classification   string     `json:"classification" db:"classification"`
-	Summary          string     `json:"summary" db:"summary"`
-	UncertaintyNotes string     `json:"uncertainty_notes" db:"uncertainty_notes"`
-	GeometryJSON     string     `json:"geometry_json" db:"geometry_json"`
-	AnchorReportSeq  *int       `json:"anchor_report_seq,omitempty" db:"anchor_report_seq"`
-	AnchorLat        *float64   `json:"anchor_lat,omitempty" db:"anchor_lat"`
-	AnchorLng        *float64   `json:"anchor_lng,omitempty" db:"anchor_lng"`
-	BuildingID       *string    `json:"building_id,omitempty" db:"building_id"`
-	ParcelID         *string    `json:"parcel_id,omitempty" db:"parcel_id"`
-	SeverityScore    float64    `json:"severity_score" db:"severity_score"`
-	UrgencyScore     float64    `json:"urgency_score" db:"urgency_score"`
-	ConfidenceScore  float64    `json:"confidence_score" db:"confidence_score"`
-	ExposureScore    float64    `json:"exposure_score" db:"exposure_score"`
-	CriticalityScore float64    `json:"criticality_score" db:"criticality_score"`
-	TrendScore       float64    `json:"trend_score" db:"trend_score"`
-	FirstSeenAt      *time.Time `json:"first_seen_at,omitempty" db:"first_seen_at"`
-	LastSeenAt       *time.Time `json:"last_seen_at,omitempty" db:"last_seen_at"`
-	CreatedByUserID  string     `json:"created_by_user_id" db:"created_by_user_id"`
-	CreatedAt        time.Time  `json:"created_at" db:"created_at"`
-	UpdatedAt        time.Time  `json:"updated_at" db:"updated_at"`
+	CaseID                string     `json:"case_id" db:"case_id"`
+	Slug                  string     `json:"slug" db:"slug"`
+	Title                 string     `json:"title" db:"title"`
+	Type                  string     `json:"type" db:"type"`
+	Status                string     `json:"status" db:"status"`
+	Classification        string     `json:"classification" db:"classification"`
+	Summary               string     `json:"summary" db:"summary"`
+	UncertaintyNotes      string     `json:"uncertainty_notes" db:"uncertainty_notes"`
+	GeometryJSON          string     `json:"geometry_json" db:"geometry_json"`
+	AggregateGeometryJSON string     `json:"aggregate_geometry_json" db:"aggregate_geometry_json"`
+	AggregateBBoxJSON     string     `json:"aggregate_bbox_json" db:"aggregate_bbox_json"`
+	AnchorReportSeq       *int       `json:"anchor_report_seq,omitempty" db:"anchor_report_seq"`
+	AnchorLat             *float64   `json:"anchor_lat,omitempty" db:"anchor_lat"`
+	AnchorLng             *float64   `json:"anchor_lng,omitempty" db:"anchor_lng"`
+	BuildingID            *string    `json:"building_id,omitempty" db:"building_id"`
+	ParcelID              *string    `json:"parcel_id,omitempty" db:"parcel_id"`
+	SeverityScore         float64    `json:"severity_score" db:"severity_score"`
+	UrgencyScore          float64    `json:"urgency_score" db:"urgency_score"`
+	ConfidenceScore       float64    `json:"confidence_score" db:"confidence_score"`
+	ExposureScore         float64    `json:"exposure_score" db:"exposure_score"`
+	CriticalityScore      float64    `json:"criticality_score" db:"criticality_score"`
+	TrendScore            float64    `json:"trend_score" db:"trend_score"`
+	ClusterCount          int        `json:"cluster_count" db:"cluster_count"`
+	LinkedReportCount     int        `json:"linked_report_count" db:"linked_report_count"`
+	FirstSeenAt           *time.Time `json:"first_seen_at,omitempty" db:"first_seen_at"`
+	LastSeenAt            *time.Time `json:"last_seen_at,omitempty" db:"last_seen_at"`
+	LastClusterAt         *time.Time `json:"last_cluster_at,omitempty" db:"last_cluster_at"`
+	MergedIntoCaseID      *string    `json:"merged_into_case_id,omitempty" db:"merged_into_case_id"`
+	CreatedByUserID       string     `json:"created_by_user_id" db:"created_by_user_id"`
+	CreatedAt             time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt             time.Time  `json:"updated_at" db:"updated_at"`
 }
 
 type CaseClusterLink struct {
-	CaseID    string `json:"case_id" db:"case_id"`
-	ClusterID string `json:"cluster_id" db:"cluster_id"`
+	CaseID      string  `json:"case_id" db:"case_id"`
+	ClusterID   string  `json:"cluster_id" db:"cluster_id"`
+	MatchScore  float64 `json:"match_score" db:"match_score"`
+	MatchReason string  `json:"match_reason" db:"match_reason"`
+}
+
+type CaseMatchCandidate struct {
+	CaseID                string    `json:"case_id" db:"case_id"`
+	Slug                  string    `json:"slug" db:"slug"`
+	Title                 string    `json:"title" db:"title"`
+	Status                string    `json:"status" db:"status"`
+	Classification        string    `json:"classification" db:"classification"`
+	Summary               string    `json:"summary" db:"summary"`
+	GeometryJSON          string    `json:"geometry_json" db:"geometry_json"`
+	AggregateGeometryJSON string    `json:"aggregate_geometry_json" db:"aggregate_geometry_json"`
+	AggregateBBoxJSON     string    `json:"aggregate_bbox_json" db:"aggregate_bbox_json"`
+	AnchorReportSeq       *int      `json:"anchor_report_seq,omitempty" db:"anchor_report_seq"`
+	AnchorLat             *float64  `json:"anchor_lat,omitempty" db:"anchor_lat"`
+	AnchorLng             *float64  `json:"anchor_lng,omitempty" db:"anchor_lng"`
+	ClusterCount          int       `json:"cluster_count" db:"cluster_count"`
+	LinkedReportCount     int       `json:"linked_report_count" db:"linked_report_count"`
+	SharedReportCount     int       `json:"shared_report_count"`
+	MatchScore            float64   `json:"match_score"`
+	MatchReasons          []string  `json:"match_reasons"`
+	UpdatedAt             time.Time `json:"updated_at" db:"updated_at"`
+	LinkedReportSeqs      []int     `json:"-" db:"-"`
 }
 
 type CaseReportLink struct {
@@ -117,8 +152,13 @@ type CaseEscalationTarget struct {
 	RoleType        string    `json:"role_type" db:"role_type"`
 	Organization    string    `json:"organization" db:"organization"`
 	DisplayName     string    `json:"display_name" db:"display_name"`
+	Channel         string    `json:"channel" db:"channel"`
 	Email           string    `json:"email" db:"email"`
 	Phone           string    `json:"phone" db:"phone"`
+	Website         string    `json:"website" db:"website"`
+	ContactURL      string    `json:"contact_url" db:"contact_url"`
+	SocialPlatform  string    `json:"social_platform" db:"social_platform"`
+	SocialHandle    string    `json:"social_handle" db:"social_handle"`
 	TargetSource    string    `json:"target_source" db:"target_source"`
 	ConfidenceScore float64   `json:"confidence_score" db:"confidence_score"`
 	Rationale       string    `json:"rationale" db:"rationale"`
@@ -208,8 +248,13 @@ type CreateCaseEscalationTargetRequest struct {
 	RoleType        string  `json:"role_type"`
 	Organization    string  `json:"organization"`
 	DisplayName     string  `json:"display_name"`
+	Channel         string  `json:"channel"`
 	Email           string  `json:"email"`
 	Phone           string  `json:"phone"`
+	Website         string  `json:"website"`
+	ContactURL      string  `json:"contact_url"`
+	SocialPlatform  string  `json:"social_platform"`
+	SocialHandle    string  `json:"social_handle"`
 	TargetSource    string  `json:"target_source"`
 	ConfidenceScore float64 `json:"confidence_score"`
 	Rationale       string  `json:"rationale"`
@@ -225,11 +270,32 @@ type CreateCaseRequest struct {
 	Geometry          interface{}                         `json:"geometry"`
 	AnchorReportSeq   int                                 `json:"anchor_report_seq"`
 	ReportSeqs        []int                               `json:"report_seqs"`
+	ExistingCaseID    string                              `json:"existing_case_id"`
+	ForceNewCase      bool                                `json:"force_new_case"`
 	ClusterSummary    string                              `json:"cluster_summary"`
 	ClusterSourceType string                              `json:"cluster_source_type"`
 	ClusterStats      interface{}                         `json:"cluster_stats"`
 	ClusterAnalysis   interface{}                         `json:"cluster_analysis"`
 	EscalationTargets []CreateCaseEscalationTargetRequest `json:"escalation_targets"`
+}
+
+type MatchClusterRequest struct {
+	Geometry       interface{} `json:"geometry"`
+	Classification string      `json:"classification"`
+	ReportSeqs     []int       `json:"report_seqs"`
+	Title          string      `json:"title"`
+	Summary        string      `json:"summary"`
+	N              int         `json:"n"`
+}
+
+type MatchClusterResponse struct {
+	Classification string               `json:"classification"`
+	CandidateCases []CaseMatchCandidate `json:"candidate_cases"`
+}
+
+type MergeCasesRequest struct {
+	TargetCaseID  string   `json:"target_case_id"`
+	SourceCaseIDs []string `json:"source_case_ids"`
 }
 
 type AddReportsToCaseRequest struct {

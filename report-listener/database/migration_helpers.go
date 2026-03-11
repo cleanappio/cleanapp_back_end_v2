@@ -850,6 +850,122 @@ func ensureCaseEscalationTargetChannels(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
+func ensureCaseAccumulationColumns(ctx context.Context, db *sql.DB) error {
+	savedClusterColumns := []struct {
+		name string
+		sql  string
+	}{
+		{name: "bbox_json", sql: "ALTER TABLE saved_clusters ADD COLUMN bbox_json JSON NULL AFTER geometry_json"},
+		{name: "centroid_lat", sql: "ALTER TABLE saved_clusters ADD COLUMN centroid_lat DOUBLE NULL AFTER bbox_json"},
+		{name: "centroid_lng", sql: "ALTER TABLE saved_clusters ADD COLUMN centroid_lng DOUBLE NULL AFTER centroid_lat"},
+		{name: "cluster_fingerprint", sql: "ALTER TABLE saved_clusters ADD COLUMN cluster_fingerprint VARCHAR(64) NOT NULL DEFAULT '' AFTER centroid_lng"},
+	}
+	for _, column := range savedClusterColumns {
+		exists, err := columnExists(ctx, db, "saved_clusters", column.name)
+		if err != nil {
+			return fmt.Errorf("failed to check saved_clusters.%s column: %w", column.name, err)
+		}
+		if exists {
+			continue
+		}
+		if _, err := db.ExecContext(ctx, column.sql); err != nil {
+			return fmt.Errorf("failed to add saved_clusters.%s column: %w", column.name, err)
+		}
+	}
+
+	caseColumns := []struct {
+		name string
+		sql  string
+	}{
+		{name: "aggregate_geometry_json", sql: "ALTER TABLE cases ADD COLUMN aggregate_geometry_json JSON NULL AFTER geometry_json"},
+		{name: "aggregate_bbox_json", sql: "ALTER TABLE cases ADD COLUMN aggregate_bbox_json JSON NULL AFTER aggregate_geometry_json"},
+		{name: "cluster_count", sql: "ALTER TABLE cases ADD COLUMN cluster_count INT NOT NULL DEFAULT 0 AFTER trend_score"},
+		{name: "linked_report_count", sql: "ALTER TABLE cases ADD COLUMN linked_report_count INT NOT NULL DEFAULT 0 AFTER cluster_count"},
+		{name: "last_cluster_at", sql: "ALTER TABLE cases ADD COLUMN last_cluster_at TIMESTAMP NULL AFTER last_seen_at"},
+		{name: "merged_into_case_id", sql: "ALTER TABLE cases ADD COLUMN merged_into_case_id VARCHAR(64) NULL AFTER last_cluster_at"},
+	}
+	for _, column := range caseColumns {
+		exists, err := columnExists(ctx, db, "cases", column.name)
+		if err != nil {
+			return fmt.Errorf("failed to check cases.%s column: %w", column.name, err)
+		}
+		if exists {
+			continue
+		}
+		if _, err := db.ExecContext(ctx, column.sql); err != nil {
+			return fmt.Errorf("failed to add cases.%s column: %w", column.name, err)
+		}
+	}
+
+	caseClusterColumns := []struct {
+		name string
+		sql  string
+	}{
+		{name: "match_score", sql: "ALTER TABLE case_clusters ADD COLUMN match_score FLOAT NOT NULL DEFAULT 0 AFTER cluster_id"},
+		{name: "match_reason", sql: "ALTER TABLE case_clusters ADD COLUMN match_reason TEXT NULL AFTER match_score"},
+	}
+	for _, column := range caseClusterColumns {
+		exists, err := columnExists(ctx, db, "case_clusters", column.name)
+		if err != nil {
+			return fmt.Errorf("failed to check case_clusters.%s column: %w", column.name, err)
+		}
+		if exists {
+			continue
+		}
+		if _, err := db.ExecContext(ctx, column.sql); err != nil {
+			return fmt.Errorf("failed to add case_clusters.%s column: %w", column.name, err)
+		}
+	}
+
+	if _, err := db.ExecContext(ctx, `
+		UPDATE cases c
+		LEFT JOIN (
+			SELECT case_id, COUNT(*) AS cluster_count, MAX(linked_at) AS last_cluster_at
+			FROM case_clusters
+			GROUP BY case_id
+		) cc ON cc.case_id = c.case_id
+		LEFT JOIN (
+			SELECT case_id, COUNT(*) AS linked_report_count
+			FROM case_reports
+			GROUP BY case_id
+		) cr ON cr.case_id = c.case_id
+		SET
+			c.cluster_count = COALESCE(cc.cluster_count, 0),
+			c.linked_report_count = COALESCE(cr.linked_report_count, 0),
+			c.last_cluster_at = cc.last_cluster_at
+	`); err != nil {
+		return fmt.Errorf("failed to backfill case accumulation counts: %w", err)
+	}
+
+	mergedIdxExists, err := indexExists(ctx, db, "cases", "idx_cases_merged_into")
+	if err != nil {
+		return fmt.Errorf("failed to check cases merged index: %w", err)
+	}
+	if !mergedIdxExists {
+		if _, err := db.ExecContext(ctx, `
+			ALTER TABLE cases
+			ADD INDEX idx_cases_merged_into (merged_into_case_id)
+		`); err != nil {
+			return fmt.Errorf("failed to add merged_into_case_id index: %w", err)
+		}
+	}
+
+	lastClusterIdxExists, err := indexExists(ctx, db, "cases", "idx_cases_status_last_cluster")
+	if err != nil {
+		return fmt.Errorf("failed to check cases status/last_cluster index: %w", err)
+	}
+	if !lastClusterIdxExists {
+		if _, err := db.ExecContext(ctx, `
+			ALTER TABLE cases
+			ADD INDEX idx_cases_status_last_cluster (status, classification, last_cluster_at)
+		`); err != nil {
+			return fmt.Errorf("failed to add status/classification/last_cluster index: %w", err)
+		}
+	}
+
+	return nil
+}
+
 func ensureCaseEmailDeliveriesTable(ctx context.Context, db *sql.DB) error {
 	stmt := `CREATE TABLE IF NOT EXISTS case_email_deliveries (
 		id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

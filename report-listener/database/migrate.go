@@ -23,6 +23,7 @@ func RunMigrations(ctx context.Context, db *sql.DB) error {
 		{ID: "0011_reports_public_id", Description: "add and backfill reports public_id column", Up: func(ctx context.Context, db *sql.DB) error { return ensureReportsPublicID(ctx, db) }},
 		{ID: "0012_case_escalation_target_channels", Description: "expand case escalation targets for multimodal contact channels", Up: func(ctx context.Context, db *sql.DB) error { return ensureCaseEscalationTargetChannels(ctx, db) }},
 		{ID: "0013_wire_submission_actor_columns", Description: "add actor/channel/risk columns to wire submissions", Up: func(ctx context.Context, db *sql.DB) error { return ensureWireSubmissionActorColumns(ctx, db) }},
+		{ID: "0014_case_accumulation_columns", Description: "add case accumulation and cluster matching columns", Up: func(ctx context.Context, db *sql.DB) error { return ensureCaseAccumulationColumns(ctx, db) }},
 	})
 }
 
