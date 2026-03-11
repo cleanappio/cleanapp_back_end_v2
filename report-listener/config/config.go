@@ -20,6 +20,7 @@ type Config struct {
 	RequestBodyLimitBytes         int64
 	AllowedOrigins                []string
 	WebSocketAllowedOrigins       []string
+	TrustedProxies                []string
 	RateLimitRPS                  float64
 	RateLimitBurst                int
 	PublicDiscoveryRateLimitRPS   float64
@@ -51,13 +52,21 @@ type Config struct {
 	IntelligenceFreeTierMaxTurn int
 	IntelligenceBaseURL         string
 	EmailServiceURL             string
+	GooglePlacesAPIKey          string
+	GooglePlacesBaseURL         string
 
 	FetcherKeyEnv                  string
 	FetcherRegisterMaxPerHourPerIP int
 	FetcherIngestMaxBatchItems     int
 	FetcherIngestMaxBodyBytes      int64
+	FetcherSelfRegistrationEnabled bool
 	InternalAdminToken             string
 
+	HumanIngestEnabled               bool
+	HumanIngestRateLimitRPS          float64
+	HumanIngestRateLimitBurst        int
+	HumanIngestReportSourcePrefix    string
+	HumanIngestReceiptLookupEnabled  bool
 	CleanAppWireEnabled             bool
 	CleanAppWireBatchEnabled        bool
 	CleanAppWirePriorityLaneEnabled bool
@@ -94,6 +103,7 @@ func Load() (*Config, error) {
 		RequestBodyLimitBytes:         appenv.Int64("REQUEST_BODY_LIMIT_BYTES", 2*1024*1024),
 		AllowedOrigins:                defaultOrigins(),
 		WebSocketAllowedOrigins:       defaultWSOrigins(),
+		TrustedProxies:                appenv.Strings("TRUSTED_PROXIES"),
 		RateLimitRPS:                  appenv.Float64("RATE_LIMIT_RPS", 20),
 		RateLimitBurst:                appenv.Int("RATE_LIMIT_BURST", 40),
 		PublicDiscoveryRateLimitRPS:   appenv.Float64("PUBLIC_DISCOVERY_RATE_LIMIT_RPS", 4),
@@ -124,12 +134,21 @@ func Load() (*Config, error) {
 		IntelligenceFreeTierMaxTurn: appenv.Int("INTELLIGENCE_FREE_MAX_TURNS", 5),
 		IntelligenceBaseURL:         strings.TrimRight(appenv.String("INTELLIGENCE_BASE_URL", "https://cleanapp.io"), "/"),
 		EmailServiceURL:             strings.TrimRight(appenv.String("EMAIL_SERVICE_URL", "http://cleanapp_email_service:8080"), "/"),
+		GooglePlacesAPIKey:          appenv.String("GOOGLE_PLACES_API_KEY", ""),
+		GooglePlacesBaseURL:         strings.TrimRight(appenv.String("GOOGLE_PLACES_BASE_URL", "https://places.googleapis.com/v1"), "/"),
 
 		FetcherKeyEnv:                  strings.ToLower(appenv.String("FETCHER_KEY_ENV", "live")),
 		FetcherRegisterMaxPerHourPerIP: appenv.Int("FETCHER_REGISTER_MAX_PER_HOUR_PER_IP", 5),
 		FetcherIngestMaxBatchItems:     appenv.Int("FETCHER_INGEST_MAX_BATCH_ITEMS", 100),
 		FetcherIngestMaxBodyBytes:      appenv.Int64("FETCHER_INGEST_MAX_BODY_BYTES", 2*1024*1024),
+		FetcherSelfRegistrationEnabled: appenv.Bool("FETCHER_SELF_REGISTRATION_ENABLED", appenv.IsDevLike()),
 		InternalAdminToken:             appenv.String("INTERNAL_ADMIN_TOKEN", ""),
+
+		HumanIngestEnabled:              appenv.Bool("HUMAN_INGEST_ENABLED", true),
+		HumanIngestRateLimitRPS:         appenv.Float64("HUMAN_INGEST_RATE_LIMIT_RPS", 0.5),
+		HumanIngestRateLimitBurst:       appenv.Int("HUMAN_INGEST_RATE_LIMIT_BURST", 5),
+		HumanIngestReportSourcePrefix:   appenv.String("HUMAN_INGEST_SOURCE_PREFIX", "human"),
+		HumanIngestReceiptLookupEnabled: appenv.Bool("HUMAN_INGEST_RECEIPT_LOOKUP_ENABLED", true),
 
 		CleanAppWireEnabled:             appenv.Bool("CLEANAPP_WIRE_ENABLED", true),
 		CleanAppWireBatchEnabled:        appenv.Bool("CLEANAPP_WIRE_BATCH_ENABLED", true),

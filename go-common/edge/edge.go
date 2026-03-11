@@ -147,7 +147,7 @@ func WebSocketOriginChecker(allowed []string) func(r *http.Request) bool {
 	return func(r *http.Request) bool {
 		origin := r.Header.Get("Origin")
 		if origin == "" {
-			return true
+			return false
 		}
 		return originAllowed(origin, allowed)
 	}

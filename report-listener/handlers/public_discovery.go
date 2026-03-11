@@ -100,6 +100,21 @@ func parseOptionalFloat(raw string, def float64) (float64, error) {
 	return value, nil
 }
 
+func discoveryDegreesToRadians(v float64) float64 {
+	return v * math.Pi / 180.0
+}
+
+func distanceKm(lat1, lon1, lat2, lon2 float64) float64 {
+	const earthRadiusKm = 6371.0
+	dLat := discoveryDegreesToRadians(lat2 - lat1)
+	dLon := discoveryDegreesToRadians(lon2 - lon1)
+	a := math.Sin(dLat/2)*math.Sin(dLat/2) +
+		math.Cos(discoveryDegreesToRadians(lat1))*math.Cos(discoveryDegreesToRadians(lat2))*
+			math.Sin(dLon/2)*math.Sin(dLon/2)
+	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
+	return earthRadiusKm * c
+}
+
 func recentDiscoverySampleLimit(limit, multiplier int) int {
 	sample := limit * multiplier
 	if sample < publicDiscoveryRecentFloor {
@@ -662,4 +677,62 @@ func (h *Handlers) ResolvePublicDiscoveryToken(c *gin.Context) {
 	default:
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported token kind"})
 	}
+}
+
+func (h *Handlers) ResolvePhysicalMapPoint(c *gin.Context) {
+	latitude, err := strconv.ParseFloat(strings.TrimSpace(c.Query("latitude")), 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'latitude' parameter"})
+		return
+	}
+	longitude, err := strconv.ParseFloat(strings.TrimSpace(c.Query("longitude")), 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'longitude' parameter"})
+		return
+	}
+	radiusKm, err := parseOptionalFloat(c.Query("radius_km"), 0.35)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'radius_km' parameter"})
+		return
+	}
+	limit, err := parseOptionalInt(c.Query("n"), 10)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'n' parameter"})
+		return
+	}
+	limit = clampInt(limit, 1, 20)
+
+	candidates, err := h.db.GetReportsByLatLngLite(c.Request.Context(), latitude, longitude, radiusKm, limit)
+	if err != nil {
+		log.Printf("Failed to resolve physical map point: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resolve map point"})
+		return
+	}
+
+	var (
+		bestReportID string
+		bestDistance = math.MaxFloat64
+	)
+	for _, candidate := range candidates {
+		publicID := strings.TrimSpace(candidate.Report.PublicID)
+		if publicID == "" {
+			continue
+		}
+		dist := distanceKm(latitude, longitude, candidate.Report.Latitude, candidate.Report.Longitude)
+		if dist < bestDistance {
+			bestDistance = dist
+			bestReportID = publicID
+		}
+	}
+	if bestReportID == "" {
+		c.JSON(http.StatusNotFound, gin.H{"error": "No public report found near that point"})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.PublicDiscoveryResolveResponse{
+		Kind:           string(publicdiscovery.KindReport),
+		Classification: "physical",
+		PublicID:       bestReportID,
+		CanonicalPath:  canonicalReportPath("physical", bestReportID),
+	})
 }

@@ -86,6 +86,9 @@ func main() {
 
 func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 	router := gin.Default()
+	if err := router.SetTrustedProxies(cfg.TrustedProxies); err != nil {
+		log.Printf("warning: failed to set trusted proxies: %v", err)
+	}
 
 	// Add gzip compression middleware
 	router.Use(gzip.Gzip(gzip.DefaultCompression))
@@ -161,11 +164,19 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 		// Search reports endpoint
 		api.GET("/reports/search", h.GetSearchReports)
 
-		// Get image by sequence number endpoint
-		api.GET("/reports/image", h.GetImageBySeq)
-
-		// Get raw image by sequence number endpoint
-		api.GET("/reports/rawimage", h.GetRawImageBySeq)
+		imageRoutes := api.Group("/reports")
+		imageRoutes.Use(
+			edge.RateLimitMiddleware(edge.RateLimitConfig{
+				RPS:   cfg.PublicDetailRateLimitRPS,
+				Burst: cfg.PublicDetailRateLimitBurst,
+			}),
+		)
+		{
+			imageRoutes.GET("/image", h.GetImageBySeq)
+			imageRoutes.GET("/rawimage", h.GetRawImageBySeq)
+			imageRoutes.GET("/image/by-public-id", h.GetImageByPublicID)
+			imageRoutes.GET("/rawimage/by-public-id", h.GetRawImageByPublicID)
+		}
 
 		detailRoutes := api.Group("/reports")
 		detailRoutes.Use(
@@ -209,6 +220,19 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 		)
 		{
 			publicResolve.GET("/resolve", h.ResolvePublicDiscoveryToken)
+			publicResolve.GET("/resolve-physical-point", h.ResolvePhysicalMapPoint)
+		}
+
+		humanIngest := api.Group("/human-reports")
+		humanIngest.Use(
+			edge.RateLimitMiddleware(edge.RateLimitConfig{
+				RPS:   cfg.HumanIngestRateLimitRPS,
+				Burst: cfg.HumanIngestRateLimitBurst,
+			}),
+		)
+		{
+			humanIngest.POST("/submit", h.SubmitHumanReportV1)
+			humanIngest.GET("/receipts/:receipt_id", h.GetHumanReceiptV1)
 		}
 
 		// Protected bulk ingest endpoint
@@ -269,11 +293,19 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 		// Search reports endpoint
 		apiV4.GET("/reports/search", h.GetSearchReports)
 
-		// Get image by sequence number endpoint
-		apiV4.GET("/reports/image", h.GetImageBySeq)
-
-		// Get raw image by sequence number endpoint
-		apiV4.GET("/reports/rawimage", h.GetRawImageBySeq)
+		imageRoutesV4 := apiV4.Group("/reports")
+		imageRoutesV4.Use(
+			edge.RateLimitMiddleware(edge.RateLimitConfig{
+				RPS:   cfg.PublicDetailRateLimitRPS,
+				Burst: cfg.PublicDetailRateLimitBurst,
+			}),
+		)
+		{
+			imageRoutesV4.GET("/image", h.GetImageBySeq)
+			imageRoutesV4.GET("/rawimage", h.GetRawImageBySeq)
+			imageRoutesV4.GET("/image/by-public-id", h.GetImageByPublicID)
+			imageRoutesV4.GET("/rawimage/by-public-id", h.GetRawImageByPublicID)
+		}
 
 		detailRoutesV4 := apiV4.Group("/reports")
 		detailRoutesV4.Use(
@@ -317,6 +349,19 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 		)
 		{
 			publicResolveV4.GET("/resolve", h.ResolvePublicDiscoveryToken)
+			publicResolveV4.GET("/resolve-physical-point", h.ResolvePhysicalMapPoint)
+		}
+
+		humanIngestV4 := apiV4.Group("/human-reports")
+		humanIngestV4.Use(
+			edge.RateLimitMiddleware(edge.RateLimitConfig{
+				RPS:   cfg.HumanIngestRateLimitRPS,
+				Burst: cfg.HumanIngestRateLimitBurst,
+			}),
+		)
+		{
+			humanIngestV4.POST("/submit", h.SubmitHumanReportV1)
+			humanIngestV4.GET("/receipts/:receipt_id", h.GetHumanReceiptV1)
 		}
 
 		// Protected bulk ingest endpoint
@@ -368,6 +413,17 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 	{
 		apiV1.GET("/openapi.yaml", h.ServeCleanAppWireOpenAPI)
 		apiV1.GET("/docs", h.ServeCleanAppWireSwaggerUI)
+		humanIngestV1 := apiV1.Group("/human-reports")
+		humanIngestV1.Use(
+			edge.RateLimitMiddleware(edge.RateLimitConfig{
+				RPS:   cfg.HumanIngestRateLimitRPS,
+				Burst: cfg.HumanIngestRateLimitBurst,
+			}),
+		)
+		{
+			humanIngestV1.POST("/submit", h.SubmitHumanReportV1)
+			humanIngestV1.GET("/receipts/:receipt_id", h.GetHumanReceiptV1)
+		}
 
 		apiV1.POST("/agents/register", h.RegisterAgentV1)
 

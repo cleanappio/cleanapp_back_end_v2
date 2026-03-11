@@ -103,6 +103,9 @@ func StartService() {
 	StartBrandReportCountsUpdater()
 	defer closePublisher()
 	router := gin.Default()
+	if err := router.SetTrustedProxies(appenv.Strings("TRUSTED_PROXIES")); err != nil {
+		log.Errorf("Failed to set trusted proxies: %v", err)
+	}
 	router.Use(edge.SecurityHeaders())
 	router.Use(edge.RequestBodyLimit(1 << 20))
 	router.Use(edge.RateLimitMiddleware(edge.RateLimitConfig{RPS: float64(appenv.Int("RATE_LIMIT_RPS", 20)), Burst: appenv.Int("RATE_LIMIT_BURST", 40)}))

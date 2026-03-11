@@ -13,6 +13,9 @@ type WireSubmissionRaw struct {
 	ReceiptID         string
 	FetcherID         string
 	KeyID             sql.NullString
+	ActorKind         string
+	Channel           string
+	AuthMethod        string
 	SourceID          string
 	SchemaVersion     string
 	SubmittedAt       time.Time
@@ -21,6 +24,7 @@ type WireSubmissionRaw struct {
 	Lane              string
 	MaterialHash      string
 	SubmissionQuality float64
+	RiskScore         float64
 	ReportSeq         sql.NullInt64
 	AgentJSON         []byte
 	ProvenanceJSON    []byte
@@ -68,8 +72,9 @@ type WireReputationProfile struct {
 
 func (d *Database) GetWireSubmissionByFetcherAndSource(ctx context.Context, fetcherID, sourceID string) (*WireSubmissionRaw, error) {
 	row := d.db.QueryRowContext(ctx, `
-		SELECT submission_id, receipt_id, fetcher_id, key_id, source_id, schema_version,
-		       submitted_at, observed_at, agent_id, lane, material_hash, submission_quality,
+		SELECT submission_id, receipt_id, fetcher_id, key_id, actor_kind, channel, auth_method,
+		       source_id, schema_version, submitted_at, observed_at, agent_id, lane, material_hash, submission_quality,
+		       risk_score,
 		       report_seq, agent_json, provenance_json, report_json, dedupe_json, delivery_json, extensions_json,
 		       created_at, updated_at
 		FROM wire_submissions_raw
@@ -78,8 +83,9 @@ func (d *Database) GetWireSubmissionByFetcherAndSource(ctx context.Context, fetc
 
 	var s WireSubmissionRaw
 	if err := row.Scan(
-		&s.SubmissionID, &s.ReceiptID, &s.FetcherID, &s.KeyID, &s.SourceID, &s.SchemaVersion,
-		&s.SubmittedAt, &s.ObservedAt, &s.AgentID, &s.Lane, &s.MaterialHash, &s.SubmissionQuality,
+		&s.SubmissionID, &s.ReceiptID, &s.FetcherID, &s.KeyID, &s.ActorKind, &s.Channel, &s.AuthMethod,
+		&s.SourceID, &s.SchemaVersion, &s.SubmittedAt, &s.ObservedAt, &s.AgentID, &s.Lane, &s.MaterialHash, &s.SubmissionQuality,
+		&s.RiskScore,
 		&s.ReportSeq, &s.AgentJSON, &s.ProvenanceJSON, &s.ReportJSON, &s.DedupeJSON, &s.DeliveryJSON, &s.ExtensionsJSON,
 		&s.CreatedAt, &s.UpdatedAt,
 	); err != nil {
@@ -100,15 +106,19 @@ func (d *Database) InsertWireSubmissionAndReceipt(ctx context.Context, submissio
 
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO wire_submissions_raw (
-			submission_id, receipt_id, fetcher_id, key_id, source_id, schema_version,
-			submitted_at, observed_at, agent_id, lane, material_hash, submission_quality,
+			submission_id, receipt_id, fetcher_id, key_id, actor_kind, channel, auth_method,
+			source_id, schema_version, submitted_at, observed_at, agent_id, lane, material_hash, submission_quality,
+			risk_score,
 			report_seq, agent_json, provenance_json, report_json, dedupe_json, delivery_json, extensions_json
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		submission.SubmissionID,
 		submission.ReceiptID,
 		submission.FetcherID,
 		nullStr(submission.KeyID),
+		submission.ActorKind,
+		submission.Channel,
+		submission.AuthMethod,
 		submission.SourceID,
 		submission.SchemaVersion,
 		submission.SubmittedAt,
@@ -117,6 +127,7 @@ func (d *Database) InsertWireSubmissionAndReceipt(ctx context.Context, submissio
 		submission.Lane,
 		submission.MaterialHash,
 		submission.SubmissionQuality,
+		submission.RiskScore,
 		nullInt64(submission.ReportSeq),
 		nullJSON(submission.AgentJSON),
 		nullJSON(submission.ProvenanceJSON),
@@ -173,6 +184,26 @@ func (d *Database) GetWireReceipt(ctx context.Context, fetcherID, receiptID stri
 			return nil, sql.ErrNoRows
 		}
 		return nil, fmt.Errorf("get wire receipt: %w", err)
+	}
+	return &r, nil
+}
+
+func (d *Database) GetWireReceiptByID(ctx context.Context, receiptID string) (*WireReceipt, error) {
+	row := d.db.QueryRowContext(ctx, `
+		SELECT receipt_id, submission_id, fetcher_id, source_id, report_seq, status, lane,
+		       idempotency_replay, rejection_code, warnings_json, next_check_after, created_at, updated_at
+		FROM wire_submission_receipts
+		WHERE receipt_id = ?
+	`, receiptID)
+	var r WireReceipt
+	if err := row.Scan(
+		&r.ReceiptID, &r.SubmissionID, &r.FetcherID, &r.SourceID, &r.ReportSeq, &r.Status, &r.Lane,
+		&r.IdempotencyReplay, &r.RejectionCode, &r.WarningsJSON, &r.NextCheckAfter, &r.CreatedAt, &r.UpdatedAt,
+	); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, sql.ErrNoRows
+		}
+		return nil, fmt.Errorf("get wire receipt by id: %w", err)
 	}
 	return &r, nil
 }

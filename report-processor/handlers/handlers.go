@@ -486,16 +486,10 @@ func (h *Handlers) submitReportLegacy(ctx context.Context, req models.MatchRepor
 func (h *Handlers) submitReportViaWire(ctx context.Context, req models.MatchReportRequest) (int, error) {
 	wireBaseURL := strings.TrimSpace(h.config.ReportsSubmissionWireURL)
 	if wireBaseURL == "" {
-		if h.config.ReportsSubmissionProtocol == "wire" {
-			return 0, fmt.Errorf("wire submission requested but REPORTS_SUBMISSION_WIRE_URL is not configured")
-		}
-		return h.submitReportLegacy(ctx, req)
+		return 0, fmt.Errorf("wire submission requested but REPORTS_SUBMISSION_WIRE_URL is not configured")
 	}
 	if strings.TrimSpace(h.config.ReportsSubmissionToken) == "" {
-		if h.config.ReportsSubmissionProtocol == "wire" {
-			return 0, fmt.Errorf("wire submission requested but REPORTS_SUBMISSION_TOKEN is not configured")
-		}
-		return h.submitReportLegacy(ctx, req)
+		return 0, fmt.Errorf("wire submission requested but REPORTS_SUBMISSION_TOKEN is not configured")
 	}
 
 	body, sourceID, err := h.buildWireSubmissionPayload(req)
@@ -519,19 +513,11 @@ func (h *Handlers) submitReportViaWire(ctx context.Context, req models.MatchRepo
 
 	resp, err := client.Do(httpReq)
 	if err != nil {
-		if h.config.ReportsSubmissionProtocol == "auto" {
-			log.Printf("Wire submission failed for report %s, falling back to legacy submit: %v", req.ID, err)
-			return h.submitReportLegacy(ctx, req)
-		}
 		return 0, fmt.Errorf("failed to submit report via wire: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		if h.config.ReportsSubmissionProtocol == "auto" {
-			log.Printf("Wire submission returned status %d for report %s, falling back to legacy submit", resp.StatusCode, req.ID)
-			return h.submitReportLegacy(ctx, req)
-		}
 		return 0, fmt.Errorf("wire submission failed with status %d", resp.StatusCode)
 	}
 

@@ -3,8 +3,8 @@ use std::time::Duration;
 
 use anyhow::Result;
 use axum::{
-    extract::{Query, State},
-    http::{header, HeaderMap, HeaderValue, Method, StatusCode},
+    extract::{ConnectInfo, Query, State},
+    http::{header, HeaderValue, Method, StatusCode},
     response::IntoResponse,
     routing::get,
     Json, Router,
@@ -120,7 +120,12 @@ async fn run() -> Result<()> {
     let addr: SocketAddr = format!("0.0.0.0:{}", cfg.http_port).parse().unwrap();
     tracing::info!("report-listener-v4 binding on {}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    if let Err(e) = axum::serve(listener, app).await {
+    if let Err(e) = axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    {
         eprintln!("server error: {:#}", e);
         std::process::exit(1);
     }
@@ -190,8 +195,8 @@ async fn get_reports_by_brand(
     Query(params): Query<ReportsByBrandParams>,
 ) -> Result<Json<ReportBatch>, (StatusCode, String)> {
     let limit = params.n.unwrap_or(25).min(100) as usize;
-    let batch =
-        db::fetch_reports_by_brand(&state.pool, &params.brand_name, limit).map_err(internal_error)?;
+    let batch = db::fetch_reports_by_brand(&state.pool, &params.brand_name, limit)
+        .map_err(internal_error)?;
     Ok(Json(batch))
 }
 
@@ -238,10 +243,10 @@ struct ByPublicIdParams {
 )]
 async fn get_report_by_seq(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    ConnectInfo(remote_addr): ConnectInfo<SocketAddr>,
     Query(params): Query<BySeqParams>,
 ) -> Result<Json<ReportWithAnalysis>, (StatusCode, String)> {
-    let client = enforce_detail_access(&state, &headers)?;
+    let client = enforce_detail_access(&state, remote_addr)?;
     match db::fetch_report_by_seq(&state.pool, params.seq) {
         Ok(item) => {
             state.detail_abuse_monitor.record(&client, true);
@@ -268,10 +273,10 @@ async fn get_report_by_seq(
 )]
 async fn get_report_by_public_id(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    ConnectInfo(remote_addr): ConnectInfo<SocketAddr>,
     Query(params): Query<ByPublicIdParams>,
 ) -> Result<Json<ReportWithAnalysis>, (StatusCode, String)> {
-    let client = enforce_detail_access(&state, &headers)?;
+    let client = enforce_detail_access(&state, remote_addr)?;
     match db::fetch_report_by_public_id(&state.pool, &params.public_id) {
         Ok(item) => {
             state.detail_abuse_monitor.record(&client, true);
@@ -289,10 +294,16 @@ async fn get_report_by_public_id(
     }
 }
 
-fn enforce_detail_access(state: &AppState, headers: &HeaderMap) -> Result<String, (StatusCode, String)> {
-    let client = client_key(headers);
+fn enforce_detail_access(
+    state: &AppState,
+    remote_addr: SocketAddr,
+) -> Result<String, (StatusCode, String)> {
+    let client = client_key(Some(remote_addr));
     if !state.detail_limiter.allow(&client) {
-        return Err((StatusCode::TOO_MANY_REQUESTS, "rate limit exceeded".to_string()));
+        return Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            "rate limit exceeded".to_string(),
+        ));
     }
     Ok(client)
 }

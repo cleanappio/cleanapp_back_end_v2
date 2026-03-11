@@ -194,6 +194,11 @@ func clampStr(s string, max int) string {
 }
 
 func (h *Handlers) RegisterFetcherV1(c *gin.Context) {
+	if !h.cfg.FetcherSelfRegistrationEnabled {
+		c.JSON(http.StatusForbidden, gin.H{"error": "self-registration is disabled"})
+		return
+	}
+
 	start := time.Now()
 
 	ip := c.ClientIP()
@@ -246,6 +251,11 @@ func (h *Handlers) RegisterFetcherV1(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to register fetcher"})
 		return
 	}
+	if err := h.db.SetFetcherRegistrationPendingV1(c.Request.Context(), fetcherID); err != nil {
+		log.Printf("v1 register: set pending failed: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to finalize registration"})
+		return
+	}
 
 	secret, err := randSecretBase64URL(32)
 	if err != nil {
@@ -262,7 +272,7 @@ func (h *Handlers) RegisterFetcherV1(c *gin.Context) {
 		return
 	}
 
-	scopes := []string{fetcherScopeReportSubmit, fetcherScopeFetcherRead}
+	scopes := []string{fetcherScopeFetcherRead}
 	if err := h.db.InsertFetcherKeyV1(c.Request.Context(), keyID, fetcherID, keyPrefix, string(keyHashBytes), scopes); err != nil {
 		log.Printf("v1 register: insert fetcher key failed: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to issue api key"})
@@ -272,10 +282,10 @@ func (h *Handlers) RegisterFetcherV1(c *gin.Context) {
 	var resp v1RegisterFetcherResponse
 	resp.FetcherID = fetcherID
 	resp.APIKey = apiKey
-	resp.Status = "active"
+	resp.Status = "pending"
 	resp.Tier = 0
-	resp.Caps.PerMinute = 20
-	resp.Caps.Daily = 200
+	resp.Caps.PerMinute = 0
+	resp.Caps.Daily = 0
 	resp.Scopes = scopes
 
 	// best-effort audit

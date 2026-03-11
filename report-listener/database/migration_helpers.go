@@ -481,6 +481,9 @@ func ensureCleanAppWireTables(ctx context.Context, db *sql.DB) error {
 			receipt_id VARCHAR(64) NOT NULL,
 			fetcher_id VARCHAR(64) NOT NULL,
 			key_id CHAR(36) NULL,
+			actor_kind VARCHAR(32) NOT NULL DEFAULT 'machine',
+			channel VARCHAR(32) NOT NULL DEFAULT 'wire',
+			auth_method VARCHAR(32) NOT NULL DEFAULT 'api_key',
 			source_id VARCHAR(255) NOT NULL,
 			schema_version VARCHAR(32) NOT NULL,
 			submitted_at TIMESTAMP NOT NULL,
@@ -489,6 +492,7 @@ func ensureCleanAppWireTables(ctx context.Context, db *sql.DB) error {
 			lane VARCHAR(16) NOT NULL,
 			material_hash CHAR(64) NOT NULL,
 			submission_quality FLOAT NOT NULL DEFAULT 0,
+			risk_score FLOAT NOT NULL DEFAULT 0,
 			report_seq INT NULL,
 			agent_json JSON NULL,
 			provenance_json JSON NULL,
@@ -573,6 +577,56 @@ func ensureCleanAppWireTables(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
+func ensureWireSubmissionActorColumns(ctx context.Context, db *sql.DB) error {
+	type columnSpec struct {
+		name string
+		sql  string
+	}
+	columns := []columnSpec{
+		{
+			name: "actor_kind",
+			sql:  `ALTER TABLE wire_submissions_raw ADD COLUMN actor_kind VARCHAR(32) NOT NULL DEFAULT 'machine' AFTER key_id`,
+		},
+		{
+			name: "channel",
+			sql:  `ALTER TABLE wire_submissions_raw ADD COLUMN channel VARCHAR(32) NOT NULL DEFAULT 'wire' AFTER actor_kind`,
+		},
+		{
+			name: "auth_method",
+			sql:  `ALTER TABLE wire_submissions_raw ADD COLUMN auth_method VARCHAR(32) NOT NULL DEFAULT 'api_key' AFTER channel`,
+		},
+		{
+			name: "risk_score",
+			sql:  `ALTER TABLE wire_submissions_raw ADD COLUMN risk_score FLOAT NOT NULL DEFAULT 0 AFTER submission_quality`,
+		},
+	}
+	for _, column := range columns {
+		exists, err := columnExists(ctx, db, "wire_submissions_raw", column.name)
+		if err != nil {
+			return fmt.Errorf("failed to check wire_submissions_raw.%s: %w", column.name, err)
+		}
+		if exists {
+			continue
+		}
+		if _, err := db.ExecContext(ctx, column.sql); err != nil {
+			return fmt.Errorf("failed to add wire_submissions_raw.%s: %w", column.name, err)
+		}
+	}
+	indexExists, err := indexExists(ctx, db, "wire_submissions_raw", "idx_wire_actor_channel_created")
+	if err != nil {
+		return fmt.Errorf("failed to check wire submission actor index: %w", err)
+	}
+	if !indexExists {
+		if _, err := db.ExecContext(ctx, `
+			ALTER TABLE wire_submissions_raw
+			ADD INDEX idx_wire_actor_channel_created (actor_kind, channel, created_at)
+		`); err != nil {
+			return fmt.Errorf("failed to create wire actor/channel index: %w", err)
+		}
+	}
+	return nil
+}
+
 func ensureCaseTables(ctx context.Context, db *sql.DB) error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS saved_clusters (
@@ -651,8 +705,13 @@ func ensureCaseTables(ctx context.Context, db *sql.DB) error {
 			role_type VARCHAR(64) NOT NULL DEFAULT 'contact',
 			organization VARCHAR(255) NULL,
 			display_name VARCHAR(255) NULL,
+			channel VARCHAR(32) NOT NULL DEFAULT 'email',
 			email VARCHAR(255) NULL,
 			phone VARCHAR(64) NULL,
+			website VARCHAR(512) NULL,
+			contact_url VARCHAR(512) NULL,
+			social_platform VARCHAR(64) NULL,
+			social_handle VARCHAR(255) NULL,
 			target_source VARCHAR(64) NOT NULL DEFAULT 'suggested',
 			confidence_score FLOAT NOT NULL DEFAULT 0,
 			rationale TEXT NULL,
@@ -660,6 +719,7 @@ func ensureCaseTables(ctx context.Context, db *sql.DB) error {
 			PRIMARY KEY (id),
 			KEY idx_case_escalation_targets_case (case_id),
 			KEY idx_case_escalation_targets_email (email),
+			KEY idx_case_escalation_targets_channel (case_id, channel),
 			CONSTRAINT fk_case_escalation_targets_case FOREIGN KEY (case_id) REFERENCES cases(case_id) ON DELETE CASCADE
 		) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
 		`CREATE TABLE IF NOT EXISTS case_escalation_actions (
@@ -735,6 +795,58 @@ func ensureCaseTables(ctx context.Context, db *sql.DB) error {
 			return fmt.Errorf("failed to ensure case table: %w", err)
 		}
 	}
+	return nil
+}
+
+func ensureCaseEscalationTargetChannels(ctx context.Context, db *sql.DB) error {
+	columns := []struct {
+		name string
+		sql  string
+	}{
+		{name: "channel", sql: "ALTER TABLE case_escalation_targets ADD COLUMN channel VARCHAR(32) NOT NULL DEFAULT 'email' AFTER display_name"},
+		{name: "website", sql: "ALTER TABLE case_escalation_targets ADD COLUMN website VARCHAR(512) NULL AFTER phone"},
+		{name: "contact_url", sql: "ALTER TABLE case_escalation_targets ADD COLUMN contact_url VARCHAR(512) NULL AFTER website"},
+		{name: "social_platform", sql: "ALTER TABLE case_escalation_targets ADD COLUMN social_platform VARCHAR(64) NULL AFTER contact_url"},
+		{name: "social_handle", sql: "ALTER TABLE case_escalation_targets ADD COLUMN social_handle VARCHAR(255) NULL AFTER social_platform"},
+	}
+	for _, column := range columns {
+		exists, err := columnExists(ctx, db, "case_escalation_targets", column.name)
+		if err != nil {
+			return fmt.Errorf("failed to check case_escalation_targets.%s column: %w", column.name, err)
+		}
+		if exists {
+			continue
+		}
+		if _, err := db.ExecContext(ctx, column.sql); err != nil {
+			return fmt.Errorf("failed to add case_escalation_targets.%s column: %w", column.name, err)
+		}
+	}
+
+	if _, err := db.ExecContext(ctx, `
+		UPDATE case_escalation_targets
+		SET channel = CASE
+			WHEN COALESCE(email, '') <> '' THEN 'email'
+			WHEN COALESCE(phone, '') <> '' THEN 'phone'
+			ELSE 'website'
+		END
+		WHERE COALESCE(channel, '') = '' OR channel = 'email'
+	`); err != nil {
+		return fmt.Errorf("failed to backfill case escalation target channels: %w", err)
+	}
+
+	exists, err := indexExists(ctx, db, "case_escalation_targets", "idx_case_escalation_targets_channel")
+	if err != nil {
+		return fmt.Errorf("failed to check case escalation target channel index: %w", err)
+	}
+	if !exists {
+		if _, err := db.ExecContext(ctx, `
+			ALTER TABLE case_escalation_targets
+			ADD INDEX idx_case_escalation_targets_channel (case_id, channel)
+		`); err != nil {
+			return fmt.Errorf("failed to add case escalation target channel index: %w", err)
+		}
+	}
+
 	return nil
 }
 

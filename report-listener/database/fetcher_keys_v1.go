@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -65,6 +66,77 @@ func (d *Database) InsertFetcherV1(ctx context.Context, fetcherID, name, ownerTy
 	`, fetcherID, name, tokenHash, ownerType)
 	if err != nil {
 		return fmt.Errorf("insert fetcher: %w", err)
+	}
+	return nil
+}
+
+// EnsureFetcherV1Upsert provisions or updates a synthetic/internal fetcher profile.
+func (d *Database) EnsureFetcherV1Upsert(
+	ctx context.Context,
+	fetcherID string,
+	name string,
+	ownerType string,
+	status string,
+	tier int,
+	defaultVisibility string,
+	defaultTrustLevel string,
+	rewardsEnabled bool,
+) error {
+	if fetcherID == "" {
+		return fmt.Errorf("fetcher id is required")
+	}
+	if name == "" {
+		name = fetcherID
+	}
+	if ownerType == "" {
+		ownerType = "internal"
+	}
+	if status == "" {
+		status = "active"
+	}
+	if defaultVisibility == "" {
+		defaultVisibility = "shadow"
+	}
+	if defaultTrustLevel == "" {
+		defaultTrustLevel = "unverified"
+	}
+	tokenSeed := sha256Sum(fetcherID + ":" + ownerType)
+	_, err := d.db.ExecContext(ctx, `
+		INSERT INTO fetchers (
+			fetcher_id, name, token_hash, scopes, active,
+			owner_type, status, tier, reputation_score, daily_cap_items, per_minute_cap_items,
+			default_visibility, default_trust_level, routing_enabled, rewards_enabled, last_seen_at
+		) VALUES (?, ?, ?, NULL, TRUE, ?, ?, ?, 50, 2000, 120, ?, ?, FALSE, ?, NOW())
+		ON DUPLICATE KEY UPDATE
+			name = VALUES(name),
+			owner_type = VALUES(owner_type),
+			status = VALUES(status),
+			tier = VALUES(tier),
+			default_visibility = VALUES(default_visibility),
+			default_trust_level = VALUES(default_trust_level),
+			rewards_enabled = VALUES(rewards_enabled),
+			last_seen_at = NOW()
+	`, fetcherID, name, tokenSeed, ownerType, status, tier, defaultVisibility, defaultTrustLevel, rewardsEnabled)
+	if err != nil {
+		return fmt.Errorf("ensure fetcher upsert: %w", err)
+	}
+	return nil
+}
+
+func (d *Database) SetFetcherRegistrationPendingV1(ctx context.Context, fetcherID string) error {
+	_, err := d.db.ExecContext(ctx, `
+		UPDATE fetchers
+		SET status = 'pending',
+		    tier = 0,
+		    default_visibility = 'shadow',
+		    default_trust_level = 'unverified',
+		    routing_enabled = FALSE,
+		    rewards_enabled = FALSE,
+		    last_seen_at = NOW()
+		WHERE fetcher_id = ?
+	`, fetcherID)
+	if err != nil {
+		return fmt.Errorf("set fetcher pending: %w", err)
 	}
 	return nil
 }
@@ -356,4 +428,9 @@ func join(parts []string, sep string) string {
 		b = append(b, parts[i]...)
 	}
 	return string(b)
+}
+
+func sha256Sum(input string) []byte {
+	sum := sha256.Sum256([]byte(input))
+	return sum[:]
 }

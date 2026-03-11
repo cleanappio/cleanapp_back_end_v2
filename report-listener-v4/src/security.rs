@@ -1,10 +1,9 @@
 use std::{
     collections::HashMap,
+    net::SocketAddr,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
-
-use axum::http::HeaderMap;
 
 #[derive(Clone)]
 pub struct TokenBucketLimiter {
@@ -35,7 +34,11 @@ impl TokenBucketLimiter {
 
     pub fn allow(&self, key: &str) -> bool {
         let now = Instant::now();
-        let mut buckets = self.inner.buckets.lock().expect("rate limiter mutex poisoned");
+        let mut buckets = self
+            .inner
+            .buckets
+            .lock()
+            .expect("rate limiter mutex poisoned");
         let bucket = buckets.entry(key.to_string()).or_insert(BucketState {
             tokens: self.inner.burst,
             last_refill: now,
@@ -43,7 +46,8 @@ impl TokenBucketLimiter {
 
         let elapsed = now.duration_since(bucket.last_refill).as_secs_f64();
         bucket.last_refill = now;
-        bucket.tokens = (bucket.tokens + elapsed * self.inner.rate_per_second).min(self.inner.burst);
+        bucket.tokens =
+            (bucket.tokens + elapsed * self.inner.rate_per_second).min(self.inner.burst);
         if bucket.tokens < 1.0 {
             return false;
         }
@@ -84,7 +88,11 @@ impl DetailAbuseMonitor {
 
     pub fn record(&self, key: &str, found: bool) {
         let now = Instant::now();
-        let mut entries = self.inner.entries.lock().expect("abuse monitor mutex poisoned");
+        let mut entries = self
+            .inner
+            .entries
+            .lock()
+            .expect("abuse monitor mutex poisoned");
         let entry = entries.entry(key.to_string()).or_insert(DetailWindow {
             started_at: now,
             hits: 0,
@@ -114,16 +122,8 @@ impl DetailAbuseMonitor {
     }
 }
 
-pub fn client_key(headers: &HeaderMap) -> String {
-    for header_name in ["x-forwarded-for", "x-real-ip", "cf-connecting-ip"] {
-        if let Some(value) = headers.get(header_name) {
-            if let Ok(raw) = value.to_str() {
-                let ip = raw.split(',').next().unwrap_or("").trim();
-                if !ip.is_empty() {
-                    return ip.to_string();
-                }
-            }
-        }
-    }
-    "unknown".to_string()
+pub fn client_key(remote_addr: Option<SocketAddr>) -> String {
+    remote_addr
+        .map(|addr| addr.ip().to_string())
+        .unwrap_or_else(|| "unknown".to_string())
 }

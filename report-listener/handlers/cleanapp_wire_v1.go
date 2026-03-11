@@ -200,13 +200,18 @@ type cleanAppWireStatusResponse struct {
 }
 
 type cleanAppWireAuthContext struct {
-	FetcherID string
-	KeyID     string
-	PerMinute int
-	Daily     int
-	Tier      int
-	Status    string
-	Scopes    []string
+	FetcherID   string
+	KeyID       string
+	PerMinute   int
+	Daily       int
+	Tier        int
+	Status      string
+	Scopes      []string
+	ActorKind   string
+	Channel     string
+	AuthMethod  string
+	RiskScore   float64
+	DisplayName string
 }
 
 type cleanAppWireIngestCoreMedia struct {
@@ -609,6 +614,9 @@ func (h *Handlers) processCleanAppWireSubmissionInternal(ctx context.Context, au
 		ReceiptID:         receiptID,
 		FetcherID:         auth.FetcherID,
 		KeyID:             sql.NullString{String: auth.KeyID, Valid: auth.KeyID != ""},
+		ActorKind:         nonEmpty(auth.ActorKind, "machine"),
+		Channel:           nonEmpty(auth.Channel, "wire"),
+		AuthMethod:        nonEmpty(auth.AuthMethod, sub.Agent.AuthMethod),
 		SourceID:          sub.SourceID,
 		SchemaVersion:     sub.SchemaVersion,
 		SubmittedAt:       mustRFC3339(sub.SubmittedAt),
@@ -617,6 +625,7 @@ func (h *Handlers) processCleanAppWireSubmissionInternal(ctx context.Context, au
 		Lane:              lane,
 		MaterialHash:      materialHash,
 		SubmissionQuality: quality,
+		RiskScore:         auth.RiskScore,
 		AgentJSON:         h.db.MarshalJSON(sub.Agent),
 		ProvenanceJSON:    h.db.MarshalJSON(sub.Provenance),
 		ReportJSON:        h.db.MarshalJSON(sub.Report),
@@ -754,12 +763,16 @@ func (h *Handlers) cleanAppWireAuthContext(c *gin.Context) (cleanAppWireAuthCont
 		return cleanAppWireAuthContext{}, false
 	}
 	return cleanAppWireAuthContext{
-		FetcherID: fetcherID,
-		KeyID:     keyID,
-		PerMinute: perMin,
-		Daily:     daily,
-		Tier:      tier,
-		Status:    status,
+		FetcherID:   fetcherID,
+		KeyID:       keyID,
+		PerMinute:   perMin,
+		Daily:       daily,
+		Tier:        tier,
+		Status:      status,
+		ActorKind:   "machine",
+		Channel:     "wire",
+		AuthMethod:  "api_key",
+		DisplayName: fetcherID,
 	}, true
 }
 
@@ -1097,6 +1110,14 @@ func clamp01(v float64) float64 {
 
 func round2(v float64) float64 {
 	return float64(int(v*100+0.5)) / 100
+}
+
+func nonEmpty(value string, fallback string) string {
+	value = strings.TrimSpace(value)
+	if value != "" {
+		return value
+	}
+	return strings.TrimSpace(fallback)
 }
 
 func (h *Handlers) cleanAppWireIngestCore(ctx context.Context, auth cleanAppWireAuthContext, item cleanAppWireIngestCoreItem, visibility, trustLevel string) (cleanAppWireIngestCoreResult, string, int) {
