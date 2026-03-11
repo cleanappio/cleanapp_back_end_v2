@@ -404,61 +404,68 @@ func buildCaseEscalationBody(locale string, detail *models.CaseDetail) string {
 	severityPct := int(math.Round(detail.Case.SeverityScore * 100))
 	urgencyPct := int(math.Round(detail.Case.UrgencyScore * 100))
 	linkedCount := len(detail.LinkedReports)
+	casePermalink := buildCasePermalink(detail.Case.CaseID)
 
 	switch locale {
 	case "de":
 		return fmt.Sprintf(
-			"Guten Tag,\n\nCleanApp hat den Fall „%s“ erfasst.\n\nKurzbeschreibung:\n%s\n\nSchweregrad: %d%%\nDringlichkeit: %d%%\nVerknüpfte Meldungen: %d\n\nBitte prüfen Sie den Standort und teilen Sie uns kurz mit, welche Schritte eingeleitet werden.\n\nFreundliche Grüsse\nCleanApp",
+			"Guten Tag,\n\nCleanApp hat den Fall „%s“ erfasst.\n\nKurzbeschreibung:\n%s\n\nSchweregrad: %d%%\nDringlichkeit: %d%%\nVerknüpfte Meldungen: %d\nFall-Link: %s\n\nBitte prüfen Sie den Standort und teilen Sie uns kurz mit, welche Schritte eingeleitet werden.\n\nFreundliche Grüsse\nCleanApp",
 			title,
 			summary,
 			severityPct,
 			urgencyPct,
 			linkedCount,
+			casePermalink,
 		)
 	case "fr":
 		return fmt.Sprintf(
-			"Bonjour,\n\nCleanApp a enregistré le dossier « %s ».\n\nRésumé :\n%s\n\nGravité : %d%%\nUrgence : %d%%\nSignalements liés : %d\n\nMerci de vérifier la situation et de nous indiquer brièvement les mesures prévues.\n\nCordialement,\nCleanApp",
+			"Bonjour,\n\nCleanApp a enregistré le dossier « %s ».\n\nRésumé :\n%s\n\nGravité : %d%%\nUrgence : %d%%\nSignalements liés : %d\nLien du dossier : %s\n\nMerci de vérifier la situation et de nous indiquer brièvement les mesures prévues.\n\nCordialement,\nCleanApp",
 			title,
 			summary,
 			severityPct,
 			urgencyPct,
 			linkedCount,
+			casePermalink,
 		)
 	case "it":
 		return fmt.Sprintf(
-			"Buongiorno,\n\nCleanApp ha registrato il caso \"%s\".\n\nSintesi:\n%s\n\nGravità: %d%%\nUrgenza: %d%%\nSegnalazioni collegate: %d\n\nVi chiediamo di verificare il sito e di indicarci brevemente quali azioni verranno intraprese.\n\nCordiali saluti,\nCleanApp",
+			"Buongiorno,\n\nCleanApp ha registrato il caso \"%s\".\n\nSintesi:\n%s\n\nGravità: %d%%\nUrgenza: %d%%\nSegnalazioni collegate: %d\nLink del caso: %s\n\nVi chiediamo di verificare il sito e di indicarci brevemente quali azioni verranno intraprese.\n\nCordiali saluti,\nCleanApp",
 			title,
 			summary,
 			severityPct,
 			urgencyPct,
 			linkedCount,
+			casePermalink,
 		)
 	case "es":
 		return fmt.Sprintf(
-			"Hola,\n\nCleanApp ha registrado el caso \"%s\".\n\nResumen:\n%s\n\nSeveridad: %d%%\nUrgencia: %d%%\nReportes vinculados: %d\n\nPor favor, revisen la situación y confírmennos brevemente qué acciones van a tomar.\n\nSaludos,\nCleanApp",
+			"Hola,\n\nCleanApp ha registrado el caso \"%s\".\n\nResumen:\n%s\n\nSeveridad: %d%%\nUrgencia: %d%%\nReportes vinculados: %d\nEnlace del caso: %s\n\nPor favor, revisen la situación y confírmennos brevemente qué acciones van a tomar.\n\nSaludos,\nCleanApp",
 			title,
 			summary,
 			severityPct,
 			urgencyPct,
 			linkedCount,
+			casePermalink,
 		)
 	case "pt":
 		return fmt.Sprintf(
-			"Olá,\n\nO CleanApp registou o caso \"%s\".\n\nResumo:\n%s\n\nSeveridade: %d%%\nUrgência: %d%%\nRelatórios associados: %d\n\nPedimos que verifiquem a situação e nos indiquem brevemente quais medidas serão tomadas.\n\nCumprimentos,\nCleanApp",
+			"Olá,\n\nO CleanApp registou o caso \"%s\".\n\nResumo:\n%s\n\nSeveridade: %d%%\nUrgência: %d%%\nRelatórios associados: %d\nLink do caso: %s\n\nPedimos que verifiquem a situação e nos indiquem brevemente quais medidas serão tomadas.\n\nCumprimentos,\nCleanApp",
 			title,
 			summary,
 			severityPct,
 			urgencyPct,
 			linkedCount,
+			casePermalink,
 		)
 	default:
 		return fmt.Sprintf(
-			"Hello,\n\nCleanApp has opened the case \"%s\".\n\nSummary:\n%s\n\nSeverity: %d%%\nUrgency: %d%%\nLinked reports: %d\n\nPlease review the location and let us know what remediation steps will be taken.\n\nBest,\nCleanApp",
+			"Hello,\n\nCleanApp has opened the case \"%s\".\n\nSummary:\n%s\n\nSeverity: %d%%\nUrgency: %d%%\nLinked reports: %d\nCase link: %s\n\nPlease review the location and let us know what remediation steps will be taken.\n\nBest,\nCleanApp",
 			title,
 			summary,
 			severityPct,
 			urgencyPct,
 			linkedCount,
+			casePermalink,
 		)
 	}
 }
@@ -547,6 +554,10 @@ func localizeCaseSummary(locale, summary string) string {
 	default:
 		return trimmed
 	}
+}
+
+func buildCasePermalink(caseID string) string {
+	return fmt.Sprintf("https://www.cleanapp.io/cases/%s", strings.TrimSpace(caseID))
 }
 
 func emptyStringDefault(value, fallback string) string {

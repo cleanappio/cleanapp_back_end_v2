@@ -40,6 +40,9 @@ func TestBuildCaseEscalationDraftPrefersGermanForSchulhausTargets(t *testing.T) 
 	if !strings.Contains(body, "Schweregrad: 100%") {
 		t.Fatalf("expected severity line in body, got %q", body)
 	}
+	if !strings.Contains(body, "https://www.cleanapp.io/cases/") {
+		t.Fatalf("expected case permalink in body, got %q", body)
+	}
 }
 
 func TestNormalizeManualCCEmailsDedupesAndExcludesPrimaryTargets(t *testing.T) {
