@@ -312,22 +312,25 @@ type UpdateCaseStatusRequest struct {
 }
 
 type DraftCaseEscalationRequest struct {
-	TargetIDs []int64 `json:"target_ids"`
-	Subject   string  `json:"subject"`
-	Body      string  `json:"body"`
+	TargetIDs []int64  `json:"target_ids"`
+	CCEmails  []string `json:"cc_emails"`
+	Subject   string   `json:"subject"`
+	Body      string   `json:"body"`
 }
 
 type SendCaseEscalationRequest struct {
-	TargetIDs   []int64 `json:"target_ids"`
-	Subject     string  `json:"subject"`
-	Body        string  `json:"body"`
-	ActorUserID string  `json:"actor_user_id,omitempty"`
+	TargetIDs   []int64  `json:"target_ids"`
+	CCEmails    []string `json:"cc_emails"`
+	Subject     string   `json:"subject"`
+	Body        string   `json:"body"`
+	ActorUserID string   `json:"actor_user_id,omitempty"`
 }
 
 type CaseEscalationDraftResponse struct {
 	CaseID      string                 `json:"case_id"`
 	Subject     string                 `json:"subject"`
 	Body        string                 `json:"body"`
+	CCEmails    []string               `json:"cc_emails"`
 	Targets     []CaseEscalationTarget `json:"targets"`
 	LinkedCount int                    `json:"linked_count"`
 }
@@ -336,6 +339,7 @@ type CaseEscalationSendResponse struct {
 	CaseID     string                 `json:"case_id"`
 	Subject    string                 `json:"subject"`
 	Body       string                 `json:"body"`
+	CCEmails   []string               `json:"cc_emails"`
 	Actions    []CaseEscalationAction `json:"actions"`
 	Deliveries []CaseEmailDelivery    `json:"deliveries"`
 }

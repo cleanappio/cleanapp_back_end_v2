@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
+	"math"
 	"net/http"
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/gin-gonic/gin"
 
@@ -83,11 +85,13 @@ func (h *Handlers) DraftCaseEscalation(c *gin.Context) {
 		return
 	}
 	targets := selectCaseTargets(detail.EscalationTargets, req.TargetIDs)
-	subject, body := buildCaseEscalationDraft(detail, req.Subject, req.Body)
+	ccEmails := normalizeManualCCEmails(req.CCEmails, targets)
+	subject, body := buildCaseEscalationDraft(detail, targets, req.Subject, req.Body)
 	c.JSON(http.StatusOK, models.CaseEscalationDraftResponse{
 		CaseID:      detail.Case.CaseID,
 		Subject:     subject,
 		Body:        body,
+		CCEmails:    ccEmails,
 		Targets:     targets,
 		LinkedCount: len(detail.LinkedReports),
 	})
@@ -116,7 +120,13 @@ func (h *Handlers) SendCaseEscalation(c *gin.Context) {
 		return
 	}
 
-	subject, body := buildCaseEscalationDraft(detail, req.Subject, req.Body)
+	ccRecipients := buildManualCCRecipients(req.CCEmails, targets)
+	ccEmails := make([]string, 0, len(ccRecipients))
+	for _, recipient := range ccRecipients {
+		ccEmails = append(ccEmails, recipient.Email)
+	}
+
+	subject, body := buildCaseEscalationDraft(detail, targets, req.Subject, req.Body)
 	actorUserID := middleware.GetUserIDFromContext(c)
 	if strings.TrimSpace(req.ActorUserID) != "" {
 		actorUserID = req.ActorUserID
@@ -128,7 +138,7 @@ func (h *Handlers) SendCaseEscalation(c *gin.Context) {
 		return
 	}
 
-	sendResults, err := h.sendCaseEscalation(c, detail.Case.CaseID, body, subject, selectedTargets)
+	sendResults, err := h.sendCaseEscalation(c, detail.Case.CaseID, body, subject, selectedTargets, ccRecipients)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to send case escalation emails"})
 		return
@@ -174,13 +184,14 @@ func (h *Handlers) SendCaseEscalation(c *gin.Context) {
 		CaseID:     detail.Case.CaseID,
 		Subject:    subject,
 		Body:       body,
+		CCEmails:   ccEmails,
 		Actions:    actions,
 		Deliveries: deliveries,
 	})
 }
 
-func (h *Handlers) sendCaseEscalation(c *gin.Context, caseID, body, subject string, targets []models.CaseEscalationTarget) ([]internalCaseEscalationSendResult, error) {
-	recipients := make([]internalCaseEscalationRecipient, 0, len(targets))
+func (h *Handlers) sendCaseEscalation(c *gin.Context, caseID, body, subject string, targets []models.CaseEscalationTarget, ccRecipients []internalCaseEscalationRecipient) ([]internalCaseEscalationSendResult, error) {
+	recipients := make([]internalCaseEscalationRecipient, 0, len(targets)+len(ccRecipients))
 	for _, target := range targets {
 		if strings.TrimSpace(target.Email) == "" {
 			continue
@@ -194,6 +205,7 @@ func (h *Handlers) sendCaseEscalation(c *gin.Context, caseID, body, subject stri
 			Organization:   target.Organization,
 		})
 	}
+	recipients = append(recipients, ccRecipients...)
 	if len(recipients) == 0 {
 		return nil, fmt.Errorf("no email recipients selected")
 	}
@@ -233,56 +245,16 @@ func (h *Handlers) sendCaseEscalation(c *gin.Context, caseID, body, subject stri
 	return decoded.Results, nil
 }
 
-func buildCaseEscalationDraft(detail *models.CaseDetail, subject, body string) (string, string) {
+func buildCaseEscalationDraft(detail *models.CaseDetail, targets []models.CaseEscalationTarget, subject, body string) (string, string) {
+	locale := inferCaseEscalationLocale(detail, targets)
 	if strings.TrimSpace(subject) == "" {
-		subject = fmt.Sprintf("CleanApp escalation: %s", detail.Case.Title)
+		subject = buildCaseEscalationSubject(locale, detail.Case.Title)
 	}
 	if strings.TrimSpace(body) != "" {
 		return strings.TrimSpace(subject), strings.TrimSpace(body)
 	}
 
-	reports := append([]models.CaseReportLink(nil), detail.LinkedReports...)
-	sort.Slice(reports, func(i, j int) bool {
-		if reports[i].SeverityLevel == reports[j].SeverityLevel {
-			return reports[i].ReportTimestamp.After(reports[j].ReportTimestamp)
-		}
-		return reports[i].SeverityLevel > reports[j].SeverityLevel
-	})
-
-	var b strings.Builder
-	fmt.Fprintf(&b, "CleanApp has opened case %s (%s).\n\n", detail.Case.Title, detail.Case.CaseID)
-	if strings.TrimSpace(detail.Case.Summary) != "" {
-		fmt.Fprintf(&b, "Summary:\n%s\n\n", strings.TrimSpace(detail.Case.Summary))
-	}
-	fmt.Fprintf(&b, "Classification: %s\n", detail.Case.Classification)
-	fmt.Fprintf(&b, "Status: %s\n", detail.Case.Status)
-	fmt.Fprintf(&b, "Linked reports: %d\n\n", len(detail.LinkedReports))
-	if len(reports) > 0 {
-		b.WriteString("Representative reports:\n")
-		limit := 3
-		if len(reports) < limit {
-			limit = len(reports)
-		}
-		for i := 0; i < limit; i++ {
-			report := reports[i]
-			line := strings.TrimSpace(report.Title)
-			if line == "" {
-				line = strings.TrimSpace(report.Summary)
-			}
-			if line == "" {
-				line = fmt.Sprintf("Report #%d", report.Seq)
-			}
-			fmt.Fprintf(&b, "- Report #%d (%s, sev %.2f): %s\n",
-				report.Seq,
-				report.ReportTimestamp.UTC().Format(time.RFC3339),
-				report.SeverityLevel,
-				line,
-			)
-		}
-		b.WriteString("\n")
-	}
-	b.WriteString("Please review and advise on remediation steps.\n")
-	return strings.TrimSpace(subject), strings.TrimSpace(b.String())
+	return strings.TrimSpace(subject), strings.TrimSpace(buildCaseEscalationBody(locale, detail))
 }
 
 func plainTextToHTML(body string) string {
@@ -313,6 +285,268 @@ func selectCaseTargets(targets []models.CaseEscalationTarget, targetIDs []int64)
 		selected = append(selected, target)
 	}
 	return selected
+}
+
+func normalizeManualCCEmails(raw []string, selectedTargets []models.CaseEscalationTarget) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+	excluded := make(map[string]struct{}, len(selectedTargets))
+	for _, target := range selectedTargets {
+		emailAddr := strings.ToLower(strings.TrimSpace(target.Email))
+		if emailAddr == "" {
+			continue
+		}
+		excluded[emailAddr] = struct{}{}
+	}
+
+	normalized := make([]string, 0, len(raw))
+	seen := make(map[string]struct{}, len(raw))
+	for _, item := range raw {
+		for _, part := range strings.FieldsFunc(item, func(r rune) bool {
+			return r == ',' || r == ';' || unicode.IsSpace(r)
+		}) {
+			emailAddr := strings.ToLower(strings.TrimSpace(part))
+			if emailAddr == "" {
+				continue
+			}
+			if _, skip := excluded[emailAddr]; skip {
+				continue
+			}
+			if _, ok := seen[emailAddr]; ok {
+				continue
+			}
+			seen[emailAddr] = struct{}{}
+			normalized = append(normalized, emailAddr)
+		}
+	}
+	sort.Strings(normalized)
+	return normalized
+}
+
+func buildManualCCRecipients(raw []string, selectedTargets []models.CaseEscalationTarget) []internalCaseEscalationRecipient {
+	ccEmails := normalizeManualCCEmails(raw, selectedTargets)
+	recipients := make([]internalCaseEscalationRecipient, 0, len(ccEmails))
+	for _, emailAddr := range ccEmails {
+		recipients = append(recipients, internalCaseEscalationRecipient{
+			Email:          emailAddr,
+			DeliverySource: "manual_cc",
+		})
+	}
+	return recipients
+}
+
+func inferCaseEscalationLocale(detail *models.CaseDetail, targets []models.CaseEscalationTarget) string {
+	languageSignals := make([]string, 0, len(targets)*3+2)
+	languageSignals = append(languageSignals, detail.Case.Title, detail.Case.Summary)
+	for _, target := range targets {
+		languageSignals = append(languageSignals, target.DisplayName, target.Organization, target.Email)
+	}
+	corpus := strings.ToLower(strings.Join(languageSignals, " "))
+
+	switch {
+	case containsAny(corpus, []string{
+		"schulhaus", "schule", "verwaltung", "sicherheit", "kopfholz", "adliswil",
+		"zürich", "strasse", "@adliswil.ch", ".ch",
+	}):
+		return "de"
+	case containsAny(corpus, []string{
+		"mairie", "sécurité", "travaux publics", "commune", ".fr", "@ville", "école",
+	}):
+		return "fr"
+	case containsAny(corpus, []string{
+		"comune", "sicurezza", "scuola", "segnalazione", ".it",
+	}):
+		return "it"
+	case containsAny(corpus, []string{
+		"ayuntamiento", "seguridad", "escuela", "incidencia", ".es",
+	}):
+		return "es"
+	case containsAny(corpus, []string{
+		"prefeitura", "segurança", "escola", "ocorrência", ".pt", ".br",
+	}):
+		return "pt"
+	default:
+		return "en"
+	}
+}
+
+func buildCaseEscalationSubject(locale, title string) string {
+	title = localizeCaseTitle(locale, title)
+	if title == "" {
+		title = "incident cluster"
+	}
+	switch locale {
+	case "de":
+		return fmt.Sprintf("CleanApp-Meldung: %s", title)
+	case "fr":
+		return fmt.Sprintf("Alerte CleanApp : %s", title)
+	case "it":
+		return fmt.Sprintf("Segnalazione CleanApp: %s", title)
+	case "es":
+		return fmt.Sprintf("Alerta de CleanApp: %s", title)
+	case "pt":
+		return fmt.Sprintf("Alerta do CleanApp: %s", title)
+	default:
+		return fmt.Sprintf("CleanApp escalation: %s", title)
+	}
+}
+
+func buildCaseEscalationBody(locale string, detail *models.CaseDetail) string {
+	title := localizeCaseTitle(locale, detail.Case.Title)
+	if title == "" {
+		title = "incident cluster"
+	}
+	summary := localizeCaseSummary(locale, detail.Case.Summary)
+	if summary == "" {
+		summary = fallbackCaseSummary(detail)
+	}
+	severityPct := int(math.Round(detail.Case.SeverityScore * 100))
+	urgencyPct := int(math.Round(detail.Case.UrgencyScore * 100))
+	linkedCount := len(detail.LinkedReports)
+
+	switch locale {
+	case "de":
+		return fmt.Sprintf(
+			"Guten Tag,\n\nCleanApp hat den Fall „%s“ erfasst.\n\nKurzbeschreibung:\n%s\n\nSchweregrad: %d%%\nDringlichkeit: %d%%\nVerknüpfte Meldungen: %d\n\nBitte prüfen Sie den Standort und teilen Sie uns kurz mit, welche Schritte eingeleitet werden.\n\nFreundliche Grüsse\nCleanApp",
+			title,
+			summary,
+			severityPct,
+			urgencyPct,
+			linkedCount,
+		)
+	case "fr":
+		return fmt.Sprintf(
+			"Bonjour,\n\nCleanApp a enregistré le dossier « %s ».\n\nRésumé :\n%s\n\nGravité : %d%%\nUrgence : %d%%\nSignalements liés : %d\n\nMerci de vérifier la situation et de nous indiquer brièvement les mesures prévues.\n\nCordialement,\nCleanApp",
+			title,
+			summary,
+			severityPct,
+			urgencyPct,
+			linkedCount,
+		)
+	case "it":
+		return fmt.Sprintf(
+			"Buongiorno,\n\nCleanApp ha registrato il caso \"%s\".\n\nSintesi:\n%s\n\nGravità: %d%%\nUrgenza: %d%%\nSegnalazioni collegate: %d\n\nVi chiediamo di verificare il sito e di indicarci brevemente quali azioni verranno intraprese.\n\nCordiali saluti,\nCleanApp",
+			title,
+			summary,
+			severityPct,
+			urgencyPct,
+			linkedCount,
+		)
+	case "es":
+		return fmt.Sprintf(
+			"Hola,\n\nCleanApp ha registrado el caso \"%s\".\n\nResumen:\n%s\n\nSeveridad: %d%%\nUrgencia: %d%%\nReportes vinculados: %d\n\nPor favor, revisen la situación y confírmennos brevemente qué acciones van a tomar.\n\nSaludos,\nCleanApp",
+			title,
+			summary,
+			severityPct,
+			urgencyPct,
+			linkedCount,
+		)
+	case "pt":
+		return fmt.Sprintf(
+			"Olá,\n\nO CleanApp registou o caso \"%s\".\n\nResumo:\n%s\n\nSeveridade: %d%%\nUrgência: %d%%\nRelatórios associados: %d\n\nPedimos que verifiquem a situação e nos indiquem brevemente quais medidas serão tomadas.\n\nCumprimentos,\nCleanApp",
+			title,
+			summary,
+			severityPct,
+			urgencyPct,
+			linkedCount,
+		)
+	default:
+		return fmt.Sprintf(
+			"Hello,\n\nCleanApp has opened the case \"%s\".\n\nSummary:\n%s\n\nSeverity: %d%%\nUrgency: %d%%\nLinked reports: %d\n\nPlease review the location and let us know what remediation steps will be taken.\n\nBest,\nCleanApp",
+			title,
+			summary,
+			severityPct,
+			urgencyPct,
+			linkedCount,
+		)
+	}
+}
+
+func fallbackCaseSummary(detail *models.CaseDetail) string {
+	reports := append([]models.CaseReportLink(nil), detail.LinkedReports...)
+	sort.Slice(reports, func(i, j int) bool {
+		if reports[i].SeverityLevel == reports[j].SeverityLevel {
+			return reports[i].ReportTimestamp.After(reports[j].ReportTimestamp)
+		}
+		return reports[i].SeverityLevel > reports[j].SeverityLevel
+	})
+	if len(reports) == 0 {
+		return "A cluster of incident reports has been linked to this case."
+	}
+	for _, report := range reports {
+		line := strings.TrimSpace(report.Title)
+		if line == "" {
+			line = strings.TrimSpace(report.Summary)
+		}
+		if line != "" {
+			return line
+		}
+	}
+	return fmt.Sprintf("A cluster of %d incident reports has been linked to this case.", len(reports))
+}
+
+func containsAny(corpus string, needles []string) bool {
+	for _, needle := range needles {
+		if strings.Contains(corpus, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func localizeCaseTitle(locale, title string) string {
+	trimmed := strings.TrimSpace(title)
+	lower := strings.ToLower(trimmed)
+	const prefix = "incident cluster at "
+	if !strings.HasPrefix(lower, prefix) {
+		return trimmed
+	}
+	landmark := strings.TrimSpace(trimmed[len(prefix):])
+	if landmark == "" {
+		return trimmed
+	}
+	switch locale {
+	case "de":
+		return fmt.Sprintf("Vorfallcluster bei %s", landmark)
+	case "fr":
+		return fmt.Sprintf("Groupe d'incidents à %s", landmark)
+	case "it":
+		return fmt.Sprintf("Cluster di incidenti presso %s", landmark)
+	case "es":
+		return fmt.Sprintf("Clúster de incidentes en %s", landmark)
+	case "pt":
+		return fmt.Sprintf("Cluster de incidentes em %s", landmark)
+	default:
+		return trimmed
+	}
+}
+
+func localizeCaseSummary(locale, summary string) string {
+	trimmed := strings.TrimSpace(summary)
+	lower := strings.ToLower(trimmed)
+	const prefix = "case created from area scope around "
+	if !strings.HasPrefix(lower, prefix) {
+		return trimmed
+	}
+	landmark := strings.TrimSpace(strings.TrimSuffix(trimmed[len(prefix):], "."))
+	if landmark == "" {
+		return trimmed
+	}
+	switch locale {
+	case "de":
+		return fmt.Sprintf("Der Fall wurde aus einem Bereich rund um %s erstellt.", landmark)
+	case "fr":
+		return fmt.Sprintf("Le dossier a été créé à partir d'une zone autour de %s.", landmark)
+	case "it":
+		return fmt.Sprintf("Il caso è stato creato a partire da un'area intorno a %s.", landmark)
+	case "es":
+		return fmt.Sprintf("El caso se creó a partir de un área alrededor de %s.", landmark)
+	case "pt":
+		return fmt.Sprintf("O caso foi criado a partir de uma área em torno de %s.", landmark)
+	default:
+		return trimmed
+	}
 }
 
 func emptyStringDefault(value, fallback string) string {
