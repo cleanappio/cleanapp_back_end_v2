@@ -46,3 +46,26 @@ type PublicDiscoveryResolveResponse struct {
 	BrandName      string `json:"brand_name,omitempty"`
 	CanonicalPath  string `json:"canonical_path"`
 }
+
+type PublicLiveAnalysis struct {
+	SeverityLevel    float64 `json:"severity_level"`
+	Classification   string  `json:"classification"`
+	Language         string  `json:"language"`
+	Title            string  `json:"title"`
+	Summary          string  `json:"summary"`
+	BrandName        string  `json:"brand_name,omitempty"`
+	BrandDisplayName string  `json:"brand_display_name,omitempty"`
+}
+
+type PublicLiveReport struct {
+	DiscoveryToken string               `json:"discovery_token"`
+	Timestamp      string               `json:"timestamp"`
+	Latitude       *float64             `json:"latitude,omitempty"`
+	Longitude      *float64             `json:"longitude,omitempty"`
+	Analysis       []PublicLiveAnalysis `json:"analysis"`
+}
+
+type PublicLiveReportBatch struct {
+	Reports []PublicLiveReport `json:"reports"`
+	Count   int                `json:"count"`
+}

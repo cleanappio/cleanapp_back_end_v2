@@ -53,6 +53,7 @@ var upgrader = gorilla.Upgrader{
 // Handlers contains all HTTP handlers
 type Handlers struct {
 	hub               *ws.Hub
+	publicHub         *ws.Hub
 	db                *database.Database
 	rabbitmqPublisher *rabbitmq.Publisher
 	rabbitmqReplier   *rabbitmq.Publisher
@@ -68,6 +69,7 @@ type Handlers struct {
 func NewHandlers(
 	cfg *config.Config,
 	hub *ws.Hub,
+	publicHub *ws.Hub,
 	db *database.Database,
 	pub *rabbitmq.Publisher,
 	replyPub *rabbitmq.Publisher,
@@ -81,6 +83,7 @@ func NewHandlers(
 
 	return &Handlers{
 		hub:               hub,
+		publicHub:         publicHub,
 		db:                db,
 		rabbitmqPublisher: pub,
 		rabbitmqReplier:   replyPub,
@@ -575,36 +578,16 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-func (h *Handlers) ListenReports(c *gin.Context) {
-	// Upgrade the HTTP connection to a WebSocket connection
-	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
-	if err != nil {
-		log.Printf("Failed to upgrade connection to WebSocket: %v", err)
-		return
-	}
-
-	// Create a new client
-	client := ws.NewClient(h.hub, conn)
-
-	// Register the client with the hub
-	h.hub.Register <- client
-
-	// Start the client's read and write pumps in goroutines
-	go client.WritePump()
-	go client.ReadPump()
-
-	log.Printf("WebSocket connection established")
-}
-
 // HealthCheck returns the service health status
 func (h *Handlers) HealthCheck(c *gin.Context) {
 	connectedClients, lastBroadcastSeq := h.hub.GetStats()
+	publicConnectedClients, _ := h.publicHub.GetStats()
 
 	response := models.HealthResponse{
 		Status:           "healthy",
 		Service:          "report-listener",
 		Timestamp:        time.Now().UTC().Format(time.RFC3339),
-		ConnectedClients: connectedClients,
+		ConnectedClients: connectedClients + publicConnectedClients,
 		LastBroadcastSeq: lastBroadcastSeq,
 	}
 

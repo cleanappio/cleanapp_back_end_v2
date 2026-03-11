@@ -163,6 +163,7 @@ func (h *Handlers) QueryIntelligence(c *gin.Context) {
 	qualityMode := normalizeQualityMode(req.QualityMode)
 	signedIn := req.UserID != nil && strings.TrimSpace(*req.UserID) != ""
 	isPro := tier == "pro"
+	isAnonymousFree := !isPro && !signedIn
 
 	if orgID == "" || question == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "org_id and question are required"})
@@ -172,9 +173,28 @@ func (h *Handlers) QueryIntelligence(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "session_id is required for non-pro usage"})
 		return
 	}
+	if isAnonymousFree && qualityMode == "deep" {
+		qualityMode = "fast"
+	}
 
 	totalCount, highCount, mediumCount := h.getIntelligenceCounts(c.Request.Context(), orgID)
-	if !isPro && !signedIn {
+	if isAnonymousFree {
+		if exportPromptRegex.MatchString(question) {
+			blocked := intelligenceComputedResult{
+				Mode:           ResponseModeBlocked,
+				AnswerMarkdown: "Raw exports, exhaustive listings, and corpus-wide dumps are not available on the anonymous intelligence surface.",
+				Upsell: &IntelligenceUpsell{
+					Text: "Use public browsing for manual exploration, or upgrade for richer intelligence access.",
+					CTA:  "Upgrade to Pro",
+				},
+				PaywallTriggered: true,
+			}
+			resp := h.toAPIResponse(blocked, totalCount)
+			h.logIntelligenceMetrics(orgID, tier, qualityMode, IntentGenericInScope, resp)
+			c.JSON(http.StatusOK, resp)
+			return
+		}
+
 		allowed, turnsUsed, usageErr := h.db.GetAndIncrementIntelligenceUsage(
 			c.Request.Context(),
 			sessionID,

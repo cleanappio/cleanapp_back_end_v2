@@ -102,6 +102,30 @@ func (h *Hub) BroadcastReports(reportsWithAnalysis []models.ReportWithAnalysis) 
 		Timestamp: time.Now(),
 	}
 
+	h.broadcastMessage(message)
+
+	log.Printf("Broadcasted %d reports with analysis (seq %d-%d) to %d clients",
+		len(reportsWithAnalysis), batch.FromSeq, batch.ToSeq, h.connectedClients)
+}
+
+func (h *Hub) BroadcastPublicReports(batch models.PublicLiveReportBatch) {
+	if len(batch.Reports) == 0 {
+		return
+	}
+
+	message := models.BroadcastMessage{
+		Type:      "public_reports",
+		Data:      batch,
+		Timestamp: time.Now(),
+	}
+
+	h.broadcastMessage(message)
+
+	log.Printf("Broadcasted %d public-lite reports to %d clients", len(batch.Reports), h.connectedClients)
+}
+
+func (h *Hub) broadcastMessage(message models.BroadcastMessage) {
+
 	data, err := json.Marshal(message)
 	if err != nil {
 		log.Printf("Failed to marshal broadcast message: %v", err)
@@ -109,8 +133,6 @@ func (h *Hub) BroadcastReports(reportsWithAnalysis []models.ReportWithAnalysis) 
 	}
 
 	h.broadcast <- data
-	log.Printf("Broadcasted %d reports with analysis (seq %d-%d) to %d clients",
-		len(reportsWithAnalysis), batch.FromSeq, batch.ToSeq, h.connectedClients)
 }
 
 // GetStats returns current hub statistics

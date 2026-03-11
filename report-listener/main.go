@@ -130,12 +130,8 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 	api := router.Group("/api/v3")
 	{
 		api.GET("/version", versionHandler)
-		api.POST("/intelligence/query", h.QueryIntelligence)
 		api.POST("/clusters/analyze", h.AnalyzeCluster)
 		api.POST("/clusters/from-report", h.AnalyzeClusterFromReport)
-
-		// WebSocket endpoint for report listening
-		api.GET("/reports/listen", h.ListenReports)
 
 		// Health check endpoint
 		api.GET("/reports/health", h.HealthCheck)
@@ -193,6 +189,41 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 		{
 			detailRoutes.GET("/by-public-id", h.GetReportByPublicID)
 			detailRoutes.GET("/by-seq", h.GetReportBySeq)
+		}
+
+		intelligenceRoutes := api.Group("/intelligence")
+		intelligenceRoutes.Use(
+			edge.RateLimitMiddleware(edge.RateLimitConfig{
+				RPS:   cfg.IntelligenceRateLimitRPS,
+				Burst: cfg.IntelligenceRateLimitBurst,
+			}),
+		)
+		{
+			intelligenceRoutes.POST("/query", h.QueryIntelligence)
+		}
+
+		publicWebSockets := api.Group("/public")
+		publicWebSockets.Use(
+			edge.RateLimitMiddleware(edge.RateLimitConfig{
+				RPS:   cfg.PublicWebSocketRateLimitRPS,
+				Burst: cfg.PublicWebSocketRateLimitBurst,
+			}),
+		)
+		{
+			publicWebSockets.GET("/listen", h.ListenPublicReports)
+		}
+
+		privilegedWebSockets := api.Group("/reports")
+		privilegedWebSockets.Use(
+			edge.RateLimitMiddleware(edge.RateLimitConfig{
+				RPS:   cfg.PrivilegedWebSocketRateLimitRPS,
+				Burst: cfg.PrivilegedWebSocketRateLimitBurst,
+			}),
+		)
+		{
+			// Backward-compatible path now downgrades anonymous callers to the public-lite stream.
+			privilegedWebSockets.GET("/listen", h.ListenReports)
+			privilegedWebSockets.GET("/listen/full", h.ListenPrivilegedReports)
 		}
 
 		publicDiscovery := api.Group("/public/discovery")
@@ -259,12 +290,8 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 	apiV4 := router.Group("/api/v4")
 	{
 		apiV4.GET("/version", versionHandler)
-		apiV4.POST("/intelligence/query", h.QueryIntelligence)
 		apiV4.POST("/clusters/analyze", h.AnalyzeCluster)
 		apiV4.POST("/clusters/from-report", h.AnalyzeClusterFromReport)
-
-		// WebSocket endpoint for report listening
-		apiV4.GET("/reports/listen", h.ListenReports)
 
 		// Health check endpoint
 		apiV4.GET("/reports/health", h.HealthCheck)
@@ -322,6 +349,40 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 		{
 			detailRoutesV4.GET("/by-public-id", h.GetReportByPublicID)
 			detailRoutesV4.GET("/by-seq", h.GetReportBySeq)
+		}
+
+		intelligenceRoutesV4 := apiV4.Group("/intelligence")
+		intelligenceRoutesV4.Use(
+			edge.RateLimitMiddleware(edge.RateLimitConfig{
+				RPS:   cfg.IntelligenceRateLimitRPS,
+				Burst: cfg.IntelligenceRateLimitBurst,
+			}),
+		)
+		{
+			intelligenceRoutesV4.POST("/query", h.QueryIntelligence)
+		}
+
+		publicWebSocketsV4 := apiV4.Group("/public")
+		publicWebSocketsV4.Use(
+			edge.RateLimitMiddleware(edge.RateLimitConfig{
+				RPS:   cfg.PublicWebSocketRateLimitRPS,
+				Burst: cfg.PublicWebSocketRateLimitBurst,
+			}),
+		)
+		{
+			publicWebSocketsV4.GET("/listen", h.ListenPublicReports)
+		}
+
+		privilegedWebSocketsV4 := apiV4.Group("/reports")
+		privilegedWebSocketsV4.Use(
+			edge.RateLimitMiddleware(edge.RateLimitConfig{
+				RPS:   cfg.PrivilegedWebSocketRateLimitRPS,
+				Burst: cfg.PrivilegedWebSocketRateLimitBurst,
+			}),
+		)
+		{
+			privilegedWebSocketsV4.GET("/listen", h.ListenReports)
+			privilegedWebSocketsV4.GET("/listen/full", h.ListenPrivilegedReports)
 		}
 
 		publicDiscoveryV4 := apiV4.Group("/public/discovery")
@@ -385,7 +446,16 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 	}
 
 	// Canonical intelligence endpoint
-	router.POST("/api/intelligence/query", h.QueryIntelligence)
+	intelligenceAlias := router.Group("/api/intelligence")
+	intelligenceAlias.Use(
+		edge.RateLimitMiddleware(edge.RateLimitConfig{
+			RPS:   cfg.IntelligenceRateLimitRPS,
+			Burst: cfg.IntelligenceRateLimitBurst,
+		}),
+	)
+	{
+		intelligenceAlias.POST("/query", h.QueryIntelligence)
+	}
 
 	// Public ingest v1 (Fetcher Key System + quarantine lane)
 	v1 := router.Group("/v1")

@@ -16,23 +16,27 @@ type Config struct {
 	DBName     string
 	JWTSecret  string
 
-	Port                          string
-	RequestBodyLimitBytes         int64
-	AllowedOrigins                []string
-	WebSocketAllowedOrigins       []string
-	TrustedProxies                []string
-	RateLimitRPS                  float64
-	RateLimitBurst                int
-	PublicDiscoveryRateLimitRPS   float64
-	PublicDiscoveryRateLimitBurst int
-	PublicResolveRateLimitRPS     float64
-	PublicResolveRateLimitBurst   int
-	PublicDetailRateLimitRPS      float64
-	PublicDetailRateLimitBurst    int
-	PublicDetailAbuseWindow       time.Duration
-	PublicDetailAbuseMaxHits      int
-	PublicDetailAbuseMaxMisses    int
-	PublicDiscoveryTokenTTL       time.Duration
+	Port                              string
+	RequestBodyLimitBytes             int64
+	AllowedOrigins                    []string
+	WebSocketAllowedOrigins           []string
+	TrustedProxies                    []string
+	RateLimitRPS                      float64
+	RateLimitBurst                    int
+	PublicDiscoveryRateLimitRPS       float64
+	PublicDiscoveryRateLimitBurst     int
+	PublicResolveRateLimitRPS         float64
+	PublicResolveRateLimitBurst       int
+	PublicDetailRateLimitRPS          float64
+	PublicDetailRateLimitBurst        int
+	PublicWebSocketRateLimitRPS       float64
+	PublicWebSocketRateLimitBurst     int
+	PrivilegedWebSocketRateLimitRPS   float64
+	PrivilegedWebSocketRateLimitBurst int
+	PublicDetailAbuseWindow           time.Duration
+	PublicDetailAbuseMaxHits          int
+	PublicDetailAbuseMaxMisses        int
+	PublicDiscoveryTokenTTL           time.Duration
 
 	BroadcastInterval time.Duration
 
@@ -50,6 +54,8 @@ type Config struct {
 	GeminiAPIKey                string
 	GeminiModel                 string
 	IntelligenceFreeTierMaxTurn int
+	IntelligenceRateLimitRPS    float64
+	IntelligenceRateLimitBurst  int
 	IntelligenceBaseURL         string
 	EmailServiceURL             string
 	GooglePlacesAPIKey          string
@@ -62,11 +68,11 @@ type Config struct {
 	FetcherSelfRegistrationEnabled bool
 	InternalAdminToken             string
 
-	HumanIngestEnabled               bool
-	HumanIngestRateLimitRPS          float64
-	HumanIngestRateLimitBurst        int
-	HumanIngestReportSourcePrefix    string
-	HumanIngestReceiptLookupEnabled  bool
+	HumanIngestEnabled              bool
+	HumanIngestRateLimitRPS         float64
+	HumanIngestRateLimitBurst       int
+	HumanIngestReportSourcePrefix   string
+	HumanIngestReceiptLookupEnabled bool
 	CleanAppWireEnabled             bool
 	CleanAppWireBatchEnabled        bool
 	CleanAppWirePriorityLaneEnabled bool
@@ -99,23 +105,27 @@ func Load() (*Config, error) {
 		DBName:     appenv.String("DB_NAME", "cleanapp"),
 		JWTSecret:  jwtSecret,
 
-		Port:                          appenv.String("PORT", "8080"),
-		RequestBodyLimitBytes:         appenv.Int64("REQUEST_BODY_LIMIT_BYTES", 2*1024*1024),
-		AllowedOrigins:                defaultOrigins(),
-		WebSocketAllowedOrigins:       defaultWSOrigins(),
-		TrustedProxies:                appenv.Strings("TRUSTED_PROXIES"),
-		RateLimitRPS:                  appenv.Float64("RATE_LIMIT_RPS", 20),
-		RateLimitBurst:                appenv.Int("RATE_LIMIT_BURST", 40),
-		PublicDiscoveryRateLimitRPS:   appenv.Float64("PUBLIC_DISCOVERY_RATE_LIMIT_RPS", 4),
-		PublicDiscoveryRateLimitBurst: appenv.Int("PUBLIC_DISCOVERY_RATE_LIMIT_BURST", 16),
-		PublicResolveRateLimitRPS:     appenv.Float64("PUBLIC_RESOLVE_RATE_LIMIT_RPS", 2),
-		PublicResolveRateLimitBurst:   appenv.Int("PUBLIC_RESOLVE_RATE_LIMIT_BURST", 8),
-		PublicDetailRateLimitRPS:      appenv.Float64("PUBLIC_DETAIL_RATE_LIMIT_RPS", 1.5),
-		PublicDetailRateLimitBurst:    appenv.Int("PUBLIC_DETAIL_RATE_LIMIT_BURST", 8),
-		PublicDetailAbuseWindow:       appenv.Duration("PUBLIC_DETAIL_ABUSE_WINDOW", 10*time.Minute),
-		PublicDetailAbuseMaxHits:      appenv.Int("PUBLIC_DETAIL_ABUSE_MAX_HITS", 60),
-		PublicDetailAbuseMaxMisses:    appenv.Int("PUBLIC_DETAIL_ABUSE_MAX_MISSES", 12),
-		PublicDiscoveryTokenTTL:       appenv.Duration("PUBLIC_DISCOVERY_TOKEN_TTL", 15*time.Minute),
+		Port:                              appenv.String("PORT", "8080"),
+		RequestBodyLimitBytes:             appenv.Int64("REQUEST_BODY_LIMIT_BYTES", 2*1024*1024),
+		AllowedOrigins:                    defaultOrigins(),
+		WebSocketAllowedOrigins:           defaultWSOrigins(),
+		TrustedProxies:                    appenv.Strings("TRUSTED_PROXIES"),
+		RateLimitRPS:                      appenv.Float64("RATE_LIMIT_RPS", 20),
+		RateLimitBurst:                    appenv.Int("RATE_LIMIT_BURST", 40),
+		PublicDiscoveryRateLimitRPS:       appenv.Float64("PUBLIC_DISCOVERY_RATE_LIMIT_RPS", 4),
+		PublicDiscoveryRateLimitBurst:     appenv.Int("PUBLIC_DISCOVERY_RATE_LIMIT_BURST", 16),
+		PublicResolveRateLimitRPS:         appenv.Float64("PUBLIC_RESOLVE_RATE_LIMIT_RPS", 2),
+		PublicResolveRateLimitBurst:       appenv.Int("PUBLIC_RESOLVE_RATE_LIMIT_BURST", 8),
+		PublicDetailRateLimitRPS:          appenv.Float64("PUBLIC_DETAIL_RATE_LIMIT_RPS", 1.5),
+		PublicDetailRateLimitBurst:        appenv.Int("PUBLIC_DETAIL_RATE_LIMIT_BURST", 8),
+		PublicWebSocketRateLimitRPS:       appenv.Float64("PUBLIC_WEBSOCKET_RATE_LIMIT_RPS", 1),
+		PublicWebSocketRateLimitBurst:     appenv.Int("PUBLIC_WEBSOCKET_RATE_LIMIT_BURST", 4),
+		PrivilegedWebSocketRateLimitRPS:   appenv.Float64("PRIVILEGED_WEBSOCKET_RATE_LIMIT_RPS", 1),
+		PrivilegedWebSocketRateLimitBurst: appenv.Int("PRIVILEGED_WEBSOCKET_RATE_LIMIT_BURST", 8),
+		PublicDetailAbuseWindow:           appenv.Duration("PUBLIC_DETAIL_ABUSE_WINDOW", 10*time.Minute),
+		PublicDetailAbuseMaxHits:          appenv.Int("PUBLIC_DETAIL_ABUSE_MAX_HITS", 60),
+		PublicDetailAbuseMaxMisses:        appenv.Int("PUBLIC_DETAIL_ABUSE_MAX_MISSES", 12),
+		PublicDiscoveryTokenTTL:           appenv.Duration("PUBLIC_DISCOVERY_TOKEN_TTL", 15*time.Minute),
 
 		BroadcastInterval: appenv.Duration("BROADCAST_INTERVAL", time.Second),
 		LogLevel:          appenv.String("LOG_LEVEL", "info"),
@@ -132,6 +142,8 @@ func Load() (*Config, error) {
 		GeminiAPIKey:                appenv.String("GEMINI_API_KEY", ""),
 		GeminiModel:                 appenv.String("GEMINI_MODEL", "gemini-2.5-flash"),
 		IntelligenceFreeTierMaxTurn: appenv.Int("INTELLIGENCE_FREE_MAX_TURNS", 5),
+		IntelligenceRateLimitRPS:    appenv.Float64("INTELLIGENCE_RATE_LIMIT_RPS", 0.5),
+		IntelligenceRateLimitBurst:  appenv.Int("INTELLIGENCE_RATE_LIMIT_BURST", 6),
 		IntelligenceBaseURL:         strings.TrimRight(appenv.String("INTELLIGENCE_BASE_URL", "https://cleanapp.io"), "/"),
 		EmailServiceURL:             strings.TrimRight(appenv.String("EMAIL_SERVICE_URL", "http://cleanapp_email_service:8080"), "/"),
 		GooglePlacesAPIKey:          appenv.String("GOOGLE_PLACES_API_KEY", ""),

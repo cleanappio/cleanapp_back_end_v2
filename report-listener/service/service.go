@@ -16,10 +16,11 @@ import (
 
 // Service manages the report listening and broadcasting
 type Service struct {
-	config   *config.Config
-	db       *database.Database
-	hub      *websocket.Hub
-	handlers *handlers.Handlers
+	config    *config.Config
+	db        *database.Database
+	hub       *websocket.Hub
+	publicHub *websocket.Hub
+	handlers  *handlers.Handlers
 
 	// State tracking
 	lastProcessedSeq int
@@ -44,6 +45,7 @@ func NewService(cfg *config.Config) (*Service, error) {
 
 	// Initialize WebSocket hub
 	hub := websocket.NewHub()
+	publicHub := websocket.NewHub()
 
 	// Initialize RabbitMQ publisher (best-effort)
 	var pub *rabbitmq.Publisher
@@ -62,12 +64,13 @@ func NewService(cfg *config.Config) (*Service, error) {
 	}
 
 	// Initialize handlers
-	handlers := handlers.NewHandlers(cfg, hub, db, pub, replyPub)
+	handlers := handlers.NewHandlers(cfg, hub, publicHub, db, pub, replyPub)
 
 	service := &Service{
 		config:                cfg,
 		db:                    db,
 		hub:                   hub,
+		publicHub:             publicHub,
 		handlers:              handlers,
 		publisher:             pub,
 		twitterReplyPublisher: replyPub,
@@ -83,6 +86,7 @@ func (s *Service) Start() error {
 
 	// Start the WebSocket hub
 	go s.hub.Run()
+	go s.publicHub.Run()
 
 	// Initialize last processed sequence
 	if err := s.initializeLastProcessedSeq(); err != nil {
@@ -136,10 +140,11 @@ func (s *Service) GetHandlers() *handlers.Handlers {
 // GetStats returns current service statistics
 func (s *Service) GetStats() (int, int, int) {
 	connectedClients, lastBroadcastSeq := s.hub.GetStats()
+	publicConnectedClients, _ := s.publicHub.GetStats()
 	s.mu.RLock()
 	lastProcessedSeq := s.lastProcessedSeq
 	s.mu.RUnlock()
-	return connectedClients, lastBroadcastSeq, lastProcessedSeq
+	return connectedClients + publicConnectedClients, lastBroadcastSeq, lastProcessedSeq
 }
 
 // initializeLastProcessedSeq initializes the last processed sequence number
@@ -213,6 +218,11 @@ func (s *Service) processNewReports() error {
 
 	// Broadcast reports
 	s.hub.BroadcastReports(reportsWithAnalysis)
+	if publicBatch, err := s.handlers.BuildPublicLiveBatch(reportsWithAnalysis); err != nil {
+		log.Printf("Warning: failed to build public live batch: %v", err)
+	} else {
+		s.publicHub.BroadcastPublicReports(publicBatch)
+	}
 
 	// Update last processed sequence in memory and persistent storage
 	newLastSeq := reportsWithAnalysis[len(reportsWithAnalysis)-1].Report.Seq

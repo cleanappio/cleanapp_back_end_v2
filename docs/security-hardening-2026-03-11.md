@@ -54,6 +54,19 @@ Harden the system underneath that experience by separating:
   - `/api/v4/reports/image/by-public-id`
   - `/api/v4/reports/rawimage/by-public-id`
 - Applied detail-class rate limits to public image endpoints.
+- Split websocket behavior by trust level:
+  - `GET /api/v3/public/listen`
+  - `GET /api/v4/public/listen`
+  - `GET /api/v3/reports/listen/full`
+  - `GET /api/v4/reports/listen/full`
+- Anonymous websocket listeners now receive a public-lite live batch with:
+  - timestamp
+  - lat/lon for physical incidents
+  - minimal localized titles/summaries
+  - severity
+  - short-lived discovery tokens
+- The old `/reports/listen` path now downgrades anonymous callers to the public-lite stream instead of exposing the full analysis firehose by default.
+- Public modal/list widgets now use tokenized discovery endpoints instead of the older anonymous `last` / `by-brand` / `by-latlng` report batch APIs.
 
 ### Edge hardening
 
@@ -79,8 +92,8 @@ This preserves the current visual product while materially improving:
 
 ## Still Worth Doing Next
 
-- migrate remaining modal/list widgets off older anonymous bulk report endpoints
-- split the websocket feed into public-lite vs privileged/full
+- finish migrating any remaining non-public/internal widgets that still rely on legacy bulk report reads
 - move mobile secrets from AsyncStorage into platform secure storage
-- tighten anonymous Clean Intelligence usage with stronger session binding
+- bind privileged/full websocket access to stronger actor identity beyond admin/JWT fallback
+- tighten anonymous Clean Intelligence session binding further if abuse pressure increases
 - remove remaining public `seq` dependencies after all clients are off them
