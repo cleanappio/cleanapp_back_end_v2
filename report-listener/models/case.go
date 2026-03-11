@@ -159,6 +159,9 @@ type CaseEscalationTarget struct {
 	ContactURL      string    `json:"contact_url" db:"contact_url"`
 	SocialPlatform  string    `json:"social_platform" db:"social_platform"`
 	SocialHandle    string    `json:"social_handle" db:"social_handle"`
+	SourceURL       string    `json:"source_url" db:"source_url"`
+	EvidenceText    string    `json:"evidence_text" db:"evidence_text"`
+	Verification    string    `json:"verification_level" db:"verification_level"`
 	TargetSource    string    `json:"target_source" db:"target_source"`
 	ConfidenceScore float64   `json:"confidence_score" db:"confidence_score"`
 	Rationale       string    `json:"rationale" db:"rationale"`

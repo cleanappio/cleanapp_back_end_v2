@@ -406,13 +406,14 @@ func (d *Database) UpsertCaseEscalationTargets(ctx context.Context, caseID strin
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO case_escalation_targets (
 				case_id, role_type, organization, display_name, channel, email, phone,
-				website, contact_url, social_platform, social_handle,
+				website, contact_url, social_platform, social_handle, source_url, evidence_text, verification_level,
 				target_source, confidence_score, rationale
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`, caseID, emptyOrDefault(target.RoleType, "contact"), emptyOrNil(target.Organization),
 			emptyOrNil(target.DisplayName), emptyOrDefault(caseEscalationTargetChannel(target), "email"),
 			emptyOrNil(target.Email), emptyOrNil(target.Phone), emptyOrNil(target.Website),
 			emptyOrNil(target.ContactURL), emptyOrNil(target.SocialPlatform), emptyOrNil(target.SocialHandle),
+			emptyOrNil(target.SourceURL), emptyOrNil(target.EvidenceText), emptyOrNil(target.Verification),
 			emptyOrDefault(target.TargetSource, "suggested"), target.ConfidenceScore, emptyOrNil(target.Rationale)); err != nil {
 			return nil, fmt.Errorf("insert case escalation target: %w", err)
 		}
@@ -664,6 +665,7 @@ func (d *Database) listCaseEscalationTargets(ctx context.Context, caseID string)
 		SELECT id, case_id, role_type, COALESCE(organization, ''), COALESCE(display_name, ''),
 			COALESCE(channel, ''), COALESCE(email, ''), COALESCE(phone, ''), COALESCE(website, ''),
 			COALESCE(contact_url, ''), COALESCE(social_platform, ''), COALESCE(social_handle, ''),
+			COALESCE(source_url, ''), COALESCE(evidence_text, ''), COALESCE(verification_level, ''),
 			target_source, confidence_score, COALESCE(rationale, ''), created_at
 		FROM case_escalation_targets
 		WHERE case_id = ?
@@ -680,8 +682,8 @@ func (d *Database) listCaseEscalationTargets(ctx context.Context, caseID string)
 		if err := rows.Scan(
 			&item.ID, &item.CaseID, &item.RoleType, &item.Organization, &item.DisplayName,
 			&item.Channel, &item.Email, &item.Phone, &item.Website, &item.ContactURL,
-			&item.SocialPlatform, &item.SocialHandle, &item.TargetSource, &item.ConfidenceScore,
-			&item.Rationale, &item.CreatedAt,
+			&item.SocialPlatform, &item.SocialHandle, &item.SourceURL, &item.EvidenceText,
+			&item.Verification, &item.TargetSource, &item.ConfidenceScore, &item.Rationale, &item.CreatedAt,
 		); err != nil {
 			return nil, err
 		}

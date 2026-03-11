@@ -27,6 +27,7 @@ const (
 	caseDiscoveryNominatimBase   = "https://nominatim.openstreetmap.org"
 	caseDiscoveryOverpassBase    = "https://overpass-api.de/api/interpreter"
 	caseDiscoveryDuckDuckGoBase  = "https://html.duckduckgo.com/html/"
+	caseDiscoveryGoogleSearchURL = "https://www.googleapis.com/customsearch/v1"
 	caseDiscoveryMaxWebsiteFetch = 3
 )
 
@@ -66,6 +67,9 @@ type caseContactDiscoverer struct {
 	httpClient          *http.Client
 	googlePlacesAPIKey  string
 	googlePlacesBaseURL string
+	googleSearchAPIKey  string
+	googleSearchCX      string
+	googleSearchBaseURL string
 	webSearchBaseURL    string
 
 	nominatimMu       sync.Mutex
@@ -114,9 +118,7 @@ type caseSocialRef struct {
 type caseWebsiteContacts struct {
 	Website      string
 	ContactPages []string
-	Emails       []string
-	Phones       []string
-	Socials      []caseSocialRef
+	Contacts     []caseDiscoveredContact
 }
 
 type caseStakeholderSearchQuery struct {
@@ -127,6 +129,7 @@ type caseStakeholderSearchQuery struct {
 	Rationale       string
 	Organization    string
 	RelationshipTag string
+	RequireOfficial bool
 }
 
 type caseWebSearchResult struct {
@@ -134,6 +137,25 @@ type caseWebSearchResult struct {
 	URL        string
 	DisplayURL string
 	Snippet    string
+}
+
+type caseHazardProfile struct {
+	Structural         bool
+	Severe             bool
+	Urgent             bool
+	ImmediateDanger    bool
+	SensitiveOccupancy bool
+}
+
+type caseDiscoveredContact struct {
+	Channel           string
+	Email             string
+	Phone             string
+	Social            caseSocialRef
+	SourceURL         string
+	EvidenceText      string
+	VerificationLevel string
+	RoleHint          string
 }
 
 type caseTargetMerger struct {
@@ -195,6 +217,9 @@ func newCaseContactDiscoverer(cfg *config.Config) *caseContactDiscoverer {
 		httpClient:          &http.Client{Timeout: 8 * time.Second},
 		googlePlacesAPIKey:  strings.TrimSpace(cfg.GooglePlacesAPIKey),
 		googlePlacesBaseURL: strings.TrimRight(strings.TrimSpace(cfg.GooglePlacesBaseURL), "/"),
+		googleSearchAPIKey:  strings.TrimSpace(cfg.GoogleSearchAPIKey),
+		googleSearchCX:      strings.TrimSpace(cfg.GoogleSearchCX),
+		googleSearchBaseURL: strings.TrimRight(strings.TrimSpace(cfg.GoogleSearchBaseURL), "/"),
 		webSearchBaseURL:    strings.TrimRight(caseDiscoveryDuckDuckGoBase, "/"),
 	}
 }
@@ -231,7 +256,7 @@ func (d *caseContactDiscoverer) EnrichTargets(ctx context.Context, reports []mod
 
 	visitedWebsites := make(map[string]struct{})
 	searchedQueries := make(map[string]struct{})
-	structuralMode := shouldExpandStructuralStakeholderDiscovery(reports)
+	hazardProfile := analyzeCaseHazardProfile(reports)
 	for _, seed := range buildCaseDiscoverySeeds(reports, 2) {
 		if ctx.Err() != nil {
 			break
@@ -283,8 +308,8 @@ func (d *caseContactDiscoverer) EnrichTargets(ctx context.Context, reports []mod
 			}
 		}
 
-		if d.webSearchBaseURL != "" {
-			queries := buildCaseStakeholderSearchQueries(candidateNames, locCtx, structuralMode)
+		if d.webSearchBaseURL != "" || (d.googleSearchAPIKey != "" && d.googleSearchCX != "") {
+			queries := buildCaseStakeholderSearchQueries(candidateNames, locCtx, hazardProfile)
 			d.addWebSearchStakeholderTargets(ctx, queries, merger, visitedWebsites, searchedQueries)
 		}
 	}
@@ -340,13 +365,27 @@ func buildCaseDiscoverySeeds(reports []models.ReportWithAnalysis, maxSeeds int) 
 	return seeds
 }
 
-func shouldExpandStructuralStakeholderDiscovery(reports []models.ReportWithAnalysis) bool {
-	keywords := []string{
+func analyzeCaseHazardProfile(reports []models.ReportWithAnalysis) caseHazardProfile {
+	structuralKeywords := []string{
 		"structural", "crack", "cracking", "brick", "bricks", "facade", "façade", "masonry",
 		"wall", "concrete", "beam", "column", "roof", "ceiling", "collapse", "falling",
 		"exterior", "foundation", "balcony", "spalling", "detachment", "separation",
 		"fissure", "fassade", "fassaden", "mauerwerk", "beton", "riss", "risse",
+		"support column", "pillar", "platform edge", "station roof", "overhang",
 	}
+	dangerKeywords := []string{
+		"falling", "collapse", "imminent", "exposed", "detached", "separating",
+		"hazard", "danger", "unsafe", "critical", "life safety", "major failure",
+		"falling object", "falling debris", "urgent", "emergency",
+	}
+	sensitiveOccupancyKeywords := []string{
+		"school", "primary school", "kindergarten", "nursery", "hospital", "clinic",
+		"metro", "subway", "station", "platform", "terminal", "playground", "campus",
+		"children", "students", "passengers", "commuters", "public hall", "arena",
+		"mall", "daycare", "care home", "stadium",
+	}
+
+	profile := caseHazardProfile{}
 	for _, report := range reports {
 		if preferredClassification(&report) != "physical" {
 			continue
@@ -359,18 +398,33 @@ func shouldExpandStructuralStakeholderDiscovery(reports []models.ReportWithAnaly
 			analysis.Title,
 			analysis.Summary,
 			analysis.Description,
+			analysis.BrandDisplayName,
+			analysis.BrandName,
 		}, " "))
-		matchCount := 0
-		for _, keyword := range keywords {
+
+		structuralHits := 0
+		for _, keyword := range structuralKeywords {
 			if strings.Contains(text, keyword) {
-				matchCount++
-				if matchCount >= 2 || analysis.SeverityLevel >= 0.8 {
-					return true
-				}
+				structuralHits++
 			}
 		}
+		if structuralHits >= 2 || (structuralHits >= 1 && analysis.SeverityLevel >= 0.75) {
+			profile.Structural = true
+		}
+		if analysis.SeverityLevel >= 0.85 {
+			profile.Severe = true
+		}
+		if analysis.HazardProbability >= 0.75 || analysis.SeverityLevel >= 0.9 {
+			profile.Urgent = true
+		}
+		if containsAny(text, dangerKeywords) && (analysis.SeverityLevel >= 0.7 || structuralHits >= 2) {
+			profile.ImmediateDanger = true
+		}
+		if containsAny(text, sensitiveOccupancyKeywords) {
+			profile.SensitiveOccupancy = true
+		}
 	}
-	return false
+	return profile
 }
 
 func countPreferredCaseTargets(targets []models.CaseEscalationTarget) int {
@@ -386,7 +440,7 @@ func countPreferredCaseTargets(targets []models.CaseEscalationTarget) int {
 	return count
 }
 
-func buildCaseStakeholderSearchQueries(candidateNames []string, locCtx *caseLocationContext, structuralMode bool) []caseStakeholderSearchQuery {
+func buildCaseStakeholderSearchQueries(candidateNames []string, locCtx *caseLocationContext, hazard caseHazardProfile) []caseStakeholderSearchQuery {
 	primaryName := firstNonEmpty(candidateNames...)
 	if locCtx != nil {
 		primaryName = firstNonEmpty(primaryName, locCtx.PrimaryName, locCtx.ParentOrg, locCtx.Operator)
@@ -417,10 +471,28 @@ func buildCaseStakeholderSearchQueries(candidateNames []string, locCtx *caseLoca
 			Rationale:       "Official site/contact search for the affected location.",
 			Organization:    primaryName,
 			RelationshipTag: "site operator",
+			RequireOfficial: true,
 		},
 	}
 
-	if !structuralMode {
+	if hazard.Structural {
+		facilityTerm := "facility management"
+		if isGermanSpeakingLocation(locCtx) {
+			facilityTerm = "hausdienst"
+		}
+		queries = append(queries, caseStakeholderSearchQuery{
+			RoleType:        "facility_manager",
+			Query:           strings.TrimSpace(baseQuery + " " + facilityTerm),
+			Region:          region,
+			BaseConfidence:  0.8,
+			Rationale:       "Operational or facilities contact search for the affected site.",
+			Organization:    primaryName,
+			RelationshipTag: "operations",
+			RequireOfficial: true,
+		})
+	}
+
+	if !hazard.Structural {
 		return queries
 	}
 
@@ -428,11 +500,15 @@ func buildCaseStakeholderSearchQueries(candidateNames []string, locCtx *caseLoca
 	contractorTerm := "contractor"
 	engineerTerm := "structural engineer"
 	authorityTerm := "building department"
+	fireAuthorityTerm := "fire marshal"
+	publicSafetyTerm := "public safety"
 	if isGermanSpeakingLocation(locCtx) {
 		architectTerm = "architekt"
 		contractorTerm = "bauunternehmung"
 		engineerTerm = "ingenieur"
 		authorityTerm = "bauamt"
+		fireAuthorityTerm = "feuerpolizei"
+		publicSafetyTerm = "polizei"
 	}
 
 	if locality != "" {
@@ -465,13 +541,38 @@ func buildCaseStakeholderSearchQueries(candidateNames []string, locCtx *caseLoca
 		})
 		queries = append(queries, caseStakeholderSearchQuery{
 			RoleType:        "building_authority",
-			Query:           strings.TrimSpace(quotedSearchPhrase(locality) + " " + authorityTerm + " " + quotedSearchPhrase(primaryName)),
+			Query:           strings.TrimSpace(quotedSearchPhrase(locality) + " " + authorityTerm),
 			Region:          region,
-			BaseConfidence:  0.77,
+			BaseConfidence:  0.84,
 			Rationale:       "Web search for the local building authority or municipal office responsible for the affected site.",
 			Organization:    locality,
 			RelationshipTag: "authority",
+			RequireOfficial: true,
 		})
+		if hazard.Severe || hazard.Urgent || hazard.ImmediateDanger {
+			queries = append(queries, caseStakeholderSearchQuery{
+				RoleType:        "fire_authority",
+				Query:           strings.TrimSpace(quotedSearchPhrase(locality) + " " + fireAuthorityTerm),
+				Region:          region,
+				BaseConfidence:  0.8,
+				Rationale:       "Web search for the local fire/building-safety authority relevant to a severe structural hazard.",
+				Organization:    locality,
+				RelationshipTag: "fire authority",
+				RequireOfficial: true,
+			})
+		}
+		if hazard.ImmediateDanger || (hazard.SensitiveOccupancy && hazard.Severe) {
+			queries = append(queries, caseStakeholderSearchQuery{
+				RoleType:        "public_safety",
+				Query:           strings.TrimSpace(quotedSearchPhrase(locality) + " " + publicSafetyTerm),
+				Region:          region,
+				BaseConfidence:  0.76,
+				Rationale:       "Web search for public-safety contacts relevant to an immediate life-safety hazard at the site.",
+				Organization:    locality,
+				RelationshipTag: "public safety",
+				RequireOfficial: true,
+			})
+		}
 	}
 
 	return queries
@@ -727,6 +828,8 @@ func (d *caseContactDiscoverer) addLocationContextTargets(ctx context.Context, l
 			DisplayName:     organization,
 			Channel:         "email",
 			Email:           locCtx.ContactEmail,
+			SourceURL:       locCtx.Website,
+			Verification:    "openstreetmap",
 			TargetSource:    "osm_reverse",
 			ConfidenceScore: 0.92,
 			Rationale:       fmt.Sprintf("Direct contact email published in OpenStreetMap tags for %s.", organization),
@@ -739,6 +842,8 @@ func (d *caseContactDiscoverer) addLocationContextTargets(ctx context.Context, l
 			DisplayName:     organization,
 			Channel:         "phone",
 			Phone:           locCtx.ContactPhone,
+			SourceURL:       locCtx.Website,
+			Verification:    "openstreetmap",
 			TargetSource:    "osm_reverse",
 			ConfidenceScore: 0.9,
 			Rationale:       fmt.Sprintf("Direct phone number published in OpenStreetMap tags for %s.", organization),
@@ -751,6 +856,8 @@ func (d *caseContactDiscoverer) addLocationContextTargets(ctx context.Context, l
 			DisplayName:     organization,
 			Channel:         "social",
 			ContactURL:      social.URL,
+			SourceURL:       locCtx.Website,
+			Verification:    "openstreetmap",
 			SocialPlatform:  social.Platform,
 			SocialHandle:    social.Handle,
 			TargetSource:    "osm_reverse",
@@ -776,6 +883,8 @@ func (d *caseContactDiscoverer) addPOITargets(ctx context.Context, poi casePOI, 
 			DisplayName:     organization,
 			Channel:         "email",
 			Email:           poi.ContactEmail,
+			SourceURL:       poi.Website,
+			Verification:    "openstreetmap",
 			TargetSource:    "osm_poi",
 			ConfidenceScore: 0.88,
 			Rationale:       fmt.Sprintf("Direct email published by nearby OSM POI %s.", organization),
@@ -788,6 +897,8 @@ func (d *caseContactDiscoverer) addPOITargets(ctx context.Context, poi casePOI, 
 			DisplayName:     organization,
 			Channel:         "phone",
 			Phone:           poi.ContactPhone,
+			SourceURL:       poi.Website,
+			Verification:    "openstreetmap",
 			TargetSource:    "osm_poi",
 			ConfidenceScore: 0.86,
 			Rationale:       fmt.Sprintf("Direct phone number published by nearby OSM POI %s.", organization),
@@ -800,6 +911,8 @@ func (d *caseContactDiscoverer) addPOITargets(ctx context.Context, poi casePOI, 
 			DisplayName:     organization,
 			Channel:         "social",
 			ContactURL:      social.URL,
+			SourceURL:       poi.Website,
+			Verification:    "openstreetmap",
 			SocialPlatform:  social.Platform,
 			SocialHandle:    social.Handle,
 			TargetSource:    "osm_poi",
@@ -878,6 +991,8 @@ func (d *caseContactDiscoverer) addGooglePlaceTargets(ctx context.Context, place
 			DisplayName:     organization,
 			Channel:         "phone",
 			Phone:           place.NationalPhoneNumber,
+			SourceURL:       firstNonEmpty(place.GoogleMapsURI, place.WebsiteURI),
+			Verification:    "directory_listing",
 			TargetSource:    "google_places",
 			ConfidenceScore: 0.84,
 			Rationale:       fmt.Sprintf("Phone number returned by Google Places for %s.", organization),
@@ -890,7 +1005,7 @@ func (d *caseContactDiscoverer) addGooglePlaceTargets(ctx context.Context, place
 
 func (d *caseContactDiscoverer) addWebSearchStakeholderTargets(ctx context.Context, queries []caseStakeholderSearchQuery, merger *caseTargetMerger, visitedWebsites, searchedQueries map[string]struct{}) {
 	for _, query := range queries {
-		if len(searchedQueries) >= 4 {
+		if len(searchedQueries) >= 6 {
 			return
 		}
 		queryKey := strings.ToLower(strings.TrimSpace(query.RoleType + ":" + query.Query))
@@ -911,6 +1026,9 @@ func (d *caseContactDiscoverer) addWebSearchStakeholderTargets(ctx context.Conte
 		added := 0
 		for _, result := range results {
 			if isBlockedStakeholderSearchResult(result.URL) {
+				continue
+			}
+			if query.RequireOfficial && !isLikelyOfficialStakeholderResult(result.URL, query) {
 				continue
 			}
 			organization := firstNonEmpty(inferStakeholderOrganization(result, query), query.Organization)
@@ -946,6 +1064,15 @@ func (d *caseContactDiscoverer) searchStakeholderWeb(ctx context.Context, query,
 	if query == "" {
 		return nil, nil
 	}
+	if d.googleSearchAPIKey != "" && d.googleSearchCX != "" {
+		results, err := d.searchGoogleCustomSearch(ctx, query)
+		if err == nil && len(results) > 0 {
+			return results, nil
+		}
+		if err != nil {
+			log.Printf("warn: google custom search failed for %q: %v", query, err)
+		}
+	}
 	searchURL := d.webSearchBaseURL
 	if searchURL == "" {
 		searchURL = strings.TrimRight(caseDiscoveryDuckDuckGoBase, "/")
@@ -978,6 +1105,60 @@ func (d *caseContactDiscoverer) searchStakeholderWeb(ctx context.Context, query,
 		return nil, err
 	}
 	return parseDuckDuckGoSearchResults(string(body)), nil
+}
+
+type googleCustomSearchResponse struct {
+	Items []struct {
+		Title   string `json:"title"`
+		Link    string `json:"link"`
+		Snippet string `json:"snippet"`
+	} `json:"items"`
+}
+
+func (d *caseContactDiscoverer) searchGoogleCustomSearch(ctx context.Context, query string) ([]caseWebSearchResult, error) {
+	searchURL := d.googleSearchBaseURL
+	if searchURL == "" {
+		searchURL = caseDiscoveryGoogleSearchURL
+	}
+	params := url.Values{}
+	params.Set("key", d.googleSearchAPIKey)
+	params.Set("cx", d.googleSearchCX)
+	params.Set("q", query)
+	params.Set("num", "5")
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, searchURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", caseDiscoveryUserAgent)
+
+	resp, err := d.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, fmt.Errorf("google custom search returned http %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var decoded googleCustomSearchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+		return nil, err
+	}
+	results := make([]caseWebSearchResult, 0, len(decoded.Items))
+	for _, item := range decoded.Items {
+		resolved := normalizeWebsiteURL(item.Link)
+		if resolved == "" {
+			continue
+		}
+		results = append(results, caseWebSearchResult{
+			Title:   strings.TrimSpace(item.Title),
+			URL:     resolved,
+			Snippet: strings.TrimSpace(item.Snippet),
+		})
+	}
+	return results, nil
 }
 
 func parseDuckDuckGoSearchResults(raw string) []caseWebSearchResult {
@@ -1174,48 +1355,75 @@ func (d *caseContactDiscoverer) addWebsiteTargets(ctx context.Context, roleType,
 			if len(contacts.ContactPages) > 0 {
 				contactURL = contacts.ContactPages[0]
 			}
-			for _, email := range contacts.Emails {
-				merger.Add(models.CaseEscalationTarget{
-					RoleType:        roleType,
-					Organization:    organization,
-					DisplayName:     organization,
-					Channel:         "email",
-					Email:           email,
-					Website:         normalizedWebsite,
-					ContactURL:      contactURL,
-					TargetSource:    source + "_website",
-					ConfidenceScore: baseConfidence,
-					Rationale:       fmt.Sprintf("Email scraped from the official website for %s.", organization),
-				})
-			}
-			for _, phone := range contacts.Phones {
-				merger.Add(models.CaseEscalationTarget{
-					RoleType:        roleType,
-					Organization:    organization,
-					DisplayName:     organization,
-					Channel:         "phone",
-					Phone:           phone,
-					Website:         normalizedWebsite,
-					ContactURL:      contactURL,
-					TargetSource:    source + "_website",
-					ConfidenceScore: baseConfidence - 0.02,
-					Rationale:       fmt.Sprintf("Phone number scraped from the official website for %s.", organization),
-				})
-			}
-			for _, social := range contacts.Socials {
-				merger.Add(models.CaseEscalationTarget{
-					RoleType:        roleType,
-					Organization:    organization,
-					DisplayName:     organization,
-					Channel:         "social",
-					Website:         normalizedWebsite,
-					ContactURL:      social.URL,
-					SocialPlatform:  social.Platform,
-					SocialHandle:    social.Handle,
-					TargetSource:    source + "_website",
-					ConfidenceScore: baseConfidence - 0.05,
-					Rationale:       fmt.Sprintf("Social profile linked from the official website for %s.", organization),
-				})
+			for _, discovered := range contacts.Contacts {
+				resolvedRole := mergeDiscoveredRoleType(roleType, discovered.RoleHint)
+				targetSource := source + "_website"
+				evidenceText := strings.TrimSpace(discovered.EvidenceText)
+				sourceURL := firstNonEmpty(discovered.SourceURL, contactURL, normalizedWebsite)
+				verificationLevel := firstNonEmpty(
+					discovered.VerificationLevel,
+					inferVerificationLevel(targetSource, resolvedRole, normalizedWebsite, sourceURL),
+				)
+				switch discovered.Channel {
+				case "email":
+					if discovered.Email == "" {
+						continue
+					}
+					merger.Add(models.CaseEscalationTarget{
+						RoleType:        resolvedRole,
+						Organization:    organization,
+						DisplayName:     organization,
+						Channel:         "email",
+						Email:           discovered.Email,
+						Website:         normalizedWebsite,
+						ContactURL:      contactURL,
+						SourceURL:       sourceURL,
+						EvidenceText:    evidenceText,
+						Verification:    verificationLevel,
+						TargetSource:    targetSource,
+						ConfidenceScore: baseConfidence,
+						Rationale:       fmt.Sprintf("Email scraped from the official website for %s.", organization),
+					})
+				case "phone":
+					if discovered.Phone == "" {
+						continue
+					}
+					merger.Add(models.CaseEscalationTarget{
+						RoleType:        resolvedRole,
+						Organization:    organization,
+						DisplayName:     organization,
+						Channel:         "phone",
+						Phone:           discovered.Phone,
+						Website:         normalizedWebsite,
+						ContactURL:      contactURL,
+						SourceURL:       sourceURL,
+						EvidenceText:    evidenceText,
+						Verification:    verificationLevel,
+						TargetSource:    targetSource,
+						ConfidenceScore: baseConfidence - 0.02,
+						Rationale:       fmt.Sprintf("Phone number scraped from the official website for %s.", organization),
+					})
+				case "social":
+					if discovered.Social.Platform == "" || discovered.Social.Handle == "" {
+						continue
+					}
+					merger.Add(models.CaseEscalationTarget{
+						RoleType:        resolvedRole,
+						Organization:    organization,
+						DisplayName:     organization,
+						Channel:         "social",
+						Website:         normalizedWebsite,
+						ContactURL:      discovered.Social.URL,
+						SourceURL:       sourceURL,
+						EvidenceText:    evidenceText,
+						Verification:    verificationLevel,
+						SocialPlatform:  discovered.Social.Platform,
+						SocialHandle:    discovered.Social.Handle,
+						TargetSource:    targetSource,
+						ConfidenceScore: baseConfidence - 0.05,
+						Rationale:       fmt.Sprintf("Social profile linked from the official website for %s.", organization),
+					})
+				}
 			}
 		}
 	}
@@ -1226,6 +1434,8 @@ func (d *caseContactDiscoverer) addWebsiteTargets(ctx context.Context, roleType,
 		Channel:         "website",
 		Website:         normalizedWebsite,
 		ContactURL:      firstNonEmpty(contactURL, normalizedWebsite),
+		SourceURL:       firstNonEmpty(contactURL, normalizedWebsite),
+		Verification:    inferVerificationLevel(source, roleType, normalizedWebsite, firstNonEmpty(contactURL, normalizedWebsite)),
 		TargetSource:    source,
 		ConfidenceScore: baseConfidence - 0.08,
 		Rationale:       rationale,
@@ -1245,11 +1455,11 @@ func (d *caseContactDiscoverer) scrapeWebsiteContacts(ctx context.Context, rawWe
 	result := &caseWebsiteContacts{Website: websiteURL}
 	fetched := make(map[string]struct{})
 	queue := []string{websiteURL}
-	for _, candidate := range []string{"/contact", "/contact-us", "/about", "/impressum"} {
+	for _, candidate := range []string{"/contact", "/contact-us", "/about", "/impressum", "/team", "/directory"} {
 		queue = append(queue, parsedBase.ResolveReference(&url.URL{Path: candidate}).String())
 	}
 
-	for i := 0; i < len(queue) && len(fetched) < caseDiscoveryMaxWebsiteFetch; i++ {
+	for i := 0; i < len(queue) && len(fetched) < caseDiscoveryMaxWebsiteFetch+2; i++ {
 		candidate := normalizeWebsiteURL(queue[i])
 		if candidate == "" {
 			continue
@@ -1266,11 +1476,8 @@ func (d *caseContactDiscoverer) scrapeWebsiteContacts(ctx context.Context, rawWe
 		if result.Website == "" {
 			result.Website = finalURL
 		}
-		result.Emails = appendUniqueStrings(result.Emails, extractEmailsFromHTML(htmlBody)...)
-		result.Phones = appendUniqueStrings(result.Phones, extractPhonesFromHTML(htmlBody)...)
-		for _, social := range extractSocialRefsFromHTML(htmlBody) {
-			result.Socials = appendUniqueSocials(result.Socials, social)
-		}
+		artifacts := extractDiscoveredContacts(finalURL, htmlBody)
+		result.Contacts = appendUniqueDiscoveredContacts(result.Contacts, artifacts...)
 		finalParsed, err := url.Parse(finalURL)
 		if err == nil {
 			for _, link := range extractContactLinks(finalParsed, htmlBody) {
@@ -1406,6 +1613,9 @@ func normalizeCaseEscalationTarget(target models.CaseEscalationTarget) (models.C
 	target.Phone = normalizePhone(target.Phone)
 	target.Website = normalizeWebsiteURL(target.Website)
 	target.ContactURL = normalizeFlexibleURL(target.ContactURL)
+	target.SourceURL = normalizeFlexibleURL(target.SourceURL)
+	target.EvidenceText = compactWhitespace(target.EvidenceText)
+	target.Verification = strings.TrimSpace(target.Verification)
 	target.SocialPlatform = normalizeSocialPlatform(target.SocialPlatform)
 	target.SocialHandle = normalizeSocialHandle(target.SocialHandle)
 	target.TargetSource = emptyDefault(strings.TrimSpace(target.TargetSource), "suggested")
@@ -1429,6 +1639,12 @@ func normalizeCaseEscalationTarget(target models.CaseEscalationTarget) (models.C
 	if target.Channel == "website" && target.ContactURL == "" {
 		target.ContactURL = target.Website
 	}
+	if target.SourceURL == "" {
+		target.SourceURL = firstNonEmpty(target.ContactURL, target.Website)
+	}
+	if target.Verification == "" {
+		target.Verification = inferVerificationLevel(target.TargetSource, target.RoleType, target.Website, target.SourceURL)
+	}
 	if !hasCaseDiscoveryContactMethod(target) {
 		return models.CaseEscalationTarget{}, false
 	}
@@ -1448,6 +1664,9 @@ func mergeCaseEscalationTargets(existing, incoming models.CaseEscalationTarget) 
 	primary.Phone = firstNonEmpty(primary.Phone, secondary.Phone)
 	primary.Website = firstNonEmpty(primary.Website, secondary.Website)
 	primary.ContactURL = firstNonEmpty(primary.ContactURL, secondary.ContactURL)
+	primary.SourceURL = firstNonEmpty(primary.SourceURL, secondary.SourceURL)
+	primary.EvidenceText = firstNonEmpty(primary.EvidenceText, secondary.EvidenceText)
+	primary.Verification = firstNonEmpty(primary.Verification, secondary.Verification)
 	primary.SocialPlatform = firstNonEmpty(primary.SocialPlatform, secondary.SocialPlatform)
 	primary.SocialHandle = firstNonEmpty(primary.SocialHandle, secondary.SocialHandle)
 	primary.TargetSource = firstNonEmpty(primary.TargetSource, secondary.TargetSource)
@@ -1531,6 +1750,164 @@ func caseChannelRank(channel string) int {
 	}
 }
 
+func extractDiscoveredContacts(sourceURL, html string) []caseDiscoveredContact {
+	evidenceText, roleHint := deriveContactEvidenceContext(sourceURL, html)
+	verificationLevel := inferVerificationLevel("website_scrape", roleHint, sourceURL, sourceURL)
+	contacts := make([]caseDiscoveredContact, 0, 8)
+	for _, email := range extractEmailsFromHTML(html) {
+		contacts = appendUniqueDiscoveredContacts(contacts, caseDiscoveredContact{
+			Channel:           "email",
+			Email:             email,
+			SourceURL:         sourceURL,
+			EvidenceText:      evidenceText,
+			VerificationLevel: verificationLevel,
+			RoleHint:          roleHint,
+		})
+	}
+	for _, phone := range extractPhonesFromHTML(html) {
+		contacts = appendUniqueDiscoveredContacts(contacts, caseDiscoveredContact{
+			Channel:           "phone",
+			Phone:             phone,
+			SourceURL:         sourceURL,
+			EvidenceText:      evidenceText,
+			VerificationLevel: verificationLevel,
+			RoleHint:          roleHint,
+		})
+	}
+	for _, social := range extractSocialRefsFromHTML(html) {
+		contacts = appendUniqueDiscoveredContacts(contacts, caseDiscoveredContact{
+			Channel:           "social",
+			Social:            social,
+			SourceURL:         sourceURL,
+			EvidenceText:      evidenceText,
+			VerificationLevel: verificationLevel,
+			RoleHint:          roleHint,
+		})
+	}
+	return contacts
+}
+
+func deriveContactEvidenceContext(sourceURL, html string) (string, string) {
+	doc, err := xhtml.Parse(strings.NewReader(html))
+	if err != nil {
+		roleHint := inferRoleHintFromContext(sourceURL, sourceURL)
+		return compactWhitespace(sourceURL), roleHint
+	}
+	title := compactWhitespace(nodeText(findFirstElement(doc, "title")))
+	heading := compactWhitespace(nodeText(findFirstHeading(doc)))
+	contextParts := make([]string, 0, 3)
+	contextParts = appendUniqueStrings(contextParts, heading, title)
+	evidenceText := compactWhitespace(strings.Join(contextParts, " · "))
+	if evidenceText == "" {
+		evidenceText = compactWhitespace(sourceURL)
+	}
+	roleHint := inferRoleHintFromContext(sourceURL, evidenceText)
+	return evidenceText, roleHint
+}
+
+func inferRoleHintFromContext(sourceURL, context string) string {
+	corpus := strings.ToLower(strings.Join([]string{sourceURL, context}, " "))
+	switch {
+	case containsAny(corpus, []string{"hausdienst", "facility", "facilities", "gebäudemanagement", "maintenance", "operations"}):
+		return "facility_manager"
+	case containsAny(corpus, []string{"schulleitung", "headmaster", "principal", "station manager", "site manager", "leitung"}):
+		return "site_leadership"
+	case containsAny(corpus, []string{"schulverwaltung", "administration", "office", "sekretariat", "customer service"}):
+		return "operator_admin"
+	case containsAny(corpus, []string{"hochbau", "bauamt", "building department", "planning", "bau und planung", "baukontrolle", "inspector"}):
+		return "building_authority"
+	case containsAny(corpus, []string{"feuerpolizei", "fire marshal", "fire safety"}):
+		return "fire_authority"
+	case containsAny(corpus, []string{"polizei", "public safety", "security office", "emergency management"}):
+		return "public_safety"
+	case containsAny(corpus, []string{"webmaster", "ict", "communications", "kommunikation"}):
+		return "communications"
+	default:
+		return ""
+	}
+}
+
+func mergeDiscoveredRoleType(baseRole, hint string) string {
+	baseRole = strings.TrimSpace(baseRole)
+	hint = strings.TrimSpace(hint)
+	if hint == "" {
+		return emptyDefault(baseRole, "contact")
+	}
+	switch baseRole {
+	case "", "contact", "operator":
+		return hint
+	default:
+		return baseRole
+	}
+}
+
+func inferVerificationLevel(source, roleType, websiteURL, sourceURL string) string {
+	lowerSource := strings.ToLower(strings.TrimSpace(source))
+	lowerRole := strings.ToLower(strings.TrimSpace(roleType))
+	switch {
+	case lowerSource == "inferred_contact":
+		return "inferred"
+	case strings.Contains(lowerSource, "area_contact"):
+		return "mapped_area_contact"
+	case strings.Contains(lowerSource, "google_places"):
+		return "directory_listing"
+	case strings.Contains(lowerSource, "osm_"):
+		return "openstreetmap"
+	case lowerRole == "building_authority" || lowerRole == "fire_authority" || lowerRole == "public_safety":
+		if isLikelyGovernmentHost(firstNonEmpty(sourceURL, websiteURL)) {
+			return "official_authority_page"
+		}
+		return "authority_reference"
+	case strings.Contains(lowerSource, "website"):
+		return "official_site_page"
+	case strings.Contains(lowerSource, "web_search"):
+		return "web_search_result"
+	default:
+		return "discovered"
+	}
+}
+
+func appendUniqueDiscoveredContacts(base []caseDiscoveredContact, values ...caseDiscoveredContact) []caseDiscoveredContact {
+	seen := make(map[string]struct{}, len(base))
+	for _, item := range base {
+		if key := discoveredContactKey(item); key != "" {
+			seen[key] = struct{}{}
+		}
+	}
+	for _, item := range values {
+		if key := discoveredContactKey(item); key != "" {
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+			base = append(base, item)
+		}
+	}
+	return base
+}
+
+func discoveredContactKey(item caseDiscoveredContact) string {
+	switch item.Channel {
+	case "email":
+		if item.Email == "" {
+			return ""
+		}
+		return "email:" + strings.ToLower(item.Email)
+	case "phone":
+		if item.Phone == "" {
+			return ""
+		}
+		return "phone:" + phoneDigits(item.Phone)
+	case "social":
+		if item.Social.Platform == "" || item.Social.Handle == "" {
+			return ""
+		}
+		return "social:" + strings.ToLower(item.Social.Platform+":"+item.Social.Handle)
+	default:
+		return ""
+	}
+}
+
 func hasClassToken(node *xhtml.Node, token string) bool {
 	classValue := attrValue(node, "class")
 	if classValue == "" {
@@ -1559,6 +1936,39 @@ func findDescendantByClass(node *xhtml.Node, classToken string) *xhtml.Node {
 	return nil
 }
 
+func findFirstElement(node *xhtml.Node, tag string) *xhtml.Node {
+	if node == nil {
+		return nil
+	}
+	if node.Type == xhtml.ElementNode && strings.EqualFold(node.Data, tag) {
+		return node
+	}
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		if found := findFirstElement(child, tag); found != nil {
+			return found
+		}
+	}
+	return nil
+}
+
+func findFirstHeading(node *xhtml.Node) *xhtml.Node {
+	if node == nil {
+		return nil
+	}
+	if node.Type == xhtml.ElementNode {
+		switch strings.ToLower(node.Data) {
+		case "h1", "h2", "h3":
+			return node
+		}
+	}
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		if found := findFirstHeading(child); found != nil {
+			return found
+		}
+	}
+	return nil
+}
+
 func attrValue(node *xhtml.Node, key string) string {
 	if node == nil {
 		return ""
@@ -1569,6 +1979,69 @@ func attrValue(node *xhtml.Node, key string) string {
 		}
 	}
 	return ""
+}
+
+func extractObfuscatedEmailsFromHTML(raw string) []string {
+	doc, err := xhtml.Parse(strings.NewReader(raw))
+	if err != nil {
+		return nil
+	}
+	emails := []string{}
+	var walk func(*xhtml.Node)
+	walk = func(node *xhtml.Node) {
+		if node == nil {
+			return
+		}
+		for _, attr := range node.Attr {
+			if !strings.EqualFold(attr.Key, "x-init") {
+				continue
+			}
+			for _, email := range decodeObfuscatedEmailsFromInit(attr.Val) {
+				emails = appendUniqueStrings(emails, email)
+			}
+		}
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+	}
+	walk(doc)
+	return emails
+}
+
+var caseDiscoveryObfuscatedArrayRegex = regexp.MustCompile(`Array\(([\d,\s]+)\)`)
+
+func decodeObfuscatedEmailsFromInit(raw string) []string {
+	matches := caseDiscoveryObfuscatedArrayRegex.FindAllStringSubmatch(raw, -1)
+	emails := []string{}
+	for _, match := range matches {
+		if len(match) < 2 {
+			continue
+		}
+		parts := strings.Split(match[1], ",")
+		values := make([]string, 0, len(parts))
+		for _, part := range parts {
+			trimmed := strings.TrimSpace(part)
+			if trimmed == "" {
+				continue
+			}
+			values = append(values, trimmed)
+		}
+		sort.Strings(values)
+		var b strings.Builder
+		for _, value := range values {
+			var parsed int
+			if _, err := fmt.Sscanf(value, "%d", &parsed); err != nil {
+				b.Reset()
+				break
+			}
+			b.WriteByte(byte(parsed % 256))
+		}
+		email := normalizeEmail(b.String())
+		if email != "" {
+			emails = appendUniqueStrings(emails, email)
+		}
+	}
+	return emails
 }
 
 func nodeText(node *xhtml.Node) string {
@@ -1637,6 +2110,9 @@ func extractEmailsFromHTML(html string) []string {
 			emails = appendUniqueStrings(emails, normalizeEmail(match[1]))
 		}
 	}
+	for _, email := range extractObfuscatedEmailsFromHTML(html) {
+		emails = appendUniqueStrings(emails, email)
+	}
 	out := make([]string, 0, len(emails))
 	for _, email := range emails {
 		if email != "" {
@@ -1679,6 +2155,47 @@ func extractSocialRefsFromHTML(html string) []caseSocialRef {
 }
 
 func extractContactLinks(base *url.URL, html string) []string {
+	doc, err := xhtml.Parse(strings.NewReader(html))
+	if err != nil {
+		return extractContactLinksByRegex(base, html)
+	}
+	links := []string{}
+	var walk func(*xhtml.Node)
+	walk = func(node *xhtml.Node) {
+		if node == nil {
+			return
+		}
+		if node.Type == xhtml.ElementNode && node.Data == "a" {
+			href := strings.TrimSpace(attrValue(node, "href"))
+			if href != "" {
+				corpus := strings.ToLower(strings.Join([]string{href, nodeText(node)}, " "))
+				if containsAny(corpus, []string{
+					"contact", "kontakt", "about", "impressum", "support", "directory", "team",
+					"facility", "maintenance", "hausdienst", "leitung", "verwaltung", "administration",
+					"planning", "hochbau", "bauamt", "bau und planung", "baukontrolle", "fire", "feuerpolizei",
+				}) {
+					parsed, err := url.Parse(href)
+					if err == nil {
+						resolved := base.ResolveReference(parsed)
+						if sameHost(base, resolved) {
+							links = appendUniqueStrings(links, resolved.String())
+						}
+					}
+				}
+			}
+		}
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+	}
+	walk(doc)
+	if len(links) > 4 {
+		links = links[:4]
+	}
+	return links
+}
+
+func extractContactLinksByRegex(base *url.URL, html string) []string {
 	links := []string{}
 	for _, match := range caseDiscoveryHrefRegex.FindAllStringSubmatch(html, -1) {
 		if len(match) < 2 {
@@ -1686,7 +2203,11 @@ func extractContactLinks(base *url.URL, html string) []string {
 		}
 		href := strings.TrimSpace(match[1])
 		lower := strings.ToLower(href)
-		if !(strings.Contains(lower, "contact") || strings.Contains(lower, "about") || strings.Contains(lower, "impressum") || strings.Contains(lower, "support") || strings.Contains(lower, "directory")) {
+		if !containsAny(lower, []string{
+			"contact", "kontakt", "about", "impressum", "support", "directory", "team",
+			"facility", "maintenance", "hausdienst", "leitung", "verwaltung", "administration",
+			"planning", "hochbau", "bauamt", "baukontrolle", "fire", "feuerpolizei",
+		}) {
 			continue
 		}
 		parsed, err := url.Parse(href)
@@ -1699,8 +2220,8 @@ func extractContactLinks(base *url.URL, html string) []string {
 		}
 		links = appendUniqueStrings(links, resolved.String())
 	}
-	if len(links) > 2 {
-		links = links[:2]
+	if len(links) > 4 {
+		links = links[:4]
 	}
 	return links
 }
@@ -1787,6 +2308,69 @@ func socialRefFromURL(raw string) (string, string, bool) {
 	default:
 		return "", "", false
 	}
+}
+
+func isLikelyOfficialStakeholderResult(rawURL string, query caseStakeholderSearchQuery) bool {
+	if rawURL == "" {
+		return false
+	}
+	if query.RoleType == "building_authority" || query.RoleType == "fire_authority" || query.RoleType == "public_safety" {
+		return isLikelyGovernmentHost(rawURL) || hostLooksLikeOrganization(rawURL, query.Organization)
+	}
+	return true
+}
+
+func isLikelyGovernmentHost(rawURL string) bool {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(strings.TrimPrefix(parsed.Hostname(), "www."))
+	parts := strings.Split(host, ".")
+	switch {
+	case strings.HasSuffix(host, ".gov"),
+		strings.Contains(host, ".gov."),
+		strings.HasSuffix(host, ".gouv.fr"),
+		strings.HasSuffix(host, ".admin.ch"),
+		strings.HasSuffix(host, ".gc.ca"),
+		strings.HasSuffix(host, ".gv.at"),
+		strings.Contains(host, "stadt"),
+		strings.Contains(host, "cityof"),
+		strings.Contains(host, "municipality"),
+		strings.Contains(host, "commune"),
+		strings.Contains(host, "adliswil.ch"):
+		return true
+	case len(parts) == 2 && len(parts[1]) <= 3 && len(parts[0]) >= 3 && !strings.Contains(parts[0], "example"):
+		return true
+	default:
+		return false
+	}
+}
+
+func hostLooksLikeOrganization(rawURL, organization string) bool {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(strings.TrimPrefix(parsed.Hostname(), "www."))
+	if host == "" {
+		return false
+	}
+	candidate := strings.ToLower(organization)
+	candidate = strings.NewReplacer("ä", "a", "ö", "o", "ü", "u", "ß", "ss", "-", " ", "_", " ").Replace(candidate)
+	for _, token := range strings.Fields(candidate) {
+		if len(token) < 4 {
+			continue
+		}
+		if strings.Contains(host, token) {
+			return true
+		}
+	}
+	return false
+}
+
+func compactWhitespace(value string) string {
+	return strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
 }
 
 func normalizeEmail(email string) string {

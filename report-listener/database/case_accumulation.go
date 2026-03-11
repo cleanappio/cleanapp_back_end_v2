@@ -235,13 +235,14 @@ func (d *Database) AttachClusterToCase(
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO case_escalation_targets (
 				case_id, role_type, organization, display_name, channel, email, phone,
-				website, contact_url, social_platform, social_handle,
+				website, contact_url, social_platform, social_handle, source_url, evidence_text, verification_level,
 				target_source, confidence_score, rationale
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`, caseID, emptyOrDefault(target.RoleType, "contact"), emptyOrNil(target.Organization),
 			emptyOrNil(target.DisplayName), emptyOrDefault(caseEscalationTargetChannel(target), "email"),
 			emptyOrNil(target.Email), emptyOrNil(target.Phone), emptyOrNil(target.Website),
 			emptyOrNil(target.ContactURL), emptyOrNil(target.SocialPlatform), emptyOrNil(target.SocialHandle),
+			emptyOrNil(target.SourceURL), emptyOrNil(target.EvidenceText), emptyOrNil(target.Verification),
 			emptyOrDefault(target.TargetSource, "suggested"), target.ConfidenceScore, emptyOrNil(target.Rationale)); err != nil {
 			return fmt.Errorf("attach escalation target to case: %w", err)
 		}

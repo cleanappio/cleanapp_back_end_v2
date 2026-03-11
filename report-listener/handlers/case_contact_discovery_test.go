@@ -103,6 +103,32 @@ func TestExtractPublicContactsFromHTML(t *testing.T) {
 	}
 }
 
+func TestExtractObfuscatedEmailsFromHTML(t *testing.T) {
+	html := `<div><a x-init="const a=Array(1245995116,1313994099,1014783091,1224001380,1444455779,1362649449,1053258600,1140438373,1318570615,1301436521,1087471733,1117487980,1180676705,1146447936,1420165934,1464079208,1039002723,1368978540); a.sort(); let str = '';for (i=0; i<a.length; ++i){ str += String.fromCharCode(a[i]%256); }$el.setAttribute('href','mailto:' + str);$el.textContent = str;"></a></div>`
+
+	emails := extractEmailsFromHTML(html)
+	if len(emails) != 1 {
+		t.Fatalf("expected 1 decoded email, got %#v", emails)
+	}
+	if emails[0] != "schule@adliswil.ch" {
+		t.Fatalf("unexpected decoded email: %#v", emails)
+	}
+}
+
+func TestExtractLocalizedContactLinks(t *testing.T) {
+	html := `<html><body>
+<a href="/kontakt">Kontakt</a>
+<a href="/team/hausdienst">Hausdienst</a>
+<a href="/bauen/hochbau">Hochbau</a>
+</body></html>`
+
+	base, _ := url.Parse("https://city.example")
+	links := extractContactLinks(base, html)
+	if len(links) != 3 {
+		t.Fatalf("expected 3 localized contact links, got %#v", links)
+	}
+}
+
 func TestSearchGooglePlacesParsesFields(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/places:searchText" {
@@ -186,5 +212,34 @@ func TestParseDuckDuckGoSearchResults(t *testing.T) {
 	}
 	if results[0].Snippet == "" {
 		t.Fatalf("expected snippet to be parsed")
+	}
+}
+
+func TestBuildCaseStakeholderSearchQueriesAddsAuthorityForSevereStructuralHazards(t *testing.T) {
+	queries := buildCaseStakeholderSearchQueries(
+		[]string{"Schulhaus Kopfholz"},
+		&caseLocationContext{
+			PrimaryName: "Schulhaus Kopfholz",
+			City:        "Adliswil",
+			State:       "Zürich",
+			CountryCode: "ch",
+		},
+		caseHazardProfile{
+			Structural:         true,
+			Severe:             true,
+			Urgent:             true,
+			ImmediateDanger:    true,
+			SensitiveOccupancy: true,
+		},
+	)
+
+	roleSet := make(map[string]struct{}, len(queries))
+	for _, query := range queries {
+		roleSet[query.RoleType] = struct{}{}
+	}
+	for _, required := range []string{"operator", "facility_manager", "building_authority", "fire_authority", "public_safety", "architect", "contractor", "engineer"} {
+		if _, ok := roleSet[required]; !ok {
+			t.Fatalf("expected query role %q in %#v", required, queries)
+		}
 	}
 }

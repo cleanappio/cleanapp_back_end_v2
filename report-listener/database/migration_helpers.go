@@ -712,6 +712,9 @@ func ensureCaseTables(ctx context.Context, db *sql.DB) error {
 			contact_url VARCHAR(512) NULL,
 			social_platform VARCHAR(64) NULL,
 			social_handle VARCHAR(255) NULL,
+			source_url VARCHAR(512) NULL,
+			evidence_text TEXT NULL,
+			verification_level VARCHAR(64) NULL,
 			target_source VARCHAR(64) NOT NULL DEFAULT 'suggested',
 			confidence_score FLOAT NOT NULL DEFAULT 0,
 			rationale TEXT NULL,
@@ -845,6 +848,54 @@ func ensureCaseEscalationTargetChannels(ctx context.Context, db *sql.DB) error {
 		`); err != nil {
 			return fmt.Errorf("failed to add case escalation target channel index: %w", err)
 		}
+	}
+
+	return nil
+}
+
+func ensureCaseEscalationTargetEvidenceColumns(ctx context.Context, db *sql.DB) error {
+	columns := []struct {
+		name string
+		sql  string
+	}{
+		{name: "source_url", sql: "ALTER TABLE case_escalation_targets ADD COLUMN source_url VARCHAR(512) NULL AFTER social_handle"},
+		{name: "evidence_text", sql: "ALTER TABLE case_escalation_targets ADD COLUMN evidence_text TEXT NULL AFTER source_url"},
+		{name: "verification_level", sql: "ALTER TABLE case_escalation_targets ADD COLUMN verification_level VARCHAR(64) NULL AFTER evidence_text"},
+	}
+	for _, column := range columns {
+		exists, err := columnExists(ctx, db, "case_escalation_targets", column.name)
+		if err != nil {
+			return fmt.Errorf("failed to check case_escalation_targets.%s column: %w", column.name, err)
+		}
+		if exists {
+			continue
+		}
+		if _, err := db.ExecContext(ctx, column.sql); err != nil {
+			return fmt.Errorf("failed to add case_escalation_targets.%s column: %w", column.name, err)
+		}
+	}
+
+	if _, err := db.ExecContext(ctx, `
+		UPDATE case_escalation_targets
+		SET
+			source_url = CASE
+				WHEN COALESCE(source_url, '') <> '' THEN source_url
+				WHEN COALESCE(contact_url, '') <> '' THEN contact_url
+				WHEN COALESCE(website, '') <> '' THEN website
+				ELSE NULL
+			END,
+			verification_level = CASE
+				WHEN COALESCE(verification_level, '') <> '' THEN verification_level
+				WHEN target_source LIKE 'area_contact%' THEN 'mapped_area_contact'
+				WHEN target_source LIKE 'osm_%' THEN 'openstreetmap'
+				WHEN target_source LIKE 'google_places%' THEN 'directory_listing'
+				WHEN target_source LIKE 'web_search%' THEN 'web_search_result'
+				WHEN target_source = 'inferred_contact' THEN 'inferred'
+				ELSE 'discovered'
+			END
+		WHERE COALESCE(source_url, '') = '' OR COALESCE(verification_level, '') = ''
+	`); err != nil {
+		return fmt.Errorf("failed to backfill case escalation target evidence columns: %w", err)
 	}
 
 	return nil

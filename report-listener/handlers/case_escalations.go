@@ -274,7 +274,7 @@ func selectCaseTargets(targets []models.CaseEscalationTarget, targetIDs []int64)
 	}
 	selected := make([]models.CaseEscalationTarget, 0, len(targets))
 	for _, target := range targets {
-		if strings.TrimSpace(target.Email) == "" {
+		if normalizeEmail(target.Email) == "" {
 			continue
 		}
 		if !allowAll {
@@ -306,7 +306,7 @@ func normalizeManualCCEmails(raw []string, selectedTargets []models.CaseEscalati
 		for _, part := range strings.FieldsFunc(item, func(r rune) bool {
 			return r == ',' || r == ';' || unicode.IsSpace(r)
 		}) {
-			emailAddr := strings.ToLower(strings.TrimSpace(part))
+			emailAddr := normalizeEmail(part)
 			if emailAddr == "" {
 				continue
 			}

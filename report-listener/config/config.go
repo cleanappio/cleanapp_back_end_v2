@@ -60,6 +60,9 @@ type Config struct {
 	EmailServiceURL             string
 	GooglePlacesAPIKey          string
 	GooglePlacesBaseURL         string
+	GoogleSearchAPIKey          string
+	GoogleSearchCX              string
+	GoogleSearchBaseURL         string
 
 	FetcherKeyEnv                  string
 	FetcherRegisterMaxPerHourPerIP int
@@ -148,6 +151,9 @@ func Load() (*Config, error) {
 		EmailServiceURL:             strings.TrimRight(appenv.String("EMAIL_SERVICE_URL", "http://cleanapp_email_service:8080"), "/"),
 		GooglePlacesAPIKey:          appenv.String("GOOGLE_PLACES_API_KEY", ""),
 		GooglePlacesBaseURL:         strings.TrimRight(appenv.String("GOOGLE_PLACES_BASE_URL", "https://places.googleapis.com/v1"), "/"),
+		GoogleSearchAPIKey:          appenv.String("GOOGLE_SEARCH_API_KEY", ""),
+		GoogleSearchCX:              appenv.String("GOOGLE_SEARCH_CX", ""),
+		GoogleSearchBaseURL:         strings.TrimRight(appenv.String("GOOGLE_SEARCH_BASE_URL", "https://www.googleapis.com/customsearch/v1"), "/"),
 
 		FetcherKeyEnv:                  strings.ToLower(appenv.String("FETCHER_KEY_ENV", "live")),
 		FetcherRegisterMaxPerHourPerIP: appenv.Int("FETCHER_REGISTER_MAX_PER_HOUR_PER_IP", 5),
