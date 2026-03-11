@@ -132,3 +132,59 @@ func TestSearchGooglePlacesParsesFields(t *testing.T) {
 		t.Fatalf("unexpected place payload: %#v", places[0])
 	}
 }
+
+func TestEnrichTargetsDropsInferredFallbackWhenActualTargetsExist(t *testing.T) {
+	discoverer := &caseContactDiscoverer{}
+	targets := discoverer.EnrichTargets(context.Background(), nil, []models.CaseEscalationTarget{
+		{
+			Organization:    "Schulhaus Kopfholz",
+			Channel:         "email",
+			Email:           "hausdienst@schule-adliswil.ch",
+			TargetSource:    "area_contact",
+			ConfidenceScore: 0.9,
+		},
+		{
+			Organization:    "Random Vendor",
+			Channel:         "email",
+			Email:           "support@buildingmanagement.com",
+			TargetSource:    "inferred_contact",
+			ConfidenceScore: 0.6,
+		},
+	}, 8)
+
+	if len(targets) != 1 {
+		t.Fatalf("expected inferred fallback to be dropped, got %#v", targets)
+	}
+	if targets[0].Email != "hausdienst@schule-adliswil.ch" {
+		t.Fatalf("unexpected surviving target: %#v", targets[0])
+	}
+}
+
+func TestParseDuckDuckGoSearchResults(t *testing.T) {
+	raw := `
+<html><body>
+  <div class="result results_links results_links_deep web-result">
+    <h2 class="result__title">
+      <a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fandereggpartner.ch%2Freferenzen%2Fkopfholz">Kopfholz Erweiterung | Anderegg Partner</a>
+    </h2>
+    <div class="result__extras__url">
+      <a class="result__url" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fandereggpartner.ch%2Freferenzen%2Fkopfholz">andereggpartner.ch/referenzen/kopfholz</a>
+    </div>
+    <a class="result__snippet">Architektur und Ausfuehrung fuer die Schulanlage Kopfholz in Adliswil.</a>
+  </div>
+</body></html>`
+
+	results := parseDuckDuckGoSearchResults(raw)
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %#v", results)
+	}
+	if results[0].URL != "https://andereggpartner.ch/referenzen/kopfholz" {
+		t.Fatalf("unexpected url: %#v", results[0])
+	}
+	if results[0].Title != "Kopfholz Erweiterung | Anderegg Partner" {
+		t.Fatalf("unexpected title: %#v", results[0])
+	}
+	if results[0].Snippet == "" {
+		t.Fatalf("expected snippet to be parsed")
+	}
+}

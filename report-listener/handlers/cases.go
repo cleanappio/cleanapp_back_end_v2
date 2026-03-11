@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"math"
 	"net/http"
 	"sort"
@@ -508,6 +509,11 @@ func (h *Handlers) GetCase(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load case"})
 		return
 	}
+	if enriched, err := h.enrichCaseEscalationTargets(c.Request.Context(), detail); err != nil {
+		log.Printf("warn: case escalation target enrichment failed for %s: %v", c.Param("case_id"), err)
+	} else if len(enriched) > 0 {
+		detail.EscalationTargets = enriched
+	}
 	c.JSON(http.StatusOK, detail)
 }
 
@@ -643,6 +649,64 @@ func analyzeClusterReports(
 		Hypotheses:       hypotheses,
 		SuggestedTargets: suggestedTargets,
 	}
+}
+
+func (h *Handlers) enrichCaseEscalationTargets(ctx context.Context, detail *models.CaseDetail) ([]models.CaseEscalationTarget, error) {
+	if h.contactDiscoverer == nil || detail == nil {
+		return nil, nil
+	}
+	if len(detail.LinkedReports) == 0 {
+		return filterVisibleCaseTargets(detail.EscalationTargets), nil
+	}
+
+	seqs := make([]int, 0, len(detail.LinkedReports))
+	for _, report := range detail.LinkedReports {
+		if report.Seq > 0 {
+			seqs = append(seqs, report.Seq)
+		}
+	}
+	if len(seqs) == 0 {
+		return filterVisibleCaseTargets(detail.EscalationTargets), nil
+	}
+
+	reports, err := h.db.GetReportsBySeqs(ctx, seqs)
+	if err != nil {
+		return nil, err
+	}
+	enriched := h.contactDiscoverer.EnrichTargets(ctx, reports, detail.EscalationTargets, 16)
+	stored, err := h.db.UpsertCaseEscalationTargets(ctx, detail.Case.CaseID, enriched)
+	if err != nil {
+		return filterVisibleCaseTargets(enriched), nil
+	}
+	return filterVisibleCaseTargets(stored), nil
+}
+
+func filterVisibleCaseTargets(targets []models.CaseEscalationTarget) []models.CaseEscalationTarget {
+	hasPreferred := false
+	for _, target := range targets {
+		if strings.EqualFold(strings.TrimSpace(target.TargetSource), "inferred_contact") {
+			continue
+		}
+		if strings.TrimSpace(target.Email) != "" ||
+			strings.TrimSpace(target.Phone) != "" ||
+			strings.TrimSpace(target.Website) != "" ||
+			strings.TrimSpace(target.ContactURL) != "" {
+			hasPreferred = true
+			break
+		}
+	}
+	if !hasPreferred {
+		return targets
+	}
+
+	filtered := make([]models.CaseEscalationTarget, 0, len(targets))
+	for _, target := range targets {
+		if strings.EqualFold(strings.TrimSpace(target.TargetSource), "inferred_contact") {
+			continue
+		}
+		filtered = append(filtered, target)
+	}
+	return filtered
 }
 
 func extractHypothesisMatchTexts(hypotheses []models.ClusterIncidentHypothesis) []string {

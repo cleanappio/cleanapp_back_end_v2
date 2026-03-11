@@ -373,6 +373,57 @@ func (d *Database) GetCaseDetail(ctx context.Context, caseID string) (*models.Ca
 	return &detail, nil
 }
 
+func (d *Database) UpsertCaseEscalationTargets(ctx context.Context, caseID string, targets []models.CaseEscalationTarget) ([]models.CaseEscalationTarget, error) {
+	if strings.TrimSpace(caseID) == "" {
+		return nil, fmt.Errorf("case_id is required")
+	}
+	if len(targets) == 0 {
+		return d.listCaseEscalationTargets(ctx, caseID)
+	}
+
+	tx, err := d.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	existingKeys, err := loadExistingCaseTargetKeysTx(ctx, tx, caseID)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, target := range targets {
+		if !hasCaseEscalationContactMethod(target) {
+			continue
+		}
+		key := caseEscalationTargetDedupKey(target)
+		if key != "" {
+			if _, exists := existingKeys[key]; exists {
+				continue
+			}
+			existingKeys[key] = struct{}{}
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO case_escalation_targets (
+				case_id, role_type, organization, display_name, channel, email, phone,
+				website, contact_url, social_platform, social_handle,
+				target_source, confidence_score, rationale
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, caseID, emptyOrDefault(target.RoleType, "contact"), emptyOrNil(target.Organization),
+			emptyOrNil(target.DisplayName), emptyOrDefault(caseEscalationTargetChannel(target), "email"),
+			emptyOrNil(target.Email), emptyOrNil(target.Phone), emptyOrNil(target.Website),
+			emptyOrNil(target.ContactURL), emptyOrNil(target.SocialPlatform), emptyOrNil(target.SocialHandle),
+			emptyOrDefault(target.TargetSource, "suggested"), target.ConfidenceScore, emptyOrNil(target.Rationale)); err != nil {
+			return nil, fmt.Errorf("insert case escalation target: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return d.listCaseEscalationTargets(ctx, caseID)
+}
+
 func (d *Database) GetCasesByReportSeq(ctx context.Context, seq int) ([]models.ReportCaseSummary, error) {
 	rows, err := d.db.QueryContext(ctx, `
 		SELECT
