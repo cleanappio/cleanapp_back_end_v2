@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -23,6 +24,8 @@ const (
 	publicDiscoveryMaxLimit     = 50
 	publicPointsDefaultLimit    = 4000
 	publicPointsMaxLimit        = 8000
+	publicDiscoveryRecentFloor  = 500
+	publicDiscoveryRecentCeil   = 12000
 )
 
 func canonicalReportPath(classification, publicID string) string {
@@ -95,6 +98,34 @@ func parseOptionalFloat(raw string, def float64) (float64, error) {
 		return 0, err
 	}
 	return value, nil
+}
+
+func recentDiscoverySampleLimit(limit, multiplier int) int {
+	sample := limit * multiplier
+	if sample < publicDiscoveryRecentFloor {
+		sample = publicDiscoveryRecentFloor
+	}
+	if sample > publicDiscoveryRecentCeil {
+		sample = publicDiscoveryRecentCeil
+	}
+	return sample
+}
+
+func recentMinimalReports(
+	ctx context.Context,
+	h *Handlers,
+	limit int,
+	classification string,
+) ([]models.ReportWithMinimalAnalysis, error) {
+	reportsInterface, err := h.db.GetLastNAnalyzedReports(ctx, limit, classification, false)
+	if err != nil {
+		return nil, err
+	}
+	reports, ok := reportsInterface.([]models.ReportWithMinimalAnalysis)
+	if !ok {
+		return nil, fmt.Errorf("invalid recent discovery payload")
+	}
+	return reports, nil
 }
 
 func toPublicDiscoveryCards(
@@ -403,11 +434,60 @@ func (h *Handlers) GetPublicDiscoveryBrandSummaries(c *gin.Context) {
 	}
 	limit = clampInt(limit, 1, 1000)
 
-	items, err := h.db.GetPublicBrandSummaries(c.Request.Context(), classification, language, limit)
+	reports, err := recentMinimalReports(
+		c.Request.Context(),
+		h,
+		recentDiscoverySampleLimit(limit, 20),
+		classification,
+	)
 	if err != nil {
 		log.Printf("Failed to get public brand summaries: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve brand summaries"})
 		return
+	}
+
+	type brandSummaryBucket struct {
+		BrandName      string
+		BrandDisplay   string
+		Total          int
+		Classification string
+	}
+
+	buckets := make(map[string]*brandSummaryBucket)
+	for _, report := range reports {
+		analysis := database.PreferredMinimalAnalysis(report.Analysis, language)
+		brandName := strings.TrimSpace(analysis.BrandName)
+		if brandName == "" {
+			continue
+		}
+		bucket := buckets[brandName]
+		if bucket == nil {
+			brandDisplay := strings.TrimSpace(analysis.BrandDisplayName)
+			if brandDisplay == "" {
+				brandDisplay = brandName
+			}
+			bucket = &brandSummaryBucket{
+				BrandName:      brandName,
+				BrandDisplay:   brandDisplay,
+				Classification: classification,
+			}
+			buckets[brandName] = bucket
+		}
+		bucket.Total++
+	}
+
+	items := make([]brandSummaryBucket, 0, len(buckets))
+	for _, bucket := range buckets {
+		items = append(items, *bucket)
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Total != items[j].Total {
+			return items[i].Total > items[j].Total
+		}
+		return items[i].BrandDisplay < items[j].BrandDisplay
+	})
+	if len(items) > limit {
+		items = items[:limit]
 	}
 
 	out := make([]models.PublicBrandSummary, 0, len(items))
@@ -470,11 +550,46 @@ func (h *Handlers) GetPublicDiscoveryPhysicalPoints(c *gin.Context) {
 	}
 	limit = clampInt(limit, 100, publicPointsMaxLimit)
 
-	points, err := h.db.GetPublicPhysicalPointsByBBox(c.Request.Context(), latMin, latMax, lonMin, lonMax, limit)
+	reports, err := recentMinimalReports(
+		c.Request.Context(),
+		h,
+		recentDiscoverySampleLimit(limit, 3),
+		"physical",
+	)
 	if err != nil {
 		log.Printf("Failed to get public physical points: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve map points"})
 		return
+	}
+
+	points := make([]database.PublicPointRecord, 0, len(reports))
+	for _, report := range reports {
+		if strings.TrimSpace(report.Report.PublicID) == "" {
+			continue
+		}
+		if report.Report.Latitude < latMin || report.Report.Latitude > latMax {
+			continue
+		}
+		if report.Report.Longitude < lonMin || report.Report.Longitude > lonMax {
+			continue
+		}
+
+		severity := 0.0
+		for _, analysis := range report.Analysis {
+			if analysis.SeverityLevel > severity {
+				severity = analysis.SeverityLevel
+			}
+		}
+
+		points = append(points, database.PublicPointRecord{
+			PublicID:      report.Report.PublicID,
+			Latitude:      report.Report.Latitude,
+			Longitude:     report.Report.Longitude,
+			SeverityLevel: severity,
+		})
+		if len(points) >= limit {
+			break
+		}
 	}
 
 	if clusters := clusterPublicPoints(points, zoom); len(clusters) > 0 {
