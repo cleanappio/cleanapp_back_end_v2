@@ -1653,6 +1653,9 @@ func (d *caseContactDiscoverer) addWebsiteTargets(ctx context.Context, roleType,
 					if discovered.Email == "" {
 						continue
 					}
+					if !shouldKeepWebsiteDiscoveredContact(resolvedRole, organization, normalizedWebsite, discovered) {
+						continue
+					}
 					merger.Add(models.CaseEscalationTarget{
 						RoleType:        resolvedRole,
 						Organization:    organization,
@@ -2043,6 +2046,101 @@ func caseEscalationTargetKey(target models.CaseEscalationTarget) string {
 		}
 		return "website:" + key
 	}
+}
+
+func shouldKeepWebsiteDiscoveredContact(roleType, organization, websiteURL string, discovered caseDiscoveredContact) bool {
+	if discovered.Channel != "email" {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(roleType)) {
+	case "architect", "contractor", "engineer":
+		return true
+	default:
+		return emailMatchesWebsiteOrOrganization(discovered.Email, websiteURL, organization)
+	}
+}
+
+func emailMatchesWebsiteOrOrganization(email, websiteURL, organization string) bool {
+	email = normalizeEmail(email)
+	if email == "" {
+		return false
+	}
+	at := strings.LastIndex(email, "@")
+	if at < 0 || at == len(email)-1 {
+		return false
+	}
+	emailDomain := strings.ToLower(email[at+1:])
+	websiteHost := ""
+	if parsed, err := url.Parse(firstNonEmpty(websiteURL, "https://"+emailDomain)); err == nil {
+		websiteHost = strings.ToLower(strings.TrimPrefix(parsed.Hostname(), "www."))
+	}
+	if websiteHost == "" {
+		return true
+	}
+	if emailDomain == websiteHost || strings.HasSuffix(emailDomain, "."+websiteHost) || strings.HasSuffix(websiteHost, "."+emailDomain) {
+		return true
+	}
+	emailTokens := significantDomainTokens(emailDomain)
+	websiteTokens := significantDomainTokens(websiteHost)
+	if sharesAnyString(emailTokens, websiteTokens) {
+		return true
+	}
+	orgTokens := significantOrganizationTokens(organization)
+	return sharesAnyString(emailTokens, orgTokens) && sharesAnyString(websiteTokens, orgTokens)
+}
+
+func significantDomainTokens(host string) []string {
+	host = strings.ToLower(strings.TrimPrefix(strings.TrimSpace(host), "www."))
+	if host == "" {
+		return nil
+	}
+	parts := strings.FieldsFunc(host, func(r rune) bool {
+		return r == '.' || r == '-' || r == '_'
+	})
+	tokens := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if len(part) < 3 {
+			continue
+		}
+		if part == "www" || part == "mail" || part == "contact" {
+			continue
+		}
+		tokens = appendUniqueStrings(tokens, part)
+	}
+	return tokens
+}
+
+func significantOrganizationTokens(value string) []string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return nil
+	}
+	replacer := strings.NewReplacer("/", " ", "-", " ", "_", " ", ".", " ", ",", " ", "(", " ", ")", " ")
+	parts := strings.Fields(replacer.Replace(value))
+	tokens := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if len(part) < 3 {
+			continue
+		}
+		tokens = appendUniqueStrings(tokens, part)
+	}
+	return tokens
+}
+
+func sharesAnyString(left, right []string) bool {
+	if len(left) == 0 || len(right) == 0 {
+		return false
+	}
+	seen := make(map[string]struct{}, len(left))
+	for _, value := range left {
+		seen[strings.ToLower(strings.TrimSpace(value))] = struct{}{}
+	}
+	for _, value := range right {
+		if _, ok := seen[strings.ToLower(strings.TrimSpace(value))]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func caseChannelRank(channel string) int {

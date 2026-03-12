@@ -415,3 +415,15 @@ func TestPendingStakeholderSearchQueriesSkipsSatisfiedRoles(t *testing.T) {
 		t.Fatalf("unexpected pending query set: %#v", pending)
 	}
 }
+
+func TestEmailMatchesWebsiteOrOrganizationRejectsUnrelatedDomain(t *testing.T) {
+	if emailMatchesWebsiteOrOrganization("ndaniel.kummer@ekz.ch", "https://www.adliswil.ch/departemente/1318", "Stadt Adliswil") {
+		t.Fatalf("expected unrelated external email domain to be rejected")
+	}
+	if !emailMatchesWebsiteOrOrganization("bau.planung@adliswil.ch", "https://www.adliswil.ch/departemente/1318", "Stadt Adliswil") {
+		t.Fatalf("expected official municipal email to be retained")
+	}
+	if !emailMatchesWebsiteOrOrganization("schule@adliswil.ch", "https://www.schule-adliswil.ch/", "Schulhaus Kopfholz") {
+		t.Fatalf("expected related organization email on sister domain to be retained")
+	}
+}
