@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
+	"log"
 	"math"
 	"net/http"
 	"sort"
@@ -59,6 +60,13 @@ func (h *Handlers) GetCaseEscalations(c *gin.Context) {
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load case escalations"})
 		return
+	}
+	if queryBoolParam(c, "refresh_targets") {
+		if enriched, enrichErr := h.enrichCaseEscalationTargets(c.Request.Context(), detail); enrichErr != nil {
+			log.Printf("warn: case escalation target refresh failed for %s: %v", c.Param("case_id"), enrichErr)
+		} else if len(enriched) > 0 {
+			detail.EscalationTargets = enriched
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"case_id":      detail.Case.CaseID,

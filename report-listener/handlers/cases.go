@@ -42,6 +42,7 @@ type clusterEdge struct {
 const (
 	clusterAnalyzeTargetDiscoveryTimeout = 4 * time.Second
 	clusterAnalyzeCaseMatchTimeout       = 1500 * time.Millisecond
+	caseTargetRefreshTimeout             = 5 * time.Second
 )
 
 func (h *Handlers) AnalyzeCluster(c *gin.Context) {
@@ -537,10 +538,12 @@ func (h *Handlers) GetCase(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load case"})
 		return
 	}
-	if enriched, err := h.enrichCaseEscalationTargets(c.Request.Context(), detail); err != nil {
-		log.Printf("warn: case escalation target enrichment failed for %s: %v", c.Param("case_id"), err)
-	} else if len(enriched) > 0 {
-		detail.EscalationTargets = enriched
+	if queryBoolParam(c, "refresh_targets") {
+		if enriched, err := h.enrichCaseEscalationTargets(c.Request.Context(), detail); err != nil {
+			log.Printf("warn: case escalation target enrichment failed for %s: %v", c.Param("case_id"), err)
+		} else if len(enriched) > 0 {
+			detail.EscalationTargets = enriched
+		}
 	}
 	c.JSON(http.StatusOK, detail)
 }
@@ -701,7 +704,7 @@ func (h *Handlers) enrichCaseEscalationTargets(ctx context.Context, detail *mode
 	if err != nil {
 		return nil, err
 	}
-	enrichCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
+	enrichCtx, cancel := context.WithTimeout(ctx, caseTargetRefreshTimeout)
 	defer cancel()
 	enriched := h.contactDiscoverer.EnrichTargets(enrichCtx, reports, detail.EscalationTargets, 16)
 	stored, err := h.db.UpsertCaseEscalationTargets(ctx, detail.Case.CaseID, enriched)
@@ -765,6 +768,23 @@ func extractHypothesisMatchTexts(hypotheses []models.ClusterIncidentHypothesis) 
 		}
 	}
 	return texts
+}
+
+func queryBoolParam(c *gin.Context, key string) bool {
+	raw := strings.TrimSpace(c.Query(key))
+	if raw == "" {
+		return false
+	}
+	parsed, err := strconv.ParseBool(raw)
+	if err == nil {
+		return parsed
+	}
+	switch strings.ToLower(raw) {
+	case "1", "yes", "y", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 func preferredCaseMatchCandidate(candidates []models.CaseMatchCandidate) *models.CaseMatchCandidate {
