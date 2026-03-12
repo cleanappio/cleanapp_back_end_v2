@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -72,13 +73,16 @@ func (h *Handlers) GetCaseEscalations(c *gin.Context) {
 		log.Printf("warn: case contact routing sync failed for %s: %v", c.Param("case_id"), err)
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"case_id":      detail.Case.CaseID,
-		"targets":      detail.EscalationTargets,
-		"observations": detail.ContactObservations,
-		"notify_plan":  detail.NotifyPlan,
-		"actions":      detail.EscalationActions,
-		"deliveries":   detail.EmailDeliveries,
-		"linked_count": len(detail.LinkedReports),
+		"case_id":         detail.Case.CaseID,
+		"targets":         detail.EscalationTargets,
+		"observations":    detail.ContactObservations,
+		"notify_plan":     detail.NotifyPlan,
+		"routing_profile": detail.RoutingProfile,
+		"execution_tasks": detail.ExecutionTasks,
+		"notify_outcomes": detail.NotifyOutcomes,
+		"actions":         detail.EscalationActions,
+		"deliveries":      detail.EmailDeliveries,
+		"linked_count":    len(detail.LinkedReports),
 	})
 }
 
@@ -192,6 +196,9 @@ func (h *Handlers) SendCaseEscalation(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to persist escalation deliveries"})
 		return
 	}
+	if err := h.recordCaseDeliveryOutcomes(c.Request.Context(), detail.Case.CaseID, selectedTargets, deliveries); err != nil {
+		log.Printf("warn: failed to record notify outcomes for %s: %v", detail.Case.CaseID, err)
+	}
 
 	c.JSON(http.StatusOK, models.CaseEscalationSendResponse{
 		CaseID:     detail.Case.CaseID,
@@ -201,6 +208,88 @@ func (h *Handlers) SendCaseEscalation(c *gin.Context) {
 		Actions:    actions,
 		Deliveries: deliveries,
 	})
+}
+
+func (h *Handlers) recordCaseDeliveryOutcomes(ctx context.Context, caseID string, targets []models.CaseEscalationTarget, deliveries []models.CaseEmailDelivery) error {
+	targetsByID := make(map[int64]models.CaseEscalationTarget, len(targets))
+	for _, target := range targets {
+		targetsByID[target.ID] = target
+	}
+	for _, delivery := range deliveries {
+		var target models.CaseEscalationTarget
+		if delivery.TargetID != nil {
+			target = targetsByID[*delivery.TargetID]
+		}
+		endpointKey := endpointKeyForTarget(target)
+		outcomeType := "sent"
+		switch strings.ToLower(strings.TrimSpace(delivery.DeliveryStatus)) {
+		case "sent", "delivered":
+			outcomeType = "sent"
+		case "failed", "bounced", "invalid_email":
+			outcomeType = "bounced"
+		default:
+			outcomeType = strings.ToLower(strings.TrimSpace(delivery.DeliveryStatus))
+		}
+		if err := h.db.RecordNotifyOutcome(ctx, models.NotifyOutcome{
+			SubjectKind: "case",
+			SubjectRef:  caseID,
+			TargetID:    delivery.TargetID,
+			EndpointKey: endpointKey,
+			OutcomeType: outcomeType,
+			SourceType:  "case_email_delivery",
+			SourceRef:   delivery.RecipientEmail,
+			EvidenceJSON: fmt.Sprintf(
+				`{"recipient_email":"%s","delivery_status":"%s","provider":"%s"}`,
+				escapeJSONString(delivery.RecipientEmail),
+				escapeJSONString(delivery.DeliveryStatus),
+				escapeJSONString(delivery.Provider),
+			),
+		}); err != nil {
+			return err
+		}
+		endpointMemoryKey := firstNonEmpty(endpointKey, strings.ToLower(strings.TrimSpace(delivery.RecipientEmail)))
+		existingMemory, err := h.db.GetContactEndpointMemory(ctx, endpointMemoryKey)
+		if err != nil {
+			return err
+		}
+		memory := models.ContactEndpointMemory{
+			EndpointKey:            endpointMemoryKey,
+			OrganizationKey:        target.OrganizationKey,
+			ChannelType:            "email",
+			ChannelValue:           strings.ToLower(strings.TrimSpace(delivery.RecipientEmail)),
+			LastResult:             outcomeType,
+			PreferredForRoleType:   target.RoleType,
+			PreferredForAssetClass: "",
+		}
+		if existingMemory != nil {
+			memory.SuccessCount = existingMemory.SuccessCount
+			memory.BounceCount = existingMemory.BounceCount
+			memory.AckCount = existingMemory.AckCount
+			memory.FixCount = existingMemory.FixCount
+			memory.MisrouteCount = existingMemory.MisrouteCount
+			memory.NoResponseCount = existingMemory.NoResponseCount
+		}
+		switch outcomeType {
+		case "sent":
+			memory.SuccessCount++
+		case "bounced":
+			memory.BounceCount++
+			cooldown := time.Now().UTC().Add(7 * 24 * time.Hour)
+			memory.CooldownUntil = &cooldown
+		case "misrouted":
+			memory.MisrouteCount++
+		}
+		if sentAt := delivery.SentAt; sentAt != nil {
+			memory.LastContactedAt = sentAt
+		} else {
+			now := time.Now().UTC()
+			memory.LastContactedAt = &now
+		}
+		if _, err := h.db.UpsertContactEndpointMemory(ctx, memory); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (h *Handlers) sendCaseEscalation(c *gin.Context, caseID, body, subject string, targets []models.CaseEscalationTarget, ccRecipients []internalCaseEscalationRecipient) ([]internalCaseEscalationSendResult, error) {

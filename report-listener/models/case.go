@@ -147,31 +147,40 @@ type CaseReportLink struct {
 }
 
 type CaseEscalationTarget struct {
-	ID                 int64     `json:"id" db:"id"`
-	CaseID             string    `json:"case_id" db:"case_id"`
-	RoleType           string    `json:"role_type" db:"role_type"`
-	DecisionScope      string    `json:"decision_scope" db:"decision_scope"`
-	Organization       string    `json:"organization" db:"organization"`
-	DisplayName        string    `json:"display_name" db:"display_name"`
-	Channel            string    `json:"channel" db:"channel"`
-	Email              string    `json:"email" db:"email"`
-	Phone              string    `json:"phone" db:"phone"`
-	Website            string    `json:"website" db:"website"`
-	ContactURL         string    `json:"contact_url" db:"contact_url"`
-	SocialPlatform     string    `json:"social_platform" db:"social_platform"`
-	SocialHandle       string    `json:"social_handle" db:"social_handle"`
-	SourceURL          string    `json:"source_url" db:"source_url"`
-	EvidenceText       string    `json:"evidence_text" db:"evidence_text"`
-	Verification       string    `json:"verification_level" db:"verification_level"`
-	AttributionClass   string    `json:"attribution_class" db:"attribution_class"`
-	TargetSource       string    `json:"target_source" db:"target_source"`
-	ConfidenceScore    float64   `json:"confidence_score" db:"confidence_score"`
-	ActionabilityScore float64   `json:"actionability_score" db:"actionability_score"`
-	NotifyTier         int       `json:"notify_tier" db:"notify_tier"`
-	SendEligibility    string    `json:"send_eligibility" db:"send_eligibility"`
-	ReasonSelected     string    `json:"reason_selected" db:"reason_selected"`
-	Rationale          string    `json:"rationale" db:"rationale"`
-	CreatedAt          time.Time `json:"created_at" db:"created_at"`
+	ID                  int64      `json:"id" db:"id"`
+	CaseID              string     `json:"case_id" db:"case_id"`
+	RoleType            string     `json:"role_type" db:"role_type"`
+	DecisionScope       string     `json:"decision_scope" db:"decision_scope"`
+	EndpointKey         string     `json:"endpoint_key" db:"endpoint_key"`
+	OrganizationKey     string     `json:"organization_key" db:"organization_key"`
+	Organization        string     `json:"organization" db:"organization"`
+	DisplayName         string     `json:"display_name" db:"display_name"`
+	Channel             string     `json:"channel" db:"channel"`
+	Email               string     `json:"email" db:"email"`
+	Phone               string     `json:"phone" db:"phone"`
+	Website             string     `json:"website" db:"website"`
+	ContactURL          string     `json:"contact_url" db:"contact_url"`
+	SocialPlatform      string     `json:"social_platform" db:"social_platform"`
+	SocialHandle        string     `json:"social_handle" db:"social_handle"`
+	SourceURL           string     `json:"source_url" db:"source_url"`
+	EvidenceText        string     `json:"evidence_text" db:"evidence_text"`
+	Verification        string     `json:"verification_level" db:"verification_level"`
+	AttributionClass    string     `json:"attribution_class" db:"attribution_class"`
+	TargetSource        string     `json:"target_source" db:"target_source"`
+	ConfidenceScore     float64    `json:"confidence_score" db:"confidence_score"`
+	SiteMatchScore      float64    `json:"site_match_score" db:"site_match_score"`
+	SourceQualityScore  float64    `json:"source_quality_score" db:"source_quality_score"`
+	RoleFitScore        float64    `json:"role_fit_score" db:"role_fit_score"`
+	ChannelQualityScore float64    `json:"channel_quality_score" db:"channel_quality_score"`
+	OutcomeMemoryScore  float64    `json:"outcome_memory_score" db:"outcome_memory_score"`
+	ActionabilityScore  float64    `json:"actionability_score" db:"actionability_score"`
+	NotifyTier          int        `json:"notify_tier" db:"notify_tier"`
+	SendEligibility     string     `json:"send_eligibility" db:"send_eligibility"`
+	ExecutionMode       string     `json:"execution_mode" db:"execution_mode"`
+	CooldownUntil       *time.Time `json:"cooldown_until,omitempty" db:"cooldown_until"`
+	ReasonSelected      string     `json:"reason_selected" db:"reason_selected"`
+	Rationale           string     `json:"rationale" db:"rationale"`
+	CreatedAt           time.Time  `json:"created_at" db:"created_at"`
 }
 
 type CaseContactObservation struct {
@@ -224,6 +233,87 @@ type CaseNotifyPlan struct {
 	CreatedAt   time.Time            `json:"created_at" db:"created_at"`
 	UpdatedAt   time.Time            `json:"updated_at" db:"updated_at"`
 	Items       []CaseNotifyPlanItem `json:"items"`
+}
+
+type SubjectRoutingProfile struct {
+	ID              int64     `json:"id" db:"id"`
+	SubjectKind     string    `json:"subject_kind" db:"subject_kind"`
+	SubjectRef      string    `json:"subject_ref" db:"subject_ref"`
+	Classification  string    `json:"classification" db:"classification"`
+	DefectClass     string    `json:"defect_class" db:"defect_class"`
+	DefectMode      string    `json:"defect_mode" db:"defect_mode"`
+	AssetClass      string    `json:"asset_class" db:"asset_class"`
+	JurisdictionKey string    `json:"jurisdiction_key" db:"jurisdiction_key"`
+	ExposureMode    string    `json:"exposure_mode" db:"exposure_mode"`
+	SeverityBand    string    `json:"severity_band" db:"severity_band"`
+	UrgencyBand     string    `json:"urgency_band" db:"urgency_band"`
+	ContextJSON     string    `json:"context_json" db:"context_json"`
+	RefreshedAt     time.Time `json:"refreshed_at" db:"refreshed_at"`
+}
+
+type NotifyExecutionTask struct {
+	ID             int64      `json:"id" db:"id"`
+	SubjectKind    string     `json:"subject_kind" db:"subject_kind"`
+	SubjectRef     string     `json:"subject_ref" db:"subject_ref"`
+	TargetID       *int64     `json:"target_id,omitempty" db:"target_id"`
+	WaveNumber     int        `json:"wave_number" db:"wave_number"`
+	RoleType       string     `json:"role_type" db:"role_type"`
+	ChannelType    string     `json:"channel_type" db:"channel_type"`
+	ExecutionMode  string     `json:"execution_mode" db:"execution_mode"`
+	TaskStatus     string     `json:"task_status" db:"task_status"`
+	Summary        string     `json:"summary" db:"summary"`
+	PayloadJSON    string     `json:"payload_json" db:"payload_json"`
+	AssignedUserID string     `json:"assigned_user_id" db:"assigned_user_id"`
+	DueAt          *time.Time `json:"due_at,omitempty" db:"due_at"`
+	CompletedAt    *time.Time `json:"completed_at,omitempty" db:"completed_at"`
+	CreatedAt      time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at" db:"updated_at"`
+}
+
+type NotifyOutcome struct {
+	ID           int64     `json:"id" db:"id"`
+	SubjectKind  string    `json:"subject_kind" db:"subject_kind"`
+	SubjectRef   string    `json:"subject_ref" db:"subject_ref"`
+	TargetID     *int64    `json:"target_id,omitempty" db:"target_id"`
+	EndpointKey  string    `json:"endpoint_key" db:"endpoint_key"`
+	OutcomeType  string    `json:"outcome_type" db:"outcome_type"`
+	SourceType   string    `json:"source_type" db:"source_type"`
+	SourceRef    string    `json:"source_ref" db:"source_ref"`
+	EvidenceJSON string    `json:"evidence_json" db:"evidence_json"`
+	RecordedAt   time.Time `json:"recorded_at" db:"recorded_at"`
+}
+
+type ContactEndpointMemory struct {
+	ID                     int64      `json:"id" db:"id"`
+	EndpointKey            string     `json:"endpoint_key" db:"endpoint_key"`
+	OrganizationKey        string     `json:"organization_key" db:"organization_key"`
+	ChannelType            string     `json:"channel_type" db:"channel_type"`
+	ChannelValue           string     `json:"channel_value" db:"channel_value"`
+	LastResult             string     `json:"last_result" db:"last_result"`
+	SuccessCount           int        `json:"success_count" db:"success_count"`
+	BounceCount            int        `json:"bounce_count" db:"bounce_count"`
+	AckCount               int        `json:"ack_count" db:"ack_count"`
+	FixCount               int        `json:"fix_count" db:"fix_count"`
+	MisrouteCount          int        `json:"misroute_count" db:"misroute_count"`
+	NoResponseCount        int        `json:"no_response_count" db:"no_response_count"`
+	LastContactedAt        *time.Time `json:"last_contacted_at,omitempty" db:"last_contacted_at"`
+	CooldownUntil          *time.Time `json:"cooldown_until,omitempty" db:"cooldown_until"`
+	PreferredForRoleType   string     `json:"preferred_for_role_type" db:"preferred_for_role_type"`
+	PreferredForAssetClass string     `json:"preferred_for_asset_class" db:"preferred_for_asset_class"`
+	UpdatedAt              time.Time  `json:"updated_at" db:"updated_at"`
+}
+
+type AuthorityDirectoryRule struct {
+	ID                  int64     `json:"id" db:"id"`
+	JurisdictionKey     string    `json:"jurisdiction_key" db:"jurisdiction_key"`
+	AssetClass          string    `json:"asset_class" db:"asset_class"`
+	DefectClass         string    `json:"defect_class" db:"defect_class"`
+	RoleType            string    `json:"role_type" db:"role_type"`
+	QueryTemplatesJSON  string    `json:"query_templates_json" db:"query_templates_json"`
+	OfficialDomainsJSON string    `json:"official_domains_json" db:"official_domains_json"`
+	Priority            int       `json:"priority" db:"priority"`
+	CreatedAt           time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at" db:"updated_at"`
 }
 
 type CaseEscalationAction struct {
@@ -282,6 +372,9 @@ type CaseDetail struct {
 	EscalationTargets   []CaseEscalationTarget   `json:"escalation_targets"`
 	ContactObservations []CaseContactObservation `json:"contact_observations"`
 	NotifyPlan          *CaseNotifyPlan          `json:"notify_plan,omitempty"`
+	RoutingProfile      *SubjectRoutingProfile   `json:"routing_profile,omitempty"`
+	ExecutionTasks      []NotifyExecutionTask    `json:"execution_tasks"`
+	NotifyOutcomes      []NotifyOutcome          `json:"notify_outcomes"`
 	EscalationActions   []CaseEscalationAction   `json:"escalation_actions"`
 	EmailDeliveries     []CaseEmailDelivery      `json:"email_deliveries"`
 	ResolutionSignals   []CaseResolutionSignal   `json:"resolution_signals"`

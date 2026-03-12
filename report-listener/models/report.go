@@ -70,6 +70,9 @@ type ReportWithAnalysis struct {
 	EscalationTargets    []CaseEscalationTarget   `json:"escalation_targets,omitempty"`
 	ContactObservations  []CaseContactObservation `json:"contact_observations,omitempty"`
 	NotifyPlan           *CaseNotifyPlan          `json:"notify_plan,omitempty"`
+	RoutingProfile       *SubjectRoutingProfile   `json:"routing_profile,omitempty"`
+	ExecutionTasks       []NotifyExecutionTask    `json:"execution_tasks,omitempty"`
+	NotifyOutcomes       []NotifyOutcome          `json:"notify_outcomes,omitempty"`
 	ContactStrategyStale bool                     `json:"contact_strategy_stale,omitempty"`
 }
 
@@ -79,6 +82,9 @@ type ReportContactStrategyResponse struct {
 	EscalationTargets    []CaseEscalationTarget   `json:"escalation_targets"`
 	ContactObservations  []CaseContactObservation `json:"contact_observations"`
 	NotifyPlan           *CaseNotifyPlan          `json:"notify_plan,omitempty"`
+	RoutingProfile       *SubjectRoutingProfile   `json:"routing_profile,omitempty"`
+	ExecutionTasks       []NotifyExecutionTask    `json:"execution_tasks,omitempty"`
+	NotifyOutcomes       []NotifyOutcome          `json:"notify_outcomes,omitempty"`
 	Refreshed            bool                     `json:"refreshed"`
 	ContactStrategyStale bool                     `json:"contact_strategy_stale,omitempty"`
 }

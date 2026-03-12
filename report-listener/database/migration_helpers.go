@@ -1205,3 +1205,162 @@ func ensureReportContactTargetTables(ctx context.Context, db *sql.DB) error {
 	}
 	return nil
 }
+
+func ensureUnifiedDefectRoutingTables(ctx context.Context, db *sql.DB) error {
+	stmts := []string{
+		`CREATE TABLE IF NOT EXISTS subject_routing_profiles (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			subject_kind VARCHAR(16) NOT NULL,
+			subject_ref VARCHAR(128) NOT NULL,
+			classification VARCHAR(32) NOT NULL DEFAULT 'physical',
+			defect_class VARCHAR(64) NOT NULL DEFAULT 'general_defect',
+			defect_mode VARCHAR(64) NOT NULL DEFAULT 'standard',
+			asset_class VARCHAR(64) NOT NULL DEFAULT 'general_site',
+			jurisdiction_key VARCHAR(128) NOT NULL DEFAULT '',
+			exposure_mode VARCHAR(64) NOT NULL DEFAULT 'localized',
+			severity_band VARCHAR(32) NOT NULL DEFAULT 'medium',
+			urgency_band VARCHAR(32) NOT NULL DEFAULT 'medium',
+			context_json JSON NULL,
+			refreshed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			PRIMARY KEY (id),
+			UNIQUE KEY uq_subject_routing_profile (subject_kind, subject_ref),
+			KEY idx_subject_routing_profile_lookup (subject_kind, classification, defect_class, asset_class)
+		) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
+		`CREATE TABLE IF NOT EXISTS contact_endpoint_memory (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			endpoint_key VARCHAR(255) NOT NULL,
+			organization_key VARCHAR(255) NOT NULL DEFAULT '',
+			channel_type VARCHAR(32) NOT NULL DEFAULT 'email',
+			channel_value VARCHAR(512) NOT NULL,
+			last_result VARCHAR(32) NOT NULL DEFAULT '',
+			success_count INT NOT NULL DEFAULT 0,
+			bounce_count INT NOT NULL DEFAULT 0,
+			ack_count INT NOT NULL DEFAULT 0,
+			fix_count INT NOT NULL DEFAULT 0,
+			misroute_count INT NOT NULL DEFAULT 0,
+			no_response_count INT NOT NULL DEFAULT 0,
+			last_contacted_at TIMESTAMP NULL,
+			cooldown_until TIMESTAMP NULL,
+			preferred_for_role_type VARCHAR(64) NOT NULL DEFAULT '',
+			preferred_for_asset_class VARCHAR(64) NOT NULL DEFAULT '',
+			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			PRIMARY KEY (id),
+			UNIQUE KEY uq_contact_endpoint_memory (endpoint_key),
+			KEY idx_contact_endpoint_memory_org (organization_key, channel_type),
+			KEY idx_contact_endpoint_memory_role (preferred_for_role_type, preferred_for_asset_class)
+		) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
+		`CREATE TABLE IF NOT EXISTS notify_execution_tasks (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			subject_kind VARCHAR(16) NOT NULL,
+			subject_ref VARCHAR(128) NOT NULL,
+			target_id BIGINT UNSIGNED NULL,
+			wave_number INT NOT NULL DEFAULT 1,
+			role_type VARCHAR(64) NOT NULL DEFAULT 'contact',
+			channel_type VARCHAR(32) NOT NULL DEFAULT 'email',
+			execution_mode VARCHAR(32) NOT NULL DEFAULT 'review',
+			task_status VARCHAR(32) NOT NULL DEFAULT 'pending',
+			summary VARCHAR(255) NOT NULL DEFAULT '',
+			payload_json JSON NULL,
+			assigned_user_id VARCHAR(255) NULL,
+			due_at TIMESTAMP NULL,
+			completed_at TIMESTAMP NULL,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			PRIMARY KEY (id),
+			KEY idx_notify_execution_tasks_subject (subject_kind, subject_ref, task_status, wave_number),
+			KEY idx_notify_execution_tasks_target (target_id)
+		) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
+		`CREATE TABLE IF NOT EXISTS notify_outcomes (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			subject_kind VARCHAR(16) NOT NULL,
+			subject_ref VARCHAR(128) NOT NULL,
+			target_id BIGINT UNSIGNED NULL,
+			endpoint_key VARCHAR(255) NOT NULL DEFAULT '',
+			outcome_type VARCHAR(32) NOT NULL,
+			source_type VARCHAR(32) NOT NULL DEFAULT '',
+			source_ref VARCHAR(255) NOT NULL DEFAULT '',
+			evidence_json JSON NULL,
+			recorded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (id),
+			KEY idx_notify_outcomes_subject (subject_kind, subject_ref, recorded_at),
+			KEY idx_notify_outcomes_endpoint (endpoint_key, outcome_type, recorded_at),
+			KEY idx_notify_outcomes_target (target_id)
+		) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
+		`CREATE TABLE IF NOT EXISTS authority_directory_rules (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			jurisdiction_key VARCHAR(128) NOT NULL DEFAULT '*',
+			asset_class VARCHAR(64) NOT NULL DEFAULT 'general_site',
+			defect_class VARCHAR(64) NOT NULL DEFAULT 'general_defect',
+			role_type VARCHAR(64) NOT NULL,
+			query_templates_json JSON NULL,
+			official_domains_json JSON NULL,
+			priority INT NOT NULL DEFAULT 100,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			PRIMARY KEY (id),
+			UNIQUE KEY uq_authority_directory_rule (jurisdiction_key, asset_class, defect_class, role_type),
+			KEY idx_authority_directory_rule_lookup (jurisdiction_key, asset_class, defect_class, priority)
+		) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
+	}
+	for _, stmt := range stmts {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("failed to ensure unified defect routing table: %w", err)
+		}
+	}
+
+	for _, table := range []string{"case_escalation_targets", "report_escalation_targets"} {
+		columns := []struct {
+			name string
+			sql  string
+		}{
+			{name: "endpoint_key", sql: fmt.Sprintf("ALTER TABLE %s ADD COLUMN endpoint_key VARCHAR(255) NOT NULL DEFAULT '' AFTER decision_scope", table)},
+			{name: "organization_key", sql: fmt.Sprintf("ALTER TABLE %s ADD COLUMN organization_key VARCHAR(255) NOT NULL DEFAULT '' AFTER endpoint_key", table)},
+			{name: "site_match_score", sql: fmt.Sprintf("ALTER TABLE %s ADD COLUMN site_match_score FLOAT NOT NULL DEFAULT 0 AFTER confidence_score", table)},
+			{name: "source_quality_score", sql: fmt.Sprintf("ALTER TABLE %s ADD COLUMN source_quality_score FLOAT NOT NULL DEFAULT 0 AFTER site_match_score", table)},
+			{name: "role_fit_score", sql: fmt.Sprintf("ALTER TABLE %s ADD COLUMN role_fit_score FLOAT NOT NULL DEFAULT 0 AFTER source_quality_score", table)},
+			{name: "channel_quality_score", sql: fmt.Sprintf("ALTER TABLE %s ADD COLUMN channel_quality_score FLOAT NOT NULL DEFAULT 0 AFTER role_fit_score", table)},
+			{name: "outcome_memory_score", sql: fmt.Sprintf("ALTER TABLE %s ADD COLUMN outcome_memory_score FLOAT NOT NULL DEFAULT 0 AFTER channel_quality_score", table)},
+			{name: "execution_mode", sql: fmt.Sprintf("ALTER TABLE %s ADD COLUMN execution_mode VARCHAR(32) NOT NULL DEFAULT 'review' AFTER send_eligibility", table)},
+			{name: "cooldown_until", sql: fmt.Sprintf("ALTER TABLE %s ADD COLUMN cooldown_until TIMESTAMP NULL AFTER execution_mode", table)},
+		}
+		for _, column := range columns {
+			exists, err := columnExists(ctx, db, table, column.name)
+			if err != nil {
+				return fmt.Errorf("failed to check %s.%s column: %w", table, column.name, err)
+			}
+			if exists {
+				continue
+			}
+			if _, err := db.ExecContext(ctx, column.sql); err != nil {
+				return fmt.Errorf("failed to add %s.%s column: %w", table, column.name, err)
+			}
+		}
+	}
+
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO authority_directory_rules (
+			jurisdiction_key, asset_class, defect_class, role_type, query_templates_json, official_domains_json, priority
+		) VALUES
+			('*', 'school', 'physical_structural', 'building_authority', JSON_ARRAY('building department', 'building safety', 'planning office'), JSON_ARRAY(), 10),
+			('*', 'school', 'physical_structural', 'public_safety', JSON_ARRAY('public safety', 'police', 'emergency management'), JSON_ARRAY(), 20),
+			('*', 'transit_station', 'physical_structural', 'transit_authority', JSON_ARRAY('station authority', 'transit authority', 'operations'), JSON_ARRAY(), 10),
+			('*', 'transit_station', 'physical_structural', 'transit_safety', JSON_ARRAY('rail safety', 'transit safety'), JSON_ARRAY(), 20),
+			('*', 'roadway', 'physical_safety', 'public_works', JSON_ARRAY('public works', 'roads maintenance', 'highway maintenance'), JSON_ARRAY(), 10),
+			('*', 'bridge', 'physical_structural', 'infrastructure_authority', JSON_ARRAY('bridge maintenance', 'infrastructure maintenance'), JSON_ARRAY(), 10),
+			('*', 'general_site', 'digital_product_bug', 'support', JSON_ARRAY('support', 'contact', 'help center'), JSON_ARRAY(), 10),
+			('*', 'general_site', 'digital_product_bug', 'engineering', JSON_ARRAY('engineering', 'product team', 'developer relations'), JSON_ARRAY(), 20),
+			('*', 'general_site', 'digital_security', 'security', JSON_ARRAY('security', 'security contact', 'responsible disclosure'), JSON_ARRAY(), 10),
+			('*', 'general_site', 'digital_security', 'trust_safety', JSON_ARRAY('trust and safety', 'abuse', 'platform integrity'), JSON_ARRAY(), 20),
+			('*', 'general_site', 'digital_accessibility', 'support', JSON_ARRAY('accessibility', 'support', 'help center'), JSON_ARRAY(), 10),
+			('*', 'general_site', 'digital_accessibility', 'product_owner', JSON_ARRAY('product', 'accessibility', 'engineering'), JSON_ARRAY(), 20)
+		ON DUPLICATE KEY UPDATE
+			query_templates_json = VALUES(query_templates_json),
+			official_domains_json = VALUES(official_domains_json),
+			priority = VALUES(priority),
+			updated_at = CURRENT_TIMESTAMP
+	`); err != nil {
+		return fmt.Errorf("failed to seed authority directory rules: %w", err)
+	}
+
+	return nil
+}

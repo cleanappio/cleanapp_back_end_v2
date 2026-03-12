@@ -111,13 +111,31 @@ func (h *Handlers) buildReportContactStrategy(ctx context.Context, reportWithAna
 		}
 	}
 
-	visibleTargets := filterVisibleCaseTargets(routeReportEscalationTargets(reportWithAnalysis, storedTargets))
+	profile := buildReportRoutingProfile(reportWithAnalysis)
+	visibleTargets := filterVisibleCaseTargets(h.routeTargetsForSubject(ctx, profile, storedTargets))
 	observations := buildReportContactObservations(reportWithAnalysis.Report.Seq, visibleTargets)
 	notifyPlan := buildReportNotifyPlan(reportWithAnalysis, visibleTargets, observations)
+	subjectRef := reportSubjectRef(reportWithAnalysis)
+
+	storedProfile, err := h.db.UpsertSubjectRoutingProfile(ctx, subjectRoutingProfileModel("report", subjectRef, profile))
+	if err != nil {
+		return nil, err
+	}
+	executionTasks, err := h.db.ReplaceNotifyExecutionTasks(ctx, "report", subjectRef, buildNotifyExecutionTasks("report", subjectRef, visibleTargets, notifyPlan))
+	if err != nil {
+		return nil, err
+	}
+	notifyOutcomes, err := h.db.ListNotifyOutcomes(ctx, "report", subjectRef)
+	if err != nil {
+		return nil, err
+	}
 
 	reportWithAnalysis.EscalationTargets = visibleTargets
 	reportWithAnalysis.ContactObservations = observations
 	reportWithAnalysis.NotifyPlan = notifyPlan
+	reportWithAnalysis.RoutingProfile = storedProfile
+	reportWithAnalysis.ExecutionTasks = executionTasks
+	reportWithAnalysis.NotifyOutcomes = notifyOutcomes
 	reportWithAnalysis.ContactStrategyStale = stale
 
 	return &models.ReportContactStrategyResponse{
@@ -126,6 +144,9 @@ func (h *Handlers) buildReportContactStrategy(ctx context.Context, reportWithAna
 		EscalationTargets:    visibleTargets,
 		ContactObservations:  observations,
 		NotifyPlan:           notifyPlan,
+		RoutingProfile:       storedProfile,
+		ExecutionTasks:       executionTasks,
+		NotifyOutcomes:       notifyOutcomes,
 		Refreshed:            refreshed,
 		ContactStrategyStale: stale,
 	}, nil
@@ -147,15 +168,15 @@ func (h *Handlers) refreshReportEscalationTargets(ctx context.Context, reportWit
 	if h.contactDiscoverer != nil {
 		enrichCtx, cancel := context.WithTimeout(ctx, caseTargetRefreshTimeout)
 		defer cancel()
-		targets = h.contactDiscoverer.EnrichTargets(enrichCtx, []models.ReportWithAnalysis{*reportWithAnalysis}, targets, 12)
+		targets = h.contactDiscoverer.EnrichTargets(enrichCtx, []models.ReportWithAnalysis{*reportWithAnalysis}, targets, 12, h.loadAuthorityDirectoryRules(enrichCtx, []models.ReportWithAnalysis{*reportWithAnalysis}))
 	}
-	targets = routeReportEscalationTargets(reportWithAnalysis, targets)
+	targets = h.routeTargetsForSubject(ctx, buildReportRoutingProfile(reportWithAnalysis), targets)
 
 	storedTargets, err := h.db.ReplaceReportEscalationTargets(ctx, reportWithAnalysis.Report.Seq, targets)
 	if err != nil {
 		return filterVisibleCaseTargets(targets), err
 	}
-	return storedTargets, nil
+	return h.routeTargetsForSubject(ctx, buildReportRoutingProfile(reportWithAnalysis), storedTargets), nil
 }
 
 func (h *Handlers) seedReportEscalationTargets(ctx context.Context, reportWithAnalysis *models.ReportWithAnalysis, limit int) ([]models.CaseEscalationTarget, error) {

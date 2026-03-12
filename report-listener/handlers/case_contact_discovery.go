@@ -150,6 +150,11 @@ type caseWebSearchResult struct {
 }
 
 type caseHazardProfile struct {
+	Classification     string
+	DefectClass        string
+	AssetClass         string
+	Digital            bool
+	SecuritySensitive  bool
 	Structural         bool
 	Severe             bool
 	Urgent             bool
@@ -242,10 +247,20 @@ func (h *Handlers) suggestEscalationTargets(ctx context.Context, geometryJSON st
 	if h.contactDiscoverer == nil {
 		return storedTargets, nil
 	}
-	return h.contactDiscoverer.EnrichTargets(ctx, reports, storedTargets, limit), nil
+	return h.contactDiscoverer.EnrichTargets(ctx, reports, storedTargets, limit, h.loadAuthorityDirectoryRules(ctx, reports)), nil
 }
 
-func (d *caseContactDiscoverer) EnrichTargets(ctx context.Context, reports []models.ReportWithAnalysis, existing []models.CaseEscalationTarget, limit int) []models.CaseEscalationTarget {
+func (h *Handlers) loadAuthorityDirectoryRules(ctx context.Context, reports []models.ReportWithAnalysis) []models.AuthorityDirectoryRule {
+	profile := analyzeCaseHazardProfile(reports)
+	rules, err := h.db.ListAuthorityDirectoryRules(ctx, emptyStringDefault(profile.DefectClass, "general_defect"), emptyStringDefault(profile.AssetClass, "general_site"))
+	if err != nil {
+		log.Printf("warn: authority rule lookup failed: %v", err)
+		return nil
+	}
+	return rules
+}
+
+func (d *caseContactDiscoverer) EnrichTargets(ctx context.Context, reports []models.ReportWithAnalysis, existing []models.CaseEscalationTarget, limit int, rules []models.AuthorityDirectoryRule) []models.CaseEscalationTarget {
 	merger := newCaseTargetMerger(limit)
 	inferredFallback := make([]models.CaseEscalationTarget, 0, len(existing))
 	existingWebsiteSeeds := collectExistingWebsiteSeeds(existing)
@@ -300,12 +315,15 @@ func (d *caseContactDiscoverer) EnrichTargets(ctx context.Context, reports []mod
 			d.addLocationContextTargets(ctx, locCtx, merger, visitedWebsites)
 		}
 		assetClass := inferAssetClass("", candidateNames, locCtx)
+		if assetClass == "general_site" && hazardProfile.AssetClass != "" {
+			assetClass = hazardProfile.AssetClass
+		}
 		if hazardProfile.Structural &&
 			(hazardProfile.Severe || hazardProfile.ImmediateDanger || hazardProfile.SensitiveOccupancy) &&
 			(d.webSearchBaseURL != "" || (d.googleSearchAPIKey != "" && d.googleSearchCX != "")) &&
 			hasRemainingContactDiscoveryBudget(ctx, 4*time.Second) &&
 			shouldRunStakeholderWebSearch(merger.Targets(), hazardProfile, assetClass) {
-			queries := buildCaseStakeholderSearchQueries(candidateNames, locCtx, hazardProfile)
+			queries := buildCaseStakeholderSearchQueries(candidateNames, locCtx, hazardProfile, assetClass, rules)
 			d.addWebSearchStakeholderTargets(ctx, queries, merger, visitedWebsites, searchedQueries)
 		}
 		if !hydratedExistingWebsites {
@@ -369,7 +387,7 @@ func (d *caseContactDiscoverer) EnrichTargets(ctx context.Context, reports []mod
 		if (d.webSearchBaseURL != "" || (d.googleSearchAPIKey != "" && d.googleSearchCX != "")) &&
 			hasRemainingContactDiscoveryBudget(ctx, 2*time.Second) &&
 			shouldRunStakeholderWebSearch(merger.Targets(), hazardProfile, assetClass) {
-			queries := buildCaseStakeholderSearchQueries(candidateNames, locCtx, hazardProfile)
+			queries := buildCaseStakeholderSearchQueries(candidateNames, locCtx, hazardProfile, assetClass, rules)
 			d.addWebSearchStakeholderTargets(ctx, queries, merger, visitedWebsites, searchedQueries)
 		}
 		if !hasRemainingContactDiscoveryBudget(ctx, time.Second) {
@@ -549,22 +567,50 @@ func analyzeCaseHazardProfile(reports []models.ReportWithAnalysis) caseHazardPro
 		"mall", "daycare", "care home", "stadium",
 	}
 
-	profile := caseHazardProfile{}
+	profile := caseHazardProfile{
+		Classification: "physical",
+		DefectClass:    "physical_safety",
+		AssetClass:     "general_site",
+	}
+	maxSeverity := 0.0
+	assetVotes := map[string]int{}
+	defectVotes := map[string]int{}
+	classificationVotes := map[string]int{}
 	for _, report := range reports {
-		if preferredClassification(&report) != "physical" {
-			continue
-		}
 		analysis := preferredAnalysis(&report)
 		if analysis == nil {
 			continue
+		}
+		classification := preferredClassification(&report)
+		if classification == "" {
+			classification = "physical"
 		}
 		text := strings.ToLower(strings.Join([]string{
 			analysis.Title,
 			analysis.Summary,
 			analysis.Description,
+			analysis.AnalysisText,
 			analysis.BrandDisplayName,
 			analysis.BrandName,
 		}, " "))
+		classificationVotes[classification]++
+		defectClass := inferDefectClass(classification, text)
+		defectVotes[defectClass]++
+		assetClass := inferAssetClass(analysis.BrandDisplayName, []string{analysis.BrandName}, nil, text)
+		assetVotes[assetClass]++
+		if analysis.SeverityLevel > maxSeverity {
+			maxSeverity = analysis.SeverityLevel
+		}
+		if classification == "digital" {
+			profile.Digital = true
+			if strings.HasPrefix(defectClass, "digital_") {
+				profile.DefectClass = defectClass
+			}
+		}
+		if defectClass == "digital_security" {
+			profile.SecuritySensitive = true
+			profile.Urgent = true
+		}
 
 		structuralHits := 0
 		for _, keyword := range structuralKeywords {
@@ -587,6 +633,18 @@ func analyzeCaseHazardProfile(reports []models.ReportWithAnalysis) caseHazardPro
 		if containsAny(text, sensitiveOccupancyKeywords) {
 			profile.SensitiveOccupancy = true
 		}
+	}
+	if winner := mostVotedKey(classificationVotes); winner != "" {
+		profile.Classification = winner
+	}
+	if winner := mostVotedKey(defectVotes); winner != "" {
+		profile.DefectClass = winner
+	}
+	if winner := mostVotedKey(assetVotes); winner != "" {
+		profile.AssetClass = winner
+	}
+	if maxSeverity >= 0.9 {
+		profile.Severe = true
 	}
 	return profile
 }
@@ -621,6 +679,18 @@ func shouldRunStakeholderWebSearch(targets []models.CaseEscalationTarget, hazard
 	directCount := countActionableDirectCaseTargets(targets)
 	if directCount == 0 {
 		return true
+	}
+	if strings.HasPrefix(hazard.DefectClass, "digital_") {
+		requiredRoles := []string{"support", "engineering"}
+		if hazard.DefectClass == "digital_security" {
+			requiredRoles = append(requiredRoles, "security", "trust_safety")
+		} else if hazard.DefectClass == "digital_accessibility" {
+			requiredRoles = append(requiredRoles, "product_owner")
+		}
+		if !hasCaseRoleTarget(targets, requiredRoles...) {
+			return true
+		}
+		return directCount < 3
 	}
 	if hazard.Structural && (hazard.Severe || hazard.ImmediateDanger) {
 		switch assetClass {
@@ -669,7 +739,7 @@ func hasCaseRoleTarget(targets []models.CaseEscalationTarget, roles ...string) b
 	return false
 }
 
-func buildCaseStakeholderSearchQueries(candidateNames []string, locCtx *caseLocationContext, hazard caseHazardProfile) []caseStakeholderSearchQuery {
+func buildCaseStakeholderSearchQueries(candidateNames []string, locCtx *caseLocationContext, hazard caseHazardProfile, assetClass string, rules []models.AuthorityDirectoryRule) []caseStakeholderSearchQuery {
 	primaryName := ""
 	if locCtx != nil {
 		primaryName = firstNonEmpty(locCtx.PrimaryName, locCtx.ParentOrg, locCtx.Operator)
@@ -688,7 +758,9 @@ func buildCaseStakeholderSearchQueries(candidateNames []string, locCtx *caseLoca
 		locality = firstNonEmpty(locCtx.City, locCtx.State, locCtx.Country)
 		region = webSearchRegionForLocation(locCtx)
 	}
-	assetClass := inferAssetClass(primaryName, candidateNames, locCtx)
+	if assetClass == "" {
+		assetClass = inferAssetClass(primaryName, candidateNames, locCtx)
+	}
 	jurisdictionHint := deriveJurisdictionHint(locCtx)
 	officialHostHints := deriveOfficialHostHints(locCtx)
 	siteKeywords := deriveSearchSiteKeywords(primaryName, candidateNames, locCtx)
@@ -727,6 +799,19 @@ func buildCaseStakeholderSearchQueries(candidateNames []string, locCtx *caseLoca
 		),
 	}
 
+	if strings.HasPrefix(hazard.DefectClass, "digital_") {
+		digitalQueries := append([]caseStakeholderSearchQuery{}, queries...)
+		digitalQueries = append(digitalQueries, buildRuleBasedStakeholderQueries(
+			rules,
+			newQuery,
+			baseQuery,
+			locality,
+			primaryName,
+			assetClass,
+		)...)
+		return dedupeStakeholderQueries(digitalQueries)
+	}
+
 	if hazard.Structural {
 		criticalStructuralSearch := hazard.Severe || hazard.ImmediateDanger || hazard.SensitiveOccupancy
 		facilityTerm := "facility management"
@@ -748,7 +833,15 @@ func buildCaseStakeholderSearchQueries(candidateNames []string, locCtx *caseLoca
 	}
 
 	if !hazard.Structural {
-		return queries
+		queries = append(queries, buildRuleBasedStakeholderQueries(
+			rules,
+			newQuery,
+			baseQuery,
+			locality,
+			primaryName,
+			assetClass,
+		)...)
+		return dedupeStakeholderQueries(queries)
 	}
 
 	architectTerm := "architect"
@@ -822,7 +915,15 @@ func buildCaseStakeholderSearchQueries(candidateNames []string, locCtx *caseLoca
 		)
 	}
 
-	return queries
+	queries = append(queries, buildRuleBasedStakeholderQueries(
+		rules,
+		newQuery,
+		baseQuery,
+		locality,
+		primaryName,
+		assetClass,
+	)...)
+	return dedupeStakeholderQueries(queries)
 }
 
 func bestStakeholderNameCandidate(candidateNames []string) string {
@@ -834,6 +935,111 @@ func bestStakeholderNameCandidate(candidateNames []string) string {
 		return candidate
 	}
 	return firstNonEmpty(candidateNames...)
+}
+
+func mostVotedKey(votes map[string]int) string {
+	bestKey := ""
+	bestCount := 0
+	for key, count := range votes {
+		if key == "" {
+			continue
+		}
+		if count > bestCount {
+			bestKey = key
+			bestCount = count
+		}
+	}
+	return bestKey
+}
+
+func buildRuleBasedStakeholderQueries(
+	rules []models.AuthorityDirectoryRule,
+	newQuery func(roleType, queryText string, baseConfidence float64, rationale, relationshipTag, organization string, requireOfficial bool) caseStakeholderSearchQuery,
+	baseQuery string,
+	locality string,
+	primaryName string,
+	assetClass string,
+) []caseStakeholderSearchQuery {
+	if len(rules) == 0 {
+		return nil
+	}
+	localityBase := ""
+	if strings.TrimSpace(locality) != "" {
+		localityBase = quotedSearchPhrase(locality)
+	}
+	queries := make([]caseStakeholderSearchQuery, 0, len(rules))
+	for _, rule := range rules {
+		templates := decodeJSONStringArray(rule.QueryTemplatesJSON)
+		if len(templates) == 0 {
+			continue
+		}
+		roleType := strings.TrimSpace(rule.RoleType)
+		if roleType == "" {
+			continue
+		}
+		requireOfficial := queryNeedsAuthorityHost(roleType)
+		if len(decodeJSONStringArray(rule.OfficialDomainsJSON)) > 0 {
+			requireOfficial = true
+		}
+		baseConfidence := math.Max(0.55, 0.9-float64(rule.Priority)*0.005)
+		for _, template := range templates {
+			template = strings.TrimSpace(template)
+			if template == "" {
+				continue
+			}
+			queryText := strings.TrimSpace(baseQuery + " " + template)
+			if requireOfficial && localityBase != "" {
+				queryText = strings.TrimSpace(localityBase + " " + template)
+			}
+			queries = append(queries, newQuery(
+				roleType,
+				queryText,
+				baseConfidence,
+				fmt.Sprintf("Directory-rule search for %s stakeholders relevant to this %s defect.", roleType, assetClass),
+				roleType,
+				firstNonEmpty(primaryName, locality),
+				requireOfficial,
+			))
+		}
+	}
+	return queries
+}
+
+func decodeJSONStringArray(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var items []string
+	if err := json.Unmarshal([]byte(raw), &items); err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func dedupeStakeholderQueries(queries []caseStakeholderSearchQuery) []caseStakeholderSearchQuery {
+	seen := make(map[string]struct{}, len(queries))
+	out := make([]caseStakeholderSearchQuery, 0, len(queries))
+	for _, query := range queries {
+		key := strings.ToLower(strings.TrimSpace(query.RoleType + "|" + query.Query))
+		if key == "" {
+			continue
+		}
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, query)
+	}
+	return out
 }
 
 func isLikelyIncidentDescriptorName(candidate string) bool {

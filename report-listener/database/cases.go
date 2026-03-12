@@ -366,6 +366,15 @@ func (d *Database) GetCaseDetail(ctx context.Context, caseID string) (*models.Ca
 	if detail.NotifyPlan, err = d.getActiveCaseNotifyPlan(ctx, caseID); err != nil {
 		return nil, err
 	}
+	if detail.RoutingProfile, err = d.GetSubjectRoutingProfile(ctx, "case", caseID); err != nil {
+		return nil, err
+	}
+	if detail.ExecutionTasks, err = d.ListNotifyExecutionTasks(ctx, "case", caseID); err != nil {
+		return nil, err
+	}
+	if detail.NotifyOutcomes, err = d.ListNotifyOutcomes(ctx, "case", caseID); err != nil {
+		return nil, err
+	}
 	if detail.EscalationActions, err = d.listCaseEscalationActions(ctx, caseID); err != nil {
 		return nil, err
 	}
@@ -416,6 +425,8 @@ func (d *Database) UpsertCaseEscalationTargets(ctx context.Context, caseID strin
 					SET
 						role_type = ?,
 						decision_scope = ?,
+						endpoint_key = ?,
+						organization_key = ?,
 						organization = ?,
 						display_name = ?,
 						channel = ?,
@@ -431,15 +442,24 @@ func (d *Database) UpsertCaseEscalationTargets(ctx context.Context, caseID strin
 						attribution_class = ?,
 						target_source = ?,
 						confidence_score = ?,
+						site_match_score = ?,
+						source_quality_score = ?,
+						role_fit_score = ?,
+						channel_quality_score = ?,
+						outcome_memory_score = ?,
 						actionability_score = ?,
 						notify_tier = ?,
 						send_eligibility = ?,
+						execution_mode = ?,
+						cooldown_until = ?,
 						rationale = ?,
 						reason_selected = ?
 					WHERE id = ?
-				`,
+					`,
 					emptyOrDefault(target.RoleType, "contact"),
 					emptyOrDefault(target.DecisionScope, "other"),
+					emptyOrDefault(target.EndpointKey, ""),
+					emptyOrDefault(target.OrganizationKey, ""),
 					emptyOrNil(target.Organization),
 					emptyOrNil(target.DisplayName),
 					emptyOrDefault(caseEscalationTargetChannel(target), "email"),
@@ -455,9 +475,16 @@ func (d *Database) UpsertCaseEscalationTargets(ctx context.Context, caseID strin
 					emptyOrDefault(target.AttributionClass, "heuristic"),
 					emptyOrDefault(target.TargetSource, "suggested"),
 					target.ConfidenceScore,
+					target.SiteMatchScore,
+					target.SourceQualityScore,
+					target.RoleFitScore,
+					target.ChannelQualityScore,
+					target.OutcomeMemoryScore,
 					target.ActionabilityScore,
 					target.NotifyTier,
 					emptyOrDefault(target.SendEligibility, "review"),
+					emptyOrDefault(target.ExecutionMode, "review"),
+					target.CooldownUntil,
 					emptyOrNil(target.Rationale),
 					emptyOrNil(target.ReasonSelected),
 					existingID,
@@ -471,17 +498,19 @@ func (d *Database) UpsertCaseEscalationTargets(ctx context.Context, caseID strin
 		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO case_escalation_targets (
-				case_id, role_type, decision_scope, organization, display_name, channel, email, phone,
-				website, contact_url, social_platform, social_handle, source_url, evidence_text, verification_level,
-				attribution_class, target_source, confidence_score, actionability_score, notify_tier, send_eligibility, rationale, reason_selected
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		`, caseID, emptyOrDefault(target.RoleType, "contact"), emptyOrDefault(target.DecisionScope, "other"), emptyOrNil(target.Organization),
+					case_id, role_type, decision_scope, endpoint_key, organization_key, organization, display_name, channel, email, phone,
+					website, contact_url, social_platform, social_handle, source_url, evidence_text, verification_level,
+					attribution_class, target_source, confidence_score, site_match_score, source_quality_score, role_fit_score, channel_quality_score, outcome_memory_score,
+					actionability_score, notify_tier, send_eligibility, execution_mode, cooldown_until, rationale, reason_selected
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			`, caseID, emptyOrDefault(target.RoleType, "contact"), emptyOrDefault(target.DecisionScope, "other"), emptyOrDefault(target.EndpointKey, ""), emptyOrDefault(target.OrganizationKey, ""), emptyOrNil(target.Organization),
 			emptyOrNil(target.DisplayName), emptyOrDefault(caseEscalationTargetChannel(target), "email"),
 			emptyOrNil(target.Email), emptyOrNil(target.Phone), emptyOrNil(target.Website),
 			emptyOrNil(target.ContactURL), emptyOrNil(target.SocialPlatform), emptyOrNil(target.SocialHandle),
 			emptyOrNil(target.SourceURL), emptyOrNil(target.EvidenceText), emptyOrNil(target.Verification),
 			emptyOrDefault(target.AttributionClass, "heuristic"), emptyOrDefault(target.TargetSource, "suggested"), target.ConfidenceScore,
-			target.ActionabilityScore, target.NotifyTier, emptyOrDefault(target.SendEligibility, "review"), emptyOrNil(target.Rationale),
+			target.SiteMatchScore, target.SourceQualityScore, target.RoleFitScore, target.ChannelQualityScore, target.OutcomeMemoryScore,
+			target.ActionabilityScore, target.NotifyTier, emptyOrDefault(target.SendEligibility, "review"), emptyOrDefault(target.ExecutionMode, "review"), target.CooldownUntil, emptyOrNil(target.Rationale),
 			emptyOrNil(target.ReasonSelected)); err != nil {
 			return nil, fmt.Errorf("insert case escalation target: %w", err)
 		}
@@ -730,13 +759,14 @@ func (d *Database) listCaseClusters(ctx context.Context, caseID string) ([]model
 
 func (d *Database) listCaseEscalationTargets(ctx context.Context, caseID string) ([]models.CaseEscalationTarget, error) {
 	rows, err := d.db.QueryContext(ctx, `
-		SELECT id, case_id, role_type, COALESCE(decision_scope, ''), COALESCE(organization, ''), COALESCE(display_name, ''),
-			COALESCE(channel, ''), COALESCE(email, ''), COALESCE(phone, ''), COALESCE(website, ''),
-			COALESCE(contact_url, ''), COALESCE(social_platform, ''), COALESCE(social_handle, ''),
-			COALESCE(source_url, ''), COALESCE(evidence_text, ''), COALESCE(verification_level, ''),
-			COALESCE(attribution_class, ''), target_source, confidence_score, actionability_score, notify_tier,
-			COALESCE(send_eligibility, ''), COALESCE(rationale, ''), COALESCE(reason_selected, ''), created_at
-		FROM case_escalation_targets
+			SELECT id, case_id, role_type, COALESCE(decision_scope, ''), COALESCE(endpoint_key, ''), COALESCE(organization_key, ''), COALESCE(organization, ''), COALESCE(display_name, ''),
+				COALESCE(channel, ''), COALESCE(email, ''), COALESCE(phone, ''), COALESCE(website, ''),
+				COALESCE(contact_url, ''), COALESCE(social_platform, ''), COALESCE(social_handle, ''),
+				COALESCE(source_url, ''), COALESCE(evidence_text, ''), COALESCE(verification_level, ''),
+				COALESCE(attribution_class, ''), target_source, confidence_score, site_match_score, source_quality_score, role_fit_score, channel_quality_score,
+				outcome_memory_score, actionability_score, notify_tier,
+				COALESCE(send_eligibility, ''), COALESCE(execution_mode, ''), cooldown_until, COALESCE(rationale, ''), COALESCE(reason_selected, ''), created_at
+			FROM case_escalation_targets
 		WHERE case_id = ?
 		ORDER BY notify_tier ASC, actionability_score DESC, confidence_score DESC, created_at ASC
 	`, caseID)
@@ -748,14 +778,19 @@ func (d *Database) listCaseEscalationTargets(ctx context.Context, caseID string)
 	var items []models.CaseEscalationTarget
 	for rows.Next() {
 		var item models.CaseEscalationTarget
+		var cooldownUntil sql.NullTime
 		if err := rows.Scan(
-			&item.ID, &item.CaseID, &item.RoleType, &item.DecisionScope, &item.Organization, &item.DisplayName,
+			&item.ID, &item.CaseID, &item.RoleType, &item.DecisionScope, &item.EndpointKey, &item.OrganizationKey, &item.Organization, &item.DisplayName,
 			&item.Channel, &item.Email, &item.Phone, &item.Website, &item.ContactURL,
 			&item.SocialPlatform, &item.SocialHandle, &item.SourceURL, &item.EvidenceText,
-			&item.Verification, &item.AttributionClass, &item.TargetSource, &item.ConfidenceScore, &item.ActionabilityScore,
-			&item.NotifyTier, &item.SendEligibility, &item.Rationale, &item.ReasonSelected, &item.CreatedAt,
+			&item.Verification, &item.AttributionClass, &item.TargetSource, &item.ConfidenceScore, &item.SiteMatchScore, &item.SourceQualityScore, &item.RoleFitScore,
+			&item.ChannelQualityScore, &item.OutcomeMemoryScore, &item.ActionabilityScore,
+			&item.NotifyTier, &item.SendEligibility, &item.ExecutionMode, &cooldownUntil, &item.Rationale, &item.ReasonSelected, &item.CreatedAt,
 		); err != nil {
 			return nil, err
+		}
+		if cooldownUntil.Valid {
+			item.CooldownUntil = &cooldownUntil.Time
 		}
 		items = append(items, item)
 	}

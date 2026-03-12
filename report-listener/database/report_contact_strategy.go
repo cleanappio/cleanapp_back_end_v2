@@ -13,12 +13,13 @@ import (
 func (d *Database) ListReportEscalationTargets(ctx context.Context, reportSeq int) ([]models.CaseEscalationTarget, error) {
 	rows, err := d.db.QueryContext(ctx, `
 		SELECT
-			id, report_seq, role_type, COALESCE(decision_scope, ''), COALESCE(organization, ''), COALESCE(display_name, ''),
+			id, report_seq, role_type, COALESCE(decision_scope, ''), COALESCE(endpoint_key, ''), COALESCE(organization_key, ''), COALESCE(organization, ''), COALESCE(display_name, ''),
 			COALESCE(channel, ''), COALESCE(email, ''), COALESCE(phone, ''), COALESCE(website, ''),
 			COALESCE(contact_url, ''), COALESCE(social_platform, ''), COALESCE(social_handle, ''),
 			COALESCE(source_url, ''), COALESCE(evidence_text, ''), COALESCE(verification_level, ''),
-			COALESCE(attribution_class, ''), COALESCE(target_source, ''), confidence_score, actionability_score,
-			notify_tier, COALESCE(send_eligibility, ''), COALESCE(rationale, ''), COALESCE(reason_selected, ''),
+			COALESCE(attribution_class, ''), COALESCE(target_source, ''), confidence_score, site_match_score, source_quality_score, role_fit_score, channel_quality_score,
+			outcome_memory_score, actionability_score,
+			notify_tier, COALESCE(send_eligibility, ''), COALESCE(execution_mode, ''), cooldown_until, COALESCE(rationale, ''), COALESCE(reason_selected, ''),
 			created_at
 		FROM report_escalation_targets
 		WHERE report_seq = ?
@@ -32,14 +33,17 @@ func (d *Database) ListReportEscalationTargets(ctx context.Context, reportSeq in
 	items := make([]models.CaseEscalationTarget, 0)
 	for rows.Next() {
 		var (
-			item      models.CaseEscalationTarget
-			storedSeq int
+			item          models.CaseEscalationTarget
+			storedSeq     int
+			cooldownUntil sql.NullTime
 		)
 		if err := rows.Scan(
 			&item.ID,
 			&storedSeq,
 			&item.RoleType,
 			&item.DecisionScope,
+			&item.EndpointKey,
+			&item.OrganizationKey,
 			&item.Organization,
 			&item.DisplayName,
 			&item.Channel,
@@ -55,9 +59,16 @@ func (d *Database) ListReportEscalationTargets(ctx context.Context, reportSeq in
 			&item.AttributionClass,
 			&item.TargetSource,
 			&item.ConfidenceScore,
+			&item.SiteMatchScore,
+			&item.SourceQualityScore,
+			&item.RoleFitScore,
+			&item.ChannelQualityScore,
+			&item.OutcomeMemoryScore,
 			&item.ActionabilityScore,
 			&item.NotifyTier,
 			&item.SendEligibility,
+			&item.ExecutionMode,
+			&cooldownUntil,
 			&item.Rationale,
 			&item.ReasonSelected,
 			&item.CreatedAt,
@@ -65,6 +76,9 @@ func (d *Database) ListReportEscalationTargets(ctx context.Context, reportSeq in
 			return nil, err
 		}
 		_ = storedSeq
+		if cooldownUntil.Valid {
+			item.CooldownUntil = &cooldownUntil.Time
+		}
 		items = append(items, item)
 	}
 	return items, rows.Err()
@@ -101,16 +115,19 @@ func (d *Database) ReplaceReportEscalationTargets(ctx context.Context, reportSeq
 			seen[key] = struct{}{}
 		}
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO report_escalation_targets (
-				report_seq, role_type, decision_scope, organization, display_name,
-				channel, email, phone, website, contact_url, social_platform, social_handle,
-				source_url, evidence_text, verification_level, attribution_class, target_source,
-				confidence_score, actionability_score, notify_tier, send_eligibility, rationale, reason_selected
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		`,
+				INSERT INTO report_escalation_targets (
+					report_seq, role_type, decision_scope, endpoint_key, organization_key, organization, display_name,
+					channel, email, phone, website, contact_url, social_platform, social_handle,
+					source_url, evidence_text, verification_level, attribution_class, target_source,
+					confidence_score, site_match_score, source_quality_score, role_fit_score, channel_quality_score, outcome_memory_score,
+					actionability_score, notify_tier, send_eligibility, execution_mode, cooldown_until, rationale, reason_selected
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			`,
 			reportSeq,
 			emptyOrDefault(target.RoleType, "contact"),
 			emptyOrDefault(target.DecisionScope, "other"),
+			emptyOrDefault(target.EndpointKey, ""),
+			emptyOrDefault(target.OrganizationKey, ""),
 			emptyOrNil(target.Organization),
 			emptyOrNil(target.DisplayName),
 			emptyOrDefault(target.Channel, caseEscalationTargetFallbackChannelForDB(target)),
@@ -126,9 +143,16 @@ func (d *Database) ReplaceReportEscalationTargets(ctx context.Context, reportSeq
 			emptyOrDefault(target.AttributionClass, "heuristic"),
 			emptyOrDefault(target.TargetSource, "suggested"),
 			target.ConfidenceScore,
+			target.SiteMatchScore,
+			target.SourceQualityScore,
+			target.RoleFitScore,
+			target.ChannelQualityScore,
+			target.OutcomeMemoryScore,
 			target.ActionabilityScore,
 			target.NotifyTier,
 			emptyOrDefault(target.SendEligibility, "review"),
+			emptyOrDefault(target.ExecutionMode, "review"),
+			target.CooldownUntil,
 			emptyOrNil(target.Rationale),
 			emptyOrNil(target.ReasonSelected),
 		); err != nil {

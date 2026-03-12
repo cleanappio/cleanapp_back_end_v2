@@ -215,7 +215,7 @@ func TestEnrichTargetsDropsInferredFallbackWhenActualTargetsExist(t *testing.T) 
 			TargetSource:    "inferred_contact",
 			ConfidenceScore: 0.6,
 		},
-	}, 8)
+	}, 8, nil)
 
 	if len(targets) != 1 {
 		t.Fatalf("expected inferred fallback to be dropped, got %#v", targets)
@@ -295,6 +295,8 @@ func TestBuildCaseStakeholderSearchQueriesPrefersLocationContextName(t *testing.
 			CountryCode: "ch",
 		},
 		caseHazardProfile{Structural: true, Severe: true},
+		"school",
+		nil,
 	)
 	if len(queries) == 0 {
 		t.Fatalf("expected search queries")
@@ -352,6 +354,8 @@ func TestBuildCaseStakeholderSearchQueriesAddsAuthorityForSevereStructuralHazard
 			ImmediateDanger:    true,
 			SensitiveOccupancy: true,
 		},
+		"school",
+		nil,
 	)
 
 	roleSet := make(map[string]struct{}, len(queries))
@@ -381,6 +385,8 @@ func TestBuildCaseStakeholderSearchQueriesPrioritizesAuthorities(t *testing.T) {
 			ImmediateDanger:    true,
 			SensitiveOccupancy: true,
 		},
+		"transit_station",
+		nil,
 	)
 	if len(queries) < 5 {
 		t.Fatalf("expected multiple stakeholder queries, got %#v", queries)
@@ -416,6 +422,8 @@ func TestBuildCaseStakeholderSearchQueriesRoadwayHazardTargetsInfrastructureOper
 			Severe:          true,
 			ImmediateDanger: true,
 		},
+		"roadway",
+		nil,
 	)
 
 	roleSet := make(map[string]struct{}, len(queries))
