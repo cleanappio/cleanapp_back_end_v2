@@ -265,6 +265,26 @@ func TestNormalizeCaseEscalationTargetRejectsBogusPersistedPhone(t *testing.T) {
 	}
 }
 
+func TestNormalizeCaseEscalationTargetDowngradesEmptyPhoneRowToWebsite(t *testing.T) {
+	target, ok := normalizeCaseEscalationTarget(models.CaseEscalationTarget{
+		RoleType:        "contact",
+		Organization:    "Schulhaus Kopfholz",
+		Channel:         "phone",
+		Phone:           "1048513395",
+		Website:         "https://www.schule-adliswil.ch/",
+		ContactURL:      "https://www.schule-adliswil.ch/schule-adliswil/ueberblick/kontakt/p-183677/",
+		EvidenceText:    "Herzlich willkommen auf der Webseite der Adliswiler Schulen",
+		TargetSource:    "area_contact_website",
+		ConfidenceScore: 0.88,
+	})
+	if !ok {
+		t.Fatalf("expected target to survive as website fallback")
+	}
+	if target.Channel != "website" || target.Phone != "" {
+		t.Fatalf("expected bogus phone row to downgrade to website, got %#v", target)
+	}
+}
+
 func TestBuildCaseStakeholderSearchQueriesPrefersLocationContextName(t *testing.T) {
 	queries := buildCaseStakeholderSearchQueries(
 		[]string{"Extreme Structural Hazard: Bricks Separating from Primary School Facade"},

@@ -293,6 +293,14 @@ func (d *caseContactDiscoverer) EnrichTargets(ctx context.Context, reports []mod
 			candidateNames = appendUniqueStrings(candidateNames, locCtx.PrimaryName, locCtx.ParentOrg, locCtx.Operator)
 			d.addLocationContextTargets(ctx, locCtx, merger, visitedWebsites)
 		}
+		if hazardProfile.Structural &&
+			(hazardProfile.Severe || hazardProfile.ImmediateDanger || hazardProfile.SensitiveOccupancy) &&
+			(d.webSearchBaseURL != "" || (d.googleSearchAPIKey != "" && d.googleSearchCX != "")) &&
+			hasRemainingContactDiscoveryBudget(ctx, 4*time.Second) &&
+			shouldRunStakeholderWebSearch(merger.Targets(), hazardProfile) {
+			queries := buildCaseStakeholderSearchQueries(candidateNames, locCtx, hazardProfile)
+			d.addWebSearchStakeholderTargets(ctx, queries, merger, visitedWebsites, searchedQueries)
+		}
 
 		pois, err := d.queryNearbyPOIs(ctx, seed.Latitude, seed.Longitude, 225)
 		if err != nil {
@@ -1813,6 +1821,9 @@ func normalizeCaseEscalationTarget(target models.CaseEscalationTarget) (models.C
 	rawPhone := strings.TrimSpace(target.Phone)
 	target.Email = normalizeEmail(target.Email)
 	target.Phone = normalizePhone(target.Phone)
+	if target.Phone == "" && strings.EqualFold(strings.TrimSpace(target.Channel), "phone") {
+		target.Channel = ""
+	}
 	target.Website = normalizeWebsiteURL(target.Website)
 	target.ContactURL = normalizeFlexibleURL(target.ContactURL)
 	target.SourceURL = normalizeFlexibleURL(target.SourceURL)
@@ -1850,11 +1861,17 @@ func normalizeCaseEscalationTarget(target models.CaseEscalationTarget) (models.C
 	if target.Channel == "website" && target.ContactURL == "" {
 		target.ContactURL = target.Website
 	}
+	if target.Channel == "" {
+		target.Channel = caseDiscoveryTargetChannel(target)
+	}
 	if target.Phone != "" && !looksLikePublishedPhone(rawPhone, target.Phone, target.EvidenceText) {
 		target.Phone = ""
 		if target.Channel == "phone" {
 			target.Channel = ""
 		}
+	}
+	if target.Channel == "" {
+		target.Channel = caseDiscoveryTargetChannel(target)
 	}
 	if target.SourceURL == "" {
 		target.SourceURL = firstNonEmpty(target.ContactURL, target.Website)
