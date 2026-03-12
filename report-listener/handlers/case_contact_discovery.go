@@ -244,6 +244,8 @@ func (h *Handlers) suggestEscalationTargets(ctx context.Context, geometryJSON st
 func (d *caseContactDiscoverer) EnrichTargets(ctx context.Context, reports []models.ReportWithAnalysis, existing []models.CaseEscalationTarget, limit int) []models.CaseEscalationTarget {
 	merger := newCaseTargetMerger(limit)
 	inferredFallback := make([]models.CaseEscalationTarget, 0, len(existing))
+	existingWebsiteSeeds := collectExistingWebsiteSeeds(existing)
+	hydratedExistingWebsites := false
 	visitedWebsites := make(map[string]struct{})
 	searchedQueries := make(map[string]struct{})
 	for _, target := range existing {
@@ -253,24 +255,24 @@ func (d *caseContactDiscoverer) EnrichTargets(ctx context.Context, reports []mod
 		}
 		merger.Add(target)
 	}
-	for _, seed := range collectExistingWebsiteSeeds(existing) {
-		if ctx.Err() != nil {
-			break
-		}
-		d.addWebsiteTargets(
-			ctx,
-			seed.RoleType,
-			seed.Organization,
-			seed.Website,
-			seed.ContactURL,
-			seed.Source,
-			seed.BaseConfidence,
-			seed.Rationale,
-			merger,
-			visitedWebsites,
-		)
-	}
 	if len(reports) == 0 {
+		for _, seed := range existingWebsiteSeeds {
+			if ctx.Err() != nil {
+				break
+			}
+			d.addWebsiteTargets(
+				ctx,
+				seed.RoleType,
+				seed.Organization,
+				seed.Website,
+				seed.ContactURL,
+				seed.Source,
+				seed.BaseConfidence,
+				seed.Rationale,
+				merger,
+				visitedWebsites,
+			)
+		}
 		if countPreferredCaseTargets(merger.Targets()) == 0 {
 			for _, target := range inferredFallback {
 				merger.Add(target)
@@ -300,6 +302,26 @@ func (d *caseContactDiscoverer) EnrichTargets(ctx context.Context, reports []mod
 			shouldRunStakeholderWebSearch(merger.Targets(), hazardProfile) {
 			queries := buildCaseStakeholderSearchQueries(candidateNames, locCtx, hazardProfile)
 			d.addWebSearchStakeholderTargets(ctx, queries, merger, visitedWebsites, searchedQueries)
+		}
+		if !hydratedExistingWebsites {
+			hydratedExistingWebsites = true
+			for _, websiteSeed := range existingWebsiteSeeds {
+				if ctx.Err() != nil {
+					break
+				}
+				d.addWebsiteTargets(
+					ctx,
+					websiteSeed.RoleType,
+					websiteSeed.Organization,
+					websiteSeed.Website,
+					websiteSeed.ContactURL,
+					websiteSeed.Source,
+					websiteSeed.BaseConfidence,
+					websiteSeed.Rationale,
+					merger,
+					visitedWebsites,
+				)
+			}
 		}
 
 		pois, err := d.queryNearbyPOIs(ctx, seed.Latitude, seed.Longitude, 225)
@@ -347,6 +369,25 @@ func (d *caseContactDiscoverer) EnrichTargets(ctx context.Context, reports []mod
 		}
 		if !hasRemainingContactDiscoveryBudget(ctx, time.Second) {
 			break
+		}
+	}
+	if !hydratedExistingWebsites {
+		for _, websiteSeed := range existingWebsiteSeeds {
+			if ctx.Err() != nil {
+				break
+			}
+			d.addWebsiteTargets(
+				ctx,
+				websiteSeed.RoleType,
+				websiteSeed.Organization,
+				websiteSeed.Website,
+				websiteSeed.ContactURL,
+				websiteSeed.Source,
+				websiteSeed.BaseConfidence,
+				websiteSeed.Rationale,
+				merger,
+				visitedWebsites,
+			)
 		}
 	}
 
