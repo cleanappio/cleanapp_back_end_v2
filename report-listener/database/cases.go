@@ -12,6 +12,17 @@ import (
 	"report-listener/models"
 )
 
+const insertCaseSQL = `
+		INSERT INTO cases (
+			case_id, slug, title, type, status, classification, summary, uncertainty_notes,
+			geometry_json, aggregate_geometry_json, aggregate_bbox_json,
+			anchor_report_seq, anchor_lat, anchor_lng, building_id, parcel_id,
+			severity_score, urgency_score, confidence_score, exposure_score, criticality_score, trend_score,
+			cluster_count, linked_report_count, first_seen_at, last_seen_at, last_cluster_at, merged_into_case_id,
+			created_by_user_id
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`
+
 func newOpaqueID(prefix string) (string, error) {
 	var raw [12]byte
 	if _, err := rand.Read(raw[:]); err != nil {
@@ -147,16 +158,7 @@ func (d *Database) CreateCase(
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	_, err = tx.ExecContext(ctx, `
-		INSERT INTO cases (
-			case_id, slug, title, type, status, classification, summary, uncertainty_notes,
-			geometry_json, aggregate_geometry_json, aggregate_bbox_json,
-			anchor_report_seq, anchor_lat, anchor_lng, building_id, parcel_id,
-			severity_score, urgency_score, confidence_score, exposure_score, criticality_score, trend_score,
-			cluster_count, linked_report_count, first_seen_at, last_seen_at, last_cluster_at, merged_into_case_id,
-			created_by_user_id
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, caseRecord.CaseID, caseRecord.Slug, caseRecord.Title, caseRecord.Type, caseRecord.Status,
+	_, err = tx.ExecContext(ctx, insertCaseSQL, caseRecord.CaseID, caseRecord.Slug, caseRecord.Title, caseRecord.Type, caseRecord.Status,
 		caseRecord.Classification, caseRecord.Summary, caseRecord.UncertaintyNotes, geometryJSON,
 		caseRecord.AggregateGeometryJSON, caseRecord.AggregateBBoxJSON,
 		caseRecord.AnchorReportSeq, caseRecord.AnchorLat, caseRecord.AnchorLng, nullableStringPtr(caseRecord.BuildingID),
