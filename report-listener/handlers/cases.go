@@ -39,6 +39,11 @@ type clusterEdge struct {
 	rationale []string
 }
 
+const (
+	clusterAnalyzeTargetDiscoveryTimeout = 4 * time.Second
+	clusterAnalyzeCaseMatchTimeout       = 1500 * time.Millisecond
+)
+
 func (h *Handlers) AnalyzeCluster(c *gin.Context) {
 	var req models.ReportsByGeometryRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -67,24 +72,15 @@ func (h *Handlers) AnalyzeCluster(c *gin.Context) {
 		return
 	}
 
-	suggestedTargets, err := h.suggestEscalationTargets(c.Request.Context(), string(geometryJSON), reports, 8)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to derive escalation targets"})
-		return
-	}
-
+	suggestedTargets := h.bestEffortClusterSuggestedTargets(c.Request.Context(), string(geometryJSON), reports, 8)
 	response := analyzeClusterReports(reports, classification, "geometry", 0, json.RawMessage(geometryJSON), suggestedTargets)
-	response.CandidateCases, err = h.findCaseMatchCandidates(
+	response.CandidateCases = h.bestEffortClusterCaseMatches(
 		c.Request.Context(),
 		classification,
 		string(geometryJSON),
 		reports,
-		extractHypothesisMatchTexts(response.Hypotheses),
+		response.Hypotheses,
 	)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load nearby cases"})
-		return
-	}
 	c.JSON(http.StatusOK, response)
 }
 
@@ -134,25 +130,57 @@ func (h *Handlers) AnalyzeClusterFromReport(c *gin.Context) {
 	}
 	reports = filtered
 
-	suggestedTargets, err := h.suggestEscalationTargets(c.Request.Context(), "", reports, 8)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to derive escalation targets"})
-		return
-	}
-
+	suggestedTargets := h.bestEffortClusterSuggestedTargets(c.Request.Context(), "", reports, 8)
 	response := analyzeClusterReports(reports, classification, "seed_report", req.Seq, nil, suggestedTargets)
-	response.CandidateCases, err = h.findCaseMatchCandidates(
+	response.CandidateCases = h.bestEffortClusterCaseMatches(
 		c.Request.Context(),
 		classification,
 		"",
 		reports,
-		extractHypothesisMatchTexts(response.Hypotheses),
+		response.Hypotheses,
+	)
+	c.JSON(http.StatusOK, response)
+}
+
+func (h *Handlers) bestEffortClusterSuggestedTargets(
+	parent context.Context,
+	geometryJSON string,
+	reports []models.ReportWithAnalysis,
+	limit int,
+) []models.CaseEscalationTarget {
+	ctx, cancel := context.WithTimeout(parent, clusterAnalyzeTargetDiscoveryTimeout)
+	defer cancel()
+
+	targets, err := h.suggestEscalationTargets(ctx, geometryJSON, reports, limit)
+	if err != nil {
+		log.Printf("warn: cluster target derivation failed: %v", err)
+		return nil
+	}
+	return targets
+}
+
+func (h *Handlers) bestEffortClusterCaseMatches(
+	parent context.Context,
+	classification string,
+	geometryJSON string,
+	reports []models.ReportWithAnalysis,
+	hypotheses []models.ClusterIncidentHypothesis,
+) []models.CaseMatchCandidate {
+	ctx, cancel := context.WithTimeout(parent, clusterAnalyzeCaseMatchTimeout)
+	defer cancel()
+
+	candidates, err := h.findCaseMatchCandidates(
+		ctx,
+		classification,
+		geometryJSON,
+		reports,
+		extractHypothesisMatchTexts(hypotheses),
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load nearby cases"})
-		return
+		log.Printf("warn: cluster nearby-case lookup failed: %v", err)
+		return nil
 	}
-	c.JSON(http.StatusOK, response)
+	return candidates
 }
 
 func (h *Handlers) MatchCluster(c *gin.Context) {
