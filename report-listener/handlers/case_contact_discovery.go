@@ -34,7 +34,7 @@ const (
 var (
 	caseDiscoveryMailtoRegex        = regexp.MustCompile(`(?i)mailto:([a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,})`)
 	caseDiscoveryEmailRegex         = regexp.MustCompile(`(?i)\b([a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,})\b`)
-	caseDiscoveryTelRegex           = regexp.MustCompile(`(?i)tel:([^"'\s<>]+)`)
+	caseDiscoveryTelRegex           = regexp.MustCompile(`(?i)tel:([^"'<>]+)`)
 	caseDiscoveryPhoneRegex         = regexp.MustCompile(`\+?[0-9][0-9()\-\.\s]{6,}[0-9]`)
 	caseDiscoveryHrefRegex          = regexp.MustCompile(`(?i)href=["']([^"'#]+)["']`)
 	caseDiscoverySearchBlockedHosts = map[string]struct{}{
@@ -563,6 +563,12 @@ func shouldRunStakeholderWebSearch(targets []models.CaseEscalationTarget, hazard
 		return true
 	}
 	if hazard.Structural && (hazard.Severe || hazard.ImmediateDanger) {
+		if !hasCaseRoleTarget(targets, "building_authority") {
+			return true
+		}
+		if hazard.SensitiveOccupancy && !hasCaseRoleTarget(targets, "public_safety", "fire_authority") {
+			return true
+		}
 		return directCount < 4
 	}
 	return directCount < 3
@@ -573,6 +579,23 @@ func hasRemainingContactDiscoveryBudget(ctx context.Context, minimum time.Durati
 		return time.Until(deadline) > minimum
 	}
 	return true
+}
+
+func hasCaseRoleTarget(targets []models.CaseEscalationTarget, roles ...string) bool {
+	roleSet := make(map[string]struct{}, len(roles))
+	for _, role := range roles {
+		role = strings.ToLower(strings.TrimSpace(role))
+		if role != "" {
+			roleSet[role] = struct{}{}
+		}
+	}
+	for _, target := range targets {
+		role := strings.ToLower(strings.TrimSpace(target.RoleType))
+		if _, ok := roleSet[role]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func buildCaseStakeholderSearchQueries(candidateNames []string, locCtx *caseLocationContext, hazard caseHazardProfile) []caseStakeholderSearchQuery {
@@ -2308,7 +2331,7 @@ func extractPhonesFromHTML(html string) []string {
 			phones = appendUniqueStrings(phones, normalizePhone(match[1]))
 		}
 	}
-	for _, match := range caseDiscoveryPhoneRegex.FindAllString(html, -1) {
+	for _, match := range caseDiscoveryPhoneRegex.FindAllString(visibleTextFromHTML(html), -1) {
 		phones = appendUniqueStrings(phones, normalizePhone(match))
 	}
 	out := make([]string, 0, len(phones))
@@ -2318,6 +2341,37 @@ func extractPhonesFromHTML(html string) []string {
 		}
 	}
 	return out
+}
+
+func visibleTextFromHTML(html string) string {
+	root, err := xhtml.Parse(strings.NewReader(html))
+	if err != nil {
+		return html
+	}
+	var parts []string
+	var walk func(*xhtml.Node)
+	walk = func(node *xhtml.Node) {
+		if node == nil {
+			return
+		}
+		if node.Type == xhtml.ElementNode {
+			name := strings.ToLower(node.Data)
+			if name == "script" || name == "style" {
+				return
+			}
+		}
+		if node.Type == xhtml.TextNode {
+			text := compactWhitespace(node.Data)
+			if text != "" {
+				parts = append(parts, text)
+			}
+		}
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+	}
+	walk(root)
+	return strings.Join(parts, " ")
 }
 
 func extractSocialRefsFromHTML(html string) []caseSocialRef {

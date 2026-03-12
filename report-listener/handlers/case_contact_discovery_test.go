@@ -115,6 +115,22 @@ func TestExtractObfuscatedEmailsFromHTML(t *testing.T) {
 	}
 }
 
+func TestExtractPhonesFromVisibleTextOnly(t *testing.T) {
+	html := `<div>
+<a x-init="const a=Array(1093293870,1210994537,1045222498,1413970540); a.sort();"></a>
+<div>Schulverwaltung</div>
+<div>Telefon +41 44 711 78 60</div>
+</div>`
+
+	phones := extractPhonesFromHTML(html)
+	if len(phones) != 1 {
+		t.Fatalf("expected 1 visible phone, got %#v", phones)
+	}
+	if phones[0] != "+41447117860" {
+		t.Fatalf("unexpected phone extraction: %#v", phones)
+	}
+}
+
 func TestExtractLocalizedContactLinks(t *testing.T) {
 	html := `<html><body>
 <a href="/kontakt">Kontakt</a>
