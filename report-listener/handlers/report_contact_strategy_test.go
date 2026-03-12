@@ -55,3 +55,47 @@ func TestRouteReportEscalationTargetsPrioritizesAuthoritiesForStructuralHazards(
 		t.Fatalf("expected second target to be project_party, got %q", routed[1].DecisionScope)
 	}
 }
+
+func TestRouteReportEscalationTargetsPrioritizesTransitAuthorityForStationHazards(t *testing.T) {
+	report := &models.ReportWithAnalysis{
+		Report: models.Report{Seq: 108, PublicID: "rpt_transit"},
+		Analysis: []models.ReportAnalysis{
+			{
+				Title:          "Major crack in metro station support beam",
+				Summary:        "A severe structural defect at a subway station creates falling concrete risk for commuters.",
+				Description:    "Immediate transit life-safety risk at the platform.",
+				SeverityLevel:  0.96,
+				Classification: "physical",
+			},
+		},
+	}
+	targets := []models.CaseEscalationTarget{
+		{
+			RoleType:        "transit_authority",
+			DisplayName:     "Metro Operator",
+			Email:           "ops@metro.example",
+			TargetSource:    "official_site_page",
+			Verification:    "official_site_page",
+			ConfidenceScore: 0.9,
+		},
+		{
+			RoleType:        "building_authority",
+			DisplayName:     "Municipal Building Authority",
+			Email:           "building@authority.example",
+			TargetSource:    "official_authority_page",
+			Verification:    "official_authority_page",
+			ConfidenceScore: 0.89,
+		},
+	}
+
+	routed := routeReportEscalationTargets(report, targets)
+	if len(routed) != 2 {
+		t.Fatalf("expected 2 routed targets, got %d", len(routed))
+	}
+	if routed[0].RoleType != "transit_authority" {
+		t.Fatalf("expected transit authority to rank first for station hazard, got %#v", routed[0])
+	}
+	if routed[0].DecisionScope != "site_ops" {
+		t.Fatalf("expected transit authority to be direct site ops, got %q", routed[0].DecisionScope)
+	}
+}

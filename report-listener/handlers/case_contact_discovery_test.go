@@ -388,11 +388,44 @@ func TestBuildCaseStakeholderSearchQueriesPrioritizesAuthorities(t *testing.T) {
 	if queries[0].RoleType != "operator" {
 		t.Fatalf("expected operator query first, got %#v", queries[0])
 	}
-	if queries[1].RoleType != "building_authority" {
-		t.Fatalf("expected building authority query second for critical structural hazards, got %#v", queries[1])
+	if queries[1].RoleType != "transit_authority" {
+		t.Fatalf("expected transit authority query second for critical transit hazards, got %#v", queries[1])
 	}
-	if queries[len(queries)-1].RoleType == "building_authority" {
-		t.Fatalf("expected authority query before project-party queries, got %#v", queries)
+	roleSet := make(map[string]struct{}, len(queries))
+	for _, query := range queries {
+		roleSet[query.RoleType] = struct{}{}
+	}
+	for _, required := range []string{"transit_authority", "transit_safety", "public_safety", "fire_authority"} {
+		if _, ok := roleSet[required]; !ok {
+			t.Fatalf("expected transit-critical query role %q in %#v", required, queries)
+		}
+	}
+}
+
+func TestBuildCaseStakeholderSearchQueriesRoadwayHazardTargetsInfrastructureOperators(t *testing.T) {
+	queries := buildCaseStakeholderSearchQueries(
+		[]string{"Collapsed Overpass on Highway 7"},
+		&caseLocationContext{
+			PrimaryName: "Highway 7 Overpass",
+			City:        "Pomona",
+			State:       "California",
+			CountryCode: "us",
+		},
+		caseHazardProfile{
+			Structural:      true,
+			Severe:          true,
+			ImmediateDanger: true,
+		},
+	)
+
+	roleSet := make(map[string]struct{}, len(queries))
+	for _, query := range queries {
+		roleSet[query.RoleType] = struct{}{}
+	}
+	for _, required := range []string{"public_works", "traffic_authority", "infrastructure_authority", "public_safety"} {
+		if _, ok := roleSet[required]; !ok {
+			t.Fatalf("expected roadway hazard query role %q in %#v", required, queries)
+		}
 	}
 }
 
@@ -413,6 +446,15 @@ func TestPendingStakeholderSearchQueriesSkipsSatisfiedRoles(t *testing.T) {
 	}
 	if pending[0].RoleType != "public_safety" {
 		t.Fatalf("unexpected pending query set: %#v", pending)
+	}
+}
+
+func TestIsLikelyGovernmentHostRejectsGenericCommercialDomains(t *testing.T) {
+	if isLikelyGovernmentHost("https://www.walmart.com/contact-us") {
+		t.Fatalf("expected generic commercial host not to count as government")
+	}
+	if !isLikelyGovernmentHost("https://www.adliswil.ch/departemente/1318") {
+		t.Fatalf("expected municipal host to count as government")
 	}
 }
 

@@ -128,14 +128,18 @@ type caseWebsiteContacts struct {
 }
 
 type caseStakeholderSearchQuery struct {
-	RoleType        string
-	Query           string
-	Region          string
-	BaseConfidence  float64
-	Rationale       string
-	Organization    string
-	RelationshipTag string
-	RequireOfficial bool
+	RoleType          string
+	Query             string
+	Region            string
+	BaseConfidence    float64
+	Rationale         string
+	Organization      string
+	JurisdictionHint  string
+	AssetClass        string
+	OfficialHostHints []string
+	SiteKeywords      []string
+	RelationshipTag   string
+	RequireOfficial   bool
 }
 
 type caseWebSearchResult struct {
@@ -295,11 +299,12 @@ func (d *caseContactDiscoverer) EnrichTargets(ctx context.Context, reports []mod
 			candidateNames = appendUniqueStrings(candidateNames, locCtx.PrimaryName, locCtx.ParentOrg, locCtx.Operator)
 			d.addLocationContextTargets(ctx, locCtx, merger, visitedWebsites)
 		}
+		assetClass := inferAssetClass("", candidateNames, locCtx)
 		if hazardProfile.Structural &&
 			(hazardProfile.Severe || hazardProfile.ImmediateDanger || hazardProfile.SensitiveOccupancy) &&
 			(d.webSearchBaseURL != "" || (d.googleSearchAPIKey != "" && d.googleSearchCX != "")) &&
 			hasRemainingContactDiscoveryBudget(ctx, 4*time.Second) &&
-			shouldRunStakeholderWebSearch(merger.Targets(), hazardProfile) {
+			shouldRunStakeholderWebSearch(merger.Targets(), hazardProfile, assetClass) {
 			queries := buildCaseStakeholderSearchQueries(candidateNames, locCtx, hazardProfile)
 			d.addWebSearchStakeholderTargets(ctx, queries, merger, visitedWebsites, searchedQueries)
 		}
@@ -363,7 +368,7 @@ func (d *caseContactDiscoverer) EnrichTargets(ctx context.Context, reports []mod
 
 		if (d.webSearchBaseURL != "" || (d.googleSearchAPIKey != "" && d.googleSearchCX != "")) &&
 			hasRemainingContactDiscoveryBudget(ctx, 2*time.Second) &&
-			shouldRunStakeholderWebSearch(merger.Targets(), hazardProfile) {
+			shouldRunStakeholderWebSearch(merger.Targets(), hazardProfile, assetClass) {
 			queries := buildCaseStakeholderSearchQueries(candidateNames, locCtx, hazardProfile)
 			d.addWebSearchStakeholderTargets(ctx, queries, merger, visitedWebsites, searchedQueries)
 		}
@@ -612,16 +617,27 @@ func countActionableDirectCaseTargets(targets []models.CaseEscalationTarget) int
 	return count
 }
 
-func shouldRunStakeholderWebSearch(targets []models.CaseEscalationTarget, hazard caseHazardProfile) bool {
+func shouldRunStakeholderWebSearch(targets []models.CaseEscalationTarget, hazard caseHazardProfile, assetClass string) bool {
 	directCount := countActionableDirectCaseTargets(targets)
 	if directCount == 0 {
 		return true
 	}
 	if hazard.Structural && (hazard.Severe || hazard.ImmediateDanger) {
-		if !hasCaseRoleTarget(targets, "building_authority") {
-			return true
+		switch assetClass {
+		case "transit_station":
+			if !hasCaseRoleTarget(targets, "transit_authority", "transit_safety") {
+				return true
+			}
+		case "roadway", "bridge":
+			if !hasCaseRoleTarget(targets, "public_works", "traffic_authority", "infrastructure_authority") {
+				return true
+			}
+		default:
+			if !hasCaseRoleTarget(targets, "building_authority") {
+				return true
+			}
 		}
-		if hazard.SensitiveOccupancy && !hasCaseRoleTarget(targets, "public_safety", "fire_authority") {
+		if hazard.SensitiveOccupancy && !hasCaseRoleTarget(targets, "public_safety", "fire_authority", "transit_safety") {
 			return true
 		}
 		return directCount < 4
@@ -672,23 +688,43 @@ func buildCaseStakeholderSearchQueries(candidateNames []string, locCtx *caseLoca
 		locality = firstNonEmpty(locCtx.City, locCtx.State, locCtx.Country)
 		region = webSearchRegionForLocation(locCtx)
 	}
+	assetClass := inferAssetClass(primaryName, candidateNames, locCtx)
+	jurisdictionHint := deriveJurisdictionHint(locCtx)
+	officialHostHints := deriveOfficialHostHints(locCtx)
+	siteKeywords := deriveSearchSiteKeywords(primaryName, candidateNames, locCtx)
 
 	baseQuery := quotedSearchPhrase(primaryName)
 	if locality != "" {
 		baseQuery += " " + quotedSearchPhrase(locality)
 	}
 
+	newQuery := func(roleType, queryText string, baseConfidence float64, rationale, relationshipTag, organization string, requireOfficial bool) caseStakeholderSearchQuery {
+		return caseStakeholderSearchQuery{
+			RoleType:          roleType,
+			Query:             strings.TrimSpace(queryText),
+			Region:            region,
+			BaseConfidence:    baseConfidence,
+			Rationale:         rationale,
+			Organization:      organization,
+			JurisdictionHint:  jurisdictionHint,
+			AssetClass:        assetClass,
+			OfficialHostHints: append([]string(nil), officialHostHints...),
+			SiteKeywords:      append([]string(nil), siteKeywords...),
+			RelationshipTag:   relationshipTag,
+			RequireOfficial:   requireOfficial,
+		}
+	}
+
 	queries := []caseStakeholderSearchQuery{
-		{
-			RoleType:        "operator",
-			Query:           strings.TrimSpace(baseQuery + " contact"),
-			Region:          region,
-			BaseConfidence:  0.84,
-			Rationale:       "Official site/contact search for the affected location.",
-			Organization:    primaryName,
-			RelationshipTag: "site operator",
-			RequireOfficial: true,
-		},
+		newQuery(
+			"operator",
+			baseQuery+" contact",
+			0.84,
+			"Official site/contact search for the affected location.",
+			"site operator",
+			primaryName,
+			true,
+		),
 	}
 
 	if hazard.Structural {
@@ -697,16 +733,15 @@ func buildCaseStakeholderSearchQueries(candidateNames []string, locCtx *caseLoca
 		if isGermanSpeakingLocation(locCtx) {
 			facilityTerm = "hausdienst"
 		}
-		facilityQuery := caseStakeholderSearchQuery{
-			RoleType:        "facility_manager",
-			Query:           strings.TrimSpace(baseQuery + " " + facilityTerm),
-			Region:          region,
-			BaseConfidence:  0.8,
-			Rationale:       "Operational or facilities contact search for the affected site.",
-			Organization:    primaryName,
-			RelationshipTag: "operations",
-			RequireOfficial: true,
-		}
+		facilityQuery := newQuery(
+			"facility_manager",
+			baseQuery+" "+facilityTerm,
+			0.8,
+			"Operational or facilities contact search for the affected site.",
+			"operations",
+			primaryName,
+			true,
+		)
 		if !criticalStructuralSearch {
 			queries = append(queries, facilityQuery)
 		}
@@ -722,6 +757,11 @@ func buildCaseStakeholderSearchQueries(candidateNames []string, locCtx *caseLoca
 	authorityTerm := "building department"
 	fireAuthorityTerm := "fire marshal"
 	publicSafetyTerm := "public safety"
+	transitAuthorityTerm := "transit authority"
+	transitSafetyTerm := "rail safety"
+	publicWorksTerm := "public works"
+	trafficAuthorityTerm := "traffic engineering"
+	infrastructureAuthorityTerm := "infrastructure maintenance"
 	if isGermanSpeakingLocation(locCtx) {
 		architectTerm = "architekt"
 		contractorTerm = "bauunternehmung"
@@ -729,86 +769,57 @@ func buildCaseStakeholderSearchQueries(candidateNames []string, locCtx *caseLoca
 		authorityTerm = "bauamt"
 		fireAuthorityTerm = "feuerpolizei"
 		publicSafetyTerm = "polizei"
+		transitAuthorityTerm = "verkehrsbetriebe"
+		transitSafetyTerm = "bahn sicherheit"
+		publicWorksTerm = "tiefbauamt"
+		trafficAuthorityTerm = "verkehrsplanung"
+		infrastructureAuthorityTerm = "infrastruktur"
 	}
 
 	if locality != "" {
-		queries = append(queries, caseStakeholderSearchQuery{
-			RoleType:        "building_authority",
-			Query:           strings.TrimSpace(quotedSearchPhrase(locality) + " " + authorityTerm),
-			Region:          region,
-			BaseConfidence:  0.84,
-			Rationale:       "Web search for the local building authority or municipal office responsible for the affected site.",
-			Organization:    locality,
-			RelationshipTag: "authority",
-			RequireOfficial: true,
-		})
-		if hazard.Severe || hazard.Urgent || hazard.ImmediateDanger {
-			queries = append(queries, caseStakeholderSearchQuery{
-				RoleType:        "fire_authority",
-				Query:           strings.TrimSpace(quotedSearchPhrase(locality) + " " + fireAuthorityTerm),
-				Region:          region,
-				BaseConfidence:  0.8,
-				Rationale:       "Web search for the local fire/building-safety authority relevant to a severe structural hazard.",
-				Organization:    locality,
-				RelationshipTag: "fire authority",
-				RequireOfficial: true,
-			})
-		}
-		if hazard.ImmediateDanger || (hazard.SensitiveOccupancy && hazard.Severe) {
-			queries = append(queries, caseStakeholderSearchQuery{
-				RoleType:        "public_safety",
-				Query:           strings.TrimSpace(quotedSearchPhrase(locality) + " " + publicSafetyTerm),
-				Region:          region,
-				BaseConfidence:  0.76,
-				Rationale:       "Web search for public-safety contacts relevant to an immediate life-safety hazard at the site.",
-				Organization:    locality,
-				RelationshipTag: "public safety",
-				RequireOfficial: true,
-			})
+		localityBase := quotedSearchPhrase(locality)
+		switch assetClass {
+		case "transit_station":
+			queries = append(queries,
+				newQuery("transit_authority", localityBase+" "+transitAuthorityTerm, 0.86, "Web search for the transit operator or station authority responsible for the affected infrastructure.", "transit authority", locality, true),
+				newQuery("transit_safety", localityBase+" "+transitSafetyTerm, 0.82, "Web search for transit-safety or rail-safety authority contacts relevant to a structural station hazard.", "transit safety", locality, true),
+			)
+			if hazard.ImmediateDanger || hazard.Severe {
+				queries = append(queries,
+					newQuery("public_safety", localityBase+" "+publicSafetyTerm, 0.8, "Web search for public-safety contacts relevant to an immediate transit life-safety hazard.", "public safety", locality, true),
+					newQuery("fire_authority", localityBase+" "+fireAuthorityTerm, 0.78, "Web search for fire or emergency-response contacts relevant to a severe transit hazard.", "fire authority", locality, true),
+				)
+			}
+		case "roadway", "bridge":
+			queries = append(queries,
+				newQuery("public_works", localityBase+" "+publicWorksTerm, 0.85, "Web search for the public-works or maintenance authority responsible for the affected infrastructure.", "public works", locality, true),
+				newQuery("traffic_authority", localityBase+" "+trafficAuthorityTerm, 0.82, "Web search for the traffic or transportation authority responsible for the affected roadway.", "traffic authority", locality, true),
+				newQuery("infrastructure_authority", localityBase+" "+infrastructureAuthorityTerm, 0.8, "Web search for the infrastructure maintenance authority responsible for the affected structure.", "infrastructure authority", locality, true),
+			)
+			if hazard.ImmediateDanger || hazard.Severe {
+				queries = append(queries, newQuery("public_safety", localityBase+" "+publicSafetyTerm, 0.78, "Web search for public-safety contacts relevant to an acute infrastructure hazard.", "public safety", locality, true))
+			}
+		default:
+			queries = append(queries, newQuery("building_authority", localityBase+" "+authorityTerm, 0.84, "Web search for the local building authority or municipal office responsible for the affected site.", "authority", locality, true))
+			if hazard.Severe || hazard.Urgent || hazard.ImmediateDanger {
+				queries = append(queries, newQuery("fire_authority", localityBase+" "+fireAuthorityTerm, 0.8, "Web search for the local fire/building-safety authority relevant to a severe structural hazard.", "fire authority", locality, true))
+			}
+			if hazard.ImmediateDanger || (hazard.SensitiveOccupancy && hazard.Severe) {
+				queries = append(queries, newQuery("public_safety", localityBase+" "+publicSafetyTerm, 0.76, "Web search for public-safety contacts relevant to an immediate life-safety hazard at the site.", "public safety", locality, true))
+			}
 		}
 		if hazard.Severe || hazard.ImmediateDanger || hazard.SensitiveOccupancy {
 			facilityTerm := "facility management"
 			if isGermanSpeakingLocation(locCtx) {
 				facilityTerm = "hausdienst"
 			}
-			queries = append(queries, caseStakeholderSearchQuery{
-				RoleType:        "facility_manager",
-				Query:           strings.TrimSpace(baseQuery + " " + facilityTerm),
-				Region:          region,
-				BaseConfidence:  0.8,
-				Rationale:       "Operational or facilities contact search for the affected site.",
-				Organization:    primaryName,
-				RelationshipTag: "operations",
-				RequireOfficial: true,
-			})
+			queries = append(queries, newQuery("facility_manager", baseQuery+" "+facilityTerm, 0.8, "Operational or facilities contact search for the affected site.", "operations", primaryName, true))
 		}
-		queries = append(queries, caseStakeholderSearchQuery{
-			RoleType:        "architect",
-			Query:           strings.TrimSpace(baseQuery + " " + architectTerm),
-			Region:          region,
-			BaseConfidence:  0.83,
-			Rationale:       "Web search for the architect or design office linked to the structurally affected site.",
-			Organization:    primaryName,
-			RelationshipTag: "architect",
-		})
-		queries = append(queries, caseStakeholderSearchQuery{
-			RoleType:        "contractor",
-			Query:           strings.TrimSpace(baseQuery + " " + contractorTerm),
-			Region:          region,
-			BaseConfidence:  0.81,
-			Rationale:       "Web search for the contractor or builder linked to the structurally affected site.",
-			Organization:    primaryName,
-			RelationshipTag: "contractor",
-		})
-		queries = append(queries, caseStakeholderSearchQuery{
-			RoleType:        "engineer",
-			Query:           strings.TrimSpace(baseQuery + " " + engineerTerm),
-			Region:          region,
-			BaseConfidence:  0.79,
-			Rationale:       "Web search for structural engineering stakeholders tied to the affected site.",
-			Organization:    primaryName,
-			RelationshipTag: "engineer",
-		})
+		queries = append(queries,
+			newQuery("architect", baseQuery+" "+architectTerm, 0.83, "Web search for the architect or design office linked to the structurally affected site.", "architect", primaryName, false),
+			newQuery("contractor", baseQuery+" "+contractorTerm, 0.81, "Web search for the contractor or builder linked to the structurally affected site.", "contractor", primaryName, false),
+			newQuery("engineer", baseQuery+" "+engineerTerm, 0.79, "Web search for structural engineering stakeholders tied to the affected site.", "engineer", primaryName, false),
+		)
 	}
 
 	return queries
@@ -1298,7 +1309,7 @@ func (d *caseContactDiscoverer) addWebSearchStakeholderTargets(ctx context.Conte
 			if isBlockedStakeholderSearchResult(result.URL) {
 				continue
 			}
-			if query.RequireOfficial && !isLikelyOfficialStakeholderResult(result.URL, query) {
+			if query.RequireOfficial && !isLikelyOfficialStakeholderResult(result, query) {
 				continue
 			}
 			organization := firstNonEmpty(inferStakeholderOrganization(result, query), query.Organization)
@@ -1309,6 +1320,7 @@ func (d *caseContactDiscoverer) addWebSearchStakeholderTargets(ctx context.Conte
 			if snippet := strings.TrimSpace(result.Snippet); snippet != "" {
 				rationale = strings.TrimSpace(rationale + " " + snippet)
 			}
+			confidence := math.Min(0.96, query.BaseConfidence+searchResultConfidenceBoost(result, query))
 			d.addWebsiteTargets(
 				ctx,
 				query.RoleType,
@@ -1316,7 +1328,7 @@ func (d *caseContactDiscoverer) addWebSearchStakeholderTargets(ctx context.Conte
 				result.URL,
 				result.URL,
 				"web_search",
-				query.BaseConfidence,
+				confidence,
 				rationale,
 				merger,
 				visitedWebsites,
@@ -1335,12 +1347,34 @@ func pendingStakeholderSearchQueries(targets []models.CaseEscalationTarget, quer
 	}
 	pending := make([]caseStakeholderSearchQuery, 0, len(queries))
 	for _, query := range queries {
-		if hasCaseRoleTarget(targets, query.RoleType) {
+		if roleSearchAlreadySatisfied(targets, query) {
 			continue
 		}
 		pending = append(pending, query)
 	}
 	return pending
+}
+
+func roleSearchAlreadySatisfied(targets []models.CaseEscalationTarget, query caseStakeholderSearchQuery) bool {
+	for _, target := range targets {
+		if !strings.EqualFold(strings.TrimSpace(target.RoleType), strings.TrimSpace(query.RoleType)) {
+			continue
+		}
+		normalized, ok := normalizeCaseEscalationTarget(target)
+		if !ok {
+			continue
+		}
+		if query.RequireOfficial {
+			verification := strings.ToLower(strings.TrimSpace(normalized.Verification))
+			if !strings.HasPrefix(verification, "official") && verification != "mapped_area_contact" && verification != "directory_listing" {
+				continue
+			}
+		}
+		if normalized.Email != "" || normalized.Phone != "" || normalized.Website != "" || normalized.ContactURL != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func (d *caseContactDiscoverer) searchStakeholderWeb(ctx context.Context, query, region string) ([]caseWebSearchResult, error) {
@@ -2284,7 +2318,7 @@ func inferVerificationLevel(source, roleType, websiteURL, sourceURL string) stri
 		return "directory_listing"
 	case strings.Contains(lowerSource, "osm_"):
 		return "openstreetmap"
-	case lowerRole == "building_authority" || lowerRole == "fire_authority" || lowerRole == "public_safety":
+	case queryNeedsAuthorityHost(lowerRole):
 		if isLikelyGovernmentHost(firstNonEmpty(sourceURL, websiteURL)) {
 			return "official_authority_page"
 		}
@@ -2887,12 +2921,21 @@ func socialRefFromURL(raw string) (string, string, bool) {
 	}
 }
 
-func isLikelyOfficialStakeholderResult(rawURL string, query caseStakeholderSearchQuery) bool {
-	if rawURL == "" {
+func isLikelyOfficialStakeholderResult(result caseWebSearchResult, query caseStakeholderSearchQuery) bool {
+	if strings.TrimSpace(result.URL) == "" {
 		return false
 	}
-	if query.RoleType == "building_authority" || query.RoleType == "fire_authority" || query.RoleType == "public_safety" {
-		return isLikelyGovernmentHost(rawURL) || hostLooksLikeOrganization(rawURL, query.Organization)
+	if hostMatchesAnyHint(result.URL, query.OfficialHostHints) {
+		return true
+	}
+	if queryNeedsAuthorityHost(query.RoleType) {
+		return isLikelyAuthorityStakeholderResult(result, query)
+	}
+	if query.RequireOfficial {
+		corpus := strings.ToLower(strings.Join([]string{result.Title, result.Snippet, result.DisplayURL}, " "))
+		return hostLooksLikeOrganization(result.URL, query.Organization) ||
+			hostLooksLikeOrganization(result.URL, query.JurisdictionHint) ||
+			tokenMatchCount(corpus, query.SiteKeywords) >= 2
 	}
 	return true
 }
@@ -2903,7 +2946,6 @@ func isLikelyGovernmentHost(rawURL string) bool {
 		return false
 	}
 	host := strings.ToLower(strings.TrimPrefix(parsed.Hostname(), "www."))
-	parts := strings.Split(host, ".")
 	switch {
 	case strings.HasSuffix(host, ".gov"),
 		strings.Contains(host, ".gov."),
@@ -2915,13 +2957,30 @@ func isLikelyGovernmentHost(rawURL string) bool {
 		strings.Contains(host, "cityof"),
 		strings.Contains(host, "municipality"),
 		strings.Contains(host, "commune"),
+		strings.Contains(host, "department"),
+		strings.Contains(host, "county"),
+		strings.Contains(host, "state"),
 		strings.Contains(host, "adliswil.ch"):
-		return true
-	case len(parts) == 2 && len(parts[1]) <= 3 && len(parts[0]) >= 3 && !strings.Contains(parts[0], "example"):
 		return true
 	default:
 		return false
 	}
+}
+
+func isLikelyAuthorityStakeholderResult(result caseWebSearchResult, query caseStakeholderSearchQuery) bool {
+	corpus := strings.ToLower(strings.Join([]string{result.Title, result.Snippet, result.DisplayURL, result.URL}, " "))
+	if isLikelyGovernmentHost(result.URL) {
+		return true
+	}
+	if hostLooksLikeOrganization(result.URL, query.Organization) || hostLooksLikeOrganization(result.URL, query.JurisdictionHint) {
+		return true
+	}
+	for _, keyword := range authorityRoleKeywords(query.RoleType, query.AssetClass) {
+		if strings.Contains(corpus, keyword) {
+			return true
+		}
+	}
+	return false
 }
 
 func hostLooksLikeOrganization(rawURL, organization string) bool {

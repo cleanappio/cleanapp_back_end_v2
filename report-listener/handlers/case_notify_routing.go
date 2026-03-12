@@ -16,6 +16,7 @@ type caseRoutingProfile struct {
 	Urgent             bool
 	ImmediateDanger    bool
 	SensitiveOccupancy bool
+	AssetClass         string
 	HazardMode         string
 }
 
@@ -225,6 +226,7 @@ func buildCaseRoutingProfile(detail *models.CaseDetail) caseRoutingProfile {
 		Urgent:             detail.Case.UrgencyScore >= 0.7,
 		ImmediateDanger:    containsAny(joined, []string{"falling", "imminent", "collapse", "separating", "detached", "support column", "support beam", "exposed", "children", "occupants"}),
 		SensitiveOccupancy: containsAny(joined, []string{"school", "hospital", "station", "metro", "airport", "playground", "terminal", "mall", "daycare", "nursery"}),
+		AssetClass:         inferAssetClassFromText(joined),
 		HazardMode:         "standard",
 	}
 	switch {
@@ -261,6 +263,7 @@ func buildReportRoutingProfile(report *models.ReportWithAnalysis) caseRoutingPro
 		Urgent:             maxSeverity >= 0.7 || containsAny(joined, []string{"urgent", "danger", "hazard", "critical"}),
 		ImmediateDanger:    containsAny(joined, []string{"falling", "imminent", "collapse", "separating", "detached", "support column", "support beam", "load-bearing", "exposed"}),
 		SensitiveOccupancy: containsAny(joined, []string{"school", "hospital", "station", "metro", "airport", "playground", "terminal", "mall", "daycare", "nursery", "children", "commuter"}),
+		AssetClass:         inferAssetClassFromText(joined),
 		HazardMode:         "standard",
 	}
 	switch {
@@ -274,11 +277,11 @@ func buildReportRoutingProfile(report *models.ReportWithAnalysis) caseRoutingPro
 
 func decisionScopeForRoleType(roleType string) string {
 	switch strings.ToLower(strings.TrimSpace(roleType)) {
-	case "operator", "operator_admin", "site_leadership", "facility_manager":
+	case "operator", "operator_admin", "site_leadership", "facility_manager", "transit_authority", "public_works", "traffic_authority", "infrastructure_authority":
 		return "site_ops"
 	case "owner", "property_owner", "landlord":
 		return "asset_owner"
-	case "building_authority", "public_safety", "fire_authority":
+	case "building_authority", "public_safety", "fire_authority", "transit_safety":
 		return "regulator"
 	case "architect", "engineer", "contractor":
 		return "project_party"
@@ -341,10 +344,25 @@ func scoreCaseEscalationTarget(profile caseRoutingProfile, target models.CaseEsc
 	if profile.Structural && target.DecisionScope == "project_party" {
 		score += 0.07
 	}
+	if profile.AssetClass == "transit_station" && target.RoleType == "transit_authority" {
+		score += 0.16
+	}
+	if profile.AssetClass == "transit_station" && target.RoleType == "transit_safety" {
+		score += 0.18
+	}
+	if (profile.AssetClass == "roadway" || profile.AssetClass == "bridge") && (target.RoleType == "public_works" || target.RoleType == "traffic_authority" || target.RoleType == "infrastructure_authority") {
+		score += 0.16
+	}
+	if profile.AssetClass == "school" && target.RoleType == "building_authority" {
+		score += 0.08
+	}
 	if profile.ImmediateDanger && target.RoleType == "public_safety" {
 		score += 0.18
 	}
 	if profile.ImmediateDanger && target.RoleType == "fire_authority" {
+		score += 0.16
+	}
+	if profile.ImmediateDanger && target.RoleType == "transit_safety" {
 		score += 0.16
 	}
 	if profile.SensitiveOccupancy && target.DecisionScope == "site_ops" {
@@ -439,6 +457,12 @@ func buildCaseTargetReason(profile caseRoutingProfile, target models.CaseEscalat
 	}
 	if profile.Structural && target.DecisionScope == "project_party" {
 		reasons = append(reasons, "structural risk makes project-chain stakeholders relevant")
+	}
+	if profile.AssetClass == "transit_station" && target.RoleType == "transit_authority" {
+		reasons = append(reasons, "transit infrastructure hazards are best routed to the station operator")
+	}
+	if (profile.AssetClass == "roadway" || profile.AssetClass == "bridge") && (target.RoleType == "public_works" || target.RoleType == "traffic_authority" || target.RoleType == "infrastructure_authority") {
+		reasons = append(reasons, "road and bridge hazards should reach the infrastructure operator quickly")
 	}
 	if profile.ImmediateDanger && target.RoleType == "public_safety" {
 		reasons = append(reasons, "immediate danger cues warrant public-safety awareness")
