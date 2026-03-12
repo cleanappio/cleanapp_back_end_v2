@@ -186,6 +186,53 @@ func TestEnrichTargetsDropsInferredFallbackWhenActualTargetsExist(t *testing.T) 
 	}
 }
 
+func TestNormalizeCaseEscalationTargetRepairsLegacyWebsiteEmail(t *testing.T) {
+	target, ok := normalizeCaseEscalationTarget(models.CaseEscalationTarget{
+		RoleType:        "contact",
+		Organization:    "Schulhaus Kopfholz",
+		Email:           "https://www.schule-adliswil.ch",
+		TargetSource:    "area_contact",
+		ConfidenceScore: 0.9,
+	})
+	if !ok {
+		t.Fatalf("expected legacy website target to normalize")
+	}
+	if target.Email != "" {
+		t.Fatalf("expected legacy website email to be cleared, got %#v", target)
+	}
+	if target.Channel != "website" {
+		t.Fatalf("expected website channel, got %#v", target)
+	}
+	if target.Website != "https://www.schule-adliswil.ch/" {
+		t.Fatalf("unexpected website normalization: %#v", target)
+	}
+	if target.ContactURL != "https://www.schule-adliswil.ch/" {
+		t.Fatalf("unexpected contact url normalization: %#v", target)
+	}
+}
+
+func TestBuildCaseStakeholderSearchQueriesPrefersLocationContextName(t *testing.T) {
+	queries := buildCaseStakeholderSearchQueries(
+		[]string{"Extreme Structural Hazard: Bricks Separating from Primary School Facade"},
+		&caseLocationContext{
+			PrimaryName: "Schulhaus Kopfholz",
+			City:        "Adliswil",
+			State:       "Zürich",
+			CountryCode: "ch",
+		},
+		caseHazardProfile{Structural: true, Severe: true},
+	)
+	if len(queries) == 0 {
+		t.Fatalf("expected search queries")
+	}
+	if queries[0].Organization != "Schulhaus Kopfholz" {
+		t.Fatalf("expected place name to drive search organization, got %#v", queries[0])
+	}
+	if queries[0].Query == "" || queries[0].Query == "\"Extreme Structural Hazard: Bricks Separating from Primary School Facade\" contact" {
+		t.Fatalf("expected location-aware query, got %#v", queries[0])
+	}
+}
+
 func TestParseDuckDuckGoSearchResults(t *testing.T) {
 	raw := `
 <html><body>

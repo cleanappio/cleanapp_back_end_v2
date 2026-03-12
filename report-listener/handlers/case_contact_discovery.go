@@ -238,12 +238,31 @@ func (h *Handlers) suggestEscalationTargets(ctx context.Context, geometryJSON st
 func (d *caseContactDiscoverer) EnrichTargets(ctx context.Context, reports []models.ReportWithAnalysis, existing []models.CaseEscalationTarget, limit int) []models.CaseEscalationTarget {
 	merger := newCaseTargetMerger(limit)
 	inferredFallback := make([]models.CaseEscalationTarget, 0, len(existing))
+	visitedWebsites := make(map[string]struct{})
+	searchedQueries := make(map[string]struct{})
 	for _, target := range existing {
 		if strings.EqualFold(strings.TrimSpace(target.TargetSource), "inferred_contact") {
 			inferredFallback = append(inferredFallback, target)
 			continue
 		}
 		merger.Add(target)
+	}
+	for _, seed := range collectExistingWebsiteSeeds(existing) {
+		if ctx.Err() != nil {
+			break
+		}
+		d.addWebsiteTargets(
+			ctx,
+			seed.RoleType,
+			seed.Organization,
+			seed.Website,
+			seed.ContactURL,
+			seed.Source,
+			seed.BaseConfidence,
+			seed.Rationale,
+			merger,
+			visitedWebsites,
+		)
 	}
 	if len(reports) == 0 {
 		if countPreferredCaseTargets(merger.Targets()) == 0 {
@@ -254,8 +273,6 @@ func (d *caseContactDiscoverer) EnrichTargets(ctx context.Context, reports []mod
 		return merger.Targets()
 	}
 
-	visitedWebsites := make(map[string]struct{})
-	searchedQueries := make(map[string]struct{})
 	hazardProfile := analyzeCaseHazardProfile(reports)
 	for _, seed := range buildCaseDiscoverySeeds(reports, 2) {
 		if ctx.Err() != nil {
@@ -322,6 +339,86 @@ func (d *caseContactDiscoverer) EnrichTargets(ctx context.Context, reports []mod
 	return merger.Targets()
 }
 
+type existingWebsiteSeed struct {
+	RoleType       string
+	Organization   string
+	Website        string
+	ContactURL     string
+	Source         string
+	BaseConfidence float64
+	Rationale      string
+}
+
+func collectExistingWebsiteSeeds(existing []models.CaseEscalationTarget) []existingWebsiteSeed {
+	seeds := make([]existingWebsiteSeed, 0, len(existing))
+	seen := make(map[string]struct{})
+	for _, target := range existing {
+		website, contactURL := existingTargetWebsiteSeed(target)
+		if website == "" && contactURL == "" {
+			continue
+		}
+		roleType := emptyDefault(strings.TrimSpace(target.RoleType), "operator")
+		organization := firstNonEmpty(strings.TrimSpace(target.Organization), strings.TrimSpace(target.DisplayName))
+		if organization == "" {
+			organization = "Official stakeholder"
+		}
+		source := emptyDefault(strings.TrimSpace(target.TargetSource), "saved_case_target")
+		baseConfidence := target.ConfidenceScore
+		if baseConfidence <= 0 {
+			baseConfidence = 0.74
+		}
+		key := strings.Join([]string{
+			strings.ToLower(roleType),
+			strings.ToLower(organization),
+			canonicalURLKey(firstNonEmpty(contactURL, website)),
+		}, "|")
+		if key == "" {
+			continue
+		}
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		seeds = append(seeds, existingWebsiteSeed{
+			RoleType:       roleType,
+			Organization:   organization,
+			Website:        firstNonEmpty(website, contactURL),
+			ContactURL:     firstNonEmpty(contactURL, website),
+			Source:         source,
+			BaseConfidence: maxFloat(baseConfidence, 0.72),
+			Rationale:      fmt.Sprintf("Official website previously associated with %s.", organization),
+		})
+	}
+	return seeds
+}
+
+func existingTargetWebsiteSeed(target models.CaseEscalationTarget) (string, string) {
+	candidates := []string{
+		strings.TrimSpace(target.Website),
+		strings.TrimSpace(target.ContactURL),
+		strings.TrimSpace(target.SourceURL),
+	}
+	legacyEmail := strings.TrimSpace(target.Email)
+	if legacyEmail != "" && normalizeEmail(legacyEmail) == "" {
+		candidates = append(candidates, legacyEmail)
+	}
+
+	var website string
+	var contactURL string
+	for _, raw := range candidates {
+		if raw == "" {
+			continue
+		}
+		if contactURL == "" {
+			contactURL = normalizeFlexibleURL(raw)
+		}
+		if website == "" {
+			website = normalizeWebsiteURL(raw)
+		}
+	}
+	return website, firstNonEmpty(contactURL, website)
+}
+
 func buildCaseDiscoverySeeds(reports []models.ReportWithAnalysis, maxSeeds int) []caseDiscoverySeed {
 	if maxSeeds <= 0 {
 		maxSeeds = 1
@@ -350,8 +447,10 @@ func buildCaseDiscoverySeeds(reports []models.ReportWithAnalysis, maxSeeds int) 
 			names = appendUniqueStrings(names,
 				strings.TrimSpace(analysis.BrandDisplayName),
 				strings.TrimSpace(analysis.BrandName),
-				strings.TrimSpace(analysis.Title),
 			)
+			if preferredClassification(&report) == "digital" {
+				names = appendUniqueStrings(names, strings.TrimSpace(analysis.Title))
+			}
 		}
 		seeds = append(seeds, caseDiscoverySeed{
 			Latitude:  report.Report.Latitude,
@@ -441,9 +540,12 @@ func countPreferredCaseTargets(targets []models.CaseEscalationTarget) int {
 }
 
 func buildCaseStakeholderSearchQueries(candidateNames []string, locCtx *caseLocationContext, hazard caseHazardProfile) []caseStakeholderSearchQuery {
-	primaryName := firstNonEmpty(candidateNames...)
+	primaryName := ""
 	if locCtx != nil {
-		primaryName = firstNonEmpty(primaryName, locCtx.PrimaryName, locCtx.ParentOrg, locCtx.Operator)
+		primaryName = firstNonEmpty(locCtx.PrimaryName, locCtx.ParentOrg, locCtx.Operator)
+	}
+	if primaryName == "" {
+		primaryName = bestStakeholderNameCandidate(candidateNames)
 	}
 	primaryName = strings.TrimSpace(primaryName)
 	if primaryName == "" {
@@ -576,6 +678,37 @@ func buildCaseStakeholderSearchQueries(candidateNames []string, locCtx *caseLoca
 	}
 
 	return queries
+}
+
+func bestStakeholderNameCandidate(candidateNames []string) string {
+	for _, candidate := range candidateNames {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" || isLikelyIncidentDescriptorName(candidate) {
+			continue
+		}
+		return candidate
+	}
+	return firstNonEmpty(candidateNames...)
+}
+
+func isLikelyIncidentDescriptorName(candidate string) bool {
+	lower := strings.ToLower(strings.TrimSpace(candidate))
+	if lower == "" {
+		return false
+	}
+	incidentTokens := []string{
+		"hazard", "incident", "defect", "damage", "failure", "crack", "cracking",
+		"structural", "unsafe", "danger", "collapse", "debris", "falling",
+		"obstruction", "leak", "litter", "trash", "graffiti", "pothole", "bug",
+		"vulnerability", "outage", "exposed", "deterioration", "anomaly",
+	}
+	hits := 0
+	for _, token := range incidentTokens {
+		if strings.Contains(lower, token) {
+			hits++
+		}
+	}
+	return hits >= 2
 }
 
 func webSearchRegionForLocation(locCtx *caseLocationContext) string {
@@ -1609,6 +1742,7 @@ func normalizeCaseEscalationTarget(target models.CaseEscalationTarget) (models.C
 	target.RoleType = emptyDefault(strings.TrimSpace(target.RoleType), "contact")
 	target.Organization = strings.TrimSpace(target.Organization)
 	target.DisplayName = strings.TrimSpace(target.DisplayName)
+	rawEmail := strings.TrimSpace(target.Email)
 	target.Email = normalizeEmail(target.Email)
 	target.Phone = normalizePhone(target.Phone)
 	target.Website = normalizeWebsiteURL(target.Website)
@@ -1620,6 +1754,15 @@ func normalizeCaseEscalationTarget(target models.CaseEscalationTarget) (models.C
 	target.SocialHandle = normalizeSocialHandle(target.SocialHandle)
 	target.TargetSource = emptyDefault(strings.TrimSpace(target.TargetSource), "suggested")
 	target.Rationale = strings.TrimSpace(target.Rationale)
+	if target.Email == "" && rawEmail != "" {
+		if recoveredWebsite := normalizeWebsiteURL(rawEmail); recoveredWebsite != "" {
+			target.Website = firstNonEmpty(target.Website, recoveredWebsite)
+			target.ContactURL = firstNonEmpty(target.ContactURL, normalizeFlexibleURL(rawEmail), recoveredWebsite)
+			if strings.TrimSpace(target.Channel) == "" || strings.EqualFold(strings.TrimSpace(target.Channel), "email") {
+				target.Channel = "website"
+			}
+		}
+	}
 	if target.DisplayName == "" {
 		target.DisplayName = target.Organization
 	}
@@ -2371,6 +2514,13 @@ func hostLooksLikeOrganization(rawURL, organization string) bool {
 
 func compactWhitespace(value string) string {
 	return strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
+}
+
+func maxFloat(left, right float64) float64 {
+	if left > right {
+		return left
+	}
+	return right
 }
 
 func normalizeEmail(email string) string {

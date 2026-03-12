@@ -682,6 +682,24 @@ func (h *Handlers) enrichCaseEscalationTargets(ctx context.Context, detail *mode
 }
 
 func filterVisibleCaseTargets(targets []models.CaseEscalationTarget) []models.CaseEscalationTarget {
+	normalized := make([]models.CaseEscalationTarget, 0, len(targets))
+	seen := make(map[string]struct{})
+	for _, target := range targets {
+		cleaned, ok := normalizeCaseEscalationTarget(target)
+		if !ok {
+			continue
+		}
+		key := caseEscalationTargetKey(cleaned)
+		if key != "" {
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+		}
+		normalized = append(normalized, cleaned)
+	}
+	targets = normalized
+
 	hasPreferred := false
 	for _, target := range targets {
 		if strings.EqualFold(strings.TrimSpace(target.TargetSource), "inferred_contact") {
