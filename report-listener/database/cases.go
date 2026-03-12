@@ -360,6 +360,12 @@ func (d *Database) GetCaseDetail(ctx context.Context, caseID string) (*models.Ca
 	if detail.EscalationTargets, err = d.listCaseEscalationTargets(ctx, caseID); err != nil {
 		return nil, err
 	}
+	if detail.ContactObservations, err = d.listCaseContactObservations(ctx, caseID); err != nil {
+		return nil, err
+	}
+	if detail.NotifyPlan, err = d.getActiveCaseNotifyPlan(ctx, caseID); err != nil {
+		return nil, err
+	}
 	if detail.EscalationActions, err = d.listCaseEscalationActions(ctx, caseID); err != nil {
 		return nil, err
 	}
@@ -393,6 +399,10 @@ func (d *Database) UpsertCaseEscalationTargets(ctx context.Context, caseID strin
 	if err != nil {
 		return nil, err
 	}
+	existingIDs, err := loadExistingCaseTargetIDsTx(ctx, tx, caseID)
+	if err != nil {
+		return nil, err
+	}
 
 	for _, target := range targets {
 		if !hasCaseEscalationContactMethod(target) {
@@ -400,23 +410,79 @@ func (d *Database) UpsertCaseEscalationTargets(ctx context.Context, caseID strin
 		}
 		key := caseEscalationTargetDedupKey(target)
 		if key != "" {
-			if _, exists := existingKeys[key]; exists {
+			if existingID, exists := existingIDs[key]; exists {
+				if _, err := tx.ExecContext(ctx, `
+					UPDATE case_escalation_targets
+					SET
+						role_type = ?,
+						decision_scope = ?,
+						organization = ?,
+						display_name = ?,
+						channel = ?,
+						email = ?,
+						phone = ?,
+						website = ?,
+						contact_url = ?,
+						social_platform = ?,
+						social_handle = ?,
+						source_url = ?,
+						evidence_text = ?,
+						verification_level = ?,
+						attribution_class = ?,
+						target_source = ?,
+						confidence_score = ?,
+						actionability_score = ?,
+						notify_tier = ?,
+						send_eligibility = ?,
+						rationale = ?,
+						reason_selected = ?
+					WHERE id = ?
+				`,
+					emptyOrDefault(target.RoleType, "contact"),
+					emptyOrDefault(target.DecisionScope, "other"),
+					emptyOrNil(target.Organization),
+					emptyOrNil(target.DisplayName),
+					emptyOrDefault(caseEscalationTargetChannel(target), "email"),
+					emptyOrNil(target.Email),
+					emptyOrNil(target.Phone),
+					emptyOrNil(target.Website),
+					emptyOrNil(target.ContactURL),
+					emptyOrNil(target.SocialPlatform),
+					emptyOrNil(target.SocialHandle),
+					emptyOrNil(target.SourceURL),
+					emptyOrNil(target.EvidenceText),
+					emptyOrNil(target.Verification),
+					emptyOrDefault(target.AttributionClass, "heuristic"),
+					emptyOrDefault(target.TargetSource, "suggested"),
+					target.ConfidenceScore,
+					target.ActionabilityScore,
+					target.NotifyTier,
+					emptyOrDefault(target.SendEligibility, "review"),
+					emptyOrNil(target.Rationale),
+					emptyOrNil(target.ReasonSelected),
+					existingID,
+				); err != nil {
+					return nil, fmt.Errorf("update case escalation target: %w", err)
+				}
 				continue
 			}
 			existingKeys[key] = struct{}{}
+			existingIDs[key] = 0
 		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO case_escalation_targets (
-				case_id, role_type, organization, display_name, channel, email, phone,
+				case_id, role_type, decision_scope, organization, display_name, channel, email, phone,
 				website, contact_url, social_platform, social_handle, source_url, evidence_text, verification_level,
-				target_source, confidence_score, rationale
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		`, caseID, emptyOrDefault(target.RoleType, "contact"), emptyOrNil(target.Organization),
+				attribution_class, target_source, confidence_score, actionability_score, notify_tier, send_eligibility, rationale, reason_selected
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, caseID, emptyOrDefault(target.RoleType, "contact"), emptyOrDefault(target.DecisionScope, "other"), emptyOrNil(target.Organization),
 			emptyOrNil(target.DisplayName), emptyOrDefault(caseEscalationTargetChannel(target), "email"),
 			emptyOrNil(target.Email), emptyOrNil(target.Phone), emptyOrNil(target.Website),
 			emptyOrNil(target.ContactURL), emptyOrNil(target.SocialPlatform), emptyOrNil(target.SocialHandle),
 			emptyOrNil(target.SourceURL), emptyOrNil(target.EvidenceText), emptyOrNil(target.Verification),
-			emptyOrDefault(target.TargetSource, "suggested"), target.ConfidenceScore, emptyOrNil(target.Rationale)); err != nil {
+			emptyOrDefault(target.AttributionClass, "heuristic"), emptyOrDefault(target.TargetSource, "suggested"), target.ConfidenceScore,
+			target.ActionabilityScore, target.NotifyTier, emptyOrDefault(target.SendEligibility, "review"), emptyOrNil(target.Rationale),
+			emptyOrNil(target.ReasonSelected)); err != nil {
 			return nil, fmt.Errorf("insert case escalation target: %w", err)
 		}
 	}
@@ -664,14 +730,15 @@ func (d *Database) listCaseClusters(ctx context.Context, caseID string) ([]model
 
 func (d *Database) listCaseEscalationTargets(ctx context.Context, caseID string) ([]models.CaseEscalationTarget, error) {
 	rows, err := d.db.QueryContext(ctx, `
-		SELECT id, case_id, role_type, COALESCE(organization, ''), COALESCE(display_name, ''),
+		SELECT id, case_id, role_type, COALESCE(decision_scope, ''), COALESCE(organization, ''), COALESCE(display_name, ''),
 			COALESCE(channel, ''), COALESCE(email, ''), COALESCE(phone, ''), COALESCE(website, ''),
 			COALESCE(contact_url, ''), COALESCE(social_platform, ''), COALESCE(social_handle, ''),
 			COALESCE(source_url, ''), COALESCE(evidence_text, ''), COALESCE(verification_level, ''),
-			target_source, confidence_score, COALESCE(rationale, ''), created_at
+			COALESCE(attribution_class, ''), target_source, confidence_score, actionability_score, notify_tier,
+			COALESCE(send_eligibility, ''), COALESCE(rationale, ''), COALESCE(reason_selected, ''), created_at
 		FROM case_escalation_targets
 		WHERE case_id = ?
-		ORDER BY confidence_score DESC, created_at ASC
+		ORDER BY notify_tier ASC, actionability_score DESC, confidence_score DESC, created_at ASC
 	`, caseID)
 	if err != nil {
 		return nil, fmt.Errorf("list escalation targets: %w", err)
@@ -682,10 +749,11 @@ func (d *Database) listCaseEscalationTargets(ctx context.Context, caseID string)
 	for rows.Next() {
 		var item models.CaseEscalationTarget
 		if err := rows.Scan(
-			&item.ID, &item.CaseID, &item.RoleType, &item.Organization, &item.DisplayName,
+			&item.ID, &item.CaseID, &item.RoleType, &item.DecisionScope, &item.Organization, &item.DisplayName,
 			&item.Channel, &item.Email, &item.Phone, &item.Website, &item.ContactURL,
 			&item.SocialPlatform, &item.SocialHandle, &item.SourceURL, &item.EvidenceText,
-			&item.Verification, &item.TargetSource, &item.ConfidenceScore, &item.Rationale, &item.CreatedAt,
+			&item.Verification, &item.AttributionClass, &item.TargetSource, &item.ConfidenceScore, &item.ActionabilityScore,
+			&item.NotifyTier, &item.SendEligibility, &item.Rationale, &item.ReasonSelected, &item.CreatedAt,
 		); err != nil {
 			return nil, err
 		}

@@ -68,9 +68,14 @@ func (h *Handlers) GetCaseEscalations(c *gin.Context) {
 			detail.EscalationTargets = enriched
 		}
 	}
+	if err := h.syncCaseContactStrategy(c.Request.Context(), detail); err != nil {
+		log.Printf("warn: case contact routing sync failed for %s: %v", c.Param("case_id"), err)
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"case_id":      detail.Case.CaseID,
 		"targets":      detail.EscalationTargets,
+		"observations": detail.ContactObservations,
+		"notify_plan":  detail.NotifyPlan,
 		"actions":      detail.EscalationActions,
 		"deliveries":   detail.EmailDeliveries,
 		"linked_count": len(detail.LinkedReports),

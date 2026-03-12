@@ -901,6 +901,125 @@ func ensureCaseEscalationTargetEvidenceColumns(ctx context.Context, db *sql.DB) 
 	return nil
 }
 
+func ensureCaseContactRoutingTables(ctx context.Context, db *sql.DB) error {
+	stmts := []string{
+		`CREATE TABLE IF NOT EXISTS case_contact_observations (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			case_id VARCHAR(64) NOT NULL,
+			role_type VARCHAR(64) NOT NULL DEFAULT 'contact',
+			decision_scope VARCHAR(64) NOT NULL DEFAULT 'other',
+			organization_name VARCHAR(255) NULL,
+			person_name VARCHAR(255) NULL,
+			channel_type VARCHAR(32) NOT NULL DEFAULT 'email',
+			channel_value VARCHAR(512) NULL,
+			email VARCHAR(255) NULL,
+			phone VARCHAR(64) NULL,
+			website VARCHAR(512) NULL,
+			contact_url VARCHAR(512) NULL,
+			social_platform VARCHAR(64) NULL,
+			social_handle VARCHAR(255) NULL,
+			source_url VARCHAR(512) NULL,
+			evidence_text TEXT NULL,
+			verification_level VARCHAR(64) NULL,
+			attribution_class VARCHAR(64) NOT NULL DEFAULT 'heuristic',
+			confidence_score FLOAT NOT NULL DEFAULT 0,
+			target_source VARCHAR(64) NOT NULL DEFAULT 'suggested',
+			discovered_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (id),
+			KEY idx_case_contact_observations_case (case_id, confidence_score),
+			KEY idx_case_contact_observations_scope (case_id, decision_scope),
+			KEY idx_case_contact_observations_channel (case_id, channel_type),
+			CONSTRAINT fk_case_contact_observations_case FOREIGN KEY (case_id) REFERENCES cases(case_id) ON DELETE CASCADE
+		) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
+		`CREATE TABLE IF NOT EXISTS case_notify_plans (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			case_id VARCHAR(64) NOT NULL,
+			plan_version INT NOT NULL DEFAULT 1,
+			hazard_mode VARCHAR(64) NOT NULL DEFAULT 'standard',
+			status VARCHAR(32) NOT NULL DEFAULT 'active',
+			summary TEXT NULL,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			PRIMARY KEY (id),
+			KEY idx_case_notify_plans_case (case_id, status, updated_at),
+			CONSTRAINT fk_case_notify_plans_case FOREIGN KEY (case_id) REFERENCES cases(case_id) ON DELETE CASCADE
+		) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
+		`CREATE TABLE IF NOT EXISTS case_notify_plan_items (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			plan_id BIGINT UNSIGNED NOT NULL,
+			target_id BIGINT UNSIGNED NULL,
+			observation_id BIGINT UNSIGNED NULL,
+			wave_number INT NOT NULL DEFAULT 1,
+			priority_rank INT NOT NULL DEFAULT 0,
+			role_type VARCHAR(64) NOT NULL DEFAULT 'contact',
+			decision_scope VARCHAR(64) NOT NULL DEFAULT 'other',
+			actionability_score FLOAT NOT NULL DEFAULT 0,
+			send_eligibility VARCHAR(32) NOT NULL DEFAULT 'review',
+			reason_selected TEXT NULL,
+			selected BOOL NOT NULL DEFAULT FALSE,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (id),
+			KEY idx_case_notify_plan_items_plan (plan_id, wave_number, priority_rank),
+			KEY idx_case_notify_plan_items_target (target_id),
+			KEY idx_case_notify_plan_items_observation (observation_id),
+			CONSTRAINT fk_case_notify_plan_items_plan FOREIGN KEY (plan_id) REFERENCES case_notify_plans(id) ON DELETE CASCADE,
+			CONSTRAINT fk_case_notify_plan_items_target FOREIGN KEY (target_id) REFERENCES case_escalation_targets(id) ON DELETE SET NULL,
+			CONSTRAINT fk_case_notify_plan_items_observation FOREIGN KEY (observation_id) REFERENCES case_contact_observations(id) ON DELETE SET NULL
+		) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
+	}
+	for _, stmt := range stmts {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("failed to ensure case contact routing table: %w", err)
+		}
+	}
+
+	targetColumns := []struct {
+		name string
+		sql  string
+	}{
+		{name: "decision_scope", sql: "ALTER TABLE case_escalation_targets ADD COLUMN decision_scope VARCHAR(64) NOT NULL DEFAULT 'other' AFTER role_type"},
+		{name: "attribution_class", sql: "ALTER TABLE case_escalation_targets ADD COLUMN attribution_class VARCHAR(64) NOT NULL DEFAULT 'heuristic' AFTER verification_level"},
+		{name: "actionability_score", sql: "ALTER TABLE case_escalation_targets ADD COLUMN actionability_score FLOAT NOT NULL DEFAULT 0 AFTER confidence_score"},
+		{name: "notify_tier", sql: "ALTER TABLE case_escalation_targets ADD COLUMN notify_tier INT NOT NULL DEFAULT 3 AFTER actionability_score"},
+		{name: "send_eligibility", sql: "ALTER TABLE case_escalation_targets ADD COLUMN send_eligibility VARCHAR(32) NOT NULL DEFAULT 'review' AFTER notify_tier"},
+		{name: "reason_selected", sql: "ALTER TABLE case_escalation_targets ADD COLUMN reason_selected TEXT NULL AFTER rationale"},
+	}
+	for _, column := range targetColumns {
+		exists, err := columnExists(ctx, db, "case_escalation_targets", column.name)
+		if err != nil {
+			return fmt.Errorf("failed to check case_escalation_targets.%s column: %w", column.name, err)
+		}
+		if exists {
+			continue
+		}
+		if _, err := db.ExecContext(ctx, column.sql); err != nil {
+			return fmt.Errorf("failed to add case_escalation_targets.%s column: %w", column.name, err)
+		}
+	}
+
+	if _, err := db.ExecContext(ctx, `
+		UPDATE case_escalation_targets
+		SET
+			decision_scope = CASE
+				WHEN role_type IN ('operator', 'operator_admin', 'site_leadership', 'facility_manager') THEN 'site_ops'
+				WHEN role_type IN ('owner', 'property_owner', 'landlord') THEN 'asset_owner'
+				WHEN role_type IN ('building_authority', 'public_safety', 'fire_authority') THEN 'regulator'
+				WHEN role_type IN ('architect', 'engineer', 'contractor') THEN 'project_party'
+				ELSE 'other'
+			END,
+			attribution_class = CASE
+				WHEN COALESCE(verification_level, '') LIKE 'official%' OR target_source LIKE 'area_contact%' THEN 'official_direct'
+				WHEN target_source LIKE 'google_places%' OR COALESCE(verification_level, '') IN ('directory_listing', 'mapped_area_contact') THEN 'official_registry'
+				WHEN target_source = 'inferred_contact' THEN 'heuristic'
+				ELSE 'heuristic'
+			END
+	`); err != nil {
+		return fmt.Errorf("failed to backfill case contact routing columns: %w", err)
+	}
+
+	return nil
+}
+
 func ensureCaseAccumulationColumns(ctx context.Context, db *sql.DB) error {
 	savedClusterColumns := []struct {
 		name string

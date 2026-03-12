@@ -147,25 +147,83 @@ type CaseReportLink struct {
 }
 
 type CaseEscalationTarget struct {
-	ID              int64     `json:"id" db:"id"`
-	CaseID          string    `json:"case_id" db:"case_id"`
-	RoleType        string    `json:"role_type" db:"role_type"`
-	Organization    string    `json:"organization" db:"organization"`
-	DisplayName     string    `json:"display_name" db:"display_name"`
-	Channel         string    `json:"channel" db:"channel"`
-	Email           string    `json:"email" db:"email"`
-	Phone           string    `json:"phone" db:"phone"`
-	Website         string    `json:"website" db:"website"`
-	ContactURL      string    `json:"contact_url" db:"contact_url"`
-	SocialPlatform  string    `json:"social_platform" db:"social_platform"`
-	SocialHandle    string    `json:"social_handle" db:"social_handle"`
-	SourceURL       string    `json:"source_url" db:"source_url"`
-	EvidenceText    string    `json:"evidence_text" db:"evidence_text"`
-	Verification    string    `json:"verification_level" db:"verification_level"`
-	TargetSource    string    `json:"target_source" db:"target_source"`
-	ConfidenceScore float64   `json:"confidence_score" db:"confidence_score"`
-	Rationale       string    `json:"rationale" db:"rationale"`
-	CreatedAt       time.Time `json:"created_at" db:"created_at"`
+	ID                 int64     `json:"id" db:"id"`
+	CaseID             string    `json:"case_id" db:"case_id"`
+	RoleType           string    `json:"role_type" db:"role_type"`
+	DecisionScope      string    `json:"decision_scope" db:"decision_scope"`
+	Organization       string    `json:"organization" db:"organization"`
+	DisplayName        string    `json:"display_name" db:"display_name"`
+	Channel            string    `json:"channel" db:"channel"`
+	Email              string    `json:"email" db:"email"`
+	Phone              string    `json:"phone" db:"phone"`
+	Website            string    `json:"website" db:"website"`
+	ContactURL         string    `json:"contact_url" db:"contact_url"`
+	SocialPlatform     string    `json:"social_platform" db:"social_platform"`
+	SocialHandle       string    `json:"social_handle" db:"social_handle"`
+	SourceURL          string    `json:"source_url" db:"source_url"`
+	EvidenceText       string    `json:"evidence_text" db:"evidence_text"`
+	Verification       string    `json:"verification_level" db:"verification_level"`
+	AttributionClass   string    `json:"attribution_class" db:"attribution_class"`
+	TargetSource       string    `json:"target_source" db:"target_source"`
+	ConfidenceScore    float64   `json:"confidence_score" db:"confidence_score"`
+	ActionabilityScore float64   `json:"actionability_score" db:"actionability_score"`
+	NotifyTier         int       `json:"notify_tier" db:"notify_tier"`
+	SendEligibility    string    `json:"send_eligibility" db:"send_eligibility"`
+	ReasonSelected     string    `json:"reason_selected" db:"reason_selected"`
+	Rationale          string    `json:"rationale" db:"rationale"`
+	CreatedAt          time.Time `json:"created_at" db:"created_at"`
+}
+
+type CaseContactObservation struct {
+	ID               int64     `json:"id" db:"id"`
+	CaseID           string    `json:"case_id" db:"case_id"`
+	RoleType         string    `json:"role_type" db:"role_type"`
+	DecisionScope    string    `json:"decision_scope" db:"decision_scope"`
+	OrganizationName string    `json:"organization_name" db:"organization_name"`
+	PersonName       string    `json:"person_name" db:"person_name"`
+	ChannelType      string    `json:"channel_type" db:"channel_type"`
+	ChannelValue     string    `json:"channel_value" db:"channel_value"`
+	Email            string    `json:"email" db:"email"`
+	Phone            string    `json:"phone" db:"phone"`
+	Website          string    `json:"website" db:"website"`
+	ContactURL       string    `json:"contact_url" db:"contact_url"`
+	SocialPlatform   string    `json:"social_platform" db:"social_platform"`
+	SocialHandle     string    `json:"social_handle" db:"social_handle"`
+	SourceURL        string    `json:"source_url" db:"source_url"`
+	EvidenceText     string    `json:"evidence_text" db:"evidence_text"`
+	Verification     string    `json:"verification_level" db:"verification_level"`
+	AttributionClass string    `json:"attribution_class" db:"attribution_class"`
+	ConfidenceScore  float64   `json:"confidence_score" db:"confidence_score"`
+	TargetSource     string    `json:"target_source" db:"target_source"`
+	DiscoveredAt     time.Time `json:"discovered_at" db:"discovered_at"`
+}
+
+type CaseNotifyPlanItem struct {
+	ID                 int64     `json:"id" db:"id"`
+	PlanID             int64     `json:"plan_id" db:"plan_id"`
+	TargetID           *int64    `json:"target_id,omitempty" db:"target_id"`
+	ObservationID      *int64    `json:"observation_id,omitempty" db:"observation_id"`
+	WaveNumber         int       `json:"wave_number" db:"wave_number"`
+	PriorityRank       int       `json:"priority_rank" db:"priority_rank"`
+	RoleType           string    `json:"role_type" db:"role_type"`
+	DecisionScope      string    `json:"decision_scope" db:"decision_scope"`
+	ActionabilityScore float64   `json:"actionability_score" db:"actionability_score"`
+	SendEligibility    string    `json:"send_eligibility" db:"send_eligibility"`
+	ReasonSelected     string    `json:"reason_selected" db:"reason_selected"`
+	Selected           bool      `json:"selected" db:"selected"`
+	CreatedAt          time.Time `json:"created_at" db:"created_at"`
+}
+
+type CaseNotifyPlan struct {
+	ID          int64                `json:"id" db:"id"`
+	CaseID      string               `json:"case_id" db:"case_id"`
+	PlanVersion int                  `json:"plan_version" db:"plan_version"`
+	HazardMode  string               `json:"hazard_mode" db:"hazard_mode"`
+	Status      string               `json:"status" db:"status"`
+	Summary     string               `json:"summary" db:"summary"`
+	CreatedAt   time.Time            `json:"created_at" db:"created_at"`
+	UpdatedAt   time.Time            `json:"updated_at" db:"updated_at"`
+	Items       []CaseNotifyPlanItem `json:"items"`
 }
 
 type CaseEscalationAction struct {
@@ -218,14 +276,16 @@ type CaseAuditEvent struct {
 }
 
 type CaseDetail struct {
-	Case              Case                   `json:"case"`
-	LinkedReports     []CaseReportLink       `json:"linked_reports"`
-	Clusters          []SavedCluster         `json:"clusters"`
-	EscalationTargets []CaseEscalationTarget `json:"escalation_targets"`
-	EscalationActions []CaseEscalationAction `json:"escalation_actions"`
-	EmailDeliveries   []CaseEmailDelivery    `json:"email_deliveries"`
-	ResolutionSignals []CaseResolutionSignal `json:"resolution_signals"`
-	AuditEvents       []CaseAuditEvent       `json:"audit_events"`
+	Case                Case                     `json:"case"`
+	LinkedReports       []CaseReportLink         `json:"linked_reports"`
+	Clusters            []SavedCluster           `json:"clusters"`
+	EscalationTargets   []CaseEscalationTarget   `json:"escalation_targets"`
+	ContactObservations []CaseContactObservation `json:"contact_observations"`
+	NotifyPlan          *CaseNotifyPlan          `json:"notify_plan,omitempty"`
+	EscalationActions   []CaseEscalationAction   `json:"escalation_actions"`
+	EmailDeliveries     []CaseEmailDelivery      `json:"email_deliveries"`
+	ResolutionSignals   []CaseResolutionSignal   `json:"resolution_signals"`
+	AuditEvents         []CaseAuditEvent         `json:"audit_events"`
 }
 
 type ReportCaseSummary struct {

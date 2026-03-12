@@ -25,6 +25,7 @@ func RunMigrations(ctx context.Context, db *sql.DB) error {
 		{ID: "0013_wire_submission_actor_columns", Description: "add actor/channel/risk columns to wire submissions", Up: func(ctx context.Context, db *sql.DB) error { return ensureWireSubmissionActorColumns(ctx, db) }},
 		{ID: "0014_case_accumulation_columns", Description: "add case accumulation and cluster matching columns", Up: func(ctx context.Context, db *sql.DB) error { return ensureCaseAccumulationColumns(ctx, db) }},
 		{ID: "0015_case_escalation_target_evidence", Description: "add evidence metadata to case escalation targets", Up: func(ctx context.Context, db *sql.DB) error { return ensureCaseEscalationTargetEvidenceColumns(ctx, db) }},
+		{ID: "0016_case_contact_routing", Description: "add case contact observations and notify plan tables", Up: func(ctx context.Context, db *sql.DB) error { return ensureCaseContactRoutingTables(ctx, db) }},
 	})
 }
 

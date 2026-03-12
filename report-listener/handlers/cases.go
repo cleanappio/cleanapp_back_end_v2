@@ -485,6 +485,9 @@ func (h *Handlers) CreateCase(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "cluster attached but failed to load case"})
 			return
 		}
+		if err := h.syncCaseContactStrategy(c.Request.Context(), detail); err != nil {
+			log.Printf("warn: failed to sync case contact strategy for %s: %v", targetCaseID, err)
+		}
 		c.JSON(http.StatusOK, detail)
 		return
 	}
@@ -497,6 +500,9 @@ func (h *Handlers) CreateCase(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "case created but failed to load detail"})
 		return
+	}
+	if err := h.syncCaseContactStrategy(c.Request.Context(), detail); err != nil {
+		log.Printf("warn: failed to sync case contact strategy for %s: %v", caseRecord.CaseID, err)
 	}
 	c.JSON(http.StatusCreated, detail)
 }
@@ -525,6 +531,9 @@ func (h *Handlers) MergeCases(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "cases merged but failed to load target case"})
 		return
 	}
+	if err := h.syncCaseContactStrategy(c.Request.Context(), detail); err != nil {
+		log.Printf("warn: failed to sync case contact strategy for %s: %v", req.TargetCaseID, err)
+	}
 	c.JSON(http.StatusOK, detail)
 }
 
@@ -543,6 +552,11 @@ func (h *Handlers) GetCase(c *gin.Context) {
 			log.Printf("warn: case escalation target enrichment failed for %s: %v", c.Param("case_id"), err)
 		} else if len(enriched) > 0 {
 			detail.EscalationTargets = enriched
+		}
+	}
+	if detail.NotifyPlan == nil || len(detail.ContactObservations) == 0 || queryBoolParam(c, "refresh_targets") {
+		if err := h.syncCaseContactStrategy(c.Request.Context(), detail); err != nil {
+			log.Printf("warn: failed to sync case contact strategy for %s: %v", c.Param("case_id"), err)
 		}
 	}
 	c.JSON(http.StatusOK, detail)
@@ -567,6 +581,9 @@ func (h *Handlers) AddReportsToCase(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "reports attached but failed to reload case"})
 		return
+	}
+	if err := h.syncCaseContactStrategy(c.Request.Context(), detail); err != nil {
+		log.Printf("warn: failed to sync case contact strategy for %s: %v", c.Param("case_id"), err)
 	}
 	c.JSON(http.StatusOK, detail)
 }
@@ -597,6 +614,9 @@ func (h *Handlers) UpdateCaseStatus(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "status updated but failed to reload case"})
 		return
+	}
+	if err := h.syncCaseContactStrategy(c.Request.Context(), detail); err != nil {
+		log.Printf("warn: failed to sync case contact strategy for %s: %v", c.Param("case_id"), err)
 	}
 	c.JSON(http.StatusOK, detail)
 }

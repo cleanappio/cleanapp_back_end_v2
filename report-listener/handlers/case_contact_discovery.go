@@ -1894,6 +1894,7 @@ func caseDiscoveryTargetChannel(target models.CaseEscalationTarget) string {
 
 func normalizeCaseEscalationTarget(target models.CaseEscalationTarget) (models.CaseEscalationTarget, bool) {
 	target.RoleType = emptyDefault(strings.TrimSpace(target.RoleType), "contact")
+	target.DecisionScope = strings.TrimSpace(target.DecisionScope)
 	target.Organization = strings.TrimSpace(target.Organization)
 	target.DisplayName = strings.TrimSpace(target.DisplayName)
 	rawEmail := strings.TrimSpace(target.Email)
@@ -1908,9 +1909,12 @@ func normalizeCaseEscalationTarget(target models.CaseEscalationTarget) (models.C
 	target.SourceURL = normalizeFlexibleURL(target.SourceURL)
 	target.EvidenceText = compactWhitespace(target.EvidenceText)
 	target.Verification = strings.TrimSpace(target.Verification)
+	target.AttributionClass = strings.TrimSpace(target.AttributionClass)
 	target.SocialPlatform = normalizeSocialPlatform(target.SocialPlatform)
 	target.SocialHandle = normalizeSocialHandle(target.SocialHandle)
 	target.TargetSource = emptyDefault(strings.TrimSpace(target.TargetSource), "suggested")
+	target.SendEligibility = strings.TrimSpace(target.SendEligibility)
+	target.ReasonSelected = strings.TrimSpace(target.ReasonSelected)
 	target.Rationale = strings.TrimSpace(target.Rationale)
 	if target.Email != "" && !shouldKeepWebsiteDiscoveredContact(target.RoleType, firstNonEmpty(target.Organization, target.DisplayName), firstNonEmpty(target.Website, target.SourceURL), caseDiscoveredContact{
 		Channel: "email",
@@ -1979,6 +1983,7 @@ func mergeCaseEscalationTargets(existing, incoming models.CaseEscalationTarget) 
 		primary, secondary = incoming, existing
 	}
 	primary.RoleType = firstNonEmpty(primary.RoleType, secondary.RoleType)
+	primary.DecisionScope = firstNonEmpty(primary.DecisionScope, secondary.DecisionScope)
 	primary.Organization = firstNonEmpty(primary.Organization, secondary.Organization)
 	primary.DisplayName = firstNonEmpty(primary.DisplayName, secondary.DisplayName)
 	primary.Channel = firstNonEmpty(primary.Channel, secondary.Channel)
@@ -1989,9 +1994,18 @@ func mergeCaseEscalationTargets(existing, incoming models.CaseEscalationTarget) 
 	primary.SourceURL = firstNonEmpty(primary.SourceURL, secondary.SourceURL)
 	primary.EvidenceText = firstNonEmpty(primary.EvidenceText, secondary.EvidenceText)
 	primary.Verification = firstNonEmpty(primary.Verification, secondary.Verification)
+	primary.AttributionClass = firstNonEmpty(primary.AttributionClass, secondary.AttributionClass)
 	primary.SocialPlatform = firstNonEmpty(primary.SocialPlatform, secondary.SocialPlatform)
 	primary.SocialHandle = firstNonEmpty(primary.SocialHandle, secondary.SocialHandle)
 	primary.TargetSource = firstNonEmpty(primary.TargetSource, secondary.TargetSource)
+	if secondary.ActionabilityScore > primary.ActionabilityScore {
+		primary.ActionabilityScore = secondary.ActionabilityScore
+	}
+	if primary.NotifyTier == 0 || (secondary.NotifyTier > 0 && secondary.NotifyTier < primary.NotifyTier) {
+		primary.NotifyTier = secondary.NotifyTier
+	}
+	primary.SendEligibility = firstNonEmpty(primary.SendEligibility, secondary.SendEligibility)
+	primary.ReasonSelected = firstNonEmpty(primary.ReasonSelected, secondary.ReasonSelected)
 	primary.Rationale = mergeRationale(primary.Rationale, secondary.Rationale)
 	return primary
 }

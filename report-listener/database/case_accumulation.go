@@ -536,6 +536,46 @@ func loadExistingCaseTargetKeysTx(ctx context.Context, tx *sql.Tx, caseID string
 	return keys, rows.Err()
 }
 
+func loadExistingCaseTargetIDsTx(ctx context.Context, tx *sql.Tx, caseID string) (map[string]int64, error) {
+	rows, err := tx.QueryContext(ctx, `
+		SELECT id, COALESCE(channel, ''), COALESCE(email, ''), COALESCE(phone, ''), COALESCE(website, ''),
+			COALESCE(contact_url, ''), COALESCE(social_platform, ''), COALESCE(social_handle, ''),
+			COALESCE(organization, ''), COALESCE(display_name, '')
+		FROM case_escalation_targets
+		WHERE case_id = ?
+	`, caseID)
+	if err != nil {
+		return nil, fmt.Errorf("load existing case target ids: %w", err)
+	}
+	defer rows.Close()
+
+	keys := make(map[string]int64)
+	for rows.Next() {
+		var (
+			target models.CaseEscalationTarget
+			id     int64
+		)
+		if err := rows.Scan(
+			&id,
+			&target.Channel,
+			&target.Email,
+			&target.Phone,
+			&target.Website,
+			&target.ContactURL,
+			&target.SocialPlatform,
+			&target.SocialHandle,
+			&target.Organization,
+			&target.DisplayName,
+		); err != nil {
+			return nil, err
+		}
+		if key := caseEscalationTargetDedupKey(target); key != "" {
+			keys[key] = id
+		}
+	}
+	return keys, rows.Err()
+}
+
 func caseEscalationTargetDedupKey(target models.CaseEscalationTarget) string {
 	channel := strings.ToLower(strings.TrimSpace(caseEscalationTargetChannel(target)))
 	switch channel {
