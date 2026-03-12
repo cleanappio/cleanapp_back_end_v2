@@ -427,3 +427,21 @@ func TestEmailMatchesWebsiteOrOrganizationRejectsUnrelatedDomain(t *testing.T) {
 		t.Fatalf("expected related organization email on sister domain to be retained")
 	}
 }
+
+func TestNormalizeCaseEscalationTargetRejectsStoredUnrelatedAuthorityEmail(t *testing.T) {
+	target, ok := normalizeCaseEscalationTarget(models.CaseEscalationTarget{
+		RoleType:        "building_authority",
+		Channel:         "email",
+		Organization:    "Stadt Adliswil",
+		Email:           "ndaniel.kummer@ekz.ch",
+		Website:         "https://www.adliswil.ch/departemente/1318",
+		TargetSource:    "web_search_website",
+		ConfidenceScore: 0.84,
+	})
+	if !ok {
+		t.Fatalf("expected target to survive as official website fallback")
+	}
+	if target.Email != "" || target.Channel != "website" {
+		t.Fatalf("expected unrelated email to be stripped and downgraded to website, got %#v", target)
+	}
+}

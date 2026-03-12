@@ -1912,7 +1912,16 @@ func normalizeCaseEscalationTarget(target models.CaseEscalationTarget) (models.C
 	target.SocialHandle = normalizeSocialHandle(target.SocialHandle)
 	target.TargetSource = emptyDefault(strings.TrimSpace(target.TargetSource), "suggested")
 	target.Rationale = strings.TrimSpace(target.Rationale)
-	if target.Email == "" && rawEmail != "" {
+	if target.Email != "" && !shouldKeepWebsiteDiscoveredContact(target.RoleType, firstNonEmpty(target.Organization, target.DisplayName), firstNonEmpty(target.Website, target.SourceURL), caseDiscoveredContact{
+		Channel: "email",
+		Email:   target.Email,
+	}) {
+		target.Email = ""
+		if strings.EqualFold(strings.TrimSpace(target.Channel), "email") {
+			target.Channel = ""
+		}
+	}
+	if target.Email == "" && rawEmail != "" && normalizeEmail(rawEmail) == "" {
 		if recoveredWebsite := normalizeWebsiteURL(rawEmail); recoveredWebsite != "" {
 			target.Website = firstNonEmpty(target.Website, recoveredWebsite)
 			target.ContactURL = firstNonEmpty(target.ContactURL, normalizeFlexibleURL(rawEmail), recoveredWebsite)
