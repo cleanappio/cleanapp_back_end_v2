@@ -139,6 +139,21 @@ func TestExtractPhonesRejectsObfuscationIntegers(t *testing.T) {
 	}
 }
 
+func TestExtractPhonesRejectsOfficeHoursRanges(t *testing.T) {
+	html := `<div>
+<p>Telefon 044 711 77 77</p>
+<p>Öffnungszeiten 08.00 - 11.30 / 13.30 - 16.00</p>
+</div>`
+
+	phones := extractPhonesFromHTML(html)
+	if len(phones) != 1 {
+		t.Fatalf("expected only the real phone number, got %#v", phones)
+	}
+	if phones[0] != "0447117777" {
+		t.Fatalf("unexpected phone extraction: %#v", phones)
+	}
+}
+
 func TestExtractLocalizedContactLinks(t *testing.T) {
 	html := `<html><body>
 <a href="/kontakt">Kontakt</a>
@@ -235,6 +250,21 @@ func TestNormalizeCaseEscalationTargetRepairsLegacyWebsiteEmail(t *testing.T) {
 	}
 }
 
+func TestNormalizeCaseEscalationTargetRejectsBogusPersistedPhone(t *testing.T) {
+	target, ok := normalizeCaseEscalationTarget(models.CaseEscalationTarget{
+		RoleType:        "contact",
+		Organization:    "Schulhaus Kopfholz",
+		Channel:         "phone",
+		Phone:           "1048513395",
+		EvidenceText:    "Herzlich willkommen auf der Webseite der Adliswiler Schulen",
+		TargetSource:    "area_contact_website",
+		ConfidenceScore: 0.88,
+	})
+	if ok {
+		t.Fatalf("expected bogus persisted phone target to be rejected, got %#v", target)
+	}
+}
+
 func TestBuildCaseStakeholderSearchQueriesPrefersLocationContextName(t *testing.T) {
 	queries := buildCaseStakeholderSearchQueries(
 		[]string{"Extreme Structural Hazard: Bricks Separating from Primary School Facade"},
@@ -312,5 +342,36 @@ func TestBuildCaseStakeholderSearchQueriesAddsAuthorityForSevereStructuralHazard
 		if _, ok := roleSet[required]; !ok {
 			t.Fatalf("expected query role %q in %#v", required, queries)
 		}
+	}
+}
+
+func TestBuildCaseStakeholderSearchQueriesPrioritizesAuthorities(t *testing.T) {
+	queries := buildCaseStakeholderSearchQueries(
+		[]string{"Brooklyn F Line Station"},
+		&caseLocationContext{
+			PrimaryName: "F Line Station",
+			City:        "Brooklyn",
+			State:       "New York",
+			CountryCode: "us",
+		},
+		caseHazardProfile{
+			Structural:         true,
+			Severe:             true,
+			Urgent:             true,
+			ImmediateDanger:    true,
+			SensitiveOccupancy: true,
+		},
+	)
+	if len(queries) < 5 {
+		t.Fatalf("expected multiple stakeholder queries, got %#v", queries)
+	}
+	if queries[0].RoleType != "operator" {
+		t.Fatalf("expected operator query first, got %#v", queries[0])
+	}
+	if queries[1].RoleType != "facility_manager" {
+		t.Fatalf("expected facility manager query second, got %#v", queries[1])
+	}
+	if queries[2].RoleType != "building_authority" {
+		t.Fatalf("expected building authority query before project-party queries, got %#v", queries)
 	}
 }

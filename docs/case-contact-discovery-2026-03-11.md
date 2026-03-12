@@ -49,6 +49,7 @@ The system should stay general-purpose:
   - `Bauamt`
   - similar operational/contact surfaces
 - Official pages using lightweight Alpine-style obfuscated email rendering are decoded.
+- Phone extraction is now constrained to phone-context lines and direct `tel:` links, which prevents office hours, year ranges, and JS obfuscation integers from being misclassified as phone contacts.
 
 ### Hazard-aware stakeholder expansion
 
@@ -63,6 +64,12 @@ The system should stay general-purpose:
 
 - If `GOOGLE_SEARCH_API_KEY` and `GOOGLE_SEARCH_CX` are configured, case discovery now prefers Google Custom Search for stakeholder page discovery.
 - DuckDuckGo HTML search remains the fallback.
+- For severe structural hazards, stakeholder search now prioritizes:
+  - operator
+  - facilities / site operations
+  - building authority
+  - fire/public-safety authority
+  - only then project parties such as architect / contractor / engineer
 
 ## Current Flow
 

@@ -36,6 +36,8 @@ var (
 	caseDiscoveryEmailRegex         = regexp.MustCompile(`(?i)\b([a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,})\b`)
 	caseDiscoveryTelRegex           = regexp.MustCompile(`(?i)tel:([^"'<>]+)`)
 	caseDiscoveryPhoneRegex         = regexp.MustCompile(`\+?[0-9][0-9()\-\.\s]{6,}[0-9]`)
+	caseDiscoveryTimeRangeRegex     = regexp.MustCompile(`^\s*\d{1,2}[\.:]\d{2}\s*[-–]\s*\d{1,2}[\.:]\d{2}\s*$`)
+	caseDiscoveryDateRangeRegex     = regexp.MustCompile(`^\s*(?:19|20)\d{2}\s*[-/]\s*(?:19|20)\d{2}\s*$`)
 	caseDiscoveryHrefRegex          = regexp.MustCompile(`(?i)href=["']([^"'#]+)["']`)
 	caseDiscoverySearchBlockedHosts = map[string]struct{}{
 		"duckduckgo.com":        {},
@@ -60,6 +62,10 @@ var (
 		"www.wikimapia.org":     {},
 		"openstreetmap.org":     {},
 		"www.openstreetmap.org": {},
+	}
+	caseDiscoveryPhoneContextKeywords = []string{
+		"tel", "telefon", "phone", "call", "hotline", "switchboard", "reception",
+		"kontakt", "contact", "office", "administration", "verwaltung", "zentrale",
 	}
 )
 
@@ -674,33 +680,6 @@ func buildCaseStakeholderSearchQueries(candidateNames []string, locCtx *caseLoca
 
 	if locality != "" {
 		queries = append(queries, caseStakeholderSearchQuery{
-			RoleType:        "architect",
-			Query:           strings.TrimSpace(baseQuery + " " + architectTerm),
-			Region:          region,
-			BaseConfidence:  0.83,
-			Rationale:       "Web search for the architect or design office linked to the structurally affected site.",
-			Organization:    primaryName,
-			RelationshipTag: "architect",
-		})
-		queries = append(queries, caseStakeholderSearchQuery{
-			RoleType:        "contractor",
-			Query:           strings.TrimSpace(baseQuery + " " + contractorTerm),
-			Region:          region,
-			BaseConfidence:  0.81,
-			Rationale:       "Web search for the contractor or builder linked to the structurally affected site.",
-			Organization:    primaryName,
-			RelationshipTag: "contractor",
-		})
-		queries = append(queries, caseStakeholderSearchQuery{
-			RoleType:        "engineer",
-			Query:           strings.TrimSpace(baseQuery + " " + engineerTerm),
-			Region:          region,
-			BaseConfidence:  0.79,
-			Rationale:       "Web search for structural engineering stakeholders tied to the affected site.",
-			Organization:    primaryName,
-			RelationshipTag: "engineer",
-		})
-		queries = append(queries, caseStakeholderSearchQuery{
 			RoleType:        "building_authority",
 			Query:           strings.TrimSpace(quotedSearchPhrase(locality) + " " + authorityTerm),
 			Region:          region,
@@ -734,6 +713,33 @@ func buildCaseStakeholderSearchQueries(candidateNames []string, locCtx *caseLoca
 				RequireOfficial: true,
 			})
 		}
+		queries = append(queries, caseStakeholderSearchQuery{
+			RoleType:        "architect",
+			Query:           strings.TrimSpace(baseQuery + " " + architectTerm),
+			Region:          region,
+			BaseConfidence:  0.83,
+			Rationale:       "Web search for the architect or design office linked to the structurally affected site.",
+			Organization:    primaryName,
+			RelationshipTag: "architect",
+		})
+		queries = append(queries, caseStakeholderSearchQuery{
+			RoleType:        "contractor",
+			Query:           strings.TrimSpace(baseQuery + " " + contractorTerm),
+			Region:          region,
+			BaseConfidence:  0.81,
+			Rationale:       "Web search for the contractor or builder linked to the structurally affected site.",
+			Organization:    primaryName,
+			RelationshipTag: "contractor",
+		})
+		queries = append(queries, caseStakeholderSearchQuery{
+			RoleType:        "engineer",
+			Query:           strings.TrimSpace(baseQuery + " " + engineerTerm),
+			Region:          region,
+			BaseConfidence:  0.79,
+			Rationale:       "Web search for structural engineering stakeholders tied to the affected site.",
+			Organization:    primaryName,
+			RelationshipTag: "engineer",
+		})
 	}
 
 	return queries
@@ -1196,8 +1202,9 @@ func (d *caseContactDiscoverer) addGooglePlaceTargets(ctx context.Context, place
 }
 
 func (d *caseContactDiscoverer) addWebSearchStakeholderTargets(ctx context.Context, queries []caseStakeholderSearchQuery, merger *caseTargetMerger, visitedWebsites, searchedQueries map[string]struct{}) {
+	searchCount := 0
 	for _, query := range queries {
-		if len(searchedQueries) >= 6 {
+		if searchCount >= 6 {
 			return
 		}
 		queryKey := strings.ToLower(strings.TrimSpace(query.RoleType + ":" + query.Query))
@@ -1208,6 +1215,7 @@ func (d *caseContactDiscoverer) addWebSearchStakeholderTargets(ctx context.Conte
 			continue
 		}
 		searchedQueries[queryKey] = struct{}{}
+		searchCount++
 
 		results, err := d.searchStakeholderWeb(ctx, query.Query, query.Region)
 		if err != nil {
@@ -1802,6 +1810,7 @@ func normalizeCaseEscalationTarget(target models.CaseEscalationTarget) (models.C
 	target.Organization = strings.TrimSpace(target.Organization)
 	target.DisplayName = strings.TrimSpace(target.DisplayName)
 	rawEmail := strings.TrimSpace(target.Email)
+	rawPhone := strings.TrimSpace(target.Phone)
 	target.Email = normalizeEmail(target.Email)
 	target.Phone = normalizePhone(target.Phone)
 	target.Website = normalizeWebsiteURL(target.Website)
@@ -1840,6 +1849,12 @@ func normalizeCaseEscalationTarget(target models.CaseEscalationTarget) (models.C
 	}
 	if target.Channel == "website" && target.ContactURL == "" {
 		target.ContactURL = target.Website
+	}
+	if target.Phone != "" && !looksLikePublishedPhone(rawPhone, target.Phone, target.EvidenceText) {
+		target.Phone = ""
+		if target.Channel == "phone" {
+			target.Channel = ""
+		}
 	}
 	if target.SourceURL == "" {
 		target.SourceURL = firstNonEmpty(target.ContactURL, target.Website)
@@ -2328,14 +2343,16 @@ func extractPhonesFromHTML(html string) []string {
 	phones := []string{}
 	for _, match := range caseDiscoveryTelRegex.FindAllStringSubmatch(html, -1) {
 		if len(match) > 1 {
-			if normalized := normalizePhone(match[1]); looksLikePublishedPhone(match[1], normalized) {
+			if normalized := normalizePhone(match[1]); looksLikeDirectDialPhone(match[1], normalized) {
 				phones = appendUniqueStrings(phones, normalized)
 			}
 		}
 	}
-	for _, match := range caseDiscoveryPhoneRegex.FindAllString(visibleTextFromHTML(html), -1) {
-		if normalized := normalizePhone(match); looksLikePublishedPhone(match, normalized) {
-			phones = appendUniqueStrings(phones, normalized)
+	for _, line := range visiblePhoneContextLinesFromHTML(html) {
+		for _, match := range caseDiscoveryPhoneRegex.FindAllString(line, -1) {
+			if normalized := normalizePhone(match); looksLikePublishedPhone(match, normalized, line) {
+				phones = appendUniqueStrings(phones, normalized)
+			}
 		}
 	}
 	out := make([]string, 0, len(phones))
@@ -2347,7 +2364,11 @@ func extractPhonesFromHTML(html string) []string {
 	return out
 }
 
-func looksLikePublishedPhone(raw, normalized string) bool {
+func looksLikeDirectDialPhone(raw, normalized string) bool {
+	return looksLikePublishedPhone(raw, normalized, "tel")
+}
+
+func looksLikePublishedPhone(raw, normalized string, contextParts ...string) bool {
 	raw = strings.TrimSpace(raw)
 	if normalized == "" {
 		return false
@@ -2356,10 +2377,20 @@ func looksLikePublishedPhone(raw, normalized string) bool {
 	if len(digits) < 7 || len(digits) > 15 {
 		return false
 	}
-	if strings.ContainsAny(raw, " ()-./") || strings.HasPrefix(raw, "+") {
+	if looksLikeDateOrTimeValue(raw) {
+		return false
+	}
+	context := strings.ToLower(strings.Join(contextParts, " "))
+	if strings.HasPrefix(raw, "+") || strings.HasPrefix(normalized, "+") || strings.HasPrefix(raw, "0") || strings.HasPrefix(normalized, "0") {
 		return true
 	}
-	return strings.HasPrefix(raw, "0")
+	if strings.ContainsAny(raw, "()") {
+		return true
+	}
+	if containsAny(context, caseDiscoveryPhoneContextKeywords) && strings.ContainsAny(raw, " .-/") {
+		return true
+	}
+	return false
 }
 
 func visibleTextFromHTML(html string) string {
@@ -2391,6 +2422,86 @@ func visibleTextFromHTML(html string) string {
 	}
 	walk(root)
 	return strings.Join(parts, " ")
+}
+
+func visiblePhoneContextLinesFromHTML(html string) []string {
+	root, err := xhtml.Parse(strings.NewReader(html))
+	if err != nil {
+		return visiblePhoneContextLinesFromFallback(html)
+	}
+	lines := []string{}
+	var walk func(*xhtml.Node)
+	walk = func(node *xhtml.Node) {
+		if node == nil {
+			return
+		}
+		if node.Type == xhtml.ElementNode {
+			name := strings.ToLower(node.Data)
+			if name == "script" || name == "style" {
+				return
+			}
+			if isPhoneContextContainer(name) {
+				text := compactWhitespace(nodeText(node))
+				if isPhoneContextLine(text) {
+					lines = appendUniqueStrings(lines, text)
+				}
+			}
+		}
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+	}
+	walk(root)
+	return lines
+}
+
+func visiblePhoneContextLinesFromFallback(html string) []string {
+	lines := []string{}
+	for _, rawLine := range strings.Split(html, "\n") {
+		line := compactWhitespace(rawLine)
+		if isPhoneContextLine(line) {
+			lines = appendUniqueStrings(lines, line)
+		}
+	}
+	return lines
+}
+
+func isPhoneContextContainer(tag string) bool {
+	switch tag {
+	case "p", "li", "address", "td", "th", "a", "span", "div":
+		return true
+	default:
+		return false
+	}
+}
+
+func isPhoneContextLine(line string) bool {
+	line = compactWhitespace(line)
+	if line == "" {
+		return false
+	}
+	if len(line) > 220 {
+		return false
+	}
+	lower := strings.ToLower(line)
+	if !containsAny(lower, caseDiscoveryPhoneContextKeywords) {
+		return false
+	}
+	return caseDiscoveryPhoneRegex.MatchString(line)
+}
+
+func looksLikeDateOrTimeValue(raw string) bool {
+	raw = compactWhitespace(raw)
+	if raw == "" {
+		return false
+	}
+	if caseDiscoveryTimeRangeRegex.MatchString(raw) || caseDiscoveryDateRangeRegex.MatchString(raw) {
+		return true
+	}
+	if strings.Contains(raw, ":") {
+		return true
+	}
+	return false
 }
 
 func extractSocialRefsFromHTML(html string) []caseSocialRef {
@@ -2654,6 +2765,12 @@ func normalizePhone(phone string) string {
 	}
 	if strings.HasPrefix(strings.TrimSpace(phone), "+") {
 		return "+" + digits
+	}
+	if strings.HasPrefix(phone, "00") {
+		return "+" + strings.TrimPrefix(digits, "00")
+	}
+	if !(strings.HasPrefix(phone, "0") || strings.ContainsAny(phone, " ()-./")) {
+		return ""
 	}
 	return digits
 }
