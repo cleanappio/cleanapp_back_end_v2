@@ -53,9 +53,18 @@ func (h *Handlers) syncCaseContactStrategy(ctx context.Context, detail *models.C
 }
 
 func routeCaseEscalationTargets(detail *models.CaseDetail) []models.CaseEscalationTarget {
-	targets := make([]models.CaseEscalationTarget, 0, len(detail.EscalationTargets))
 	profile := buildCaseRoutingProfile(detail)
-	for _, target := range detail.EscalationTargets {
+	return routeTargetsWithProfile(profile, detail.EscalationTargets)
+}
+
+func routeReportEscalationTargets(report *models.ReportWithAnalysis, targets []models.CaseEscalationTarget) []models.CaseEscalationTarget {
+	profile := buildReportRoutingProfile(report)
+	return routeTargetsWithProfile(profile, targets)
+}
+
+func routeTargetsWithProfile(profile caseRoutingProfile, source []models.CaseEscalationTarget) []models.CaseEscalationTarget {
+	targets := make([]models.CaseEscalationTarget, 0, len(source))
+	for _, target := range source {
 		routed := target
 		routed.DecisionScope = emptyStringDefault(routed.DecisionScope, decisionScopeForRoleType(routed.RoleType))
 		routed.AttributionClass = emptyStringDefault(routed.AttributionClass, attributionClassForTarget(routed))
@@ -81,6 +90,14 @@ func routeCaseEscalationTargets(detail *models.CaseDetail) []models.CaseEscalati
 }
 
 func buildCaseContactObservations(targets []models.CaseEscalationTarget) []models.CaseContactObservation {
+	return buildContactObservations("", targets)
+}
+
+func buildReportContactObservations(reportSeq int, targets []models.CaseEscalationTarget) []models.CaseContactObservation {
+	return buildContactObservations(fmt.Sprintf("%d", reportSeq), targets)
+}
+
+func buildContactObservations(ownerID string, targets []models.CaseEscalationTarget) []models.CaseContactObservation {
 	observations := make([]models.CaseContactObservation, 0, len(targets))
 	for _, target := range targets {
 		channelType := strings.TrimSpace(caseTargetChannel(target))
@@ -97,7 +114,7 @@ func buildCaseContactObservations(targets []models.CaseEscalationTarget) []model
 			}
 		}
 		observations = append(observations, models.CaseContactObservation{
-			CaseID:           target.CaseID,
+			CaseID:           ownerID,
 			RoleType:         target.RoleType,
 			DecisionScope:    target.DecisionScope,
 			OrganizationName: target.Organization,
@@ -126,6 +143,18 @@ func buildCaseNotifyPlan(detail *models.CaseDetail, targets []models.CaseEscalat
 		return nil
 	}
 	profile := buildCaseRoutingProfile(detail)
+	return buildNotifyPlan(detail.Case.CaseID, profile, targets, observations)
+}
+
+func buildReportNotifyPlan(report *models.ReportWithAnalysis, targets []models.CaseEscalationTarget, observations []models.CaseContactObservation) *models.CaseNotifyPlan {
+	if report == nil {
+		return nil
+	}
+	profile := buildReportRoutingProfile(report)
+	return buildNotifyPlan("", profile, targets, observations)
+}
+
+func buildNotifyPlan(caseID string, profile caseRoutingProfile, targets []models.CaseEscalationTarget, observations []models.CaseContactObservation) *models.CaseNotifyPlan {
 	observationIDs := make(map[string]int64, len(observations))
 	for _, observation := range observations {
 		if key := observationKeyForTargetObservation(observation); key != "" {
@@ -148,9 +177,13 @@ func buildCaseNotifyPlan(detail *models.CaseDetail, targets []models.CaseEscalat
 		if observationID > 0 {
 			observationPtr = &observationID
 		}
-		targetID := target.ID
+		var targetIDPtr *int64
+		if target.ID > 0 {
+			targetID := target.ID
+			targetIDPtr = &targetID
+		}
 		items = append(items, models.CaseNotifyPlanItem{
-			TargetID:           &targetID,
+			TargetID:           targetIDPtr,
 			ObservationID:      observationPtr,
 			WaveNumber:         wave,
 			PriorityRank:       perWaveRank[wave],
@@ -163,10 +196,10 @@ func buildCaseNotifyPlan(detail *models.CaseDetail, targets []models.CaseEscalat
 		})
 	}
 	return &models.CaseNotifyPlan{
-		CaseID:      detail.Case.CaseID,
+		CaseID:      caseID,
 		HazardMode:  profile.HazardMode,
 		Status:      "active",
-		Summary:     buildCaseNotifyPlanSummary(detail, profile, items),
+		Summary:     buildCaseNotifyPlanSummary(profile, items),
 		Items:       items,
 		PlanVersion: 1,
 	}
@@ -192,6 +225,42 @@ func buildCaseRoutingProfile(detail *models.CaseDetail) caseRoutingProfile {
 		Urgent:             detail.Case.UrgencyScore >= 0.7,
 		ImmediateDanger:    containsAny(joined, []string{"falling", "imminent", "collapse", "separating", "detached", "support column", "support beam", "exposed", "children", "occupants"}),
 		SensitiveOccupancy: containsAny(joined, []string{"school", "hospital", "station", "metro", "airport", "playground", "terminal", "mall", "daycare", "nursery"}),
+		HazardMode:         "standard",
+	}
+	switch {
+	case profile.ImmediateDanger && profile.Severe:
+		profile.HazardMode = "emergency"
+	case profile.Severe || profile.Urgent:
+		profile.HazardMode = "urgent"
+	}
+	return profile
+}
+
+func buildReportRoutingProfile(report *models.ReportWithAnalysis) caseRoutingProfile {
+	if report == nil {
+		return caseRoutingProfile{HazardMode: "standard"}
+	}
+	textParts := []string{}
+	maxSeverity := 0.0
+	for _, analysis := range report.Analysis {
+		textParts = append(textParts, analysis.Title, analysis.Summary, analysis.Description, analysis.AnalysisText)
+		if analysis.SeverityLevel > maxSeverity {
+			maxSeverity = analysis.SeverityLevel
+		}
+	}
+	if report.Report.Description != nil {
+		textParts = append(textParts, *report.Report.Description)
+	}
+	if report.Report.SourceURL != nil {
+		textParts = append(textParts, *report.Report.SourceURL)
+	}
+	joined := strings.ToLower(strings.Join(textParts, " "))
+	profile := caseRoutingProfile{
+		Structural:         containsAny(joined, []string{"structural", "crack", "collapse", "column", "beam", "facade", "brick", "concrete", "wall", "support"}),
+		Severe:             maxSeverity >= 0.8,
+		Urgent:             maxSeverity >= 0.7 || containsAny(joined, []string{"urgent", "danger", "hazard", "critical"}),
+		ImmediateDanger:    containsAny(joined, []string{"falling", "imminent", "collapse", "separating", "detached", "support column", "support beam", "load-bearing", "exposed"}),
+		SensitiveOccupancy: containsAny(joined, []string{"school", "hospital", "station", "metro", "airport", "playground", "terminal", "mall", "daycare", "nursery", "children", "commuter"}),
 		HazardMode:         "standard",
 	}
 	switch {
@@ -377,7 +446,7 @@ func buildCaseTargetReason(profile caseRoutingProfile, target models.CaseEscalat
 	return strings.Join(reasons, "; ")
 }
 
-func buildCaseNotifyPlanSummary(detail *models.CaseDetail, profile caseRoutingProfile, items []models.CaseNotifyPlanItem) string {
+func buildCaseNotifyPlanSummary(profile caseRoutingProfile, items []models.CaseNotifyPlanItem) string {
 	selected := 0
 	authorities := 0
 	for _, item := range items {

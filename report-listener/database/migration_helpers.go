@@ -1165,3 +1165,43 @@ func ensureCaseEmailDeliveriesTable(ctx context.Context, db *sql.DB) error {
 	}
 	return nil
 }
+
+func ensureReportContactTargetTables(ctx context.Context, db *sql.DB) error {
+	stmt := `CREATE TABLE IF NOT EXISTS report_escalation_targets (
+		id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+		report_seq INT NOT NULL,
+		role_type VARCHAR(64) NOT NULL DEFAULT 'contact',
+		decision_scope VARCHAR(64) NOT NULL DEFAULT 'other',
+		organization VARCHAR(255) NULL,
+		display_name VARCHAR(255) NULL,
+		channel VARCHAR(32) NOT NULL DEFAULT 'email',
+		email VARCHAR(255) NULL,
+		phone VARCHAR(64) NULL,
+		website VARCHAR(512) NULL,
+		contact_url VARCHAR(512) NULL,
+		social_platform VARCHAR(64) NULL,
+		social_handle VARCHAR(255) NULL,
+		source_url VARCHAR(512) NULL,
+		evidence_text TEXT NULL,
+		verification_level VARCHAR(64) NULL,
+		attribution_class VARCHAR(64) NOT NULL DEFAULT 'heuristic',
+		target_source VARCHAR(64) NOT NULL DEFAULT 'suggested',
+		confidence_score FLOAT NOT NULL DEFAULT 0,
+		actionability_score FLOAT NOT NULL DEFAULT 0,
+		notify_tier INT NOT NULL DEFAULT 3,
+		send_eligibility VARCHAR(32) NOT NULL DEFAULT 'review',
+		rationale TEXT NULL,
+		reason_selected TEXT NULL,
+		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+		PRIMARY KEY (id),
+		KEY idx_report_escalation_targets_report (report_seq, notify_tier, actionability_score),
+		KEY idx_report_escalation_targets_email (email),
+		KEY idx_report_escalation_targets_channel (report_seq, channel),
+		CONSTRAINT fk_report_escalation_targets_report FOREIGN KEY (report_seq) REFERENCES reports(seq) ON DELETE CASCADE
+	) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`
+	if _, err := db.ExecContext(ctx, stmt); err != nil {
+		return fmt.Errorf("failed to ensure report escalation targets table: %w", err)
+	}
+	return nil
+}

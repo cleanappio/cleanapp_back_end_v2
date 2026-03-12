@@ -65,8 +65,22 @@ type ReportWithMinimalAnalysis struct {
 
 // ReportWithAnalysis represents a report with its corresponding analysis
 type ReportWithAnalysis struct {
-	Report   Report           `json:"report"`
-	Analysis []ReportAnalysis `json:"analysis"`
+	Report               Report                   `json:"report"`
+	Analysis             []ReportAnalysis         `json:"analysis"`
+	EscalationTargets    []CaseEscalationTarget   `json:"escalation_targets,omitempty"`
+	ContactObservations  []CaseContactObservation `json:"contact_observations,omitempty"`
+	NotifyPlan           *CaseNotifyPlan          `json:"notify_plan,omitempty"`
+	ContactStrategyStale bool                     `json:"contact_strategy_stale,omitempty"`
+}
+
+type ReportContactStrategyResponse struct {
+	ReportSeq            int                      `json:"report_seq"`
+	PublicID             string                   `json:"public_id"`
+	EscalationTargets    []CaseEscalationTarget   `json:"escalation_targets"`
+	ContactObservations  []CaseContactObservation `json:"contact_observations"`
+	NotifyPlan           *CaseNotifyPlan          `json:"notify_plan,omitempty"`
+	Refreshed            bool                     `json:"refreshed"`
+	ContactStrategyStale bool                     `json:"contact_strategy_stale,omitempty"`
 }
 
 // ReportsByGeometryRequest selects reports inside a polygonal geometry.

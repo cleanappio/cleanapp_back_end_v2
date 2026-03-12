@@ -26,6 +26,7 @@ func RunMigrations(ctx context.Context, db *sql.DB) error {
 		{ID: "0014_case_accumulation_columns", Description: "add case accumulation and cluster matching columns", Up: func(ctx context.Context, db *sql.DB) error { return ensureCaseAccumulationColumns(ctx, db) }},
 		{ID: "0015_case_escalation_target_evidence", Description: "add evidence metadata to case escalation targets", Up: func(ctx context.Context, db *sql.DB) error { return ensureCaseEscalationTargetEvidenceColumns(ctx, db) }},
 		{ID: "0016_case_contact_routing", Description: "add case contact observations and notify plan tables", Up: func(ctx context.Context, db *sql.DB) error { return ensureCaseContactRoutingTables(ctx, db) }},
+		{ID: "0017_report_contact_targets", Description: "create cached report escalation target table", Up: func(ctx context.Context, db *sql.DB) error { return ensureReportContactTargetTables(ctx, db) }},
 	})
 }
 

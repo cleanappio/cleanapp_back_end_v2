@@ -190,6 +190,8 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 		{
 			detailRoutes.GET("/by-public-id", h.GetReportByPublicID)
 			detailRoutes.GET("/by-seq", h.GetReportBySeq)
+			detailRoutes.GET("/contact-strategy/by-public-id", h.GetReportContactStrategyByPublicID)
+			detailRoutes.GET("/contact-strategy/by-seq", h.GetReportContactStrategyBySeq)
 		}
 
 		intelligenceRoutes := api.Group("/intelligence")
