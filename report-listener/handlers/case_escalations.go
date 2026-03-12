@@ -86,6 +86,93 @@ func (h *Handlers) GetCaseEscalations(c *gin.Context) {
 	})
 }
 
+func (h *Handlers) RecordCaseExecutionTaskOutcome(c *gin.Context) {
+	taskID, err := parseTaskIDParam(c.Param("task_id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid task id"})
+		return
+	}
+	caseID := strings.TrimSpace(c.Param("case_id"))
+	if caseID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing case id"})
+		return
+	}
+	var req models.RecordNotifyExecutionTaskOutcomeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})
+		return
+	}
+	outcomeType, err := normalizeNotifyOutcomeType(req.OutcomeType)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	actorUserID := middleware.GetUserIDFromContext(c)
+	if strings.TrimSpace(req.ActorUserID) != "" {
+		actorUserID = strings.TrimSpace(req.ActorUserID)
+	}
+
+	task, err := h.db.GetNotifyExecutionTask(c.Request.Context(), "case", caseID, taskID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load execution task"})
+		return
+	}
+	if task == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "execution task not found"})
+		return
+	}
+
+	detail, err := h.db.GetCaseDetail(c.Request.Context(), caseID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load case"})
+		return
+	}
+	target, ok := findCaseTargetByID(detail.EscalationTargets, task.TargetID)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": "execution task target not found"})
+		return
+	}
+
+	completedAt := time.Now().UTC()
+	updatedTask, err := h.db.UpdateNotifyExecutionTask(c.Request.Context(), "case", caseID, taskID, taskStatusForOutcome(outcomeType), actorUserID, &completedAt)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update execution task"})
+		return
+	}
+
+	preferredAssetClass := buildCaseRoutingProfile(detail).AssetClass
+	if detail.RoutingProfile != nil && strings.TrimSpace(detail.RoutingProfile.AssetClass) != "" {
+		preferredAssetClass = strings.TrimSpace(detail.RoutingProfile.AssetClass)
+	}
+	outcome, memory, err := h.recordNotifyOutcomeAndMemory(
+		c.Request.Context(),
+		"case",
+		caseID,
+		task.TargetID,
+		&target,
+		preferredAssetClass,
+		outcomeType,
+		"execution_task",
+		firstNonEmpty(updatedTask.Summary, target.DisplayName, target.Organization),
+		req.Note,
+		completedAt,
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to record execution outcome"})
+		return
+	}
+
+	if err := h.recordCaseExecutionOutcomeSideEffects(c.Request.Context(), detail, updatedTask, target, outcomeType, actorUserID, req.Note); err != nil {
+		log.Printf("warn: failed to record case execution side effects for %s task %d: %v", caseID, taskID, err)
+	}
+
+	c.JSON(http.StatusOK, models.RecordNotifyExecutionTaskOutcomeResponse{
+		Task:           *updatedTask,
+		Outcome:        *outcome,
+		EndpointMemory: memory,
+	})
+}
+
 func (h *Handlers) DraftCaseEscalation(c *gin.Context) {
 	var req models.DraftCaseEscalationRequest
 	if err := c.ShouldBindJSON(&req); err != nil && !isEmptyJSONBodyError(err) {
@@ -274,10 +361,10 @@ func (h *Handlers) recordCaseDeliveryOutcomes(ctx context.Context, caseID string
 			memory.SuccessCount++
 		case "bounced":
 			memory.BounceCount++
-			cooldown := time.Now().UTC().Add(7 * 24 * time.Hour)
-			memory.CooldownUntil = &cooldown
+			memory.CooldownUntil = notifyOutcomeCooldown(outcomeType, time.Now().UTC())
 		case "misrouted":
 			memory.MisrouteCount++
+			memory.CooldownUntil = notifyOutcomeCooldown(outcomeType, time.Now().UTC())
 		}
 		if sentAt := delivery.SentAt; sentAt != nil {
 			memory.LastContactedAt = sentAt
@@ -290,6 +377,245 @@ func (h *Handlers) recordCaseDeliveryOutcomes(ctx context.Context, caseID string
 		}
 	}
 	return nil
+}
+
+func normalizeNotifyOutcomeType(raw string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "ack", "acknowledged":
+		return "acknowledged", nil
+	case "fixed", "resolved":
+		return "fixed", nil
+	case "misrouted", "wrong_recipient":
+		return "misrouted", nil
+	case "no_response", "no-response", "noresponse":
+		return "no_response", nil
+	case "bounced", "bounce":
+		return "bounced", nil
+	case "sent", "delivered":
+		return "sent", nil
+	default:
+		return "", fmt.Errorf("unsupported outcome type")
+	}
+}
+
+func taskStatusForOutcome(outcomeType string) string {
+	switch outcomeType {
+	case "no_response":
+		return "completed"
+	case "misrouted":
+		return "completed"
+	case "acknowledged", "fixed", "bounced", "sent":
+		return "completed"
+	default:
+		return "completed"
+	}
+}
+
+func notifyOutcomeCooldown(outcomeType string, now time.Time) *time.Time {
+	var duration time.Duration
+	switch outcomeType {
+	case "bounced":
+		duration = 14 * 24 * time.Hour
+	case "misrouted":
+		duration = 7 * 24 * time.Hour
+	case "acknowledged":
+		duration = 72 * time.Hour
+	case "fixed":
+		duration = 30 * 24 * time.Hour
+	default:
+		return nil
+	}
+	ts := now.Add(duration)
+	return &ts
+}
+
+func endpointChannelValue(target models.CaseEscalationTarget) string {
+	switch caseTargetChannel(target) {
+	case "email":
+		return strings.ToLower(strings.TrimSpace(target.Email))
+	case "phone":
+		return strings.TrimSpace(target.Phone)
+	case "website":
+		return firstNonEmpty(strings.TrimSpace(target.ContactURL), strings.TrimSpace(target.Website))
+	case "social":
+		return firstNonEmpty(strings.TrimSpace(target.ContactURL), strings.TrimSpace(target.SocialHandle))
+	default:
+		return firstNonEmpty(strings.TrimSpace(target.ContactURL), strings.TrimSpace(target.Website), strings.ToLower(strings.TrimSpace(target.Email)), strings.TrimSpace(target.Phone))
+	}
+}
+
+func (h *Handlers) recordNotifyOutcomeAndMemory(
+	ctx context.Context,
+	subjectKind string,
+	subjectRef string,
+	targetID *int64,
+	target *models.CaseEscalationTarget,
+	preferredAssetClass string,
+	outcomeType string,
+	sourceType string,
+	sourceRef string,
+	note string,
+	recordedAt time.Time,
+) (*models.NotifyOutcome, *models.ContactEndpointMemory, error) {
+	endpointKey := ""
+	channelType := "email"
+	channelValue := strings.ToLower(strings.TrimSpace(sourceRef))
+	roleType := ""
+	organizationKey := ""
+	if target != nil {
+		endpointKey = endpointKeyForTarget(*target)
+		channelType = caseTargetChannel(*target)
+		channelValue = endpointChannelValue(*target)
+		roleType = target.RoleType
+		organizationKey = target.OrganizationKey
+	}
+	if channelValue == "" {
+		channelValue = strings.ToLower(strings.TrimSpace(sourceRef))
+	}
+	if endpointKey == "" && channelValue != "" {
+		endpointKey = channelType + ":" + channelValue
+	}
+	evidenceJSON := fmt.Sprintf(
+		`{"source_ref":"%s","note":"%s","channel":"%s"}`,
+		escapeJSONString(sourceRef),
+		escapeJSONString(strings.TrimSpace(note)),
+		escapeJSONString(channelType),
+	)
+	outcome := &models.NotifyOutcome{
+		SubjectKind:  subjectKind,
+		SubjectRef:   subjectRef,
+		TargetID:     targetID,
+		EndpointKey:  endpointKey,
+		OutcomeType:  outcomeType,
+		SourceType:   sourceType,
+		SourceRef:    sourceRef,
+		EvidenceJSON: evidenceJSON,
+		RecordedAt:   recordedAt,
+	}
+	if err := h.db.RecordNotifyOutcome(ctx, *outcome); err != nil {
+		return nil, nil, err
+	}
+	if endpointKey == "" || channelValue == "" {
+		return outcome, nil, nil
+	}
+	existingMemory, err := h.db.GetContactEndpointMemory(ctx, endpointKey)
+	if err != nil {
+		return nil, nil, err
+	}
+	memory := models.ContactEndpointMemory{
+		EndpointKey:            endpointKey,
+		OrganizationKey:        organizationKey,
+		ChannelType:            emptyStringDefault(channelType, "email"),
+		ChannelValue:           channelValue,
+		LastResult:             outcomeType,
+		PreferredForRoleType:   roleType,
+		PreferredForAssetClass: strings.TrimSpace(preferredAssetClass),
+		LastContactedAt:        &recordedAt,
+		CooldownUntil:          notifyOutcomeCooldown(outcomeType, recordedAt),
+	}
+	if existingMemory != nil {
+		memory.SuccessCount = existingMemory.SuccessCount
+		memory.BounceCount = existingMemory.BounceCount
+		memory.AckCount = existingMemory.AckCount
+		memory.FixCount = existingMemory.FixCount
+		memory.MisrouteCount = existingMemory.MisrouteCount
+		memory.NoResponseCount = existingMemory.NoResponseCount
+		if memory.OrganizationKey == "" {
+			memory.OrganizationKey = existingMemory.OrganizationKey
+		}
+		if memory.PreferredForRoleType == "" {
+			memory.PreferredForRoleType = existingMemory.PreferredForRoleType
+		}
+		if memory.PreferredForAssetClass == "" {
+			memory.PreferredForAssetClass = existingMemory.PreferredForAssetClass
+		}
+	}
+	switch outcomeType {
+	case "sent":
+		memory.SuccessCount++
+	case "bounced":
+		memory.BounceCount++
+	case "acknowledged":
+		memory.AckCount++
+	case "fixed":
+		memory.FixCount++
+	case "misrouted":
+		memory.MisrouteCount++
+	case "no_response":
+		memory.NoResponseCount++
+	}
+	savedMemory, err := h.db.UpsertContactEndpointMemory(ctx, memory)
+	if err != nil {
+		return nil, nil, err
+	}
+	return outcome, savedMemory, nil
+}
+
+func (h *Handlers) recordCaseExecutionOutcomeSideEffects(ctx context.Context, detail *models.CaseDetail, task *models.NotifyExecutionTask, target models.CaseEscalationTarget, outcomeType, actorUserID, note string) error {
+	if detail == nil {
+		return nil
+	}
+	summary := buildCaseExecutionOutcomeSummary(target, outcomeType, note)
+	var linkedReportSeq *int
+	if detail.Case.AnchorReportSeq != nil {
+		linkedReportSeq = detail.Case.AnchorReportSeq
+	}
+	if err := h.db.InsertCaseResolutionSignal(ctx, detail.Case.CaseID, "notify_execution_task", summary, linkedReportSeq, map[string]any{
+		"task_id":       task.ID,
+		"target_id":     task.TargetID,
+		"outcome_type":  outcomeType,
+		"note":          note,
+		"channel_type":  task.ChannelType,
+		"execution_mode": task.ExecutionMode,
+	}); err != nil {
+		return err
+	}
+	return h.db.InsertCaseAuditEvent(ctx, detail.Case.CaseID, "execution_task_outcome_recorded", actorUserID, map[string]any{
+		"task_id":      task.ID,
+		"target_id":    task.TargetID,
+		"outcome_type": outcomeType,
+		"note":         note,
+	})
+}
+
+func buildCaseExecutionOutcomeSummary(target models.CaseEscalationTarget, outcomeType, note string) string {
+	label := firstNonEmpty(strings.TrimSpace(target.DisplayName), strings.TrimSpace(target.Organization), "contact")
+	switch outcomeType {
+	case "acknowledged":
+		return fmt.Sprintf("%s acknowledged the escalation. %s", label, strings.TrimSpace(note))
+	case "fixed":
+		return fmt.Sprintf("%s reported the issue as fixed. %s", label, strings.TrimSpace(note))
+	case "misrouted":
+		return fmt.Sprintf("%s indicated the escalation was misrouted. %s", label, strings.TrimSpace(note))
+	case "no_response":
+		return fmt.Sprintf("No response recorded from %s. %s", label, strings.TrimSpace(note))
+	default:
+		return fmt.Sprintf("Execution outcome %s recorded for %s. %s", outcomeType, label, strings.TrimSpace(note))
+	}
+}
+
+func findCaseTargetByID(targets []models.CaseEscalationTarget, targetID *int64) (models.CaseEscalationTarget, bool) {
+	if targetID == nil {
+		return models.CaseEscalationTarget{}, false
+	}
+	for _, target := range targets {
+		if target.ID == *targetID {
+			return target, true
+		}
+	}
+	return models.CaseEscalationTarget{}, false
+}
+
+func parseTaskIDParam(raw string) (int64, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, fmt.Errorf("missing task id")
+	}
+	var taskID int64
+	if _, err := fmt.Sscanf(raw, "%d", &taskID); err != nil || taskID <= 0 {
+		return 0, fmt.Errorf("invalid task id")
+	}
+	return taskID, nil
 }
 
 func (h *Handlers) sendCaseEscalation(c *gin.Context, caseID, body, subject string, targets []models.CaseEscalationTarget, ccRecipients []internalCaseEscalationRecipient) ([]internalCaseEscalationSendResult, error) {

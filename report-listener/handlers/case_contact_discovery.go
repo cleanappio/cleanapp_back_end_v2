@@ -808,6 +808,7 @@ func buildCaseStakeholderSearchQueries(candidateNames []string, locCtx *caseLoca
 			locality,
 			primaryName,
 			assetClass,
+			locCtx,
 		)...)
 		return dedupeStakeholderQueries(digitalQueries)
 	}
@@ -840,6 +841,7 @@ func buildCaseStakeholderSearchQueries(candidateNames []string, locCtx *caseLoca
 			locality,
 			primaryName,
 			assetClass,
+			locCtx,
 		)...)
 		return dedupeStakeholderQueries(queries)
 	}
@@ -922,6 +924,7 @@ func buildCaseStakeholderSearchQueries(candidateNames []string, locCtx *caseLoca
 		locality,
 		primaryName,
 		assetClass,
+		locCtx,
 	)...)
 	return dedupeStakeholderQueries(queries)
 }
@@ -959,6 +962,7 @@ func buildRuleBasedStakeholderQueries(
 	locality string,
 	primaryName string,
 	assetClass string,
+	locCtx *caseLocationContext,
 ) []caseStakeholderSearchQuery {
 	if len(rules) == 0 {
 		return nil
@@ -969,6 +973,9 @@ func buildRuleBasedStakeholderQueries(
 	}
 	queries := make([]caseStakeholderSearchQuery, 0, len(rules))
 	for _, rule := range rules {
+		if !authorityRuleMatchesLocation(rule, locCtx) {
+			continue
+		}
 		templates := decodeJSONStringArray(rule.QueryTemplatesJSON)
 		if len(templates) == 0 {
 			continue
@@ -982,6 +989,7 @@ func buildRuleBasedStakeholderQueries(
 			requireOfficial = true
 		}
 		baseConfidence := math.Max(0.55, 0.9-float64(rule.Priority)*0.005)
+		ruleHostHints := decodeJSONStringArray(rule.OfficialDomainsJSON)
 		for _, template := range templates {
 			template = strings.TrimSpace(template)
 			if template == "" {
@@ -991,7 +999,7 @@ func buildRuleBasedStakeholderQueries(
 			if requireOfficial && localityBase != "" {
 				queryText = strings.TrimSpace(localityBase + " " + template)
 			}
-			queries = append(queries, newQuery(
+			query := newQuery(
 				roleType,
 				queryText,
 				baseConfidence,
@@ -999,7 +1007,12 @@ func buildRuleBasedStakeholderQueries(
 				roleType,
 				firstNonEmpty(primaryName, locality),
 				requireOfficial,
-			))
+			)
+			query.OfficialHostHints = appendUniqueStrings(query.OfficialHostHints, ruleHostHints...)
+			if len(ruleHostHints) > 0 {
+				query.RequireOfficial = true
+			}
+			queries = append(queries, query)
 		}
 	}
 	return queries
@@ -1982,7 +1995,11 @@ func (d *caseContactDiscoverer) scrapeWebsiteContacts(ctx context.Context, rawWe
 	result := &caseWebsiteContacts{Website: websiteURL}
 	fetched := make(map[string]struct{})
 	queue := []string{websiteURL}
-	for _, candidate := range []string{"/contact", "/contact-us", "/about", "/impressum", "/team", "/directory"} {
+	for _, candidate := range []string{
+		"/contact", "/contact-us", "/about", "/impressum", "/team", "/directory",
+		"/kontakt", "/support", "/help", "/help-center", "/accessibility",
+		"/about/contact", "/ueber-uns", "/ueberblick/kontakt", "/service",
+	} {
 		queue = append(queue, parsedBase.ResolveReference(&url.URL{Path: candidate}).String())
 	}
 
@@ -3155,17 +3172,34 @@ func isLikelyGovernmentHost(rawURL string) bool {
 	switch {
 	case strings.HasSuffix(host, ".gov"),
 		strings.Contains(host, ".gov."),
+		strings.HasSuffix(host, ".gov.uk"),
+		strings.Contains(host, ".gov.uk."),
+		strings.HasSuffix(host, ".gov.au"),
+		strings.Contains(host, ".gov.au."),
+		strings.HasSuffix(host, ".gov.it"),
+		strings.HasSuffix(host, ".go.jp"),
+		strings.HasSuffix(host, ".go.kr"),
+		strings.HasSuffix(host, ".gob.mx"),
+		strings.HasSuffix(host, ".gov.br"),
 		strings.HasSuffix(host, ".gouv.fr"),
 		strings.HasSuffix(host, ".admin.ch"),
 		strings.HasSuffix(host, ".gc.ca"),
 		strings.HasSuffix(host, ".gv.at"),
 		strings.Contains(host, "stadt"),
+		strings.Contains(host, "stadt-"),
+		strings.Contains(host, "ville-"),
 		strings.Contains(host, "cityof"),
 		strings.Contains(host, "municipality"),
 		strings.Contains(host, "commune"),
+		strings.Contains(host, "gemeinde"),
+		strings.Contains(host, "verwaltung"),
+		strings.Contains(host, "departement"),
 		strings.Contains(host, "department"),
 		strings.Contains(host, "county"),
 		strings.Contains(host, "state"),
+		strings.Contains(host, "district"),
+		strings.Contains(host, "transportfor"),
+		strings.Contains(host, "railway"),
 		strings.Contains(host, "adliswil.ch"):
 		return true
 	default:
@@ -3175,6 +3209,9 @@ func isLikelyGovernmentHost(rawURL string) bool {
 
 func isLikelyAuthorityStakeholderResult(result caseWebSearchResult, query caseStakeholderSearchQuery) bool {
 	corpus := strings.ToLower(strings.Join([]string{result.Title, result.Snippet, result.DisplayURL, result.URL}, " "))
+	if hostMatchesAnyHint(result.URL, query.OfficialHostHints) {
+		return true
+	}
 	if isLikelyGovernmentHost(result.URL) {
 		return true
 	}

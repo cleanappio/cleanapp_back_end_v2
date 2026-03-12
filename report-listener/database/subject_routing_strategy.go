@@ -180,6 +180,77 @@ func (d *Database) ListNotifyExecutionTasks(ctx context.Context, subjectKind, su
 	return items, rows.Err()
 }
 
+func (d *Database) GetNotifyExecutionTask(ctx context.Context, subjectKind, subjectRef string, taskID int64) (*models.NotifyExecutionTask, error) {
+	if strings.TrimSpace(subjectKind) == "" || strings.TrimSpace(subjectRef) == "" || taskID <= 0 {
+		return nil, nil
+	}
+	row := d.db.QueryRowContext(ctx, `
+		SELECT id, subject_kind, subject_ref, target_id, wave_number, role_type, channel_type,
+			execution_mode, task_status, COALESCE(summary, ''), COALESCE(CAST(payload_json AS CHAR), ''),
+			COALESCE(assigned_user_id, ''), due_at, completed_at, created_at, updated_at
+		FROM notify_execution_tasks
+		WHERE id = ? AND subject_kind = ? AND subject_ref = ?
+	`, taskID, subjectKind, subjectRef)
+	var item models.NotifyExecutionTask
+	var targetID sql.NullInt64
+	var dueAt sql.NullTime
+	var completedAt sql.NullTime
+	if err := row.Scan(
+		&item.ID,
+		&item.SubjectKind,
+		&item.SubjectRef,
+		&targetID,
+		&item.WaveNumber,
+		&item.RoleType,
+		&item.ChannelType,
+		&item.ExecutionMode,
+		&item.TaskStatus,
+		&item.Summary,
+		&item.PayloadJSON,
+		&item.AssignedUserID,
+		&dueAt,
+		&completedAt,
+		&item.CreatedAt,
+		&item.UpdatedAt,
+	); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get notify execution task: %w", err)
+	}
+	if targetID.Valid {
+		item.TargetID = &targetID.Int64
+	}
+	if dueAt.Valid {
+		item.DueAt = &dueAt.Time
+	}
+	if completedAt.Valid {
+		item.CompletedAt = &completedAt.Time
+	}
+	return &item, nil
+}
+
+func (d *Database) UpdateNotifyExecutionTask(ctx context.Context, subjectKind, subjectRef string, taskID int64, taskStatus, assignedUserID string, completedAt *time.Time) (*models.NotifyExecutionTask, error) {
+	if strings.TrimSpace(subjectKind) == "" || strings.TrimSpace(subjectRef) == "" || taskID <= 0 {
+		return nil, fmt.Errorf("notify execution task update requires subject and task id")
+	}
+	if _, err := d.db.ExecContext(ctx, `
+		UPDATE notify_execution_tasks
+		SET task_status = ?, assigned_user_id = NULLIF(?, ''), completed_at = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ? AND subject_kind = ? AND subject_ref = ?
+	`,
+		emptyOrDefault(taskStatus, "completed"),
+		emptyOrDefault(assignedUserID, ""),
+		completedAt,
+		taskID,
+		subjectKind,
+		subjectRef,
+	); err != nil {
+		return nil, fmt.Errorf("update notify execution task: %w", err)
+	}
+	return d.GetNotifyExecutionTask(ctx, subjectKind, subjectRef, taskID)
+}
+
 func (d *Database) RecordNotifyOutcome(ctx context.Context, outcome models.NotifyOutcome) error {
 	if strings.TrimSpace(outcome.SubjectKind) == "" || strings.TrimSpace(outcome.SubjectRef) == "" {
 		return fmt.Errorf("notify outcome requires subject_kind and subject_ref")
@@ -349,8 +420,7 @@ func (d *Database) ListAuthorityDirectoryRules(ctx context.Context, defectClass,
 		FROM authority_directory_rules
 		WHERE (defect_class = ? OR defect_class = 'general_defect')
 		  AND (asset_class = ? OR asset_class = 'general_site')
-		  AND jurisdiction_key = '*'
-		ORDER BY priority ASC, id ASC
+		ORDER BY CASE jurisdiction_key WHEN '*' THEN 1 ELSE 0 END, priority ASC, id ASC
 	`, defectClass, assetClass)
 	if err != nil {
 		return nil, fmt.Errorf("list authority directory rules: %w", err)

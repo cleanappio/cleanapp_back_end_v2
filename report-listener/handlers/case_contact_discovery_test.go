@@ -168,6 +168,45 @@ func TestExtractLocalizedContactLinks(t *testing.T) {
 	}
 }
 
+func TestHostMatchesAnyHintSupportsWildcards(t *testing.T) {
+	if !hostMatchesAnyHint("https://bau.adliswil.ch/kontakt", []string{"*.adliswil.ch"}) {
+		t.Fatal("expected wildcard host hint to match subdomain")
+	}
+	if !hostMatchesAnyHint("https://www.adliswil.ch/departemente/1318", []string{"adliswil.ch"}) {
+		t.Fatal("expected bare host hint to match official host")
+	}
+	if hostMatchesAnyHint("https://vendor-example.com/contact", []string{"*.adliswil.ch"}) {
+		t.Fatal("did not expect unrelated domain to match wildcard hint")
+	}
+}
+
+func TestAuthorityRuleMatchesLocation(t *testing.T) {
+	locCtx := &caseLocationContext{
+		CountryCode: "ch",
+		Country:     "Switzerland",
+		State:       "Zürich",
+		City:        "Adliswil",
+	}
+	tests := []struct {
+		key   string
+		match bool
+	}{
+		{key: "*", match: true},
+		{key: "country:ch", match: true},
+		{key: "state:zuerich", match: true},
+		{key: "city:adliswil", match: true},
+		{key: "country:ch/state:zuerich", match: true},
+		{key: "country:us", match: false},
+		{key: "city:brooklyn", match: false},
+	}
+	for _, tc := range tests {
+		rule := models.AuthorityDirectoryRule{JurisdictionKey: tc.key}
+		if got := authorityRuleMatchesLocation(rule, locCtx); got != tc.match {
+			t.Fatalf("jurisdiction match for %q = %v, want %v", tc.key, got, tc.match)
+		}
+	}
+}
+
 func TestSearchGooglePlacesParsesFields(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/places:searchText" {

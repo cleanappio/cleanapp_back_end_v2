@@ -482,6 +482,12 @@ type SendCaseEscalationRequest struct {
 	ActorUserID string   `json:"actor_user_id,omitempty"`
 }
 
+type RecordNotifyExecutionTaskOutcomeRequest struct {
+	OutcomeType string `json:"outcome_type"`
+	Note        string `json:"note"`
+	ActorUserID string `json:"actor_user_id,omitempty"`
+}
+
 type CaseEscalationDraftResponse struct {
 	CaseID      string                 `json:"case_id"`
 	Subject     string                 `json:"subject"`
@@ -498,4 +504,10 @@ type CaseEscalationSendResponse struct {
 	CCEmails   []string               `json:"cc_emails"`
 	Actions    []CaseEscalationAction `json:"actions"`
 	Deliveries []CaseEmailDelivery    `json:"deliveries"`
+}
+
+type RecordNotifyExecutionTaskOutcomeResponse struct {
+	Task           NotifyExecutionTask  `json:"task"`
+	Outcome        NotifyOutcome        `json:"outcome"`
+	EndpointMemory *ContactEndpointMemory `json:"endpoint_memory,omitempty"`
 }

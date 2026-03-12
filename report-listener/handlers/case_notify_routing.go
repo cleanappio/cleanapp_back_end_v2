@@ -907,12 +907,20 @@ func buildNotifyExecutionTasks(subjectKind, subjectRef string, targets []models.
 			continue
 		}
 		payloadJSON := fmt.Sprintf(
-			`{"target_id":%d,"organization":"%s","display_name":"%s","reason":"%s","channel":"%s"}`,
+			`{"target_id":%d,"organization":"%s","display_name":"%s","reason":"%s","channel":"%s","email":"%s","phone":"%s","website":"%s","contact_url":"%s","social_platform":"%s","social_handle":"%s","source_url":"%s","action_url":"%s"}`,
 			target.ID,
 			escapeJSONString(target.Organization),
 			escapeJSONString(target.DisplayName),
 			escapeJSONString(target.ReasonSelected),
 			escapeJSONString(caseTargetChannel(target)),
+			escapeJSONString(strings.TrimSpace(target.Email)),
+			escapeJSONString(strings.TrimSpace(target.Phone)),
+			escapeJSONString(strings.TrimSpace(target.Website)),
+			escapeJSONString(strings.TrimSpace(target.ContactURL)),
+			escapeJSONString(strings.TrimSpace(target.SocialPlatform)),
+			escapeJSONString(strings.TrimSpace(target.SocialHandle)),
+			escapeJSONString(strings.TrimSpace(target.SourceURL)),
+			escapeJSONString(preferredTaskActionURL(target)),
 		)
 		tasks = append(tasks, models.NotifyExecutionTask{
 			SubjectKind:   subjectKind,
@@ -947,17 +955,38 @@ func buildExecutionTaskSummary(target models.CaseEscalationTarget) string {
 	}
 }
 
+func preferredTaskActionURL(target models.CaseEscalationTarget) string {
+	switch caseTargetChannel(target) {
+	case "phone":
+		if phone := strings.TrimSpace(target.Phone); phone != "" {
+			return "tel:" + phone
+		}
+	case "website":
+		if contactURL := strings.TrimSpace(target.ContactURL); contactURL != "" {
+			return contactURL
+		}
+		if website := strings.TrimSpace(target.Website); website != "" {
+			return website
+		}
+	case "social":
+		if contactURL := strings.TrimSpace(target.ContactURL); contactURL != "" {
+			return contactURL
+		}
+	}
+	return firstNonEmpty(strings.TrimSpace(target.SourceURL), strings.TrimSpace(target.ContactURL), strings.TrimSpace(target.Website))
+}
+
 func scoreOutcomeMemory(memory *models.ContactEndpointMemory, roleType, assetClass string) float64 {
 	if memory == nil {
 		return 0.6
 	}
-	score := 0.58
-	score += math.Min(0.18, float64(memory.SuccessCount)*0.03)
-	score += math.Min(0.16, float64(memory.AckCount)*0.04)
-	score += math.Min(0.14, float64(memory.FixCount)*0.05)
-	score -= math.Min(0.24, float64(memory.BounceCount)*0.08)
-	score -= math.Min(0.18, float64(memory.MisrouteCount)*0.07)
-	score -= math.Min(0.14, float64(memory.NoResponseCount)*0.04)
+	score := 0.56
+	score += math.Min(0.12, float64(memory.SuccessCount)*0.02)
+	score += math.Min(0.22, float64(memory.AckCount)*0.06)
+	score += math.Min(0.24, float64(memory.FixCount)*0.07)
+	score -= math.Min(0.30, float64(memory.BounceCount)*0.09)
+	score -= math.Min(0.24, float64(memory.MisrouteCount)*0.08)
+	score -= math.Min(0.18, float64(memory.NoResponseCount)*0.05)
 	if strings.EqualFold(strings.TrimSpace(memory.PreferredForRoleType), strings.TrimSpace(roleType)) {
 		score += 0.08
 	}

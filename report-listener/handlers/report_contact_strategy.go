@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"report-listener/middleware"
 	"report-listener/models"
 	"report-listener/publicid"
 )
@@ -54,6 +55,35 @@ func (h *Handlers) GetReportContactStrategyByPublicID(c *gin.Context) {
 	h.respondReportContactStrategy(c, reportWithAnalysis)
 }
 
+func (h *Handlers) RecordReportExecutionTaskOutcomeBySeq(c *gin.Context) {
+	seqStr := strings.TrimSpace(c.Param("seq"))
+	seq, err := strconv.Atoi(seqStr)
+	if err != nil || seq <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid report seq"})
+		return
+	}
+	reportWithAnalysis, err := h.db.GetReportBySeq(c.Request.Context(), seq)
+	if err != nil {
+		h.respondReportContactStrategyError(c, err)
+		return
+	}
+	h.recordReportExecutionTaskOutcome(c, reportWithAnalysis)
+}
+
+func (h *Handlers) RecordReportExecutionTaskOutcomeByPublicID(c *gin.Context) {
+	publicID := strings.TrimSpace(c.Param("public_id"))
+	if !publicid.IsReportID(publicID) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid report public id"})
+		return
+	}
+	reportWithAnalysis, err := h.db.GetReportByPublicID(c.Request.Context(), publicID)
+	if err != nil {
+		h.respondReportContactStrategyError(c, err)
+		return
+	}
+	h.recordReportExecutionTaskOutcome(c, reportWithAnalysis)
+}
+
 func (h *Handlers) respondReportContactStrategy(c *gin.Context, reportWithAnalysis *models.ReportWithAnalysis) {
 	refresh := strings.EqualFold(strings.TrimSpace(c.Query("refresh_targets")), "1")
 	strategy, err := h.buildReportContactStrategy(c.Request.Context(), reportWithAnalysis, refresh)
@@ -75,6 +105,81 @@ func (h *Handlers) respondReportContactStrategyError(c *gin.Context, err error) 
 	default:
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve report"})
 	}
+}
+
+func (h *Handlers) recordReportExecutionTaskOutcome(c *gin.Context, reportWithAnalysis *models.ReportWithAnalysis) {
+	if reportWithAnalysis == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "report not found"})
+		return
+	}
+	taskID, err := parseTaskIDParam(c.Param("task_id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid task id"})
+		return
+	}
+	var req models.RecordNotifyExecutionTaskOutcomeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})
+		return
+	}
+	outcomeType, err := normalizeNotifyOutcomeType(req.OutcomeType)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	subjectRef := reportSubjectRef(reportWithAnalysis)
+	task, err := h.db.GetNotifyExecutionTask(c.Request.Context(), "report", subjectRef, taskID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load execution task"})
+		return
+	}
+	if task == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "execution task not found"})
+		return
+	}
+	targets, err := h.db.ListReportEscalationTargets(c.Request.Context(), reportWithAnalysis.Report.Seq)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load report targets"})
+		return
+	}
+	target, ok := findCaseTargetByID(targets, task.TargetID)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": "execution task target not found"})
+		return
+	}
+	actorUserID := middleware.GetUserIDFromContext(c)
+	if strings.TrimSpace(req.ActorUserID) != "" {
+		actorUserID = strings.TrimSpace(req.ActorUserID)
+	}
+	completedAt := time.Now().UTC()
+	updatedTask, err := h.db.UpdateNotifyExecutionTask(c.Request.Context(), "report", subjectRef, taskID, taskStatusForOutcome(outcomeType), actorUserID, &completedAt)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update execution task"})
+		return
+	}
+	profile := buildReportRoutingProfile(reportWithAnalysis)
+	outcome, memory, err := h.recordNotifyOutcomeAndMemory(
+		c.Request.Context(),
+		"report",
+		subjectRef,
+		task.TargetID,
+		&target,
+		profile.AssetClass,
+		outcomeType,
+		"execution_task",
+		firstNonEmpty(updatedTask.Summary, target.DisplayName, target.Organization),
+		req.Note,
+		completedAt,
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to record execution outcome"})
+		return
+	}
+	c.JSON(http.StatusOK, models.RecordNotifyExecutionTaskOutcomeResponse{
+		Task:           *updatedTask,
+		Outcome:        *outcome,
+		EndpointMemory: memory,
+	})
 }
 
 func (h *Handlers) buildReportContactStrategy(ctx context.Context, reportWithAnalysis *models.ReportWithAnalysis, forceRefresh bool) (*models.ReportContactStrategyResponse, error) {

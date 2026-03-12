@@ -288,6 +288,14 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 			cases.GET("/:case_id/escalations", h.GetCaseEscalations)
 			cases.POST("/:case_id/escalations/draft", h.DraftCaseEscalation)
 			cases.POST("/:case_id/escalations/send", h.SendCaseEscalation)
+			cases.POST("/:case_id/execution-tasks/:task_id/outcome", h.RecordCaseExecutionTaskOutcome)
+		}
+
+		reportActions := api.Group("/reports")
+		reportActions.Use(middleware.AuthMiddleware(cfg, svc.GetHandlers().Db()))
+		{
+			reportActions.POST("/contact-strategy/by-public-id/:public_id/tasks/:task_id/outcome", h.RecordReportExecutionTaskOutcomeByPublicID)
+			reportActions.POST("/contact-strategy/by-seq/:seq/tasks/:task_id/outcome", h.RecordReportExecutionTaskOutcomeBySeq)
 		}
 	}
 
@@ -450,6 +458,14 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 			casesV4.GET("/:case_id/escalations", h.GetCaseEscalations)
 			casesV4.POST("/:case_id/escalations/draft", h.DraftCaseEscalation)
 			casesV4.POST("/:case_id/escalations/send", h.SendCaseEscalation)
+			casesV4.POST("/:case_id/execution-tasks/:task_id/outcome", h.RecordCaseExecutionTaskOutcome)
+		}
+
+		reportActionsV4 := apiV4.Group("/reports")
+		reportActionsV4.Use(middleware.AuthMiddleware(cfg, svc.GetHandlers().Db()))
+		{
+			reportActionsV4.POST("/contact-strategy/by-public-id/:public_id/tasks/:task_id/outcome", h.RecordReportExecutionTaskOutcomeByPublicID)
+			reportActionsV4.POST("/contact-strategy/by-seq/:seq/tasks/:task_id/outcome", h.RecordReportExecutionTaskOutcomeBySeq)
 		}
 	}
 

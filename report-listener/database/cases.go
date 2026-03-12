@@ -1073,6 +1073,40 @@ func insertCaseAuditEventTx(ctx context.Context, tx *sql.Tx, caseID, eventType, 
 	return nil
 }
 
+func (d *Database) InsertCaseAuditEvent(ctx context.Context, caseID, eventType, actorUserID string, payload interface{}) error {
+	tx, err := d.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := insertCaseAuditEventTx(ctx, tx, caseID, eventType, actorUserID, payload); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (d *Database) InsertCaseResolutionSignal(ctx context.Context, caseID, sourceType, summary string, linkedReportSeq *int, metadata interface{}) error {
+	metadataJSON, err := marshalNullableJSON(metadata)
+	if err != nil {
+		return fmt.Errorf("marshal case resolution metadata: %w", err)
+	}
+	_, err = d.db.ExecContext(ctx, `
+		INSERT INTO case_resolution_signals (
+			case_id, source_type, summary, linked_report_seq, metadata_json
+		) VALUES (?, ?, ?, ?, NULLIF(?, ''))
+	`,
+		caseID,
+		emptyOrDefault(sourceType, "notify_outcome"),
+		emptyOrDefault(summary, "Resolution signal recorded"),
+		linkedReportSeq,
+		metadataJSON,
+	)
+	if err != nil {
+		return fmt.Errorf("insert case resolution signal: %w", err)
+	}
+	return nil
+}
+
 func emptyOrNil(value string) interface{} {
 	if strings.TrimSpace(value) == "" {
 		return nil

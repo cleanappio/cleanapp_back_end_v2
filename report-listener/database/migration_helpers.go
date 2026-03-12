@@ -1364,3 +1364,56 @@ func ensureUnifiedDefectRoutingTables(ctx context.Context, db *sql.DB) error {
 
 	return nil
 }
+
+func ensureNotifyQualityTuning(ctx context.Context, db *sql.DB) error {
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO authority_directory_rules (
+			jurisdiction_key, asset_class, defect_class, role_type, query_templates_json, official_domains_json, priority
+		) VALUES
+			('*', 'retail_site', 'physical_safety', 'facility_manager', JSON_ARRAY('facility management', 'store management', 'site contact'), JSON_ARRAY(), 15),
+			('*', 'hospital', 'physical_structural', 'facility_manager', JSON_ARRAY('facilities', 'building management', 'site operations'), JSON_ARRAY(), 15),
+			('*', 'hospital', 'physical_structural', 'building_authority', JSON_ARRAY('building department', 'life safety', 'inspection office'), JSON_ARRAY(), 20),
+			('*', 'public_building', 'physical_structural', 'building_authority', JSON_ARRAY('building department', 'inspection office', 'planning office'), JSON_ARRAY(), 18),
+			('*', 'public_building', 'physical_structural', 'fire_authority', JSON_ARRAY('fire marshal', 'fire prevention', 'life safety'), JSON_ARRAY(), 24),
+			('*', 'industrial_site', 'physical_structural', 'facility_manager', JSON_ARRAY('plant operations', 'maintenance', 'site contact'), JSON_ARRAY(), 15),
+			('*', 'industrial_site', 'physical_structural', 'public_safety', JSON_ARRAY('public safety', 'emergency management', 'hazmat'), JSON_ARRAY(), 24),
+			('*', 'general_site', 'physical_sanitation', 'public_works', JSON_ARRAY('public works', 'sanitation department', 'waste management'), JSON_ARRAY(), 16),
+			('*', 'general_site', 'physical_sanitation', 'operator', JSON_ARRAY('site management', 'facilities', 'contact'), JSON_ARRAY(), 20),
+			('*', 'roadway', 'physical_accessibility', 'traffic_authority', JSON_ARRAY('traffic engineering', 'transportation department', 'accessibility office'), JSON_ARRAY(), 16),
+			('*', 'general_site', 'physical_accessibility', 'operator', JSON_ARRAY('accessibility', 'site management', 'contact'), JSON_ARRAY(), 20),
+			('*', 'general_site', 'digital_fraud', 'trust_safety', JSON_ARRAY('trust and safety', 'fraud', 'abuse'), JSON_ARRAY(), 10),
+			('*', 'general_site', 'digital_fraud', 'support', JSON_ARRAY('support', 'fraud support', 'customer support'), JSON_ARRAY(), 20),
+			('*', 'general_site', 'digital_fraud', 'security', JSON_ARRAY('security', 'report abuse', 'integrity'), JSON_ARRAY(), 30),
+			('*', 'general_site', 'operational_service', 'operator', JSON_ARRAY('operations', 'contact', 'customer support'), JSON_ARRAY(), 12),
+			('*', 'general_site', 'operational_service', 'support', JSON_ARRAY('support', 'service desk', 'help center'), JSON_ARRAY(), 18),
+			('*', 'transit_station', 'physical_safety', 'transit_authority', JSON_ARRAY('station management', 'transit authority', 'operations'), JSON_ARRAY(), 12),
+			('country:ch', 'general_site', 'physical_structural', 'building_authority', JSON_ARRAY('bauamt', 'bau und planung', 'hochbau'), JSON_ARRAY('*.admin.ch', '*.ch'), 8),
+			('country:ch', 'general_site', 'physical_structural', 'fire_authority', JSON_ARRAY('feuerpolizei', 'feuerwehr', 'brandschutz'), JSON_ARRAY('*.admin.ch', '*.ch'), 14),
+			('country:ch', 'school', 'physical_structural', 'facility_manager', JSON_ARRAY('hausdienst', 'schulverwaltung', 'kontakt'), JSON_ARRAY('*.schule-*.ch', '*.schulen-*.ch', '*.ch'), 9),
+			('country:ch', 'transit_station', 'physical_structural', 'transit_authority', JSON_ARRAY('verkehrsbetriebe', 'bahnhof kontakt', 'betriebsleitung'), JSON_ARRAY('*.ch', '*.admin.ch'), 10),
+			('country:ch', 'transit_station', 'physical_structural', 'transit_safety', JSON_ARRAY('bahnsicherheit', 'verkehrssicherheit'), JSON_ARRAY('*.ch', '*.admin.ch'), 18),
+			('country:ch', 'general_site', 'physical_sanitation', 'public_works', JSON_ARRAY('werkhof', 'tiefbauamt', 'entsorgung', 'abfall'), JSON_ARRAY('*.admin.ch', '*.ch'), 12),
+			('country:us', 'general_site', 'physical_structural', 'building_authority', JSON_ARRAY('building department', 'building safety', 'code enforcement'), JSON_ARRAY('*.gov', '*.us'), 8),
+			('country:us', 'general_site', 'physical_structural', 'fire_authority', JSON_ARRAY('fire marshal', 'fire prevention', 'life safety'), JSON_ARRAY('*.gov', '*.us'), 14),
+			('country:us', 'roadway', 'physical_safety', 'public_works', JSON_ARRAY('public works', 'street maintenance', 'road maintenance'), JSON_ARRAY('*.gov', '*.us'), 10),
+			('country:us', 'roadway', 'physical_safety', 'traffic_authority', JSON_ARRAY('traffic engineering', 'transportation department', 'mobility division'), JSON_ARRAY('*.gov', '*.us'), 16),
+			('country:us', 'bridge', 'physical_structural', 'infrastructure_authority', JSON_ARRAY('bridge maintenance', 'bridge division', 'infrastructure maintenance'), JSON_ARRAY('*.gov', '*.us'), 10),
+			('country:us', 'transit_station', 'physical_structural', 'transit_authority', JSON_ARRAY('transit authority', 'station management', 'rail operations'), JSON_ARRAY('*.gov', '*.us', '*.org'), 10),
+			('country:us', 'transit_station', 'physical_structural', 'transit_safety', JSON_ARRAY('rail safety', 'transit safety', 'system safety'), JSON_ARRAY('*.gov', '*.us', '*.org'), 18),
+			('country:us', 'general_site', 'digital_security', 'security', JSON_ARRAY('security', 'responsible disclosure', 'security contact'), JSON_ARRAY(), 10),
+			('country:us', 'general_site', 'digital_fraud', 'trust_safety', JSON_ARRAY('trust and safety', 'fraud', 'abuse'), JSON_ARRAY(), 12),
+			('country:de', 'general_site', 'physical_structural', 'building_authority', JSON_ARRAY('bauamt', 'bauaufsicht', 'bauordnung'), JSON_ARRAY('*.de'), 8),
+			('country:de', 'general_site', 'physical_structural', 'fire_authority', JSON_ARRAY('feuerwehr', 'brandschutz', 'feuerpolizei'), JSON_ARRAY('*.de'), 14),
+			('country:at', 'general_site', 'physical_structural', 'building_authority', JSON_ARRAY('bauamt', 'baupolizei', 'bauwesen'), JSON_ARRAY('*.gv.at', '*.at'), 8),
+			('country:fr', 'general_site', 'physical_structural', 'building_authority', JSON_ARRAY('service urbanisme', 'bâtiments', 'sécurité bâtiment'), JSON_ARRAY('*.fr', '*.gouv.fr'), 8),
+			('country:it', 'general_site', 'physical_structural', 'building_authority', JSON_ARRAY('ufficio tecnico', 'edilizia', 'sicurezza edificio'), JSON_ARRAY('*.it', '*.gov.it'), 8)
+		ON DUPLICATE KEY UPDATE
+			query_templates_json = VALUES(query_templates_json),
+			official_domains_json = VALUES(official_domains_json),
+			priority = VALUES(priority),
+			updated_at = CURRENT_TIMESTAMP
+	`); err != nil {
+		return fmt.Errorf("failed to seed notify quality tuning authority rules: %w", err)
+	}
+	return nil
+}

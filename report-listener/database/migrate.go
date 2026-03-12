@@ -28,6 +28,7 @@ func RunMigrations(ctx context.Context, db *sql.DB) error {
 		{ID: "0016_case_contact_routing", Description: "add case contact observations and notify plan tables", Up: func(ctx context.Context, db *sql.DB) error { return ensureCaseContactRoutingTables(ctx, db) }},
 		{ID: "0017_report_contact_targets", Description: "create cached report escalation target table", Up: func(ctx context.Context, db *sql.DB) error { return ensureReportContactTargetTables(ctx, db) }},
 		{ID: "0018_unified_defect_routing", Description: "add shared routing profiles, endpoint memory, execution tasks, outcomes, and authority rules", Up: func(ctx context.Context, db *sql.DB) error { return ensureUnifiedDefectRoutingTables(ctx, db) }},
+		{ID: "0019_notify_quality_tuning", Description: "seed jurisdiction-aware authority rules and execution quality defaults", Up: func(ctx context.Context, db *sql.DB) error { return ensureNotifyQualityTuning(ctx, db) }},
 	})
 }
 

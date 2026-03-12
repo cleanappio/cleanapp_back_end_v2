@@ -4,6 +4,8 @@ import (
 	"math"
 	"net/url"
 	"strings"
+
+	"report-listener/models"
 )
 
 func inferAssetClass(primaryName string, candidateNames []string, locCtx *caseLocationContext, extraText ...string) string {
@@ -128,8 +130,22 @@ func hostMatchesAnyHint(rawURL string, hints []string) bool {
 		return false
 	}
 	for _, hint := range hints {
-		hint = strings.ToLower(strings.TrimSpace(strings.TrimPrefix(hint, "www.")))
+		hint = normalizeHostHint(hint)
 		if hint == "" {
+			continue
+		}
+		if strings.HasPrefix(hint, "*.") {
+			suffix := strings.TrimPrefix(hint, "*.")
+			if host == suffix || strings.HasSuffix(host, "."+suffix) {
+				return true
+			}
+			continue
+		}
+		if strings.HasPrefix(hint, ".") {
+			suffix := strings.TrimPrefix(hint, ".")
+			if host == suffix || strings.HasSuffix(host, "."+suffix) {
+				return true
+			}
 			continue
 		}
 		if host == hint || strings.HasSuffix(host, "."+hint) || strings.HasSuffix(hint, "."+host) {
@@ -137,6 +153,20 @@ func hostMatchesAnyHint(rawURL string, hints []string) bool {
 		}
 	}
 	return false
+}
+
+func normalizeHostHint(raw string) string {
+	raw = strings.TrimSpace(strings.ToLower(raw))
+	if raw == "" {
+		return ""
+	}
+	if strings.Contains(raw, "://") {
+		if host := hostForHint(raw); host != "" {
+			return host
+		}
+	}
+	raw = strings.TrimPrefix(raw, "www.")
+	return raw
 }
 
 func tokenMatchCount(corpus string, tokens []string) int {
@@ -200,6 +230,87 @@ func authorityRoleKeywords(roleType, assetClass string) []string {
 	default:
 		return nil
 	}
+}
+
+func jurisdictionCandidatesForLocation(locCtx *caseLocationContext) []string {
+	if locCtx == nil {
+		return []string{"*"}
+	}
+	candidates := []string{"*"}
+	if code := strings.ToLower(strings.TrimSpace(locCtx.CountryCode)); code != "" {
+		candidates = appendUniqueStrings(candidates, "country:"+code)
+	}
+	if country := normalizeJurisdictionLabel(locCtx.Country); country != "" {
+		candidates = appendUniqueStrings(candidates, "country-name:"+country)
+	}
+	if state := normalizeJurisdictionLabel(locCtx.State); state != "" {
+		candidates = appendUniqueStrings(candidates, "state:"+state)
+		if code := strings.ToLower(strings.TrimSpace(locCtx.CountryCode)); code != "" {
+			candidates = appendUniqueStrings(candidates, "country:"+code+"/state:"+state)
+		}
+	}
+	if city := normalizeJurisdictionLabel(locCtx.City); city != "" {
+		candidates = appendUniqueStrings(candidates, "city:"+city)
+		if code := strings.ToLower(strings.TrimSpace(locCtx.CountryCode)); code != "" {
+			candidates = appendUniqueStrings(candidates, "country:"+code+"/city:"+city)
+		}
+		if state := normalizeJurisdictionLabel(locCtx.State); state != "" {
+			candidates = appendUniqueStrings(candidates, "state:"+state+"/city:"+city)
+			if code := strings.ToLower(strings.TrimSpace(locCtx.CountryCode)); code != "" {
+				candidates = appendUniqueStrings(candidates, "country:"+code+"/state:"+state+"/city:"+city)
+			}
+		}
+	}
+	return candidates
+}
+
+func normalizeJurisdictionLabel(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return ""
+	}
+	replacer := strings.NewReplacer(
+		"ä", "ae",
+		"ö", "oe",
+		"ü", "ue",
+		"ß", "ss",
+		"é", "e",
+		"è", "e",
+		"ê", "e",
+		"à", "a",
+		"á", "a",
+		"â", "a",
+		"î", "i",
+		"ì", "i",
+		"í", "i",
+		"ô", "o",
+		"ó", "o",
+		"ò", "o",
+		"ç", "c",
+	)
+	value = replacer.Replace(value)
+	value = strings.Join(strings.FieldsFunc(value, func(r rune) bool {
+		switch r {
+		case ' ', '-', '_', '/', ',', '.', '(', ')':
+			return true
+		default:
+			return false
+		}
+	}), "-")
+	return strings.Trim(value, "-")
+}
+
+func authorityRuleMatchesLocation(rule models.AuthorityDirectoryRule, locCtx *caseLocationContext) bool {
+	key := strings.ToLower(strings.TrimSpace(rule.JurisdictionKey))
+	if key == "" || key == "*" {
+		return true
+	}
+	for _, candidate := range jurisdictionCandidatesForLocation(locCtx) {
+		if key == strings.ToLower(strings.TrimSpace(candidate)) {
+			return true
+		}
+	}
+	return false
 }
 
 func queryNeedsAuthorityHost(roleType string) bool {
