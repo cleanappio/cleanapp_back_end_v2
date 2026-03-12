@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -220,15 +221,31 @@ func buildNotifyPlan(caseID string, profile caseRoutingProfile, targets []models
 		}
 	}
 
+	sortedTargets := sortTargetsForNotifyPlan(profile, targets)
 	items := make([]models.CaseNotifyPlanItem, 0, len(targets))
 	perWaveRank := make(map[int]int)
 	selectedCountByScope := make(map[string]int)
-	for _, target := range targets {
+	selectedCountByOrgWave := make(map[string]int)
+	selectedCountByDedupKey := make(map[string]int)
+	for _, target := range sortedTargets {
 		wave := notifyTierForTarget(profile, target)
 		perWaveRank[wave]++
-		selected := shouldSelectTargetForNotifyPlan(profile, target, selectedCountByScope)
+		selected := shouldSelectTargetForNotifyPlan(
+			profile,
+			target,
+			wave,
+			selectedCountByScope,
+			selectedCountByOrgWave,
+			selectedCountByDedupKey,
+		)
 		if selected {
 			selectedCountByScope[target.DecisionScope]++
+			if key := orgWaveSelectionKey(wave, target); key != "" {
+				selectedCountByOrgWave[key]++
+			}
+			if key := targetSelectionDedupKey(wave, target); key != "" {
+				selectedCountByDedupKey[key]++
+			}
 		}
 		observationID := observationIDs[observationKeyForTarget(target)]
 		var observationPtr *int64
@@ -260,6 +277,117 @@ func buildNotifyPlan(caseID string, profile caseRoutingProfile, targets []models
 		Summary:     buildCaseNotifyPlanSummary(profile, items),
 		Items:       items,
 		PlanVersion: 1,
+	}
+}
+
+func sortTargetsForNotifyPlan(profile caseRoutingProfile, targets []models.CaseEscalationTarget) []models.CaseEscalationTarget {
+	sorted := append([]models.CaseEscalationTarget(nil), targets...)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		left := sorted[i]
+		right := sorted[j]
+		leftWave := notifyTierForTarget(profile, left)
+		rightWave := notifyTierForTarget(profile, right)
+		if leftWave != rightWave {
+			return leftWave < rightWave
+		}
+		if left.DecisionScope != right.DecisionScope {
+			return decisionScopePriority(left.DecisionScope) < decisionScopePriority(right.DecisionScope)
+		}
+		leftOrg := organizationBucketKey(left)
+		rightOrg := organizationBucketKey(right)
+		if leftOrg != "" && leftOrg == rightOrg {
+			leftEndpointRank := primaryEndpointRank(left)
+			rightEndpointRank := primaryEndpointRank(right)
+			if leftEndpointRank != rightEndpointRank {
+				return leftEndpointRank < rightEndpointRank
+			}
+			leftRoleRank := rolePriorityForSelection(left.RoleType)
+			rightRoleRank := rolePriorityForSelection(right.RoleType)
+			if leftRoleRank != rightRoleRank {
+				return leftRoleRank > rightRoleRank
+			}
+		}
+		if !almostEqualFloat(left.ActionabilityScore, right.ActionabilityScore) {
+			return left.ActionabilityScore > right.ActionabilityScore
+		}
+		leftEndpointRank := primaryEndpointRank(left)
+		rightEndpointRank := primaryEndpointRank(right)
+		if leftEndpointRank != rightEndpointRank {
+			return leftEndpointRank < rightEndpointRank
+		}
+		if !almostEqualFloat(left.ConfidenceScore, right.ConfidenceScore) {
+			return left.ConfidenceScore > right.ConfidenceScore
+		}
+		return strings.ToLower(strings.TrimSpace(firstNonEmpty(left.DisplayName, left.Organization, left.Email, left.Phone))) <
+			strings.ToLower(strings.TrimSpace(firstNonEmpty(right.DisplayName, right.Organization, right.Email, right.Phone)))
+	})
+	return sorted
+}
+
+func decisionScopePriority(scope string) int {
+	switch scope {
+	case "site_ops":
+		return 0
+	case "asset_owner":
+		return 1
+	case "regulator":
+		return 2
+	case "project_party":
+		return 3
+	default:
+		return 4
+	}
+}
+
+func rolePriorityForSelection(roleType string) int {
+	switch strings.ToLower(strings.TrimSpace(roleType)) {
+	case "operator", "operator_admin", "site_leadership":
+		return 9
+	case "facility_manager", "transit_authority", "public_works", "traffic_authority", "infrastructure_authority":
+		return 8
+	case "building_authority", "public_safety", "fire_authority", "transit_safety":
+		return 7
+	case "owner", "property_owner", "landlord":
+		return 6
+	case "support", "engineering", "product_owner", "trust_safety", "security":
+		return 5
+	case "architect", "engineer", "contractor":
+		return 4
+	default:
+		return 1
+	}
+}
+
+func primaryEndpointRank(target models.CaseEscalationTarget) int {
+	switch caseTargetChannel(target) {
+	case "email":
+		localPart := strings.ToLower(strings.TrimSpace(target.Email))
+		if at := strings.Index(localPart, "@"); at >= 0 {
+			localPart = localPart[:at]
+		}
+		switch {
+		case containsAny(localPart, []string{"noreply", "no-reply", "donotreply", "do-not-reply"}):
+			return 6
+		case containsAny(localPart, []string{"press", "media", "marketing", "kommunikation", "communication", "webmaster", "web"}):
+			return 4
+		case containsAny(localPart, []string{"info", "contact", "support", "help", "service", "team", "admin", "office", "facilit", "maint", "security", "safety", "inspection", "permit", "planning", "bau", "school", "station", "publicworks", "transit", "operations", "ops"}):
+			return 0
+		case strings.Contains(localPart, ".") || strings.Contains(localPart, "_"):
+			return 2
+		default:
+			return 1
+		}
+	case "phone":
+		return 1
+	case "website":
+		if strings.TrimSpace(target.ContactURL) != "" {
+			return 3
+		}
+		return 4
+	case "social":
+		return 5
+	default:
+		return 7
 	}
 }
 
@@ -545,29 +673,42 @@ func buildCaseTargetReason(profile caseRoutingProfile, target models.CaseEscalat
 
 func buildCaseNotifyPlanSummary(profile caseRoutingProfile, items []models.CaseNotifyPlanItem) string {
 	selected := 0
-	authorities := 0
+	selectedDirect := 0
+	backupAuthorities := 0
 	for _, item := range items {
 		if item.Selected {
 			selected++
+			if item.DecisionScope == "site_ops" || item.DecisionScope == "asset_owner" {
+				selectedDirect++
+			}
 		}
 		if item.DecisionScope == "regulator" {
-			authorities++
+			if !item.Selected {
+				backupAuthorities++
+			}
 		}
 	}
 	switch profile.HazardMode {
 	case "emergency":
-		return fmt.Sprintf("Immediate-response plan prioritizes %d direct operators/owners first, with %d authority targets ready in the next wave.", selected, authorities)
+		return fmt.Sprintf("Immediate-response plan selects %d primary recipients now, while holding %d authority contacts in reserve for widening if needed.", selected, backupAuthorities)
 	case "urgent":
-		return fmt.Sprintf("Urgent notify plan focuses on %d direct operators/owners now and keeps %d authority stakeholders queued for escalation.", selected, authorities)
+		return fmt.Sprintf("Urgent notify plan focuses on %d direct operators/owners now and keeps %d authority stakeholders queued for escalation.", selectedDirect, backupAuthorities)
 	default:
 		if strings.HasPrefix(profile.DefectClass, "digital_") {
-			return fmt.Sprintf("Notify plan recommends %d primary product/operator contacts now, with %d authority or oversight stakeholders retained for escalation if the issue persists.", selected, authorities)
+			return fmt.Sprintf("Notify plan recommends %d primary product/operator contacts now, with %d authority or oversight stakeholders retained for escalation if the issue persists.", selected, backupAuthorities)
 		}
-		return fmt.Sprintf("Notify plan recommends %d primary contacts now, with %d authority or oversight stakeholders retained for escalation if needed.", selected, authorities)
+		return fmt.Sprintf("Notify plan recommends %d primary contacts now, with %d authority or oversight stakeholders retained for escalation if needed.", selected, backupAuthorities)
 	}
 }
 
-func shouldSelectTargetForNotifyPlan(profile caseRoutingProfile, target models.CaseEscalationTarget, selectedCountByScope map[string]int) bool {
+func shouldSelectTargetForNotifyPlan(
+	profile caseRoutingProfile,
+	target models.CaseEscalationTarget,
+	wave int,
+	selectedCountByScope map[string]int,
+	selectedCountByOrgWave map[string]int,
+	selectedCountByDedupKey map[string]int,
+) bool {
 	if target.SendEligibility != "auto" {
 		return false
 	}
@@ -587,7 +728,101 @@ func shouldSelectTargetForNotifyPlan(profile caseRoutingProfile, target models.C
 	default:
 		limit = 1
 	}
-	return selectedCountByScope[scope] < limit
+	if selectedCountByScope[scope] >= limit {
+		return false
+	}
+	if key := orgWaveSelectionKey(wave, target); key != "" {
+		if selectedCountByOrgWave[key] >= orgWaveSelectionLimit(profile, target, wave) {
+			return false
+		}
+	}
+	if key := targetSelectionDedupKey(wave, target); key != "" {
+		if selectedCountByDedupKey[key] > 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func orgWaveSelectionKey(wave int, target models.CaseEscalationTarget) string {
+	orgKey := organizationBucketKey(target)
+	if orgKey == "" {
+		return ""
+	}
+	return fmt.Sprintf("%d|%s", wave, orgKey)
+}
+
+func orgWaveSelectionLimit(profile caseRoutingProfile, target models.CaseEscalationTarget, wave int) int {
+	switch target.DecisionScope {
+	case "site_ops":
+		if wave == 1 {
+			return 2
+		}
+		return 1
+	case "regulator":
+		if profile.HazardMode == "emergency" {
+			switch roleFamilyForTarget(target) {
+			case "public_safety", "fire_authority":
+				return 2
+			}
+		}
+		return 1
+	default:
+		return 1
+	}
+}
+
+func targetSelectionDedupKey(wave int, target models.CaseEscalationTarget) string {
+	orgKey := organizationBucketKey(target)
+	if orgKey == "" {
+		return ""
+	}
+	return fmt.Sprintf("%d|%s|%s", wave, orgKey, roleFamilyForTarget(target))
+}
+
+func roleFamilyForTarget(target models.CaseEscalationTarget) string {
+	switch strings.ToLower(strings.TrimSpace(target.RoleType)) {
+	case "operator", "operator_admin", "site_leadership":
+		return "site_operator"
+	case "facility_manager":
+		return "facility_manager"
+	case "owner", "property_owner", "landlord":
+		return "asset_owner"
+	case "building_authority":
+		return "building_authority"
+	case "public_safety":
+		return "public_safety"
+	case "fire_authority":
+		return "fire_authority"
+	case "transit_authority":
+		return "transit_authority"
+	case "transit_safety":
+		return "transit_safety"
+	case "public_works":
+		return "public_works"
+	case "traffic_authority":
+		return "traffic_authority"
+	case "infrastructure_authority":
+		return "infrastructure_authority"
+	case "support":
+		return "support"
+	case "engineering":
+		return "engineering"
+	case "product_owner":
+		return "product_owner"
+	case "security":
+		return "security"
+	case "trust_safety":
+		return "trust_safety"
+	case "architect":
+		return "architect"
+	case "engineer":
+		return "engineer"
+	case "contractor":
+		return "contractor"
+	default:
+		return strings.ToLower(strings.TrimSpace(firstNonEmpty(target.RoleType, target.DecisionScope, "other")))
+	}
 }
 
 func endpointKeyForTarget(target models.CaseEscalationTarget) string {
@@ -595,7 +830,46 @@ func endpointKeyForTarget(target models.CaseEscalationTarget) string {
 }
 
 func organizationKeyForTarget(target models.CaseEscalationTarget) string {
-	return strings.ToLower(strings.TrimSpace(firstNonEmpty(target.Organization, target.DisplayName)))
+	return organizationBucketKey(target)
+}
+
+func organizationBucketKey(target models.CaseEscalationTarget) string {
+	if key := strings.ToLower(strings.TrimSpace(target.OrganizationKey)); key != "" {
+		return key
+	}
+	if key := strings.ToLower(strings.TrimSpace(firstNonEmpty(target.Organization, target.DisplayName))); key != "" {
+		return key
+	}
+	for _, raw := range []string{target.ContactURL, target.Website, target.SourceURL} {
+		if host := normalizedTargetHost(raw); host != "" {
+			return host
+		}
+	}
+	if target.Email != "" {
+		normalized := strings.ToLower(strings.TrimSpace(target.Email))
+		if at := strings.LastIndex(normalized, "@"); at >= 0 {
+			return normalized[at+1:]
+		}
+	}
+	if target.Phone != "" {
+		return "phone:" + strings.TrimSpace(target.Phone)
+	}
+	return ""
+}
+
+func normalizedTargetHost(raw string) string {
+	if strings.TrimSpace(raw) == "" {
+		return ""
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(parsed.Hostname()))
+}
+
+func almostEqualFloat(left, right float64) bool {
+	return math.Abs(left-right) < 1e-9
 }
 
 func scoreSourceQuality(target models.CaseEscalationTarget) float64 {
