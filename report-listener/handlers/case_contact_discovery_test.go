@@ -131,6 +131,14 @@ func TestExtractPhonesFromVisibleTextOnly(t *testing.T) {
 	}
 }
 
+func TestExtractPhonesRejectsObfuscationIntegers(t *testing.T) {
+	html := `<div><a x-init="const a=Array(1093293870,1210994537,1045222498,1413970540); a.sort();"></a></div>`
+	phones := extractPhonesFromHTML(html)
+	if len(phones) != 0 {
+		t.Fatalf("expected no phones from obfuscation integers, got %#v", phones)
+	}
+}
+
 func TestExtractLocalizedContactLinks(t *testing.T) {
 	html := `<html><body>
 <a href="/kontakt">Kontakt</a>

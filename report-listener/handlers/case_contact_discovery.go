@@ -2328,11 +2328,15 @@ func extractPhonesFromHTML(html string) []string {
 	phones := []string{}
 	for _, match := range caseDiscoveryTelRegex.FindAllStringSubmatch(html, -1) {
 		if len(match) > 1 {
-			phones = appendUniqueStrings(phones, normalizePhone(match[1]))
+			if normalized := normalizePhone(match[1]); looksLikePublishedPhone(match[1], normalized) {
+				phones = appendUniqueStrings(phones, normalized)
+			}
 		}
 	}
 	for _, match := range caseDiscoveryPhoneRegex.FindAllString(visibleTextFromHTML(html), -1) {
-		phones = appendUniqueStrings(phones, normalizePhone(match))
+		if normalized := normalizePhone(match); looksLikePublishedPhone(match, normalized) {
+			phones = appendUniqueStrings(phones, normalized)
+		}
 	}
 	out := make([]string, 0, len(phones))
 	for _, phone := range phones {
@@ -2341,6 +2345,21 @@ func extractPhonesFromHTML(html string) []string {
 		}
 	}
 	return out
+}
+
+func looksLikePublishedPhone(raw, normalized string) bool {
+	raw = strings.TrimSpace(raw)
+	if normalized == "" {
+		return false
+	}
+	digits := phoneDigits(normalized)
+	if len(digits) < 7 || len(digits) > 15 {
+		return false
+	}
+	if strings.ContainsAny(raw, " ()-./") || strings.HasPrefix(raw, "+") {
+		return true
+	}
+	return strings.HasPrefix(raw, "0")
 }
 
 func visibleTextFromHTML(html string) string {
