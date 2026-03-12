@@ -673,7 +673,9 @@ func (h *Handlers) enrichCaseEscalationTargets(ctx context.Context, detail *mode
 	if err != nil {
 		return nil, err
 	}
-	enriched := h.contactDiscoverer.EnrichTargets(ctx, reports, detail.EscalationTargets, 16)
+	enrichCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
+	defer cancel()
+	enriched := h.contactDiscoverer.EnrichTargets(enrichCtx, reports, detail.EscalationTargets, 16)
 	stored, err := h.db.UpsertCaseEscalationTargets(ctx, detail.Case.CaseID, enriched)
 	if err != nil {
 		return filterVisibleCaseTargets(enriched), nil

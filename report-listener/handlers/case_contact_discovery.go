@@ -214,7 +214,7 @@ type googlePlacesSearchResponse struct {
 
 func newCaseContactDiscoverer(cfg *config.Config) *caseContactDiscoverer {
 	return &caseContactDiscoverer{
-		httpClient:          &http.Client{Timeout: 8 * time.Second},
+		httpClient:          &http.Client{Timeout: 4 * time.Second},
 		googlePlacesAPIKey:  strings.TrimSpace(cfg.GooglePlacesAPIKey),
 		googlePlacesBaseURL: strings.TrimRight(strings.TrimSpace(cfg.GooglePlacesBaseURL), "/"),
 		googleSearchAPIKey:  strings.TrimSpace(cfg.GoogleSearchAPIKey),
@@ -325,9 +325,14 @@ func (d *caseContactDiscoverer) EnrichTargets(ctx context.Context, reports []mod
 			}
 		}
 
-		if d.webSearchBaseURL != "" || (d.googleSearchAPIKey != "" && d.googleSearchCX != "") {
+		if (d.webSearchBaseURL != "" || (d.googleSearchAPIKey != "" && d.googleSearchCX != "")) &&
+			hasRemainingContactDiscoveryBudget(ctx, 2*time.Second) &&
+			shouldRunStakeholderWebSearch(merger.Targets(), hazardProfile) {
 			queries := buildCaseStakeholderSearchQueries(candidateNames, locCtx, hazardProfile)
 			d.addWebSearchStakeholderTargets(ctx, queries, merger, visitedWebsites, searchedQueries)
+		}
+		if !hasRemainingContactDiscoveryBudget(ctx, time.Second) {
+			break
 		}
 	}
 
@@ -537,6 +542,37 @@ func countPreferredCaseTargets(targets []models.CaseEscalationTarget) int {
 		}
 	}
 	return count
+}
+
+func countActionableDirectCaseTargets(targets []models.CaseEscalationTarget) int {
+	count := 0
+	for _, target := range targets {
+		if strings.EqualFold(strings.TrimSpace(target.TargetSource), "inferred_contact") {
+			continue
+		}
+		if normalizeEmail(target.Email) != "" || normalizePhone(target.Phone) != "" || strings.TrimSpace(target.SocialHandle) != "" {
+			count++
+		}
+	}
+	return count
+}
+
+func shouldRunStakeholderWebSearch(targets []models.CaseEscalationTarget, hazard caseHazardProfile) bool {
+	directCount := countActionableDirectCaseTargets(targets)
+	if directCount == 0 {
+		return true
+	}
+	if hazard.Structural && (hazard.Severe || hazard.ImmediateDanger) {
+		return directCount < 4
+	}
+	return directCount < 3
+}
+
+func hasRemainingContactDiscoveryBudget(ctx context.Context, minimum time.Duration) bool {
+	if deadline, ok := ctx.Deadline(); ok {
+		return time.Until(deadline) > minimum
+	}
+	return true
 }
 
 func buildCaseStakeholderSearchQueries(candidateNames []string, locCtx *caseLocationContext, hazard caseHazardProfile) []caseStakeholderSearchQuery {
