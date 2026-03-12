@@ -651,11 +651,12 @@ func buildCaseStakeholderSearchQueries(candidateNames []string, locCtx *caseLoca
 	}
 
 	if hazard.Structural {
+		criticalStructuralSearch := hazard.Severe || hazard.ImmediateDanger || hazard.SensitiveOccupancy
 		facilityTerm := "facility management"
 		if isGermanSpeakingLocation(locCtx) {
 			facilityTerm = "hausdienst"
 		}
-		queries = append(queries, caseStakeholderSearchQuery{
+		facilityQuery := caseStakeholderSearchQuery{
 			RoleType:        "facility_manager",
 			Query:           strings.TrimSpace(baseQuery + " " + facilityTerm),
 			Region:          region,
@@ -664,7 +665,10 @@ func buildCaseStakeholderSearchQueries(candidateNames []string, locCtx *caseLoca
 			Organization:    primaryName,
 			RelationshipTag: "operations",
 			RequireOfficial: true,
-		})
+		}
+		if !criticalStructuralSearch {
+			queries = append(queries, facilityQuery)
+		}
 	}
 
 	if !hazard.Structural {
@@ -718,6 +722,22 @@ func buildCaseStakeholderSearchQueries(candidateNames []string, locCtx *caseLoca
 				Rationale:       "Web search for public-safety contacts relevant to an immediate life-safety hazard at the site.",
 				Organization:    locality,
 				RelationshipTag: "public safety",
+				RequireOfficial: true,
+			})
+		}
+		if hazard.Severe || hazard.ImmediateDanger || hazard.SensitiveOccupancy {
+			facilityTerm := "facility management"
+			if isGermanSpeakingLocation(locCtx) {
+				facilityTerm = "hausdienst"
+			}
+			queries = append(queries, caseStakeholderSearchQuery{
+				RoleType:        "facility_manager",
+				Query:           strings.TrimSpace(baseQuery + " " + facilityTerm),
+				Region:          region,
+				BaseConfidence:  0.8,
+				Rationale:       "Operational or facilities contact search for the affected site.",
+				Organization:    primaryName,
+				RelationshipTag: "operations",
 				RequireOfficial: true,
 			})
 		}
@@ -1210,6 +1230,7 @@ func (d *caseContactDiscoverer) addGooglePlaceTargets(ctx context.Context, place
 }
 
 func (d *caseContactDiscoverer) addWebSearchStakeholderTargets(ctx context.Context, queries []caseStakeholderSearchQuery, merger *caseTargetMerger, visitedWebsites, searchedQueries map[string]struct{}) {
+	queries = pendingStakeholderSearchQueries(merger.Targets(), queries)
 	searchCount := 0
 	for _, query := range queries {
 		if searchCount >= 6 {
@@ -1265,6 +1286,20 @@ func (d *caseContactDiscoverer) addWebSearchStakeholderTargets(ctx context.Conte
 			}
 		}
 	}
+}
+
+func pendingStakeholderSearchQueries(targets []models.CaseEscalationTarget, queries []caseStakeholderSearchQuery) []caseStakeholderSearchQuery {
+	if len(queries) == 0 {
+		return nil
+	}
+	pending := make([]caseStakeholderSearchQuery, 0, len(queries))
+	for _, query := range queries {
+		if hasCaseRoleTarget(targets, query.RoleType) {
+			continue
+		}
+		pending = append(pending, query)
+	}
+	return pending
 }
 
 func (d *caseContactDiscoverer) searchStakeholderWeb(ctx context.Context, query, region string) ([]caseWebSearchResult, error) {

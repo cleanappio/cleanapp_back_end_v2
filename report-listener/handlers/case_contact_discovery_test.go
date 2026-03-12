@@ -388,10 +388,30 @@ func TestBuildCaseStakeholderSearchQueriesPrioritizesAuthorities(t *testing.T) {
 	if queries[0].RoleType != "operator" {
 		t.Fatalf("expected operator query first, got %#v", queries[0])
 	}
-	if queries[1].RoleType != "facility_manager" {
-		t.Fatalf("expected facility manager query second, got %#v", queries[1])
+	if queries[1].RoleType != "building_authority" {
+		t.Fatalf("expected building authority query second for critical structural hazards, got %#v", queries[1])
 	}
-	if queries[2].RoleType != "building_authority" {
-		t.Fatalf("expected building authority query before project-party queries, got %#v", queries)
+	if queries[len(queries)-1].RoleType == "building_authority" {
+		t.Fatalf("expected authority query before project-party queries, got %#v", queries)
+	}
+}
+
+func TestPendingStakeholderSearchQueriesSkipsSatisfiedRoles(t *testing.T) {
+	targets := []models.CaseEscalationTarget{
+		{RoleType: "operator", Channel: "email", Email: "ops@example.org"},
+		{RoleType: "building_authority", Channel: "website", Website: "https://city.example/"},
+	}
+	queries := []caseStakeholderSearchQuery{
+		{RoleType: "operator", Query: `"Station" contact`},
+		{RoleType: "building_authority", Query: `"Brooklyn" building department`},
+		{RoleType: "public_safety", Query: `"Brooklyn" public safety`},
+	}
+
+	pending := pendingStakeholderSearchQueries(targets, queries)
+	if len(pending) != 1 {
+		t.Fatalf("expected only the unsatisfied query to remain, got %#v", pending)
+	}
+	if pending[0].RoleType != "public_safety" {
+		t.Fatalf("unexpected pending query set: %#v", pending)
 	}
 }
