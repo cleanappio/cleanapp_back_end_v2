@@ -5,8 +5,22 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
+
+const insertWireSubmissionAndReceiptSQL = `
+		INSERT INTO wire_submissions_raw (
+			submission_id, receipt_id, fetcher_id, key_id, actor_kind, channel, auth_method,
+			source_id, schema_version, submitted_at, observed_at, agent_id, lane, material_hash, submission_quality,
+			risk_score,
+			report_seq, agent_json, provenance_json, report_json, dedupe_json, delivery_json, extensions_json
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`
+
+func wireSubmissionInsertPlaceholderCount() int {
+	return strings.Count(insertWireSubmissionAndReceiptSQL, "?")
+}
 
 type WireSubmissionRaw struct {
 	SubmissionID      string
@@ -104,14 +118,7 @@ func (d *Database) InsertWireSubmissionAndReceipt(ctx context.Context, submissio
 	}
 	defer tx.Rollback()
 
-	_, err = tx.ExecContext(ctx, `
-		INSERT INTO wire_submissions_raw (
-			submission_id, receipt_id, fetcher_id, key_id, actor_kind, channel, auth_method,
-			source_id, schema_version, submitted_at, observed_at, agent_id, lane, material_hash, submission_quality,
-			risk_score,
-			report_seq, agent_json, provenance_json, report_json, dedupe_json, delivery_json, extensions_json
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`,
+	_, err = tx.ExecContext(ctx, insertWireSubmissionAndReceiptSQL,
 		submission.SubmissionID,
 		submission.ReceiptID,
 		submission.FetcherID,
