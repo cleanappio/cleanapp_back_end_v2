@@ -1,6 +1,10 @@
 package handlers
 
-import "testing"
+import (
+	"testing"
+
+	"report-listener/config"
+)
 
 func TestCleanAppWireMaterialHashIgnoresTransportFields(t *testing.T) {
 	base := cleanAppWireSubmission{
@@ -48,5 +52,27 @@ func TestCleanAppWireMaterialHashIgnoresTransportFields(t *testing.T) {
 	}
 	if h1 != h2 {
 		t.Fatalf("expected idempotent material hash to ignore transport fields, got %q != %q", h1, h2)
+	}
+}
+
+func TestAssignCleanAppWireLaneHumanAutoPublishesEvidenceBackedReports(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{CleanAppWirePublishLaneMinTier: 2}
+
+	lane := assignCleanAppWireLane(cfg, 2, 0.55, 1, wireLaneHumanAuto)
+	if lane != wireLanePublish {
+		t.Fatalf("lane = %q, want %q", lane, wireLanePublish)
+	}
+}
+
+func TestAssignCleanAppWireLaneHumanAutoKeepsLowEvidenceReportsShadowed(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{CleanAppWirePublishLaneMinTier: 2}
+
+	lane := assignCleanAppWireLane(cfg, 2, 0.9, 0, wireLaneHumanAuto)
+	if lane != wireLaneShadow {
+		t.Fatalf("lane = %q, want %q", lane, wireLaneShadow)
 	}
 }

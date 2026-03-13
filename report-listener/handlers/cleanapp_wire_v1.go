@@ -27,6 +27,7 @@ const (
 	wireLaneShadow     = "shadow"
 	wireLanePublish    = "publish"
 	wireLanePriority   = "priority"
+	wireLaneHumanAuto  = "human_auto"
 )
 
 type cleanAppWireSubmission struct {
@@ -898,6 +899,16 @@ func computeCleanAppWireSubmissionQuality(sub cleanAppWireSubmission) float64 {
 
 func assignCleanAppWireLane(cfg *config.Config, tier int, quality float64, evidenceCount int, requestedLane string) string {
 	requestedLane = normalizeWireSlug(requestedLane)
+	if requestedLane == wireLaneHumanAuto {
+		switch {
+		case tier < cfg.CleanAppWirePublishLaneMinTier:
+			return wireLaneShadow
+		case evidenceCount > 0 && quality >= 0.50:
+			return wireLanePublish
+		default:
+			return wireLaneShadow
+		}
+	}
 	if cfg.CleanAppWirePriorityLaneEnabled && requestedLane == wireLanePriority && tier >= 3 && quality >= 0.85 {
 		return wireLanePriority
 	}

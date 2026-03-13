@@ -185,6 +185,9 @@ func buildHumanWireSubmission(req humanReportSubmissionRequest, sourcePrefix str
 	sub.Provenance.GenerationMethod = "human_submission"
 	sub.Provenance.ChainOfCustody = []string{"human_submission", channel}
 	sub.Provenance.HumanInLoop = true
+	// Human mobile/web submissions should be evaluated with the human-specific lane
+	// policy so image-backed reports are publishable without needing machine-target metadata.
+	sub.Delivery.RequestedLane = "human_auto"
 	sub.Report.Domain = "physical"
 	sub.Report.ProblemType = "citizen_submission"
 	sub.Report.Title = title
