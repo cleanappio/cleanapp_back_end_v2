@@ -1131,6 +1131,15 @@ func nonEmpty(value string, fallback string) string {
 	return strings.TrimSpace(fallback)
 }
 
+func cleanAppWireReporterID(auth cleanAppWireAuthContext, item cleanAppWireIngestCoreItem) string {
+	if auth.ActorKind == "human" {
+		if agentID := strings.TrimSpace(item.AgentID); agentID != "" {
+			return agentID
+		}
+	}
+	return "fetcher_v1:" + auth.FetcherID
+}
+
 func (h *Handlers) cleanAppWireIngestCore(ctx context.Context, auth cleanAppWireAuthContext, item cleanAppWireIngestCoreItem, visibility, trustLevel string) (cleanAppWireIngestCoreResult, string, int) {
 	existing, err := h.db.GetExistingReportSeqsV1(ctx, auth.FetcherID, []string{item.SourceID})
 	if err != nil {
@@ -1162,7 +1171,7 @@ func (h *Handlers) cleanAppWireIngestCore(ctx context.Context, auth cleanAppWire
 		lng = *item.Lng
 	}
 
-	reporterID := "fetcher_v1:" + auth.FetcherID
+	reporterID := cleanAppWireReporterID(auth, item)
 	img := []byte{}
 	if strings.TrimSpace(item.ImageBase64) != "" {
 		decoded, err := decodeWireInlineBytes(item.ImageBase64)

@@ -76,3 +76,33 @@ func TestAssignCleanAppWireLaneHumanAutoKeepsLowEvidenceReportsShadowed(t *testi
 		t.Fatalf("lane = %q, want %q", lane, wireLaneShadow)
 	}
 }
+
+func TestCleanAppWireReporterIDUsesAgentIDForHumanSubmissions(t *testing.T) {
+	t.Parallel()
+
+	auth := cleanAppWireAuthContext{
+		FetcherID: "human-mobile",
+		ActorKind: "human",
+	}
+	item := cleanAppWireIngestCoreItem{AgentID: "0xabc123"}
+
+	got := cleanAppWireReporterID(auth, item)
+	if got != "0xabc123" {
+		t.Fatalf("reporter id = %q, want %q", got, "0xabc123")
+	}
+}
+
+func TestCleanAppWireReporterIDFallsBackToFetcherForMachineSubmissions(t *testing.T) {
+	t.Parallel()
+
+	auth := cleanAppWireAuthContext{
+		FetcherID: "fetcher-1",
+		ActorKind: "machine",
+	}
+	item := cleanAppWireIngestCoreItem{AgentID: "agent-ignored"}
+
+	got := cleanAppWireReporterID(auth, item)
+	if got != "fetcher_v1:fetcher-1" {
+		t.Fatalf("reporter id = %q, want %q", got, "fetcher_v1:fetcher-1")
+	}
+}

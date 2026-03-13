@@ -52,6 +52,7 @@ type MinimalAnalysis struct {
 	Classification   string  `json:"classification"`
 	Language         string  `json:"language"`
 	Title            string  `json:"title"`
+	Description      string  `json:"description,omitempty"`
 	Summary          string  `json:"summary"`
 	BrandName        string  `json:"brand_name,omitempty"`
 	BrandDisplayName string  `json:"brand_display_name,omitempty"`

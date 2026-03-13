@@ -150,6 +150,7 @@ func (d *Database) getMinimalAnalysesBySeqs(ctx context.Context, seqs []int) (ma
 			COALESCE(ra.classification, 'physical') AS classification,
 			COALESCE(ra.language, 'en') AS language,
 			COALESCE(ra.title, '') AS title,
+			COALESCE(NULLIF(ra.description, ''), NULLIF(ra.summary, ''), '') AS description,
 			COALESCE(ra.summary, '') AS summary,
 			COALESCE(ra.brand_name, '') AS brand_name,
 			COALESCE(ra.brand_display_name, '') AS brand_display_name
@@ -174,6 +175,7 @@ func (d *Database) getMinimalAnalysesBySeqs(ctx context.Context, seqs []int) (ma
 			&analysis.Classification,
 			&analysis.Language,
 			&analysis.Title,
+			&analysis.Description,
 			&analysis.Summary,
 			&analysis.BrandName,
 			&analysis.BrandDisplayName,
@@ -1279,12 +1281,12 @@ func (d *Database) GetLastNReportsByID(ctx context.Context, reportID string) ([]
 		SELECT DISTINCT r.seq, r.public_id, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.action_id, r.description
 		FROM reports r
 		LEFT JOIN report_raw rr ON r.seq = rr.report_seq
-		WHERE r.id = ?
+		WHERE (r.id = ? OR rr.agent_id = ?)
 		AND %s
 		ORDER BY r.seq DESC
 	`, PublicVisibilityWhereSQL)
 
-	reportRows, err := d.db.QueryContext(ctx, reportsQuery, reportID)
+	reportRows, err := d.db.QueryContext(ctx, reportsQuery, reportID, reportID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query reports by ID: %w", err)
 	}
@@ -1335,7 +1337,7 @@ func (d *Database) GetLastNReportsByID(ctx context.Context, reportID string) ([]
 	analysesQuery := fmt.Sprintf(`
 		SELECT 
 			ra.seq, ra.source,
-			ra.title, ra.description, ra.brand_name, ra.brand_display_name,
+			ra.title, COALESCE(NULLIF(ra.description, ''), NULLIF(ra.summary, ''), ''), ra.brand_name, ra.brand_display_name,
 			ra.litter_probability, ra.hazard_probability, ra.digital_bug_probability,	
 			ra.severity_level, ra.summary, ra.language, ra.classification, ra.is_valid,
 			ra.created_at
