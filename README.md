@@ -5,6 +5,24 @@ This repository is for CleanApp (http://cleanapp.io) backend development. CleanA
 **If you want to understand CleanApp as a system, start here:**  
 [WHY](./WHY.md) → [THEORY](./THEORY.md) → [INVARIANTS](./INVARIANTS.md) → [ARCHITECTURE](./ARCHITECTURE.md)
 
+These four files remain the canonical philosophy and system-design backbone.
+
+## Current-State Guides
+
+For implementation-reality and fast navigation, use these as supplements to the canonical docs above:
+
+- Current live system map: [`docs/architecture/current-system-map.md`](./docs/architecture/current-system-map.md)
+- Shared domain vocabulary: [`docs/architecture/domain-model.md`](./docs/architecture/domain-model.md)
+- Key product and architecture decisions: [`docs/decisions/decision-log.md`](./docs/decisions/decision-log.md)
+- Fast onboarding index for agents and new engineers: [`docs/agent-context/overview.md`](./docs/agent-context/overview.md)
+
+Topical implementation guides:
+
+- Cases: [`docs/cleanapp-cases.md`](./docs/cleanapp-cases.md)
+- CleanApp Wire: [`docs/cleanapp-wire.md`](./docs/cleanapp-wire.md)
+- Security hardening: [`docs/security-hardening-2026-03-11.md`](./docs/security-hardening-2026-03-11.md)
+- Contact discovery: [`docs/case-contact-discovery-2026-03-11.md`](./docs/case-contact-discovery-2026-03-11.md)
+
 ## Standard Commands
 
 We use a root `Makefile` as the primary entry point for common tasks:
