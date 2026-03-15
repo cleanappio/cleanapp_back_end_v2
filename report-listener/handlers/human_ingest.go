@@ -303,6 +303,12 @@ func (h *Handlers) SubmitHumanReportV1(c *gin.Context) {
 		c.GetHeader("X-Request-Id"),
 		"/api/v1/human-reports/submit",
 	)
+	if receipt.ReportID > 0 && strings.TrimSpace(req.DeviceID) != "" {
+		if err := h.db.LinkReportToPushInstall(c.Request.Context(), receipt.ReportID, req.DeviceID); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to link report delivery notifications"})
+			return
+		}
+	}
 	c.JSON(statusCode, h.humanReceiptResponseFromWire(c.Request.Context(), receipt))
 }
 

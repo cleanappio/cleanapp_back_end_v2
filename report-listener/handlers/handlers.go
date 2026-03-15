@@ -18,6 +18,7 @@ import (
 	"report-listener/config"
 	"report-listener/database"
 	"report-listener/intelligence"
+	"report-listener/mobilepush"
 	"report-listener/models"
 	"report-listener/publicdiscovery"
 	"report-listener/publicid"
@@ -61,6 +62,7 @@ type Handlers struct {
 	geminiClient      *intelligence.Client
 	contactDiscoverer *caseContactDiscoverer
 	discoveryCodec    *publicdiscovery.Codec
+	pushSender        *mobilepush.Sender
 
 	brandCountsMu    sync.RWMutex
 	brandCountsCache map[string]brandCountsCacheEntry
@@ -92,7 +94,19 @@ func NewHandlers(
 		geminiClient:      geminiClient,
 		contactDiscoverer: newCaseContactDiscoverer(cfg),
 		discoveryCodec:    discoveryCodec,
-		brandCountsCache:  make(map[string]brandCountsCacheEntry),
+		pushSender: mobilepush.NewSender(mobilepush.Config{
+			Enabled:            cfg.MobilePushEnabled,
+			APNSTeamID:         cfg.APNSTeamID,
+			APNSKeyID:          cfg.APNSKeyID,
+			APNSBundleID:       cfg.APNSBundleID,
+			APNSAuthKeyP8:      cfg.APNSAuthKeyP8,
+			APNSAuthKeyP8Path:  cfg.APNSAuthKeyP8Path,
+			APNSUseProduction:  cfg.APNSUseProduction,
+			FCMProjectID:       cfg.FCMProjectID,
+			FCMCredentialsJSON: cfg.FCMCredentialsJSON,
+			FCMCredentialsFile: cfg.FCMCredentialsFile,
+		}),
+		brandCountsCache: make(map[string]brandCountsCacheEntry),
 	}
 }
 

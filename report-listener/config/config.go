@@ -51,18 +51,30 @@ type Config struct {
 	RabbitAnalysedReportRoutingKey string
 	RabbitTwitterReplyRoutingKey   string
 
-	GeminiAPIKey                string
-	GeminiModel                 string
-	IntelligenceFreeTierMaxTurn int
-	IntelligenceRateLimitRPS    float64
-	IntelligenceRateLimitBurst  int
-	IntelligenceBaseURL         string
-	EmailServiceURL             string
-	GooglePlacesAPIKey          string
-	GooglePlacesBaseURL         string
-	GoogleSearchAPIKey          string
-	GoogleSearchCX              string
-	GoogleSearchBaseURL         string
+	GeminiAPIKey                     string
+	GeminiModel                      string
+	IntelligenceFreeTierMaxTurn      int
+	IntelligenceRateLimitRPS         float64
+	IntelligenceRateLimitBurst       int
+	IntelligenceBaseURL              string
+	EmailServiceURL                  string
+	GooglePlacesAPIKey               string
+	GooglePlacesBaseURL              string
+	GoogleSearchAPIKey               string
+	GoogleSearchCX                   string
+	GoogleSearchBaseURL              string
+	MobilePushRegisterRateLimitRPS   float64
+	MobilePushRegisterRateLimitBurst int
+	MobilePushEnabled                bool
+	APNSTeamID                       string
+	APNSKeyID                        string
+	APNSBundleID                     string
+	APNSAuthKeyP8                    string
+	APNSAuthKeyP8Path                string
+	APNSUseProduction                bool
+	FCMProjectID                     string
+	FCMCredentialsJSON               string
+	FCMCredentialsFile               string
 
 	FetcherKeyEnv                  string
 	FetcherRegisterMaxPerHourPerIP int
@@ -142,18 +154,30 @@ func Load() (*Config, error) {
 		RabbitAnalysedReportRoutingKey: appenv.String("RABBITMQ_ANALYSED_REPORT_ROUTING_KEY", "report.analysed"),
 		RabbitTwitterReplyRoutingKey:   appenv.String("RABBITMQ_TWITTER_REPLY_ROUTING_KEY", "twitter.reply"),
 
-		GeminiAPIKey:                appenv.String("GEMINI_API_KEY", ""),
-		GeminiModel:                 appenv.String("GEMINI_MODEL", "gemini-2.5-flash"),
-		IntelligenceFreeTierMaxTurn: appenv.Int("INTELLIGENCE_FREE_MAX_TURNS", 5),
-		IntelligenceRateLimitRPS:    appenv.Float64("INTELLIGENCE_RATE_LIMIT_RPS", 0.5),
-		IntelligenceRateLimitBurst:  appenv.Int("INTELLIGENCE_RATE_LIMIT_BURST", 6),
-		IntelligenceBaseURL:         strings.TrimRight(appenv.String("INTELLIGENCE_BASE_URL", "https://cleanapp.io"), "/"),
-		EmailServiceURL:             strings.TrimRight(appenv.String("EMAIL_SERVICE_URL", "http://cleanapp_email_service:8080"), "/"),
-		GooglePlacesAPIKey:          appenv.String("GOOGLE_PLACES_API_KEY", ""),
-		GooglePlacesBaseURL:         strings.TrimRight(appenv.String("GOOGLE_PLACES_BASE_URL", "https://places.googleapis.com/v1"), "/"),
-		GoogleSearchAPIKey:          appenv.String("GOOGLE_SEARCH_API_KEY", ""),
-		GoogleSearchCX:              appenv.String("GOOGLE_SEARCH_CX", ""),
-		GoogleSearchBaseURL:         strings.TrimRight(appenv.String("GOOGLE_SEARCH_BASE_URL", "https://www.googleapis.com/customsearch/v1"), "/"),
+		GeminiAPIKey:                     appenv.String("GEMINI_API_KEY", ""),
+		GeminiModel:                      appenv.String("GEMINI_MODEL", "gemini-2.5-flash"),
+		IntelligenceFreeTierMaxTurn:      appenv.Int("INTELLIGENCE_FREE_MAX_TURNS", 5),
+		IntelligenceRateLimitRPS:         appenv.Float64("INTELLIGENCE_RATE_LIMIT_RPS", 0.5),
+		IntelligenceRateLimitBurst:       appenv.Int("INTELLIGENCE_RATE_LIMIT_BURST", 6),
+		IntelligenceBaseURL:              strings.TrimRight(appenv.String("INTELLIGENCE_BASE_URL", "https://cleanapp.io"), "/"),
+		EmailServiceURL:                  strings.TrimRight(appenv.String("EMAIL_SERVICE_URL", "http://cleanapp_email_service:8080"), "/"),
+		GooglePlacesAPIKey:               appenv.String("GOOGLE_PLACES_API_KEY", ""),
+		GooglePlacesBaseURL:              strings.TrimRight(appenv.String("GOOGLE_PLACES_BASE_URL", "https://places.googleapis.com/v1"), "/"),
+		GoogleSearchAPIKey:               appenv.String("GOOGLE_SEARCH_API_KEY", ""),
+		GoogleSearchCX:                   appenv.String("GOOGLE_SEARCH_CX", ""),
+		GoogleSearchBaseURL:              strings.TrimRight(appenv.String("GOOGLE_SEARCH_BASE_URL", "https://www.googleapis.com/customsearch/v1"), "/"),
+		MobilePushRegisterRateLimitRPS:   appenv.Float64("MOBILE_PUSH_REGISTER_RATE_LIMIT_RPS", 0.5),
+		MobilePushRegisterRateLimitBurst: appenv.Int("MOBILE_PUSH_REGISTER_RATE_LIMIT_BURST", 6),
+		MobilePushEnabled:                appenv.Bool("MOBILE_PUSH_ENABLED", true),
+		APNSTeamID:                       appenv.String("APNS_TEAM_ID", ""),
+		APNSKeyID:                        appenv.String("APNS_KEY_ID", ""),
+		APNSBundleID:                     appenv.String("APNS_BUNDLE_ID", "io.cleanapp"),
+		APNSAuthKeyP8:                    appenv.String("APNS_AUTH_KEY_P8", ""),
+		APNSAuthKeyP8Path:                appenv.String("APNS_AUTH_KEY_P8_PATH", ""),
+		APNSUseProduction:                appenv.Bool("APNS_USE_PRODUCTION", true),
+		FCMProjectID:                     appenv.String("FCM_PROJECT_ID", ""),
+		FCMCredentialsJSON:               appenv.String("FCM_CREDENTIALS_JSON", ""),
+		FCMCredentialsFile:               appenv.String("FCM_CREDENTIALS_FILE", ""),
 
 		FetcherKeyEnv:                  strings.ToLower(appenv.String("FETCHER_KEY_ENV", "live")),
 		FetcherRegisterMaxPerHourPerIP: appenv.Int("FETCHER_REGISTER_MAX_PER_HOUR_PER_IP", 5),

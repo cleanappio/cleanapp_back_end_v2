@@ -305,6 +305,47 @@ docker pull ${BLUESKY_INDEXER_DOCKER_IMAGE}
 docker pull ${BLUESKY_ANALYZER_DOCKER_IMAGE}
 docker pull ${BLUESKY_SUBMITTER_DOCKER_IMAGE}
 
+optional_secret_value() {
+  local secret_name="$1"
+  { gcloud secrets versions access latest --secret="${secret_name}" 2>/dev/null || true; } | tr -d '\r'
+}
+
+write_optional_secret_file() {
+  local secret_name="$1"
+  local output_path="$2"
+  local secret_value
+  secret_value="$(optional_secret_value "${secret_name}")"
+  if [[ -z "${secret_value}" ]]; then
+    rm -f "${output_path}"
+    return 1
+  fi
+
+  mkdir -p "$(dirname "${output_path}")"
+  chmod 700 "$(dirname "${output_path}")"
+  printf '%s' "${secret_value}" > "${output_path}"
+  chmod 600 "${output_path}"
+  return 0
+}
+
+RUNTIME_SECRET_DIR=".runtime-secrets"
+mkdir -p "${RUNTIME_SECRET_DIR}"
+chmod 700 "${RUNTIME_SECRET_DIR}"
+
+MOBILE_PUSH_ENABLED_VALUE="true"
+APNS_TEAM_ID_VALUE="$(optional_secret_value "APNS_TEAM_ID_${SECRET_SUFFIX}")"
+APNS_KEY_ID_VALUE="$(optional_secret_value "APNS_KEY_ID_${SECRET_SUFFIX}")"
+FCM_PROJECT_ID_VALUE="$(optional_secret_value "FCM_PROJECT_ID_${SECRET_SUFFIX}")"
+
+APNS_AUTH_KEY_P8_PATH_VALUE=""
+if write_optional_secret_file "APNS_AUTH_KEY_P8_${SECRET_SUFFIX}" "${RUNTIME_SECRET_DIR}/apns_auth_key_${OPT}.p8"; then
+  APNS_AUTH_KEY_P8_PATH_VALUE="$(pwd)/${RUNTIME_SECRET_DIR}/apns_auth_key_${OPT}.p8"
+fi
+
+FCM_CREDENTIALS_FILE_VALUE=""
+if write_optional_secret_file "FCM_CREDENTIALS_JSON_${SECRET_SUFFIX}" "${RUNTIME_SECRET_DIR}/fcm_credentials_${OPT}.json"; then
+  FCM_CREDENTIALS_FILE_VALUE="$(pwd)/${RUNTIME_SECRET_DIR}/fcm_credentials_${OPT}.json"
+fi
+
 # Secrets
 cat >.env << ENV
 AMQP_USER=\$(gcloud secrets versions access latest --secret="AMQP_USER_${SECRET_SUFFIX}" | tr -d '\r')
@@ -337,6 +378,17 @@ TWITTER_OAUTH1_ACCESS_SECRET=\$(gcloud secrets versions access latest --secret="
 
 # News indexer Bluesky flow secrets
 BSKY_APP_PASSWORD=\$(gcloud secrets versions access latest --secret="BSKY_APP_PASSWORD" | tr -d '\r')
+
+MOBILE_PUSH_ENABLED=${MOBILE_PUSH_ENABLED_VALUE}
+APNS_TEAM_ID=${APNS_TEAM_ID_VALUE}
+APNS_KEY_ID=${APNS_KEY_ID_VALUE}
+APNS_BUNDLE_ID=io.cleanapp
+APNS_AUTH_KEY_P8=
+APNS_AUTH_KEY_P8_PATH=${APNS_AUTH_KEY_P8_PATH_VALUE}
+APNS_USE_PRODUCTION=true
+FCM_PROJECT_ID=${FCM_PROJECT_ID_VALUE}
+FCM_CREDENTIALS_JSON=
+FCM_CREDENTIALS_FILE=${FCM_CREDENTIALS_FILE_VALUE}
 
 ENV
 
@@ -571,6 +623,18 @@ services:
       - RABBITMQ_EXCHANGE=${RABBITMQ_EXCHANGE}
       - RABBITMQ_ANALYSED_REPORT_ROUTING_KEY=${RABBITMQ_ANALYSED_REPORT_ROUTING_KEY}
       - RABBITMQ_TWITTER_REPLY_ROUTING_KEY=${RABBITMQ_TWITTER_REPLY_ROUTING_KEY}
+      - EMAIL_SERVICE_URL=http://cleanapp_email_service:8080
+      - INTERNAL_ADMIN_TOKEN=\${INTERNAL_ADMIN_TOKEN}
+      - MOBILE_PUSH_ENABLED=\${MOBILE_PUSH_ENABLED:-false}
+      - APNS_TEAM_ID=\${APNS_TEAM_ID}
+      - APNS_KEY_ID=\${APNS_KEY_ID}
+      - APNS_BUNDLE_ID=\${APNS_BUNDLE_ID:-io.cleanapp}
+      - APNS_AUTH_KEY_P8=\${APNS_AUTH_KEY_P8}
+      - APNS_AUTH_KEY_P8_PATH=\${APNS_AUTH_KEY_P8_PATH}
+      - APNS_USE_PRODUCTION=\${APNS_USE_PRODUCTION:-false}
+      - FCM_PROJECT_ID=\${FCM_PROJECT_ID}
+      - FCM_CREDENTIALS_JSON=\${FCM_CREDENTIALS_JSON}
+      - FCM_CREDENTIALS_FILE=\${FCM_CREDENTIALS_FILE}
     ports:
       - 9081:8080
     depends_on:
@@ -795,6 +859,8 @@ services:
       - POLL_INTERVAL=10s
       - OPT_OUT_URL=${OPT_OUT_URL}
       - GIN_MODE=${GIN_MODE}
+      - INTERNAL_ADMIN_TOKEN=\${INTERNAL_ADMIN_TOKEN}
+      - REPORT_LISTENER_URL=http://cleanapp_report_listener:8080
     ports:
       - 9089:8080
     depends_on:

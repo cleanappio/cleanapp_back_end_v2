@@ -41,6 +41,7 @@ type Config struct {
 	RateLimitRPS       float64
 	RateLimitBurst     int
 	InternalAdminToken string
+	ReportListenerURL  string
 }
 
 func Load() (*Config, error) {
@@ -64,6 +65,7 @@ func Load() (*Config, error) {
 	cfg.RateLimitRPS = float64(appenv.Int("RATE_LIMIT_RPS", 10))
 	cfg.RateLimitBurst = appenv.Int("RATE_LIMIT_BURST", 20)
 	cfg.InternalAdminToken = appenv.String("INTERNAL_ADMIN_TOKEN", "")
+	cfg.ReportListenerURL = strings.TrimRight(appenv.String("REPORT_LISTENER_URL", "http://cleanapp_report_listener:8080"), "/")
 
 	throttleDays, err := strconv.Atoi(appenv.String("EMAIL_THROTTLE_DAYS", "7"))
 	if err != nil || throttleDays <= 0 {

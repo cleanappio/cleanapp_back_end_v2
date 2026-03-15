@@ -1,15 +1,19 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
+	"cleanapp-common/httpx"
 	"email-service/config"
 	"email-service/email"
 	"email-service/models"
@@ -1253,8 +1257,88 @@ func (s *EmailService) markReportAsProcessed(ctx context.Context, seq int64) err
 	if err := s.clearReportRetry(ctx, seq); err != nil {
 		log.Warnf("Failed to clear retry state for seq %d: %v", seq, err)
 	}
+	if err := s.emitReportPushDelivery(ctx, seq); err != nil {
+		log.Warnf("Failed to emit push delivery update for seq %d: %v", seq, err)
+	}
 	log.Infof("Report %d marked as processed (in %s)", seq, time.Since(start))
 	return nil
+}
+
+type reportPushDeliveryPayload struct {
+	Seq            int64  `json:"seq"`
+	Status         string `json:"status"`
+	RecipientCount int    `json:"recipient_count"`
+}
+
+func (s *EmailService) emitReportPushDelivery(ctx context.Context, seq int64) error {
+	if s.config.ReportListenerURL == "" || s.config.InternalAdminToken == "" {
+		return nil
+	}
+
+	payload, err := s.getReportPushDeliveryPayload(ctx, seq)
+	if err != nil {
+		return err
+	}
+	if payload.Status == "" {
+		return nil
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal push delivery payload: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.config.ReportListenerURL+"/internal/mobile-push/report-deliveries", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("failed to create push delivery request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Internal-Admin-Token", s.config.InternalAdminToken)
+
+	resp, err := httpx.NewClient(10 * time.Second).Do(req)
+	if err != nil {
+		return fmt.Errorf("push delivery request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("push delivery request rejected with status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+	}
+	return nil
+}
+
+func (s *EmailService) getReportPushDeliveryPayload(ctx context.Context, seq int64) (*reportPushDeliveryPayload, error) {
+	var recipientCount int
+	var lastSentAt sql.NullTime
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*), MAX(sent_at)
+		FROM report_email_deliveries
+		WHERE seq = ? AND delivery_status = 'sent'
+	`, seq).Scan(&recipientCount, &lastSentAt); err != nil {
+		return nil, fmt.Errorf("failed to load report email deliveries for push dispatch: %w", err)
+	}
+
+	payload := &reportPushDeliveryPayload{
+		Seq:            seq,
+		RecipientCount: recipientCount,
+	}
+	if recipientCount > 0 {
+		payload.Status = "sent"
+		return payload, nil
+	}
+
+	var processedCount int
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM sent_reports_emails
+		WHERE seq = ?
+	`, seq).Scan(&processedCount); err != nil {
+		return nil, fmt.Errorf("failed to confirm processed report for push dispatch: %w", err)
+	}
+	if processedCount > 0 {
+		payload.Status = "processed_no_delivery"
+		return payload, nil
+	}
+	return payload, nil
 }
 
 func (s *EmailService) clearReportRetry(ctx context.Context, seq int64) error {

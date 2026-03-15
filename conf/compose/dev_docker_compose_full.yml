@@ -157,6 +157,18 @@ services:
       - RABBITMQ_EXCHANGE=cleanapp-exchange
       - RABBITMQ_ANALYSED_REPORT_ROUTING_KEY=report.analysed
       - RABBITMQ_TWITTER_REPLY_ROUTING_KEY=twitter.reply
+      - EMAIL_SERVICE_URL=http://cleanapp_email_service:8080
+      - INTERNAL_ADMIN_TOKEN=${INTERNAL_ADMIN_TOKEN}
+      - MOBILE_PUSH_ENABLED=${MOBILE_PUSH_ENABLED:-false}
+      - APNS_TEAM_ID=${APNS_TEAM_ID}
+      - APNS_KEY_ID=${APNS_KEY_ID}
+      - APNS_BUNDLE_ID=${APNS_BUNDLE_ID:-io.cleanapp}
+      - APNS_AUTH_KEY_P8=${APNS_AUTH_KEY_P8}
+      - APNS_AUTH_KEY_P8_PATH=${APNS_AUTH_KEY_P8_PATH}
+      - APNS_USE_PRODUCTION=${APNS_USE_PRODUCTION:-false}
+      - FCM_PROJECT_ID=${FCM_PROJECT_ID}
+      - FCM_CREDENTIALS_JSON=${FCM_CREDENTIALS_JSON}
+      - FCM_CREDENTIALS_FILE=${FCM_CREDENTIALS_FILE}
     ports:
       - 9081:8080
     depends_on:
@@ -381,6 +393,8 @@ services:
       - POLL_INTERVAL=10s
       - OPT_OUT_URL=http://dev.cleanapp.io/api/optout
       - GIN_MODE=
+      - INTERNAL_ADMIN_TOKEN=${INTERNAL_ADMIN_TOKEN}
+      - REPORT_LISTENER_URL=http://cleanapp_report_listener:8080
     ports:
       - 9089:8080
     depends_on:

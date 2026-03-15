@@ -1417,3 +1417,73 @@ func ensureNotifyQualityTuning(ctx context.Context, db *sql.DB) error {
 	}
 	return nil
 }
+
+func ensureMobilePushDeliveryTables(ctx context.Context, db *sql.DB) error {
+	if _, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS mobile_push_devices (
+			id BIGINT AUTO_INCREMENT PRIMARY KEY,
+			install_id VARCHAR(191) NOT NULL,
+			platform VARCHAR(32) NOT NULL,
+			provider VARCHAR(32) NOT NULL,
+			push_token TEXT NOT NULL,
+			push_token_hash CHAR(64) NOT NULL,
+			app_version VARCHAR(64) NOT NULL DEFAULT '',
+			notifications_enabled BOOL NOT NULL DEFAULT TRUE,
+			status VARCHAR(32) NOT NULL DEFAULT 'active',
+			last_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			UNIQUE KEY uq_mobile_push_device_token_hash (push_token_hash),
+			UNIQUE KEY uq_mobile_push_install_provider (install_id, provider),
+			INDEX idx_mobile_push_devices_install (install_id),
+			INDEX idx_mobile_push_devices_status (status),
+			INDEX idx_mobile_push_devices_last_seen (last_seen_at)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+	`); err != nil {
+		return fmt.Errorf("failed to create mobile_push_devices table: %w", err)
+	}
+
+	if _, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS report_push_subscriptions (
+			report_seq INT NOT NULL,
+			install_id VARCHAR(191) NOT NULL,
+			notification_kind VARCHAR(32) NOT NULL DEFAULT 'delivery',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			PRIMARY KEY (report_seq, install_id, notification_kind),
+			INDEX idx_report_push_subscriptions_install (install_id),
+			INDEX idx_report_push_subscriptions_kind (notification_kind)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+	`); err != nil {
+		return fmt.Errorf("failed to create report_push_subscriptions table: %w", err)
+	}
+
+	if _, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS mobile_push_delivery_events (
+			id BIGINT AUTO_INCREMENT PRIMARY KEY,
+			report_seq INT NOT NULL,
+			install_id VARCHAR(191) NOT NULL,
+			delivery_status VARCHAR(32) NOT NULL,
+			provider VARCHAR(32) NOT NULL DEFAULT '',
+			response_code INT NULL,
+			response_body TEXT NULL,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE KEY uq_mobile_push_delivery_event (report_seq, install_id, delivery_status),
+			INDEX idx_mobile_push_delivery_events_report (report_seq),
+			INDEX idx_mobile_push_delivery_events_install (install_id)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+	`); err != nil {
+		return fmt.Errorf("failed to create mobile_push_delivery_events table: %w", err)
+	}
+
+	// Older deployments may have rows inserted before hashing logic existed.
+	if _, err := db.ExecContext(ctx, `
+		UPDATE mobile_push_devices
+		SET push_token_hash = SHA2(push_token, 256)
+		WHERE push_token_hash = '' OR push_token_hash IS NULL
+	`); err != nil {
+		return fmt.Errorf("failed to backfill mobile_push_devices.push_token_hash: %w", err)
+	}
+
+	return nil
+}

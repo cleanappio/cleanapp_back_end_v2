@@ -269,6 +269,18 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 			humanIngest.GET("/receipts/:receipt_id", h.GetHumanReceiptV1)
 		}
 
+		mobilePush := api.Group("/mobile/push")
+		mobilePush.Use(
+			edge.RateLimitMiddleware(edge.RateLimitConfig{
+				RPS:   cfg.MobilePushRegisterRateLimitRPS,
+				Burst: cfg.MobilePushRegisterRateLimitBurst,
+			}),
+		)
+		{
+			mobilePush.POST("/register", h.RegisterMobilePushDevice)
+			mobilePush.POST("/unregister", h.UnregisterMobilePushDevice)
+		}
+
 		// Protected bulk ingest endpoint
 		protected := api.Group("/reports")
 		protected.Use(middleware.FetcherAuthMiddleware(svc.GetHandlers().Db()))
@@ -439,6 +451,18 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 			humanIngestV4.GET("/receipts/:receipt_id", h.GetHumanReceiptV1)
 		}
 
+		mobilePushV4 := apiV4.Group("/mobile/push")
+		mobilePushV4.Use(
+			edge.RateLimitMiddleware(edge.RateLimitConfig{
+				RPS:   cfg.MobilePushRegisterRateLimitRPS,
+				Burst: cfg.MobilePushRegisterRateLimitBurst,
+			}),
+		)
+		{
+			mobilePushV4.POST("/register", h.RegisterMobilePushDevice)
+			mobilePushV4.POST("/unregister", h.UnregisterMobilePushDevice)
+		}
+
 		// Protected bulk ingest endpoint
 		protectedV4 := apiV4.Group("/reports")
 		protectedV4.Use(middleware.FetcherAuthMiddleware(svc.GetHandlers().Db()))
@@ -543,6 +567,7 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 	internal.Use(middleware.InternalAdminToken(cfg.InternalAdminToken))
 	{
 		internal.POST("/reports/:seq/promote", h.InternalPromoteReport)
+		internal.POST("/mobile-push/report-deliveries", h.PushReportDeliveryUpdate)
 		internal.POST("/fetchers/:fetcher_id/suspend", h.InternalSuspendFetcher)
 		internal.POST("/fetchers/keys/:key_id/revoke", h.InternalRevokeFetcherKey)
 		internal.GET("/fetchers/promotion-requests", h.InternalListPromotionRequests)
