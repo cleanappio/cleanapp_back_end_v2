@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"report-analyze-pipeline/database"
+	"report-analyze-pipeline/parser"
 	"report-analyze-pipeline/services"
 )
 
@@ -81,5 +82,47 @@ func TestReportAnalysisWithBrandDisplayName(t *testing.T) {
 
 	if analysis.InferredContactEmails != "test@example.com, contact@brand.com" {
 		t.Errorf("Expected InferredContactEmails to be 'test@example.com, contact@brand.com', got %q", analysis.InferredContactEmails)
+	}
+}
+
+func TestNormalizeClassificationTreatsRealWorldHazardAsPhysical(t *testing.T) {
+	report := &database.Report{
+		Seq:         1182368,
+		Description: "Satellite telemetry detected a large fire at the Riyadh refinery after a likely pipeline breach.",
+	}
+	analysis := &parser.AnalysisResult{
+		Title:                 "Catastrophic Fire and Pipeline Breach at Riyadh Refinery",
+		Description:           "A real-world refinery fire and pipeline incident is visible in the monitored area.",
+		Classification:        parser.ClassificationDigital,
+		HazardProbability:     1.0,
+		DigitalBugProbability: 0.1,
+		SeverityLevel:         1.0,
+		BrandName:             "x(twitter)",
+	}
+
+	got := normalizeClassification(report, analysis)
+	if got != parser.ClassificationPhysical {
+		t.Fatalf("normalizeClassification(...) = %q, want %q", got, parser.ClassificationPhysical)
+	}
+}
+
+func TestNormalizeClassificationKeepsSoftwareBugDigital(t *testing.T) {
+	report := &database.Report{
+		Seq:         1,
+		Description: "Users cannot submit the checkout form in the mobile app.",
+	}
+	analysis := &parser.AnalysisResult{
+		Title:                 "Checkout Submission Failure in Mobile App",
+		Description:           "The app throws an error message on form submission and never completes checkout.",
+		Classification:        parser.ClassificationDigital,
+		HazardProbability:     0.05,
+		DigitalBugProbability: 0.92,
+		SeverityLevel:         0.72,
+		BrandName:             "CleanApp",
+	}
+
+	got := normalizeClassification(report, analysis)
+	if got != parser.ClassificationDigital {
+		t.Fatalf("normalizeClassification(...) = %q, want %q", got, parser.ClassificationDigital)
 	}
 }

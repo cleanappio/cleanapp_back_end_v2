@@ -188,6 +188,7 @@ func (s *Service) AnalyzeReport(report *database.Report) error {
 	if err != nil {
 		return fmt.Errorf("failed to parse analysis for report %d: %w", report.Seq, err)
 	}
+	normalizedClassification := normalizeClassification(report, analysis)
 
 	// Normalize the brand name before saving
 	normalizedBrandName := s.brandService.NormalizeBrandName(analysis.BrandName)
@@ -213,7 +214,7 @@ func (s *Service) AnalyzeReport(report *database.Report) error {
 		Summary:               analysis.Title + ": " + analysis.Description,
 		Language:              "en",
 		IsValid:               analysis.IsValid,
-		Classification:        analysis.Classification.String(),
+		Classification:        normalizedClassification.String(),
 		InferredContactEmails: inferredContactEmails,
 		LegalRiskEstimate:     analysis.LegalRiskEstimate,
 	}
@@ -287,7 +288,7 @@ func (s *Service) AnalyzeReport(report *database.Report) error {
 				Summary:               translatedAnalysis.Title + ": " + translatedAnalysis.Description,
 				Language:              langCode, // Store the language code in the database
 				IsValid:               translatedAnalysis.IsValid,
-				Classification:        translatedAnalysis.Classification.String(),
+				Classification:        normalizedClassification.String(),
 				InferredContactEmails: inferredTranslatedContactEmails,
 				LegalRiskEstimate:     translatedAnalysis.LegalRiskEstimate,
 			}
@@ -325,6 +326,84 @@ func (s *Service) AnalyzeReport(report *database.Report) error {
 	}
 
 	return nil
+}
+
+var physicalClassificationKeywords = []string{
+	"fire", "smoke", "explosion", "blast", "collapse", "building", "bridge",
+	"road", "roadway", "street", "highway", "rail", "train", "metro", "station",
+	"airport", "refinery", "pipeline", "factory", "warehouse", "school", "hospital",
+	"facade", "crack", "debris", "spill", "flood", "wildfire", "earthquake",
+	"landslide", "evacuation", "chemical", "fuel", "oil", "structural",
+}
+
+var digitalClassificationKeywords = []string{
+	"app", "application", "website", "web site", "webpage", "page", "login", "sign in",
+	"signup", "sign up", "checkout", "payment", "dashboard", "ui", "ux", "api",
+	"server", "database", "account", "password", "analytics", "form", "browser",
+	"software", "service outage", "crash", "error message", "bug", "glitch",
+	"data breach", "phishing", "credential", "ad manager",
+}
+
+func normalizeClassification(report *database.Report, analysis *parser.AnalysisResult) parser.Classification {
+	if analysis == nil {
+		return parser.ClassificationPhysical
+	}
+
+	classification := analysis.Classification
+	corpus := strings.ToLower(strings.Join([]string{
+		report.Description,
+		analysis.Title,
+		analysis.Description,
+		analysis.Location,
+		analysis.BrandName,
+		analysis.ResponsibleParty,
+		analysis.LegalRiskEstimate,
+	}, " "))
+
+	if shouldNormalizeToPhysical(classification, analysis, corpus) {
+		return parser.ClassificationPhysical
+	}
+	if shouldNormalizeToDigital(classification, analysis, corpus) {
+		return parser.ClassificationDigital
+	}
+
+	return classification
+}
+
+func shouldNormalizeToPhysical(classification parser.Classification, analysis *parser.AnalysisResult, corpus string) bool {
+	if classification != parser.ClassificationDigital {
+		return false
+	}
+	physicalSignals := containsAny(corpus, physicalClassificationKeywords)
+	digitalSignals := containsAny(corpus, digitalClassificationKeywords)
+
+	if analysis.HazardProbability >= 0.85 && analysis.DigitalBugProbability <= 0.20 {
+		return true
+	}
+	if physicalSignals && !digitalSignals && analysis.HazardProbability >= 0.60 && analysis.DigitalBugProbability <= 0.35 {
+		return true
+	}
+
+	return false
+}
+
+func shouldNormalizeToDigital(classification parser.Classification, analysis *parser.AnalysisResult, corpus string) bool {
+	if classification != parser.ClassificationPhysical {
+		return false
+	}
+	if !containsAny(corpus, digitalClassificationKeywords) {
+		return false
+	}
+	return analysis.DigitalBugProbability >= 0.70 && analysis.HazardProbability <= 0.35
+}
+
+func containsAny(corpus string, needles []string) bool {
+	for _, needle := range needles {
+		if strings.Contains(corpus, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 // enrichPhysicalReportEmails fetches OSM location context and enriches contact emails for physical reports
