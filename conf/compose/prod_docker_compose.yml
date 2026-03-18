@@ -46,7 +46,7 @@ services:
       - RABBITMQ_USER_ROUTING_KEY=user.add
       - GIN_MODE=release
     ports:
-      - 8080:8080
+      - 127.0.0.1:8079:8080
 
   cleanapp_pipelines:
     container_name: cleanapp_pipelines
