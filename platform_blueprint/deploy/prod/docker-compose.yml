@@ -162,6 +162,8 @@ services:
       - INTELLIGENCE_BASE_URL=https://cleanapp.io
       - EMAIL_SERVICE_URL=http://cleanapp_email_service:8080
       - INTERNAL_ADMIN_TOKEN=${INTERNAL_ADMIN_TOKEN}
+      - ALLOWED_ORIGINS=https://cleanapp.io,https://www.cleanapp.io,https://embed.cleanapp.io,https://www.embed.cleanapp.io
+      - WEBSOCKET_ALLOWED_ORIGINS=https://cleanapp.io,https://www.cleanapp.io,https://embed.cleanapp.io,https://www.embed.cleanapp.io
     ports:
       - 127.0.0.1:9081:8080
     depends_on:

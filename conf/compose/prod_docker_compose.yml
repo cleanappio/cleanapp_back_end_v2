@@ -164,6 +164,8 @@ services:
       - INTELLIGENCE_BASE_URL=https://cleanapp.io
       - EMAIL_SERVICE_URL=http://cleanapp_email_service:8080
       - INTERNAL_ADMIN_TOKEN=${INTERNAL_ADMIN_TOKEN}
+      - ALLOWED_ORIGINS=https://cleanapp.io,https://www.cleanapp.io,https://embed.cleanapp.io,https://www.embed.cleanapp.io
+      - WEBSOCKET_ALLOWED_ORIGINS=https://cleanapp.io,https://www.cleanapp.io,https://embed.cleanapp.io,https://www.embed.cleanapp.io
       - MOBILE_PUSH_ENABLED=${MOBILE_PUSH_ENABLED:-false}
       - APNS_TEAM_ID=${APNS_TEAM_ID}
       - APNS_KEY_ID=${APNS_KEY_ID}
