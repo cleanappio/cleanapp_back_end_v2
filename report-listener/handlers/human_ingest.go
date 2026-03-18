@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -307,6 +308,11 @@ func (h *Handlers) SubmitHumanReportV1(c *gin.Context) {
 		if err := h.db.LinkReportToPushInstall(c.Request.Context(), receipt.ReportID, req.DeviceID); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to link report delivery notifications"})
 			return
+		}
+	}
+	if receipt.ReportID > 0 && !receipt.IdempotencyReplay && strings.TrimSpace(req.ReporterID) != "" {
+		if err := h.db.IncrementReporterDailyKITNs(c.Request.Context(), req.ReporterID); err != nil {
+			log.Printf("warn: failed to increment KITNs for human report %d (%s): %v", receipt.ReportID, req.ReporterID, err)
 		}
 	}
 	c.JSON(statusCode, h.humanReceiptResponseFromWire(c.Request.Context(), receipt))
