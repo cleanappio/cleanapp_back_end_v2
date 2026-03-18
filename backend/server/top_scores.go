@@ -3,7 +3,6 @@ package server
 import (
 	"net/http"
 
-	"cleanapp/backend/db"
 	"cleanapp/backend/server/api"
 
 	"github.com/apex/log"
@@ -31,12 +30,12 @@ func GetTopScores(c *gin.Context) {
 		return
 	}
 
-	r, err := db.GetTopScores(dbc, &ba, 7)
+	snapshot, err := getTopScoresCached(dbc, 7)
 	if err != nil {
 		log.Errorf("Failed to get top scores %w", err)
 		c.Status(http.StatusInternalServerError) // 500
 		return
 	}
 
-	c.IndentedJSON(http.StatusOK, r)
+	c.IndentedJSON(http.StatusOK, buildTopScoresResponse(snapshot, ba.Id))
 }

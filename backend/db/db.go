@@ -288,13 +288,16 @@ func GetStats(db *sql.DB, id string) (*api.StatsResponse, error) {
 }
 
 func GetTeams() (api.TeamsResponse, error) {
-	db, err := common.DBConnect()
+	dbc, err := common.DBConnect()
 	if err != nil {
 		return api.TeamsResponse{}, err
 	}
-	defer db.Close()
+	defer dbc.Close()
+	return GetTeamsWithDB(dbc)
+}
 
-	rows, err := db.Query(`
+func GetTeamsWithDB(dbc *sql.DB) (api.TeamsResponse, error) {
+	rows, err := dbc.Query(`
 	   SELECT
 	     SUM(IF(Team=1,1,0)) AS Blue,
 	     SUM(IF(Team=2,1,0)) AS Green

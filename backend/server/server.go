@@ -100,6 +100,7 @@ func StartService() {
 		log.Info("Continuing without RabbitMQ publisher...")
 	}
 	StartCounterCacheUpdater()
+	StartLeaderboardCacheUpdater()
 	StartBrandReportCountsUpdater()
 	defer closePublisher()
 	router := gin.Default()

@@ -3,7 +3,6 @@ package server
 import (
 	"net/http"
 
-	"cleanapp/backend/db"
 	"cleanapp/backend/server/api"
 
 	"github.com/apex/log"
@@ -25,8 +24,15 @@ func GetTeams(c *gin.Context) {
 		return
 	}
 
+	dbc, err := getServerDB()
+	if err != nil {
+		log.Errorf("Error connecting to DB: %w", err)
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+
 	// Get teams stats.
-	r, err := db.GetTeams()
+	r, err := getTeamsCached(dbc)
 	if err != nil {
 		log.Errorf("Failed to report stats for user with %w", err)
 		c.Status(http.StatusInternalServerError) // 500

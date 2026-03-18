@@ -970,8 +970,21 @@ func (h *Handlers) GetLastNReportsByID(c *gin.Context) {
 		return
 	}
 
+	limit := 100
+	if nStr := strings.TrimSpace(c.Query("n")); nStr != "" {
+		parsedN, err := strconv.Atoi(nStr)
+		if err != nil || parsedN <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'n' parameter. Must be a positive integer."})
+			return
+		}
+		if parsedN > 250 {
+			parsedN = 250
+		}
+		limit = parsedN
+	}
+
 	// Get the reports from the database
-	reports, err := h.db.GetLastNReportsByID(c.Request.Context(), reportID)
+	reports, err := h.db.GetLastNReportsByID(c.Request.Context(), reportID, limit)
 	if err != nil {
 		log.Printf("Failed to get last N reports by ID %s: %v", reportID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve reports"})

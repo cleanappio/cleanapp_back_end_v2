@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -1276,64 +1277,107 @@ func (d *Database) GetReportByPublicID(ctx context.Context, publicID string) (*m
 
 // GetLastNReportsByID retrieves the last N reports with analysis for a given report ID
 // Returns all reports for the given ID without filtering.
-func (d *Database) GetLastNReportsByID(ctx context.Context, reportID string) ([]models.ReportWithAnalysis, error) {
-	reportsQuery := fmt.Sprintf(`
-		SELECT DISTINCT r.seq, r.public_id, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.action_id, r.description
+func (d *Database) GetLastNReportsByID(ctx context.Context, reportID string, limit int) ([]models.ReportWithAnalysis, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 250 {
+		limit = 250
+	}
+
+	directReportsQuery := fmt.Sprintf(`
+		SELECT r.seq, r.public_id, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.action_id, r.description
 		FROM reports r
-		LEFT JOIN report_raw rr ON r.seq = rr.report_seq
-		WHERE (r.id = ? OR rr.agent_id = ?)
+		LEFT JOIN report_raw rr ON rr.report_seq = r.seq
+		LEFT JOIN report_status rs ON rs.seq = r.seq
+		WHERE r.id = ?
+		AND (rs.status IS NULL OR rs.status = 'active')
 		AND %s
 		ORDER BY r.seq DESC
+		LIMIT ?
 	`, PublicVisibilityWhereSQL)
 
-	reportRows, err := d.db.QueryContext(ctx, reportsQuery, reportID, reportID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query reports by ID: %w", err)
-	}
-	defer reportRows.Close()
+	reportsBySeq := make(map[int]models.Report, limit)
+	reports := make([]models.Report, 0, limit)
 
-	// Collect all report sequences
-	var reportSeqs []int
-	var reports []models.Report
-	for reportRows.Next() {
-		var report models.Report
-		err := reportRows.Scan(
-			&report.Seq,
-			&report.PublicID,
-			&report.Timestamp,
-			&report.ID,
-			&report.Team,
-			&report.Latitude,
-			&report.Longitude,
-			&report.X,
-			&report.Y,
-			&report.ActionID,
-			&report.Description,
-		)
+	appendReports := func(query string, args ...interface{}) error {
+		rows, err := d.db.QueryContext(ctx, query, args...)
 		if err != nil {
-			return nil, fmt.Errorf("failed to scan report: %w", err)
+			return err
 		}
-		reports = append(reports, report)
-		reportSeqs = append(reportSeqs, report.Seq)
+		defer rows.Close()
+
+		for rows.Next() {
+			var report models.Report
+			if err := rows.Scan(
+				&report.Seq,
+				&report.PublicID,
+				&report.Timestamp,
+				&report.ID,
+				&report.Team,
+				&report.Latitude,
+				&report.Longitude,
+				&report.X,
+				&report.Y,
+				&report.ActionID,
+				&report.Description,
+			); err != nil {
+				return fmt.Errorf("failed to scan report: %w", err)
+			}
+			if _, exists := reportsBySeq[report.Seq]; exists {
+				continue
+			}
+			reportsBySeq[report.Seq] = report
+			reports = append(reports, report)
+		}
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("error iterating reports by ID: %w", err)
+		}
+		return nil
 	}
 
-	if err = reportRows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating reports by ID: %w", err)
+	if err := appendReports(directReportsQuery, reportID, limit); err != nil {
+		return nil, fmt.Errorf("failed to query direct reports by ID: %w", err)
+	}
+
+	if len(reports) < limit {
+		remaining := limit - len(reports)
+		agentReportsQuery := `
+			SELECT r.seq, r.public_id, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.action_id, r.description
+			FROM report_raw rr
+			INNER JOIN reports r ON r.seq = rr.report_seq
+			LEFT JOIN report_status rs ON rs.seq = r.seq
+			WHERE rr.agent_id = ?
+			AND (rr.visibility IS NULL OR rr.visibility = 'public')
+			AND (rs.status IS NULL OR rs.status = 'active')
+			ORDER BY r.seq DESC
+			LIMIT ?
+		`
+		if err := appendReports(agentReportsQuery, reportID, remaining); err != nil {
+			return nil, fmt.Errorf("failed to query agent reports by ID: %w", err)
+		}
 	}
 
 	if len(reports) == 0 {
 		return []models.ReportWithAnalysis{}, nil
 	}
 
-	// Build placeholders for the IN clause
-	placeholders := make([]string, len(reportSeqs))
-	args := make([]interface{}, len(reportSeqs))
-	for i, seq := range reportSeqs {
-		placeholders[i] = "?"
-		args[i] = seq
+	sort.Slice(reports, func(i, j int) bool {
+		return reports[i].Seq > reports[j].Seq
+	})
+	if len(reports) > limit {
+		reports = reports[:limit]
 	}
 
-	// Then, get all analyses for these reports
+	reportSeqs := make([]int, 0, len(reports))
+	placeholders := make([]string, len(reports))
+	args := make([]interface{}, len(reports))
+	for i, report := range reports {
+		reportSeqs = append(reportSeqs, report.Seq)
+		placeholders[i] = "?"
+		args[i] = report.Seq
+	}
+
 	analysesQuery := fmt.Sprintf(`
 		SELECT 
 			ra.seq, ra.source,
@@ -1352,8 +1396,7 @@ func (d *Database) GetLastNReportsByID(ctx context.Context, reportID string) ([]
 	}
 	defer analysisRows.Close()
 
-	// Group analyses by report sequence
-	analysesBySeq := make(map[int][]models.ReportAnalysis)
+	analysesBySeq := make(map[int][]models.ReportAnalysis, len(reportSeqs))
 	for analysisRows.Next() {
 		var analysis models.ReportAnalysis
 		err := analysisRows.Scan(
@@ -1383,12 +1426,10 @@ func (d *Database) GetLastNReportsByID(ctx context.Context, reportID string) ([]
 		return nil, fmt.Errorf("error iterating analyses: %w", err)
 	}
 
-	// Combine reports with their analyses
-	var result []models.ReportWithAnalysis
+	result := make([]models.ReportWithAnalysis, 0, len(reports))
 	for _, report := range reports {
 		analyses := analysesBySeq[report.Seq]
 		if len(analyses) == 0 {
-			// Add a placeholder analysis
 			analyses = append(analyses, models.ReportAnalysis{
 				Seq:                   report.Seq,
 				Source:                "placeholder",
@@ -1408,7 +1449,6 @@ func (d *Database) GetLastNReportsByID(ctx context.Context, reportID string) ([]
 				UpdatedAt:             time.Now(),
 			})
 		}
-
 		result = append(result, models.ReportWithAnalysis{
 			Report:   report,
 			Analysis: analyses,
