@@ -37,5 +37,5 @@ func GetTopScores(c *gin.Context) {
 		return
 	}
 
-	c.IndentedJSON(http.StatusOK, buildTopScoresResponse(snapshot, ba.Id))
+	c.IndentedJSON(http.StatusOK, buildTopScoresResponse(dbc, snapshot, ba.Id, 7))
 }

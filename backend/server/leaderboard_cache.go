@@ -43,7 +43,18 @@ type topScoresCacheState struct {
 var (
 	leaderboardTeamsCache     = &teamsCacheState{}
 	leaderboardTopScoresCache = &topScoresCacheState{}
+	leaderboardSelfRankCache  = &selfRankCacheState{entries: map[string]selfRankSnapshot{}}
 )
+
+type selfRankSnapshot struct {
+	record     api.TopScoresRecord
+	lastLoaded time.Time
+}
+
+type selfRankCacheState struct {
+	mu      sync.RWMutex
+	entries map[string]selfRankSnapshot
+}
 
 func StartLeaderboardCacheUpdater() {
 	log.Info("Starting leaderboard cache updater...")
@@ -247,15 +258,27 @@ func queryTopScoresSnapshot(dbc *sql.DB, topCount int) ([]topScoresSnapshot, err
 	return snapshot, nil
 }
 
-func buildTopScoresResponse(snapshot []topScoresSnapshot, userID string) *api.TopScoresResponse {
+func buildTopScoresResponse(dbc *sql.DB, snapshot []topScoresSnapshot, userID string, topCount int) *api.TopScoresResponse {
 	resp := &api.TopScoresResponse{Records: make([]api.TopScoresRecord, 0, len(snapshot))}
+	hasYou := false
 	for idx, item := range snapshot {
+		isYou := item.ID == userID
+		if isYou {
+			hasYou = true
+		}
 		resp.Records = append(resp.Records, api.TopScoresRecord{
 			Place: idx + 1,
 			Title: item.Title,
 			Kitn:  item.Kitn,
-			IsYou: item.ID == userID,
+			IsYou: isYou,
 		})
+	}
+	if !hasYou && userID != "" {
+		if you, err := getSelfRankCached(dbc, userID, topCount); err == nil {
+			resp.Records = append(resp.Records, you)
+		} else {
+			log.Warnf("leaderboard cache: failed to load self rank for %s: %v", userID, err)
+		}
 	}
 	return resp
 }
@@ -265,4 +288,63 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func getSelfRankCached(dbc *sql.DB, userID string, topCount int) (api.TopScoresRecord, error) {
+	leaderboardSelfRankCache.mu.RLock()
+	if entry, ok := leaderboardSelfRankCache.entries[userID]; ok && time.Since(entry.lastLoaded) < leaderboardCacheTTL {
+		record := entry.record
+		leaderboardSelfRankCache.mu.RUnlock()
+		return record, nil
+	}
+	leaderboardSelfRankCache.mu.RUnlock()
+
+	record, err := querySelfRank(dbc, userID, topCount)
+	if err != nil {
+		return api.TopScoresRecord{}, err
+	}
+
+	leaderboardSelfRankCache.mu.Lock()
+	leaderboardSelfRankCache.entries[userID] = selfRankSnapshot{
+		record:     record,
+		lastLoaded: time.Now(),
+	}
+	leaderboardSelfRankCache.mu.Unlock()
+	return record, nil
+}
+
+func querySelfRank(dbc *sql.DB, userID string, topCount int) (api.TopScoresRecord, error) {
+	var (
+		id     string
+		avatar string
+		cnt    float64
+	)
+	err := dbc.QueryRow(`
+		SELECT id, avatar, kitns_daily + kitns_disbursed + kitns_ref_daily + kitns_ref_disbursed AS cnt
+		FROM users
+		WHERE id = ?`, userID).Scan(&id, &avatar, &cnt)
+	if err != nil {
+		return api.TopScoresRecord{}, err
+	}
+
+	var aheadCount int
+	if err := dbc.QueryRow(`
+		SELECT count(*) AS c
+		FROM users
+		WHERE kitns_daily + kitns_disbursed + kitns_ref_daily + kitns_ref_disbursed > ?
+	`, cnt).Scan(&aheadCount); err != nil {
+		return api.TopScoresRecord{}, err
+	}
+
+	place := aheadCount + 1
+	if aheadCount < topCount {
+		place = topCount + 1
+	}
+
+	return api.TopScoresRecord{
+		Place: place,
+		Title: avatar,
+		Kitn:  cnt,
+		IsYou: true,
+	}, nil
 }
