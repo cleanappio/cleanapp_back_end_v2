@@ -176,6 +176,9 @@ services:
       - FCM_PROJECT_ID=${FCM_PROJECT_ID}
       - FCM_CREDENTIALS_JSON=${FCM_CREDENTIALS_JSON}
       - FCM_CREDENTIALS_FILE=${FCM_CREDENTIALS_FILE}
+    volumes:
+      - ${APNS_AUTH_KEY_P8_PATH}:${APNS_AUTH_KEY_P8_PATH}:ro
+      - ${FCM_CREDENTIALS_FILE}:${FCM_CREDENTIALS_FILE}:ro
     ports:
       - 9081:8080
     depends_on:

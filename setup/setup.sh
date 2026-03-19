@@ -346,6 +346,20 @@ if write_optional_secret_file "FCM_CREDENTIALS_JSON_${SECRET_SUFFIX}" "${RUNTIME
   FCM_CREDENTIALS_FILE_VALUE="$(pwd)/${RUNTIME_SECRET_DIR}/fcm_credentials_${OPT}.json"
 fi
 
+REPORT_LISTENER_PUSH_VOLUME_BLOCK=""
+if [[ -n "${APNS_AUTH_KEY_P8_PATH_VALUE}" || -n "${FCM_CREDENTIALS_FILE_VALUE}" ]]; then
+  REPORT_LISTENER_PUSH_VOLUME_BLOCK="    volumes:
+"
+  if [[ -n "${APNS_AUTH_KEY_P8_PATH_VALUE}" ]]; then
+    REPORT_LISTENER_PUSH_VOLUME_BLOCK="${REPORT_LISTENER_PUSH_VOLUME_BLOCK}      - \${APNS_AUTH_KEY_P8_PATH}:\${APNS_AUTH_KEY_P8_PATH}:ro
+"
+  fi
+  if [[ -n "${FCM_CREDENTIALS_FILE_VALUE}" ]]; then
+    REPORT_LISTENER_PUSH_VOLUME_BLOCK="${REPORT_LISTENER_PUSH_VOLUME_BLOCK}      - \${FCM_CREDENTIALS_FILE}:\${FCM_CREDENTIALS_FILE}:ro
+"
+  fi
+fi
+
 # Secrets
 cat >.env << ENV
 AMQP_USER=\$(gcloud secrets versions access latest --secret="AMQP_USER_${SECRET_SUFFIX}" | tr -d '\r')
@@ -631,11 +645,11 @@ services:
       - APNS_BUNDLE_ID=\${APNS_BUNDLE_ID:-io.cleanapp}
       - APNS_AUTH_KEY_P8=\${APNS_AUTH_KEY_P8}
       - APNS_AUTH_KEY_P8_PATH=\${APNS_AUTH_KEY_P8_PATH}
-      - APNS_USE_PRODUCTION=\${APNS_USE_PRODUCTION:-false}
+      - APNS_USE_PRODUCTION=\${APNS_USE_PRODUCTION:-true}
       - FCM_PROJECT_ID=\${FCM_PROJECT_ID}
       - FCM_CREDENTIALS_JSON=\${FCM_CREDENTIALS_JSON}
       - FCM_CREDENTIALS_FILE=\${FCM_CREDENTIALS_FILE}
-    ports:
+${REPORT_LISTENER_PUSH_VOLUME_BLOCK}    ports:
       - 9081:8080
     depends_on:
       - cleanapp_db

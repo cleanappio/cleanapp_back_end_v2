@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -188,6 +189,7 @@ func (h *Handlers) dispatchReportDeliveryPush(ctx context.Context, seq int, stat
 			Data:  message,
 		})
 		if result.Disabled {
+			log.Printf("warn: mobile push skipped for report %d install %s provider %s: %s", seq, device.InstallID, device.Provider, result.ResponseBody)
 			skipped++
 			continue
 		}
@@ -208,6 +210,7 @@ func (h *Handlers) dispatchReportDeliveryPush(ctx context.Context, seq int, stat
 		}
 
 		if sendErr != nil {
+			log.Printf("warn: mobile push send failed for report %d install %s provider %s: %v (status=%d body=%s)", seq, device.InstallID, device.Provider, sendErr, result.StatusCode, strings.TrimSpace(result.ResponseBody))
 			skipped++
 			continue
 		}
