@@ -536,6 +536,7 @@ services:
       - RABBITMQ_EXCHANGE=cleanapp-exchange
       - RABBITMQ_RENDERER_QUEUE_NAME=report-renderer-queue
       - RABBITMQ_ANALYSED_REPORT_ROUTING_KEY=report.analysed
+      - ALLOWED_ORIGINS=https://cleanapp.io,https://www.cleanapp.io,https://embed.cleanapp.io,https://www.embed.cleanapp.io,https://api.cleanapp.io,https://live.cleanapp.io
       - GIN_MODE=release
     ports:
       - 127.0.0.1:9093:8080
