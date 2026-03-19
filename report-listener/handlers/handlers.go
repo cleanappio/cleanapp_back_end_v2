@@ -58,6 +58,7 @@ type Handlers struct {
 	db                *database.Database
 	rabbitmqPublisher *rabbitmq.Publisher
 	rabbitmqReplier   *rabbitmq.Publisher
+	rabbitmqMu        sync.Mutex
 	cfg               *config.Config
 	geminiClient      *intelligence.Client
 	contactDiscoverer *caseContactDiscoverer
@@ -66,6 +67,26 @@ type Handlers struct {
 
 	brandCountsMu    sync.RWMutex
 	brandCountsCache map[string]brandCountsCacheEntry
+}
+
+func (h *Handlers) ensureRabbitMQPublisher() (*rabbitmq.Publisher, error) {
+	h.rabbitmqMu.Lock()
+	defer h.rabbitmqMu.Unlock()
+
+	if h.rabbitmqPublisher != nil && h.rabbitmqPublisher.IsConnected() {
+		return h.rabbitmqPublisher, nil
+	}
+	if h.rabbitmqPublisher != nil {
+		_ = h.rabbitmqPublisher.Close()
+		h.rabbitmqPublisher = nil
+	}
+
+	pub, err := rabbitmq.NewPublisher(h.cfg.AMQPURL(), h.cfg.RabbitExchange, h.cfg.RabbitAnalysedReportRoutingKey)
+	if err != nil {
+		return nil, err
+	}
+	h.rabbitmqPublisher = pub
+	return pub, nil
 }
 
 // NewHandlers creates a new handlers instance
@@ -1530,12 +1551,14 @@ func splitOwnerRepo(brandDisplay string) (string, string) {
 
 // publishForRenderer publishes a report to RabbitMQ for rendering
 func publishForRenderer(c *gin.Context, h *Handlers, seq int) {
-	if h.rabbitmqPublisher == nil {
-		return
-	}
 	// Best effort publish - don't block on errors
 	go func() {
-		if err := h.rabbitmqPublisher.Publish(seq); err != nil {
+		pub, err := h.ensureRabbitMQPublisher()
+		if err != nil {
+			log.Printf("warn: failed to initialize rabbitmq publisher for renderer seq %d: %v", seq, err)
+			return
+		}
+		if err := pub.Publish(seq); err != nil {
 			log.Printf("warn: failed to publish seq %d for rendering: %v", seq, err)
 		}
 	}()

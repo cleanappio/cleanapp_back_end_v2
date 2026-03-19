@@ -120,8 +120,9 @@ func (h *Handlers) InternalPromoteReport(c *gin.Context) {
 }
 
 func (h *Handlers) publishAnalysedFromDB(ctx context.Context, seq int) error {
-	if h.rabbitmqPublisher == nil || !h.rabbitmqPublisher.IsConnected() {
-		return fmt.Errorf("rabbitmq publisher not connected")
+	pub, err := h.ensureRabbitMQPublisher()
+	if err != nil {
+		return fmt.Errorf("rabbitmq publisher not connected: %w", err)
 	}
 
 	// Load report.
@@ -216,7 +217,7 @@ func (h *Handlers) publishAnalysedFromDB(ctx context.Context, seq int) error {
 	}
 
 	event.Normalize()
-	if err := h.rabbitmqPublisher.PublishWithRoutingKey(h.cfg.RabbitAnalysedReportRoutingKey, event); err != nil {
+	if err := pub.PublishWithRoutingKey(h.cfg.RabbitAnalysedReportRoutingKey, event); err != nil {
 		return fmt.Errorf("publish report.analysed: %w", err)
 	}
 

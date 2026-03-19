@@ -1240,7 +1240,8 @@ func (h *Handlers) cleanAppWireIngestCore(ctx context.Context, auth cleanAppWire
 		return cleanAppWireIngestCoreResult{}, "COMMIT_FAILED", http.StatusInternalServerError
 	}
 
-	if h.rabbitmqPublisher == nil || !h.rabbitmqPublisher.IsConnected() {
+	pub, err := h.ensureRabbitMQPublisher()
+	if err != nil {
 		return cleanAppWireIngestCoreResult{
 			SourceID:   item.SourceID,
 			Status:     "accepted",
@@ -1261,7 +1262,7 @@ func (h *Handlers) cleanAppWireIngestCore(ctx context.Context, auth cleanAppWire
 		"visibility":  visibility,
 		"tags":        item.Tags,
 	}
-	if err := h.rabbitmqPublisher.PublishWithRoutingKey(h.cfg.RabbitRawReportRoutingKey, msg); err != nil {
+	if err := pub.PublishWithRoutingKey(h.cfg.RabbitRawReportRoutingKey, msg); err != nil {
 		return cleanAppWireIngestCoreResult{
 			SourceID:   item.SourceID,
 			Status:     "accepted",
