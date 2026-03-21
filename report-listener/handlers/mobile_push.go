@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -104,9 +105,27 @@ func (h *Handlers) UnregisterMobilePushDevice(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-func buildReportDeliveryPushMessage(status string, recipientCount int) (string, string) {
+func buildReportDeliveryPushMessage(status string, recipientCount int, recipients []models.ReportDeliveryRecipient) (string, string) {
 	switch status {
 	case "sent":
+		if len(recipients) > 0 {
+			primary := recipients[0]
+			label := firstNonEmpty(strings.TrimSpace(primary.DisplayName), strings.TrimSpace(primary.Organization), strings.TrimSpace(primary.Email))
+			email := strings.TrimSpace(primary.Email)
+			sentAt := formatPushTimestamp(primary.SentAt)
+			switch {
+			case recipientCount > 1 && label != "" && email != "":
+				return "Report sent", "Your report was sent to " + label + " at " + email + formatPushTimestampSuffix(sentAt) + " and " + strconv.Itoa(recipientCount-1) + " more recipient(s)."
+			case recipientCount > 1 && email != "":
+				return "Report sent", "Your report was sent to " + email + formatPushTimestampSuffix(sentAt) + " and " + strconv.Itoa(recipientCount-1) + " more recipient(s)."
+			case label != "" && email != "":
+				return "Report sent", "Your report was sent to " + label + " at " + email + formatPushTimestampSuffix(sentAt) + "."
+			case email != "":
+				return "Report sent", "Your report was sent to " + email + formatPushTimestampSuffix(sentAt) + "."
+			case label != "":
+				return "Report sent", "Your report was sent to " + label + formatPushTimestampSuffix(sentAt) + "."
+			}
+		}
 		if recipientCount == 1 {
 			return "Report sent", "Your report was sent to 1 responsible party."
 		}
@@ -162,7 +181,12 @@ func (h *Handlers) dispatchReportDeliveryPush(ctx context.Context, seq int, stat
 		publicID = strings.TrimSpace(report.Report.PublicID)
 	}
 
-	title, body := buildReportDeliveryPushMessage(status, recipientCount)
+	recipients, err := h.db.ListReportDeliveryRecipients(ctx, seq)
+	if err != nil {
+		log.Printf("warn: failed to load report delivery recipients for push seq %d: %v", seq, err)
+	}
+
+	title, body := buildReportDeliveryPushMessage(status, recipientCount, recipients)
 	message := map[string]string{
 		"seq":    strconv.Itoa(seq),
 		"status": status,
@@ -170,6 +194,21 @@ func (h *Handlers) dispatchReportDeliveryPush(ctx context.Context, seq int, stat
 	if publicID != "" {
 		message["public_id"] = publicID
 	}
+	if len(recipients) > 0 {
+		primary := recipients[0]
+		if primary.Email != "" {
+			message["recipient_email"] = primary.Email
+		}
+		if primary.DisplayName != "" {
+			message["recipient_name"] = primary.DisplayName
+		} else if primary.Organization != "" {
+			message["recipient_name"] = primary.Organization
+		}
+		if primary.SentAt != nil {
+			message["sent_at"] = primary.SentAt.UTC().Format(time.RFC3339)
+		}
+	}
+	message["navigate_to"] = "my_report_details"
 
 	sent := 0
 	skipped := 0
@@ -218,4 +257,18 @@ func (h *Handlers) dispatchReportDeliveryPush(ctx context.Context, seq int, stat
 	}
 
 	return sent, skipped, nil
+}
+
+func formatPushTimestamp(sentAt *time.Time) string {
+	if sentAt == nil {
+		return ""
+	}
+	return sentAt.UTC().Format("2006-01-02 15:04 UTC")
+}
+
+func formatPushTimestampSuffix(formatted string) string {
+	if strings.TrimSpace(formatted) == "" {
+		return ""
+	}
+	return " on " + formatted
 }

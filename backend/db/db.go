@@ -530,6 +530,76 @@ func ReadReportEmailStatus(db *sql.DB, args *api.ReadReportArgs) (*api.ReportEma
 		return nil, err
 	}
 
+	if len(resp.Recipients) > 0 {
+		emailLookup := make([]string, 0, len(resp.Recipients))
+		for _, recipient := range resp.Recipients {
+			email := strings.ToLower(strings.TrimSpace(recipient.Email))
+			if email == "" {
+				continue
+			}
+			emailLookup = append(emailLookup, email)
+		}
+
+		if len(emailLookup) > 0 {
+			placeholders := strings.TrimRight(strings.Repeat("?,", len(emailLookup)), ",")
+			queryArgs := make([]interface{}, 0, len(emailLookup)+1)
+			queryArgs = append(queryArgs, args.Seq)
+			for _, email := range emailLookup {
+				queryArgs = append(queryArgs, email)
+			}
+
+			targetRows, targetErr := db.Query(`
+				SELECT LOWER(TRIM(email)) AS normalized_email, COALESCE(display_name, ''), COALESCE(organization, '')
+				FROM report_escalation_targets
+				WHERE report_seq = ?
+				  AND LOWER(TRIM(email)) IN (`+placeholders+`)
+				ORDER BY actionability_score DESC, confidence_score DESC, id ASC
+			`, queryArgs...)
+			if targetErr == nil {
+				targetByEmail := make(map[string]api.ReportEmailDeliveryRecipient, len(emailLookup))
+				for targetRows.Next() {
+					var normalizedEmail string
+					var displayName string
+					var organization string
+					if scanErr := targetRows.Scan(&normalizedEmail, &displayName, &organization); scanErr != nil {
+						targetRows.Close()
+						return nil, scanErr
+					}
+					normalizedEmail = strings.TrimSpace(strings.ToLower(normalizedEmail))
+					if normalizedEmail == "" {
+						continue
+					}
+					if _, exists := targetByEmail[normalizedEmail]; exists {
+						continue
+					}
+					targetByEmail[normalizedEmail] = api.ReportEmailDeliveryRecipient{
+						DisplayName:  strings.TrimSpace(displayName),
+						Organization: strings.TrimSpace(organization),
+					}
+				}
+				if err := targetRows.Err(); err != nil {
+					targetRows.Close()
+					return nil, err
+				}
+				targetRows.Close()
+
+				for i := range resp.Recipients {
+					normalizedEmail := strings.ToLower(strings.TrimSpace(resp.Recipients[i].Email))
+					if normalizedEmail == "" {
+						continue
+					}
+					if metadata, ok := targetByEmail[normalizedEmail]; ok {
+						resp.Recipients[i].DisplayName = metadata.DisplayName
+						resp.Recipients[i].Organization = metadata.Organization
+					}
+					if resp.Recipients[i].DisplayName == "" && resp.Recipients[i].Organization == "" {
+						resp.Recipients[i].Organization = inferEmailOrganization(resp.Recipients[i].Email)
+					}
+				}
+			}
+		}
+	}
+
 	resp.RecipientCount = len(resp.Recipients)
 	switch {
 	case len(resp.Recipients) > 0:
@@ -552,6 +622,23 @@ func ReadReportEmailStatus(db *sql.DB, args *api.ReadReportArgs) (*api.ReportEma
 	}
 
 	return resp, nil
+}
+
+func inferEmailOrganization(email string) string {
+	email = strings.TrimSpace(strings.ToLower(email))
+	at := strings.LastIndex(email, "@")
+	if at < 0 || at >= len(email)-1 {
+		return ""
+	}
+	domain := email[at+1:]
+	parts := strings.Split(domain, ".")
+	if len(parts) == 0 {
+		return domain
+	}
+	label := parts[0]
+	label = strings.ReplaceAll(label, "-", " ")
+	label = strings.ReplaceAll(label, "_", " ")
+	return strings.TrimSpace(label)
 }
 
 func normalizeNullableTime(v any) (*time.Time, error) {

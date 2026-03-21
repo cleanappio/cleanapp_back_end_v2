@@ -92,6 +92,8 @@ type ReadReportResponse struct {
 
 type ReportEmailDeliveryRecipient struct {
 	Email          string `json:"email"`
+	DisplayName    string `json:"display_name,omitempty"`
+	Organization   string `json:"organization,omitempty"`
 	DeliverySource string `json:"delivery_source"`
 	DeliveryStatus string `json:"delivery_status"`
 	SentAt         string `json:"sent_at,omitempty"`

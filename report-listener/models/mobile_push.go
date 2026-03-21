@@ -24,3 +24,12 @@ type ReportPushDeliveryEvent struct {
 	ResponseBody   string    `json:"response_body,omitempty"`
 	CreatedAt      time.Time `json:"created_at,omitempty"`
 }
+
+type ReportDeliveryRecipient struct {
+	Email          string     `json:"email"`
+	DeliverySource string     `json:"delivery_source,omitempty"`
+	DeliveryStatus string     `json:"delivery_status,omitempty"`
+	SentAt         *time.Time `json:"sent_at,omitempty"`
+	DisplayName    string     `json:"display_name,omitempty"`
+	Organization   string     `json:"organization,omitempty"`
+}
