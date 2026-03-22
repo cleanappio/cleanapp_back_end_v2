@@ -1206,6 +1206,31 @@ func ensureReportContactTargetTables(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
+func ensureDigitalShareReportsTable(ctx context.Context, db *sql.DB) error {
+	stmt := `CREATE TABLE IF NOT EXISTS digital_share_reports (
+		report_seq INT NOT NULL,
+		source_url VARCHAR(512) NULL,
+		source_app VARCHAR(255) NULL,
+		platform VARCHAR(32) NULL,
+		capture_mode VARCHAR(64) NULL,
+		client_created_at TIMESTAMP NULL,
+		client_submission_id VARCHAR(255) NULL,
+		normalized_source_key VARCHAR(255) NULL,
+		shared_text TEXT NULL,
+		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+		PRIMARY KEY (report_seq),
+		KEY idx_digital_share_source_url (source_url),
+		KEY idx_digital_share_submission_id (client_submission_id),
+		KEY idx_digital_share_source_key (normalized_source_key),
+		CONSTRAINT fk_digital_share_reports_report FOREIGN KEY (report_seq) REFERENCES reports(seq) ON DELETE CASCADE
+	) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`
+	if _, err := db.ExecContext(ctx, stmt); err != nil {
+		return fmt.Errorf("failed to ensure digital_share_reports table: %w", err)
+	}
+	return nil
+}
+
 func ensureUnifiedDefectRoutingTables(ctx context.Context, db *sql.DB) error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS subject_routing_profiles (

@@ -160,6 +160,7 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 
 		// Search reports endpoint
 		api.GET("/reports/search", h.GetSearchReports)
+		api.POST("/reports/digital-share", h.SubmitDigitalShare)
 
 		imageRoutes := api.Group("/reports")
 		imageRoutes.Use(
@@ -345,6 +346,7 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 
 		// Search reports endpoint
 		apiV4.GET("/reports/search", h.GetSearchReports)
+		apiV4.POST("/reports/digital-share", h.SubmitDigitalShare)
 
 		imageRoutesV4 := apiV4.Group("/reports")
 		imageRoutesV4.Use(
@@ -583,6 +585,7 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 		})
 	})
 	router.GET("/version", versionHandler)
+	router.POST("/api/reports/digital-share", h.SubmitDigitalShare)
 
 	return router
 }
