@@ -10,8 +10,6 @@ func TestNormalizeDigitalSharePayloadPrefersURLOverTextURL(t *testing.T) {
 			SharedText:  "https://twitter.com/example/status/12345",
 		},
 		nil,
-		"",
-		"",
 	)
 	if err != nil {
 		t.Fatalf("normalizeDigitalSharePayload returned error: %v", err)
@@ -25,6 +23,33 @@ func TestNormalizeDigitalSharePayloadPrefersURLOverTextURL(t *testing.T) {
 	}
 	if payload.SharedPayloadType != "url" {
 		t.Fatalf("expected payload type url, got %q", payload.SharedPayloadType)
+	}
+}
+
+func TestNormalizeDigitalSharePayloadAllowsMultipleImages(t *testing.T) {
+	images := []digitalShareImageAttachment{
+		{Bytes: []byte("image-one"), MimeType: "image/jpeg", Filename: "one.jpg"},
+		{Bytes: []byte("image-two"), MimeType: "image/png", Filename: "two.png"},
+	}
+	payload, err := normalizeDigitalSharePayload(
+		digitalShareSubmissionRequest{
+			Platform:    "android",
+			CaptureMode: "android_share_intent",
+			SourceURL:   "https://example.com/post/1",
+		},
+		images,
+	)
+	if err != nil {
+		t.Fatalf("normalizeDigitalSharePayload returned error: %v", err)
+	}
+	if len(payload.Images) != 2 {
+		t.Fatalf("expected 2 images, got %d", len(payload.Images))
+	}
+	if payload.SharedPayloadType != "url+image" {
+		t.Fatalf("expected payload type url+image, got %q", payload.SharedPayloadType)
+	}
+	if payload.Images[0].SHA256Hex == "" || payload.Images[1].SHA256Hex == "" {
+		t.Fatal("expected attachment hashes to be populated")
 	}
 }
 

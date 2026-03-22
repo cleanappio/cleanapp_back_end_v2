@@ -1231,6 +1231,26 @@ func ensureDigitalShareReportsTable(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
+func ensureDigitalShareAttachmentsTable(ctx context.Context, db *sql.DB) error {
+	stmt := `CREATE TABLE IF NOT EXISTS digital_share_attachments (
+		report_seq INT NOT NULL,
+		ordinal INT NOT NULL,
+		filename VARCHAR(255) NULL,
+		mime_type VARCHAR(128) NULL,
+		sha256 CHAR(64) NULL,
+		image LONGBLOB NOT NULL,
+		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+		PRIMARY KEY (report_seq, ordinal),
+		KEY idx_digital_share_attachments_sha256 (sha256),
+		CONSTRAINT fk_digital_share_attachments_report FOREIGN KEY (report_seq) REFERENCES reports(seq) ON DELETE CASCADE
+	) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`
+	if _, err := db.ExecContext(ctx, stmt); err != nil {
+		return fmt.Errorf("failed to ensure digital_share_attachments table: %w", err)
+	}
+	return nil
+}
+
 func ensureUnifiedDefectRoutingTables(ctx context.Context, db *sql.DB) error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS subject_routing_profiles (

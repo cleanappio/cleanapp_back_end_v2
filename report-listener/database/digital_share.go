@@ -8,6 +8,14 @@ import (
 	"time"
 )
 
+type DigitalShareAttachment struct {
+	Ordinal  int
+	Filename string
+	MIMEType string
+	SHA256   string
+	Bytes    []byte
+}
+
 func (d *Database) UpsertDigitalShareMetadata(
 	ctx context.Context,
 	reportSeq int,
@@ -19,6 +27,7 @@ func (d *Database) UpsertDigitalShareMetadata(
 	clientSubmissionID string,
 	normalizedSourceKey string,
 	sharedText string,
+	attachments []DigitalShareAttachment,
 ) error {
 	if reportSeq <= 0 {
 		return nil
@@ -92,6 +101,30 @@ func (d *Database) UpsertDigitalShareMetadata(
 		nullIfBlank(sharedText),
 	); err != nil {
 		return fmt.Errorf("upsert digital_share_reports: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM digital_share_attachments WHERE report_seq = ?`, reportSeq); err != nil {
+		return fmt.Errorf("clear digital_share_attachments: %w", err)
+	}
+
+	for _, attachment := range attachments {
+		if len(attachment.Bytes) == 0 {
+			continue
+		}
+		if _, err := tx.ExecContext(
+			ctx,
+			`INSERT INTO digital_share_attachments (
+				report_seq, ordinal, filename, mime_type, sha256, image
+			) VALUES (?, ?, ?, ?, ?, ?)`,
+			reportSeq,
+			attachment.Ordinal,
+			nullIfBlank(attachment.Filename),
+			nullIfBlank(attachment.MIMEType),
+			nullIfBlank(attachment.SHA256),
+			attachment.Bytes,
+		); err != nil {
+			return fmt.Errorf("insert digital_share_attachment[%d]: %w", attachment.Ordinal, err)
+		}
 	}
 
 	if err := tx.Commit(); err != nil {

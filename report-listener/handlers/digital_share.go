@@ -14,12 +14,17 @@ import (
 	"strings"
 	"time"
 
+	"report-listener/database"
+
 	"github.com/gin-gonic/gin"
 )
 
 const (
-	digitalShareSourceKind = "digital_share"
-	maxDigitalShareImageBytes = 2 * 1024 * 1024
+	digitalShareSourceKind       = "digital_share"
+	maxDigitalShareImageCount    = 6
+	maxDigitalShareImageBytes    = 16 * 1024 * 1024
+	maxDigitalShareTotalBytes    = 64 * 1024 * 1024
+	maxDigitalShareMultipartForm = 96 << 20
 )
 
 type digitalShareSubmissionRequest struct {
@@ -59,15 +64,20 @@ type normalizedDigitalSharePayload struct {
 	ReporterID           string
 	DeviceID             string
 	AppVersion           string
-	ImageBytes           []byte
-	ImageMimeType        string
-	ImageFilename        string
+	Images               []digitalShareImageAttachment
 	SharedPayloadType    string
 	NormalizedSourceHash string
 }
 
+type digitalShareImageAttachment struct {
+	Bytes     []byte
+	MimeType  string
+	Filename  string
+	SHA256Hex string
+}
+
 func (h *Handlers) SubmitDigitalShare(c *gin.Context) {
-	req, imageBytes, imageMimeType, imageFilename, err := parseDigitalShareSubmissionRequest(c)
+	req, images, err := parseDigitalShareSubmissionRequest(c)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"ok":    false,
@@ -76,7 +86,7 @@ func (h *Handlers) SubmitDigitalShare(c *gin.Context) {
 		return
 	}
 
-	payload, parseErr := normalizeDigitalSharePayload(req, imageBytes, imageMimeType, imageFilename)
+	payload, parseErr := normalizeDigitalSharePayload(req, images)
 	if parseErr != nil {
 		log.Printf("digital share: parse failed: %v", parseErr)
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -87,12 +97,12 @@ func (h *Handlers) SubmitDigitalShare(c *gin.Context) {
 	}
 
 	log.Printf(
-		"digital share: submit started platform=%s source_app=%s payload=%s source_url_present=%t image_present=%t",
+		"digital share: submit started platform=%s source_app=%s payload=%s source_url_present=%t image_count=%d",
 		payload.Platform,
 		payload.SourceApp,
 		payload.SharedPayloadType,
 		payload.SourceURL != "",
-		len(payload.ImageBytes) > 0,
+		len(payload.Images),
 	)
 
 	auth := h.humanReportAuthContext("share")
@@ -119,6 +129,7 @@ func (h *Handlers) SubmitDigitalShare(c *gin.Context) {
 			payload.ClientSubmissionID,
 			payload.NormalizedSourceHash,
 			payload.SharedText,
+			toDatabaseDigitalShareAttachments(payload.Images),
 		); err != nil {
 			log.Printf("warn: failed to persist digital-share metadata for report %d: %v", receipt.ReportID, err)
 		}
@@ -148,16 +159,16 @@ func (h *Handlers) SubmitDigitalShare(c *gin.Context) {
 	if len(receipt.Errors) > 0 && statusCode >= 400 {
 		log.Printf("digital share: submit failed status=%d errors=%v", statusCode, receipt.Errors)
 		c.JSON(statusCode, gin.H{
-			"ok":               false,
-			"receipt_id":       receipt.ReceiptID,
-			"submission_id":    receipt.SubmissionID,
-			"source_id":        receipt.SourceID,
-			"status":           receipt.Status,
-			"lane":             receipt.Lane,
-			"report_id":        receipt.ReportID,
-			"public_id":        publicID,
-			"errors":           receipt.Errors,
-			"shared_payload":   payload.SharedPayloadType,
+			"ok":                 false,
+			"receipt_id":         receipt.ReceiptID,
+			"submission_id":      receipt.SubmissionID,
+			"source_id":          receipt.SourceID,
+			"status":             receipt.Status,
+			"lane":               receipt.Lane,
+			"report_id":          receipt.ReportID,
+			"public_id":          publicID,
+			"errors":             receipt.Errors,
+			"shared_payload":     payload.SharedPayloadType,
 			"idempotency_replay": receipt.IdempotencyReplay,
 		})
 		return
@@ -186,17 +197,15 @@ func (h *Handlers) SubmitDigitalShare(c *gin.Context) {
 	})
 }
 
-func parseDigitalShareSubmissionRequest(c *gin.Context) (digitalShareSubmissionRequest, []byte, string, string, error) {
+func parseDigitalShareSubmissionRequest(c *gin.Context) (digitalShareSubmissionRequest, []digitalShareImageAttachment, error) {
 	var req digitalShareSubmissionRequest
-	var imageBytes []byte
-	var imageMimeType string
-	var imageFilename string
+	var images []digitalShareImageAttachment
 
 	contentType := c.ContentType()
 	switch {
 	case strings.HasPrefix(contentType, "multipart/form-data"):
-		if err := c.Request.ParseMultipartForm(8 << 20); err != nil {
-			return req, nil, "", "", fmt.Errorf("invalid multipart payload")
+		if err := c.Request.ParseMultipartForm(maxDigitalShareMultipartForm); err != nil {
+			return req, nil, fmt.Errorf("invalid multipart payload")
 		}
 		req.SourceURL = strings.TrimSpace(c.PostForm("source_url"))
 		req.SharedText = strings.TrimSpace(c.PostForm("shared_text"))
@@ -209,62 +218,101 @@ func parseDigitalShareSubmissionRequest(c *gin.Context) (digitalShareSubmissionR
 		req.DeviceID = strings.TrimSpace(c.PostForm("device_id"))
 		req.AppVersion = strings.TrimSpace(c.PostForm("app_version"))
 
-		fileHeader, fileErr := firstPresentFile(c, "attachment", "image", "file")
-		if fileErr == nil && fileHeader != nil {
-			imageBytes, imageMimeType, imageFilename, fileErr = readDigitalShareMultipartFile(fileHeader)
-			if fileErr != nil {
-				return req, nil, "", "", fileErr
-			}
+		var fileErr error
+		images, fileErr = readDigitalShareMultipartFiles(c)
+		if fileErr != nil {
+			return req, nil, fileErr
 		}
 	case strings.HasPrefix(contentType, "application/json"), contentType == "":
 		if err := c.ShouldBindJSON(&req); err != nil {
-			return req, nil, "", "", fmt.Errorf("invalid json payload")
+			return req, nil, fmt.Errorf("invalid json payload")
 		}
 	default:
-		return req, nil, "", "", fmt.Errorf("unsupported content type")
+		return req, nil, fmt.Errorf("unsupported content type")
 	}
 
-	return req, imageBytes, imageMimeType, imageFilename, nil
+	return req, images, nil
 }
 
-func firstPresentFile(c *gin.Context, keys ...string) (*multipart.FileHeader, error) {
+func digitalShareMultipartFileHeaders(c *gin.Context, keys ...string) []*multipart.FileHeader {
+	if c.Request.MultipartForm == nil {
+		return nil
+	}
+	var out []*multipart.FileHeader
+	seen := map[string]struct{}{}
 	for _, key := range keys {
-		fileHeader, err := c.FormFile(key)
-		if err == nil {
-			return fileHeader, nil
+		for _, fileHeader := range c.Request.MultipartForm.File[key] {
+			if fileHeader == nil {
+				continue
+			}
+			sig := fmt.Sprintf("%p", fileHeader)
+			if _, ok := seen[sig]; ok {
+				continue
+			}
+			seen[sig] = struct{}{}
+			out = append(out, fileHeader)
 		}
 	}
-	return nil, http.ErrMissingFile
+	return out
 }
 
-func readDigitalShareMultipartFile(fileHeader *multipart.FileHeader) ([]byte, string, string, error) {
+func readDigitalShareMultipartFiles(c *gin.Context) ([]digitalShareImageAttachment, error) {
+	fileHeaders := digitalShareMultipartFileHeaders(c, "attachments", "attachments[]", "attachment", "images", "image", "file")
+	if len(fileHeaders) == 0 {
+		return nil, nil
+	}
+	if len(fileHeaders) > maxDigitalShareImageCount {
+		return nil, fmt.Errorf("too many attachments")
+	}
+
+	totalBytes := 0
+	images := make([]digitalShareImageAttachment, 0, len(fileHeaders))
+	for _, fileHeader := range fileHeaders {
+		image, err := readDigitalShareMultipartFile(fileHeader)
+		if err != nil {
+			return nil, err
+		}
+		totalBytes += len(image.Bytes)
+		if totalBytes > maxDigitalShareTotalBytes {
+			return nil, fmt.Errorf("attachments too large")
+		}
+		images = append(images, image)
+	}
+	return images, nil
+}
+
+func readDigitalShareMultipartFile(fileHeader *multipart.FileHeader) (digitalShareImageAttachment, error) {
 	file, err := fileHeader.Open()
 	if err != nil {
-		return nil, "", "", fmt.Errorf("failed to open attachment")
+		return digitalShareImageAttachment{}, fmt.Errorf("failed to open attachment")
 	}
 	defer file.Close()
 
 	limited := io.LimitReader(file, maxDigitalShareImageBytes+1)
 	data, err := io.ReadAll(limited)
 	if err != nil {
-		return nil, "", "", fmt.Errorf("failed to read attachment")
+		return digitalShareImageAttachment{}, fmt.Errorf("failed to read attachment")
 	}
 	if len(data) > maxDigitalShareImageBytes {
-		return nil, "", "", fmt.Errorf("attachment too large")
+		return digitalShareImageAttachment{}, fmt.Errorf("attachment too large")
 	}
 
 	mimeType := strings.TrimSpace(fileHeader.Header.Get("Content-Type"))
 	if mimeType == "" {
 		mimeType = http.DetectContentType(data)
 	}
-	return data, mimeType, strings.TrimSpace(fileHeader.Filename), nil
+	sum := sha256.Sum256(data)
+	return digitalShareImageAttachment{
+		Bytes:     data,
+		MimeType:  clampStr(mimeType, 128),
+		Filename:  clampStr(strings.TrimSpace(fileHeader.Filename), 255),
+		SHA256Hex: hex.EncodeToString(sum[:]),
+	}, nil
 }
 
 func normalizeDigitalSharePayload(
 	req digitalShareSubmissionRequest,
-	imageBytes []byte,
-	imageMimeType string,
-	imageFilename string,
+	images []digitalShareImageAttachment,
 ) (normalizedDigitalSharePayload, error) {
 	payload := normalizedDigitalSharePayload{
 		SourceURL:          normalizeSharedURL(req.SourceURL),
@@ -277,9 +325,7 @@ func normalizeDigitalSharePayload(
 		ReporterID:         clampStr(strings.TrimSpace(req.ReporterID), 128),
 		DeviceID:           clampStr(strings.TrimSpace(req.DeviceID), 128),
 		AppVersion:         clampStr(strings.TrimSpace(req.AppVersion), 64),
-		ImageBytes:         imageBytes,
-		ImageMimeType:      clampStr(strings.TrimSpace(imageMimeType), 128),
-		ImageFilename:      clampStr(strings.TrimSpace(imageFilename), 255),
+		Images:             normalizeDigitalShareAttachments(images),
 	}
 
 	if payload.SharedText != "" {
@@ -290,17 +336,17 @@ func normalizeDigitalSharePayload(
 	}
 
 	switch {
-	case payload.SourceURL != "" && payload.SharedText != "" && len(payload.ImageBytes) > 0:
+	case payload.SourceURL != "" && payload.SharedText != "" && len(payload.Images) > 0:
 		payload.SharedPayloadType = "url+text+image"
-	case payload.SourceURL != "" && len(payload.ImageBytes) > 0:
+	case payload.SourceURL != "" && len(payload.Images) > 0:
 		payload.SharedPayloadType = "url+image"
-	case payload.SharedText != "" && len(payload.ImageBytes) > 0:
+	case payload.SharedText != "" && len(payload.Images) > 0:
 		payload.SharedPayloadType = "text+image"
 	case payload.SourceURL != "":
 		payload.SharedPayloadType = "url"
 	case payload.SharedText != "":
 		payload.SharedPayloadType = "text"
-	case len(payload.ImageBytes) > 0:
+	case len(payload.Images) > 0:
 		payload.SharedPayloadType = "image"
 	default:
 		return normalizedDigitalSharePayload{}, fmt.Errorf("no usable share payload")
@@ -308,6 +354,45 @@ func normalizeDigitalSharePayload(
 
 	payload.NormalizedSourceHash = digitalShareDedupKey(payload)
 	return payload, nil
+}
+
+func normalizeDigitalShareAttachments(images []digitalShareImageAttachment) []digitalShareImageAttachment {
+	if len(images) == 0 {
+		return nil
+	}
+	capHint := len(images)
+	if capHint > maxDigitalShareImageCount {
+		capHint = maxDigitalShareImageCount
+	}
+	normalized := make([]digitalShareImageAttachment, 0, capHint)
+	for _, image := range images {
+		if len(image.Bytes) == 0 {
+			continue
+		}
+		mimeType := clampStr(strings.TrimSpace(image.MimeType), 128)
+		if mimeType == "" {
+			mimeType = http.DetectContentType(image.Bytes)
+		}
+		filename := clampStr(strings.TrimSpace(image.Filename), 255)
+		if filename == "" {
+			filename = fmt.Sprintf("shared-image-%d", len(normalized)+1)
+		}
+		sha := strings.TrimSpace(image.SHA256Hex)
+		if sha == "" {
+			sum := sha256.Sum256(image.Bytes)
+			sha = hex.EncodeToString(sum[:])
+		}
+		normalized = append(normalized, digitalShareImageAttachment{
+			Bytes:     image.Bytes,
+			MimeType:  mimeType,
+			Filename:  filename,
+			SHA256Hex: sha,
+		})
+		if len(normalized) == maxDigitalShareImageCount {
+			break
+		}
+	}
+	return normalized
 }
 
 func normalizeSharePlatform(raw string) string {
@@ -379,13 +464,29 @@ func digitalShareDedupKey(payload normalizedDigitalSharePayload) string {
 	case payload.SourceURL != "":
 		sum := sha256.Sum256([]byte(payload.SourceURL))
 		return "url:" + scope + ":" + hex.EncodeToString(sum[:12])
-	case len(payload.ImageBytes) > 0:
-		sum := sha256.Sum256(payload.ImageBytes)
-		return "img:" + scope + ":" + hex.EncodeToString(sum[:12])
+	case len(payload.Images) > 0:
+		return "img:" + scope + ":" + payload.Images[0].SHA256Hex[:24]
 	default:
 		sum := sha256.Sum256([]byte(payload.SharedText))
 		return "txt:" + scope + ":" + hex.EncodeToString(sum[:12])
 	}
+}
+
+func toDatabaseDigitalShareAttachments(images []digitalShareImageAttachment) []database.DigitalShareAttachment {
+	if len(images) == 0 {
+		return nil
+	}
+	out := make([]database.DigitalShareAttachment, 0, len(images))
+	for idx, image := range images {
+		out = append(out, database.DigitalShareAttachment{
+			Ordinal:  idx,
+			Filename: image.Filename,
+			MIMEType: image.MimeType,
+			SHA256:   image.SHA256Hex,
+			Bytes:    image.Bytes,
+		})
+	}
+	return out
 }
 
 func buildDigitalShareWireSubmission(payload normalizedDigitalSharePayload, sourcePrefix string) cleanAppWireSubmission {
@@ -402,14 +503,14 @@ func buildDigitalShareWireSubmission(payload normalizedDigitalSharePayload, sour
 		SubmittedAt:   submittedAt,
 		ObservedAt:    payload.ClientCreatedAt,
 		Extensions: map[string]any{
-			"share_source_app":        payload.SourceApp,
-			"share_capture_mode":      payload.CaptureMode,
-			"share_platform":          payload.Platform,
-			"share_client_created_at": payload.ClientCreatedAt,
-			"share_payload_type":      payload.SharedPayloadType,
+			"share_source_app":           payload.SourceApp,
+			"share_capture_mode":         payload.CaptureMode,
+			"share_platform":             payload.Platform,
+			"share_client_created_at":    payload.ClientCreatedAt,
+			"share_payload_type":         payload.SharedPayloadType,
 			"share_client_submission_id": payload.ClientSubmissionID,
-			"device_id":               payload.DeviceID,
-			"app_version":             payload.AppVersion,
+			"device_id":                  payload.DeviceID,
+			"app_version":                payload.AppVersion,
 		},
 	}
 
@@ -490,8 +591,7 @@ func buildDigitalShareWireSubmission(payload normalizedDigitalSharePayload, sour
 		})
 	}
 
-	if len(payload.ImageBytes) > 0 {
-		sum := sha256.Sum256(payload.ImageBytes)
+	for idx, image := range payload.Images {
 		sub.Report.EvidenceBundle = append(sub.Report.EvidenceBundle, struct {
 			EvidenceID string `json:"evidence_id,omitempty"`
 			Type       string `json:"type"`
@@ -500,14 +600,20 @@ func buildDigitalShareWireSubmission(payload normalizedDigitalSharePayload, sour
 			MIMEType   string `json:"mime_type,omitempty"`
 			CapturedAt string `json:"captured_at,omitempty"`
 		}{
-			EvidenceID: "shared-image",
+			EvidenceID: fmt.Sprintf("shared-image-%d", idx+1),
 			Type:       "inline_image",
-			SHA256:     hex.EncodeToString(sum[:]),
-			MIMEType:   payload.ImageMimeType,
+			SHA256:     image.SHA256Hex,
+			MIMEType:   image.MimeType,
 			CapturedAt: payload.ClientCreatedAt,
 		})
-		sub.Extensions["image_base64"] = base64.StdEncoding.EncodeToString(payload.ImageBytes)
-		sub.Extensions["image_filename"] = payload.ImageFilename
+		if idx == 0 {
+			sub.Extensions["image_base64"] = base64.StdEncoding.EncodeToString(image.Bytes)
+			sub.Extensions["image_filename"] = image.Filename
+			sub.Extensions["image_mime_type"] = image.MimeType
+		}
+	}
+	if len(payload.Images) > 0 {
+		sub.Extensions["share_image_count"] = len(payload.Images)
 	}
 
 	sub.Delivery.RequestedLane = wireLaneHumanAuto
@@ -531,7 +637,10 @@ func digitalShareTitleAndDescription(payload normalizedDigitalSharePayload) (str
 			}
 		}
 	}
-	if title == "" && len(payload.ImageBytes) > 0 {
+	if title == "" && len(payload.Images) > 1 {
+		title = "Shared screenshot set report"
+	}
+	if title == "" && len(payload.Images) == 1 {
 		title = "Shared screenshot report"
 	}
 	if title == "" {
