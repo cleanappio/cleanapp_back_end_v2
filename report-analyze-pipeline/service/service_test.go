@@ -1,6 +1,7 @@
 package service
 
 import (
+	"strings"
 	"testing"
 
 	"report-analyze-pipeline/database"
@@ -124,5 +125,28 @@ func TestNormalizeClassificationKeepsSoftwareBugDigital(t *testing.T) {
 	got := normalizeClassification(report, analysis)
 	if got != parser.ClassificationDigital {
 		t.Fatalf("normalizeClassification(...) = %q, want %q", got, parser.ClassificationDigital)
+	}
+}
+
+func TestBuildAnalysisInputPrefersShareContextOverGenericHumanDescription(t *testing.T) {
+	report := &database.Report{
+		Seq:         1182381,
+		Description: "Human report submission",
+		SharedText:  "Claude is down and credit usage is incorrect on the iOS app.",
+		SourceURL:   "https://x.com/example/status/123",
+		SourceApp:   "x",
+	}
+
+	got := buildAnalysisInput(report)
+	if got == "" {
+		t.Fatal("buildAnalysisInput() returned empty string")
+	}
+	if got == report.Description {
+		t.Fatalf("buildAnalysisInput() = %q, want enriched share context instead of generic description", got)
+	}
+	for _, expected := range []string{"Claude is down", "https://x.com/example/status/123", "Source app: x"} {
+		if !strings.Contains(got, expected) {
+			t.Fatalf("buildAnalysisInput() missing %q in %q", expected, got)
+		}
 	}
 }

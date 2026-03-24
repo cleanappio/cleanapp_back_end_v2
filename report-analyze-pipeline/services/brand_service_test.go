@@ -158,3 +158,56 @@ func TestBrandService_GetBrandDisplayName(t *testing.T) {
 		})
 	}
 }
+
+func TestBrandService_ResolveBrandPrefersProductWhenContextIsClear(t *testing.T) {
+	brandService := NewBrandService()
+
+	tests := []struct {
+		name               string
+		rawBrand           string
+		context            []string
+		expectedNormalized string
+		expectedDisplay    string
+	}{
+		{
+			name:               "anthropic resolves to claude when context references claude",
+			rawBrand:           "Anthropic",
+			context:            []string{"Major Claude outage and credit bug in Claude web app"},
+			expectedNormalized: "claude",
+			expectedDisplay:    "Claude",
+		},
+		{
+			name:               "google resolves to notebooklm when context references notebooklm",
+			rawBrand:           "Google",
+			context:            []string{"NotebookLM captions are failing and narrations are blank"},
+			expectedNormalized: "googlenotebooklm",
+			expectedDisplay:    "Google NotebookLM",
+		},
+		{
+			name:               "meta resolves to instagram when context references instagram",
+			rawBrand:           "Meta",
+			context:            []string{"Instagram share button does not work on iOS"},
+			expectedNormalized: "instagram",
+			expectedDisplay:    "Instagram",
+		},
+		{
+			name:               "plain vendor remains vendor without product context",
+			rawBrand:           "Anthropic",
+			context:            []string{"General vendor outage"},
+			expectedNormalized: "anthropic",
+			expectedDisplay:    "Anthropic",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			normalized, display := brandService.ResolveBrand(tt.rawBrand, tt.context...)
+			if normalized != tt.expectedNormalized {
+				t.Fatalf("ResolveBrand() normalized = %q, want %q", normalized, tt.expectedNormalized)
+			}
+			if display != tt.expectedDisplay {
+				t.Fatalf("ResolveBrand() display = %q, want %q", display, tt.expectedDisplay)
+			}
+		})
+	}
+}

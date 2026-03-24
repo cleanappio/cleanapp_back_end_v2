@@ -165,6 +165,12 @@ func (s *Service) publishAnalyzedReport(report *database.Report, analyses []*dat
 // It returns an error if the analysis could not be completed and saved (so callers
 // can Nack/requeue the triggering message).
 func (s *Service) AnalyzeReport(report *database.Report) error {
+	if hydratedReport, err := s.db.GetReportBySeq(report.Seq); err == nil {
+		report = hydratedReport
+	} else {
+		log.Printf("Report %d: failed to hydrate latest report context, falling back to message payload: %v", report.Seq, err)
+	}
+
 	// Collect all analyses for publishing
 	var allAnalyses []*database.ReportAnalysis
 
@@ -177,8 +183,10 @@ func (s *Service) AnalyzeReport(report *database.Report) error {
 	// Use the image from database and other fields from the report message
 	log.Printf("Analyzing report %d with image size: %d bytes", report.Seq, len(imageData))
 
+	analysisInput := buildAnalysisInput(report)
+
 	// Call OpenAI API with assistant for initial analysis in English
-	response, err := s.llmClient.AnalyzeImage(imageData, report.Description)
+	response, err := s.llmClient.AnalyzeImage(imageData, analysisInput)
 	if err != nil {
 		return fmt.Errorf("failed to analyze report %d: %w", report.Seq, err)
 	}
@@ -190,9 +198,16 @@ func (s *Service) AnalyzeReport(report *database.Report) error {
 	}
 	normalizedClassification := normalizeClassification(report, analysis)
 
-	// Normalize the brand name before saving
-	normalizedBrandName := s.brandService.NormalizeBrandName(analysis.BrandName)
-	brandDisplayName := analysis.BrandName
+	// Normalize the brand name before saving, using share/source context when available.
+	normalizedBrandName, brandDisplayName := s.brandService.ResolveBrand(
+		analysis.BrandName,
+		report.Description,
+		report.SharedText,
+		report.SourceURL,
+		report.SourceApp,
+		analysis.Title,
+		analysis.Description,
+	)
 
 	// Convert inferred contact emails to comma-separated string
 	inferredContactEmails := strings.Join(analysis.InferredContactEmails, ", ")
@@ -264,10 +279,6 @@ func (s *Service) AnalyzeReport(report *database.Report) error {
 				log.Printf("Failed to parse translated analysis for report %d in %s: %v", report.Seq, langName, err)
 				return
 			}
-			// Normalize the brand name for translated analysis
-			normalizedTranslatedBrandName := s.brandService.NormalizeBrandName(translatedAnalysis.BrandName)
-			translatedBrandDisplayName := translatedAnalysis.BrandName
-
 			// Convert inferred contact emails to comma-separated string
 			inferredTranslatedContactEmails := strings.Join(translatedAnalysis.InferredContactEmails, ", ")
 
@@ -279,8 +290,8 @@ func (s *Service) AnalyzeReport(report *database.Report) error {
 				AnalysisImage:         nil,
 				Title:                 translatedAnalysis.Title,
 				Description:           translatedAnalysis.Description,
-				BrandName:             normalizedTranslatedBrandName,
-				BrandDisplayName:      translatedBrandDisplayName,
+				BrandName:             normalizedBrandName,
+				BrandDisplayName:      brandDisplayName,
 				LitterProbability:     translatedAnalysis.LitterProbability,
 				HazardProbability:     translatedAnalysis.HazardProbability,
 				DigitalBugProbability: translatedAnalysis.DigitalBugProbability,
@@ -368,6 +379,27 @@ func normalizeClassification(report *database.Report, analysis *parser.AnalysisR
 	}
 
 	return classification
+}
+
+func buildAnalysisInput(report *database.Report) string {
+	parts := make([]string, 0, 4)
+	description := strings.TrimSpace(report.Description)
+	if description != "" && !strings.EqualFold(description, "Human report submission") {
+		parts = append(parts, description)
+	}
+	if sharedText := strings.TrimSpace(report.SharedText); sharedText != "" {
+		parts = append(parts, "Shared text: "+sharedText)
+	}
+	if sourceURL := strings.TrimSpace(report.SourceURL); sourceURL != "" {
+		parts = append(parts, "Shared URL: "+sourceURL)
+	}
+	if sourceApp := strings.TrimSpace(report.SourceApp); sourceApp != "" {
+		parts = append(parts, "Source app: "+sourceApp)
+	}
+	if len(parts) == 0 {
+		return description
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 func shouldNormalizeToPhysical(classification parser.Classification, analysis *parser.AnalysisResult, corpus string) bool {
@@ -699,10 +731,11 @@ func (s *Service) extractAndEnrichDigitalContacts(report *database.Report, analy
 	}
 
 	log.Printf("Report %d: Pre-save contact extraction for brand %q", report.Seq, brandName)
-	log.Printf("Report %d: User annotation/description: %q (len=%d)", report.Seq, report.Description, len(report.Description))
+	contactInput := buildAnalysisInput(report)
+	log.Printf("Report %d: User annotation/share context: %q (len=%d)", report.Seq, contactInput, len(contactInput))
 
 	// Process user-provided contacts from report description and save to brand_contacts
-	if err := s.contactService.ProcessReportDescription(brandName, report.Description); err != nil {
+	if err := s.contactService.ProcessReportDescription(brandName, contactInput); err != nil {
 		log.Printf("Report %d: Failed to process description contacts: %v", report.Seq, err)
 	}
 

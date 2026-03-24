@@ -31,6 +31,9 @@ type Report struct {
 	Image       []byte    `json:"image"`
 	ActionID    string    `json:"action_id"`
 	Description string    `json:"description"`
+	SourceURL   string    `json:"source_url"`
+	SharedText  string    `json:"shared_text"`
+	SourceApp   string    `json:"source_app"`
 }
 
 // ReportAnalysis represents an analysis result
@@ -129,8 +132,14 @@ func (d *Database) Close() error {
 // GetUnanalyzedReports gets reports that haven't been analyzed yet
 func (d *Database) GetUnanalyzedReports(cfg *config.Config, limit int) ([]Report, error) {
 	query := `
-	SELECT r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.image, r.action_id, r.description
+	SELECT
+		r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.image, r.action_id, r.description,
+		COALESCE(NULLIF(dsr.source_url, ''), NULLIF(rd.url, ''), '') AS source_url,
+		COALESCE(NULLIF(dsr.shared_text, ''), '') AS shared_text,
+		COALESCE(NULLIF(dsr.source_app, ''), '') AS source_app
 	FROM reports r
+	LEFT JOIN digital_share_reports dsr ON dsr.report_seq = r.seq
+	LEFT JOIN report_details rd ON rd.seq = r.seq
 	WHERE r.seq NOT IN(SELECT seq FROM report_analysis) AND r.seq > ?
 	ORDER BY r.seq ASC
 	LIMIT ?`
@@ -150,6 +159,9 @@ func (d *Database) GetUnanalyzedReports(cfg *config.Config, limit int) ([]Report
 	defer rows.Close()
 
 	var description sql.NullString
+	var sourceURL sql.NullString
+	var sharedText sql.NullString
+	var sourceApp sql.NullString
 
 	var reports []Report
 	for rows.Next() {
@@ -166,11 +178,17 @@ func (d *Database) GetUnanalyzedReports(cfg *config.Config, limit int) ([]Report
 			&report.Image,
 			&report.ActionID,
 			&description,
+			&sourceURL,
+			&sharedText,
+			&sourceApp,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan report: %w", err)
 		}
 		report.Description = description.String
+		report.SourceURL = sourceURL.String
+		report.SharedText = sharedText.String
+		report.SourceApp = sourceApp.String
 		reports = append(reports, report)
 	}
 
@@ -180,12 +198,21 @@ func (d *Database) GetUnanalyzedReports(cfg *config.Config, limit int) ([]Report
 // GetReportBySeq gets a single report by sequence number
 func (d *Database) GetReportBySeq(seq int) (*Report, error) {
 	query := `
-	SELECT r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.image, r.action_id, r.description
+	SELECT
+		r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.image, r.action_id, r.description,
+		COALESCE(NULLIF(dsr.source_url, ''), NULLIF(rd.url, ''), '') AS source_url,
+		COALESCE(NULLIF(dsr.shared_text, ''), '') AS shared_text,
+		COALESCE(NULLIF(dsr.source_app, ''), '') AS source_app
 	FROM reports r
+	LEFT JOIN digital_share_reports dsr ON dsr.report_seq = r.seq
+	LEFT JOIN report_details rd ON rd.seq = r.seq
 	WHERE r.seq = ?`
 
 	var report Report
 	var description sql.NullString
+	var sourceURL sql.NullString
+	var sharedText sql.NullString
+	var sourceApp sql.NullString
 
 	err := d.db.QueryRow(query, seq).Scan(
 		&report.Seq,
@@ -199,6 +226,9 @@ func (d *Database) GetReportBySeq(seq int) (*Report, error) {
 		&report.Image,
 		&report.ActionID,
 		&description,
+		&sourceURL,
+		&sharedText,
+		&sourceApp,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -208,6 +238,9 @@ func (d *Database) GetReportBySeq(seq int) (*Report, error) {
 	}
 
 	report.Description = description.String
+	report.SourceURL = sourceURL.String
+	report.SharedText = sharedText.String
+	report.SourceApp = sourceApp.String
 	return &report, nil
 }
 

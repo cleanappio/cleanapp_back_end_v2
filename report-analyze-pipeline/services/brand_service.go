@@ -6,6 +6,24 @@ import (
 	"unicode"
 )
 
+type brandAliasRule struct {
+	Normalized string
+	Display    string
+	Aliases    []string
+	Vendors    []string
+}
+
+var productAliasRules = []brandAliasRule{
+	{Normalized: "claude", Display: "Claude", Aliases: []string{"claude"}, Vendors: []string{"anthropic"}},
+	{Normalized: "chatgpt", Display: "ChatGPT", Aliases: []string{"chatgpt"}, Vendors: []string{"openai"}},
+	{Normalized: "grok", Display: "Grok", Aliases: []string{"grok"}, Vendors: []string{"xai", "x.ai"}},
+	{Normalized: "gemini", Display: "Gemini", Aliases: []string{"gemini"}, Vendors: []string{"google"}},
+	{Normalized: "googlenotebooklm", Display: "Google NotebookLM", Aliases: []string{"notebooklm", "google notebooklm"}, Vendors: []string{"google"}},
+	{Normalized: "instagram", Display: "Instagram", Aliases: []string{"instagram"}, Vendors: []string{"meta", "facebook"}},
+	{Normalized: "facebook", Display: "Facebook", Aliases: []string{"facebook"}, Vendors: []string{"meta"}},
+	{Normalized: "whatsapp", Display: "WhatsApp", Aliases: []string{"whatsapp"}, Vendors: []string{"meta", "facebook"}},
+}
+
 // BrandService manages brand name normalization
 type BrandService struct{}
 
@@ -44,6 +62,24 @@ func (s *BrandService) NormalizeBrandName(brandName string) string {
 	return normalized
 }
 
+// ResolveBrand prefers end-user product names over umbrella vendors when the
+// surrounding report/share context clearly points to the product.
+func (s *BrandService) ResolveBrand(brandName string, contextParts ...string) (string, string) {
+	normalized := s.NormalizeBrandName(brandName)
+	corpus := strings.ToLower(strings.Join(contextParts, " "))
+
+	for _, rule := range productAliasRules {
+		if !containsBrandAlias(corpus, rule.Aliases) {
+			continue
+		}
+		if normalized == "" || normalized == rule.Normalized || containsVendorAlias(normalized, rule.Vendors) || containsVendorAlias(corpus, rule.Vendors) {
+			return rule.Normalized, rule.Display
+		}
+	}
+
+	return normalized, s.GetBrandDisplayName(brandName)
+}
+
 // GetBrandDisplayName returns a display-friendly brand name.
 //
 // Input may be raw ("COCA COLA") or normalized ("cocacola").
@@ -61,6 +97,20 @@ func (s *BrandService) GetBrandDisplayName(brandName string) string {
 		return "Red Bull"
 	case "mcdonalds", "mcdonald's":
 		return "McDonald's"
+	case "claude":
+		return "Claude"
+	case "chatgpt":
+		return "ChatGPT"
+	case "grok":
+		return "Grok"
+	case "gemini":
+		return "Gemini"
+	case "googlenotebooklm":
+		return "Google NotebookLM"
+	case "instagram":
+		return "Instagram"
+	case "whatsapp":
+		return "WhatsApp"
 	}
 
 	// Default: title-case the input as given.
@@ -85,4 +135,26 @@ func (s *BrandService) toTitleCase(str string) string {
 	}
 
 	return string(runes)
+}
+
+func containsBrandAlias(corpus string, aliases []string) bool {
+	for _, alias := range aliases {
+		if strings.Contains(corpus, strings.ToLower(alias)) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsVendorAlias(corpus string, aliases []string) bool {
+	for _, alias := range aliases {
+		normalizedAlias := strings.ToLower(strings.TrimSpace(alias))
+		if normalizedAlias == "" {
+			continue
+		}
+		if strings.Contains(corpus, normalizedAlias) || strings.Contains(corpus, strings.ReplaceAll(normalizedAlias, ".", "")) {
+			return true
+		}
+	}
+	return false
 }
