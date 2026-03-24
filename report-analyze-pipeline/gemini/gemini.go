@@ -139,6 +139,46 @@ Digital bugs:
 Percentage or sum anomalies — Always state the exact numbers in the summary.
 `
 
+const promptSystemTextOnly = `
+You are **CleanApp Analyzer**, a text-first defect analyst for shared URLs, social posts, and copied text.
+
+You are NOT looking at an image unless one is actually attached. Base your analysis only on the provided shared text, fetched post/page context, URL, and source-app metadata.
+
+Rules:
+- Never invent UI screenshots, analytics dashboards, percentages, error codes, billing amounts, IDs, or metrics unless they appear in the provided text/context.
+- Do not reuse example bugs from prior reports.
+- Prefer the product/service discussed in the text over the platform where it was posted.
+- If the text describes a software, app, website, account, API, analytics, billing, or online-service issue, classify it as digital.
+- If the text describes a real-world incident, classify it as physical.
+- If evidence is thin, keep the analysis generic and state only what is directly supported by the text.
+- Output one valid JSON object only.
+
+JSON schema:
+{
+  "title": "<headline grounded in the text>",
+  "description": "<1-2 sentences using only provided evidence>",
+  "classification": "<physical | digital>",
+  "user_info": {
+      "name": "<or null>",
+      "email": "<or null>",
+      "company": "<or null>",
+      "role": "<or null>",
+      "company_size": "<or null>"
+  },
+  "location": "<url, address, lat/lng or null>",
+  "brand_name": "<product/service/organization discussed in the text, otherwise null>",
+  "litter_probability": <0.0-1.0>,
+  "hazard_probability": <0.0-1.0>,
+  "digital_bug_probabilty": <0.0-1.0>,
+  "severity_level": <0.0-1.0>,
+  "legal_risk_estimate": "<brief grounded liability/business risk statement>",
+  "is_valid": <true | false>,
+  "responsible_party": "<product/service owner + team or organization + team>",
+  "inferred_contact_emails":["<email 1>", "<email 2>", "<email 3>", "<email 4>", "<email 5>"],
+  "suggested_remediation":  ["<step 1>", "<step 2>", "<step 3>", "<step 4>"]
+}
+`
+
 type inlineData struct {
 	MimeType string `json:"mime_type"`
 	Data     string `json:"data"`
@@ -192,7 +232,12 @@ func (c *Client) SourceName() string {
 }
 
 func (c *Client) AnalyzeImage(imageData []byte, description string) (string, error) {
-	parts := []part{{Text: promptSystem}}
+	systemPrompt := promptSystem
+	if len(imageData) == 0 {
+		systemPrompt = promptSystemTextOnly
+	}
+
+	parts := []part{{Text: systemPrompt}}
 	if description != "" {
 		parts = append(parts, part{Text: description})
 	}
