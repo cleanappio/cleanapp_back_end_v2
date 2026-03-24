@@ -242,12 +242,17 @@ func (c *Client) AnalyzeImage(imageData []byte, description string) (string, err
 		Text: description,
 	}
 
-	imagePrompt := ImageContent{
-		Type: "image_url",
-		ImageURL: ImageURL{
-			URL: encodeImageToBase64(imageData),
-		},
+	userContent := make([]any, 0, 2)
+	if len(imageData) > 0 {
+		imagePrompt := ImageContent{
+			Type: "image_url",
+			ImageURL: ImageURL{
+				URL: encodeImageToBase64(imageData),
+			},
+		}
+		userContent = append(userContent, imagePrompt)
 	}
+	userContent = append(userContent, descriptionPrompt)
 
 	reqBody := ChatRequest{
 		Model: c.model,
@@ -259,11 +264,8 @@ func (c *Client) AnalyzeImage(imageData []byte, description string) (string, err
 				},
 			},
 			{
-				Role: "user",
-				Content: []any{
-					imagePrompt,
-					descriptionPrompt,
-				},
+				Role:    "user",
+				Content: userContent,
 			},
 		},
 	}

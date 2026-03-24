@@ -183,7 +183,7 @@ func (s *Service) AnalyzeReport(report *database.Report) error {
 	// Use the image from database and other fields from the report message
 	log.Printf("Analyzing report %d with image size: %d bytes", report.Seq, len(imageData))
 
-	analysisInput := buildAnalysisInput(report)
+	analysisInput := s.enrichAnalysisInput(report, buildAnalysisInput(report))
 
 	// Call OpenAI API with assistant for initial analysis in English
 	response, err := s.llmClient.AnalyzeImage(imageData, analysisInput)

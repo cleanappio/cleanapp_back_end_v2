@@ -150,3 +150,33 @@ func TestBuildAnalysisInputPrefersShareContextOverGenericHumanDescription(t *tes
 		}
 	}
 }
+
+func TestExtractTextFromOEmbedHTML(t *testing.T) {
+	html := `<blockquote class="twitter-tweet"><p lang="en" dir="ltr">Claude is down again and credits look wrong.<br>Several users impacted.</p>&mdash; tester (@tester) <a href="https://twitter.com/tester/status/123">March 24, 2026</a></blockquote>`
+	got := extractTextFromOEmbedHTML(html)
+	for _, expected := range []string{
+		"Claude is down again and credits look wrong.",
+		"Several users impacted.",
+	} {
+		if !strings.Contains(got, expected) {
+			t.Fatalf("extractTextFromOEmbedHTML() missing %q in %q", expected, got)
+		}
+	}
+	if strings.Contains(got, "March 24, 2026") {
+		t.Fatalf("extractTextFromOEmbedHTML() should not include footer metadata: %q", got)
+	}
+}
+
+func TestEnrichAnalysisInputAddsThinEvidenceWarning(t *testing.T) {
+	svc := &Service{}
+	report := &database.Report{
+		Seq:         1182538,
+		Description: "Human report submission",
+		SourceURL:   "notaurl",
+	}
+
+	got := svc.enrichAnalysisInput(report, buildAnalysisInput(report))
+	if !strings.Contains(got, "Do not invent specific bug details") {
+		t.Fatalf("enrichAnalysisInput() = %q, want evidence warning", got)
+	}
+}
