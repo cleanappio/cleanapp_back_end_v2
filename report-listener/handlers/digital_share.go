@@ -334,6 +334,9 @@ func normalizeDigitalSharePayload(
 			payload.SharedText = ""
 		}
 	}
+	if payload.SourceApp == "" {
+		payload.SourceApp = inferShareSourceApp(payload.SourceURL)
+	}
 
 	switch {
 	case payload.SourceURL != "" && payload.SharedText != "" && len(payload.Images) > 0:
@@ -450,6 +453,23 @@ func normalizeSharedURL(raw string) string {
 	return parsed.String()
 }
 
+func inferShareSourceApp(rawURL string) string {
+	if strings.TrimSpace(rawURL) == "" {
+		return ""
+	}
+	parsed, err := neturl.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return ""
+	}
+	host := strings.ToLower(strings.TrimSpace(parsed.Hostname()))
+	host = strings.TrimPrefix(host, "www.")
+	switch host {
+	case "twitter.com":
+		host = "x.com"
+	}
+	return host
+}
+
 func looksLikeURL(raw string) bool {
 	raw = strings.TrimSpace(strings.ToLower(raw))
 	if raw == "" || strings.ContainsAny(raw, " \n\t") {
@@ -545,7 +565,7 @@ func buildDigitalShareWireSubmission(payload normalizedDigitalSharePayload, sour
 	sub.Report.Language = "und"
 	sub.Report.Confidence = 0.85
 	sub.Report.TargetEntity.TargetType = "platform"
-	sub.Report.TargetEntity.Name = payload.SourceApp
+	sub.Report.TargetEntity.Name = firstNonEmptyShare(payload.SourceApp, inferShareSourceApp(payload.SourceURL))
 	sub.Report.DigitalContext = map[string]any{
 		"source_url":           payload.SourceURL,
 		"shared_text":          payload.SharedText,

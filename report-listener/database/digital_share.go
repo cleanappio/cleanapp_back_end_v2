@@ -3,9 +3,12 @@ package database
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
+
+	mysqlDriver "github.com/go-sql-driver/mysql"
 )
 
 type DigitalShareAttachment struct {
@@ -29,6 +32,36 @@ func (d *Database) UpsertDigitalShareMetadata(
 	sharedText string,
 	attachments []DigitalShareAttachment,
 ) error {
+	return d.upsertDigitalShareMetadata(
+		ctx,
+		reportSeq,
+		sourceURL,
+		sourceApp,
+		platform,
+		captureMode,
+		clientCreatedAt,
+		clientSubmissionID,
+		normalizedSourceKey,
+		sharedText,
+		attachments,
+		true,
+	)
+}
+
+func (d *Database) upsertDigitalShareMetadata(
+	ctx context.Context,
+	reportSeq int,
+	sourceURL string,
+	sourceApp string,
+	platform string,
+	captureMode string,
+	clientCreatedAt string,
+	clientSubmissionID string,
+	normalizedSourceKey string,
+	sharedText string,
+	attachments []DigitalShareAttachment,
+	allowEnsure bool,
+) error {
 	if reportSeq <= 0 {
 		return nil
 	}
@@ -37,7 +70,9 @@ func (d *Database) UpsertDigitalShareMetadata(
 	if err != nil {
 		return fmt.Errorf("begin digital share tx: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	sourceURL = strings.TrimSpace(sourceURL)
 	sourceApp = strings.TrimSpace(sourceApp)
@@ -100,10 +135,48 @@ func (d *Database) UpsertDigitalShareMetadata(
 		nullIfBlank(normalizedSourceKey),
 		nullIfBlank(sharedText),
 	); err != nil {
+		if allowEnsure && isMissingDigitalShareTableError(err) {
+			if ensureErr := d.ensureDigitalShareTables(ctx); ensureErr != nil {
+				return fmt.Errorf("ensure digital share tables: %w", ensureErr)
+			}
+			return d.upsertDigitalShareMetadata(
+				ctx,
+				reportSeq,
+				sourceURL,
+				sourceApp,
+				platform,
+				captureMode,
+				clientCreatedAt,
+				clientSubmissionID,
+				normalizedSourceKey,
+				sharedText,
+				attachments,
+				false,
+			)
+		}
 		return fmt.Errorf("upsert digital_share_reports: %w", err)
 	}
 
 	if _, err := tx.ExecContext(ctx, `DELETE FROM digital_share_attachments WHERE report_seq = ?`, reportSeq); err != nil {
+		if allowEnsure && isMissingDigitalShareTableError(err) {
+			if ensureErr := d.ensureDigitalShareTables(ctx); ensureErr != nil {
+				return fmt.Errorf("ensure digital share tables: %w", ensureErr)
+			}
+			return d.upsertDigitalShareMetadata(
+				ctx,
+				reportSeq,
+				sourceURL,
+				sourceApp,
+				platform,
+				captureMode,
+				clientCreatedAt,
+				clientSubmissionID,
+				normalizedSourceKey,
+				sharedText,
+				attachments,
+				false,
+			)
+		}
 		return fmt.Errorf("clear digital_share_attachments: %w", err)
 	}
 
@@ -131,6 +204,24 @@ func (d *Database) UpsertDigitalShareMetadata(
 		return fmt.Errorf("commit digital share tx: %w", err)
 	}
 	return nil
+}
+
+func (d *Database) ensureDigitalShareTables(ctx context.Context) error {
+	if err := ensureDigitalShareReportsTable(ctx, d.db); err != nil {
+		return err
+	}
+	if err := ensureDigitalShareAttachmentsTable(ctx, d.db); err != nil {
+		return err
+	}
+	return nil
+}
+
+func isMissingDigitalShareTableError(err error) bool {
+	var mysqlErr *mysqlDriver.MySQLError
+	if !errors.As(err, &mysqlErr) {
+		return false
+	}
+	return mysqlErr.Number == 1146
 }
 
 func (d *Database) GetReportPublicIDBySeq(ctx context.Context, seq int) (string, error) {

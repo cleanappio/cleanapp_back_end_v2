@@ -77,6 +77,65 @@ func TestAssignCleanAppWireLaneHumanAutoKeepsLowEvidenceReportsShadowed(t *testi
 	}
 }
 
+func TestSharedURLSubmissionQualityPublishesURLOnlyShares(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{CleanAppWirePublishLaneMinTier: 2}
+	payload, err := normalizeDigitalSharePayload(
+		digitalShareSubmissionRequest{
+			Platform:    "ios",
+			CaptureMode: "share_extension",
+			SourceURL:   "https://x.com/example/status/12345",
+		},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("normalizeDigitalSharePayload returned error: %v", err)
+	}
+
+	sub := buildDigitalShareWireSubmission(payload, "human")
+	quality := computeCleanAppWireSubmissionQuality(sub)
+	if quality < 0.50 {
+		t.Fatalf("quality = %.2f, want at least 0.50 for URL-only shares", quality)
+	}
+
+	lane := assignCleanAppWireLane(cfg, 2, quality, len(sub.Report.EvidenceBundle), wireLaneHumanAuto)
+	if lane != wireLanePublish {
+		t.Fatalf("lane = %q, want %q", lane, wireLanePublish)
+	}
+}
+
+func TestSharedImageSubmissionQualityPublishesImageOnlyShares(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{CleanAppWirePublishLaneMinTier: 2}
+	payload, err := normalizeDigitalSharePayload(
+		digitalShareSubmissionRequest{
+			Platform:    "ios",
+			CaptureMode: "share_extension",
+		},
+		[]digitalShareImageAttachment{{
+			Bytes:    []byte("image-bytes"),
+			MimeType: "image/jpeg",
+			Filename: "test.jpg",
+		}},
+	)
+	if err != nil {
+		t.Fatalf("normalizeDigitalSharePayload returned error: %v", err)
+	}
+
+	sub := buildDigitalShareWireSubmission(payload, "human")
+	quality := computeCleanAppWireSubmissionQuality(sub)
+	if quality < 0.50 {
+		t.Fatalf("quality = %.2f, want at least 0.50 for image-only shares", quality)
+	}
+
+	lane := assignCleanAppWireLane(cfg, 2, quality, len(sub.Report.EvidenceBundle), wireLaneHumanAuto)
+	if lane != wireLanePublish {
+		t.Fatalf("lane = %q, want %q", lane, wireLanePublish)
+	}
+}
+
 func TestCleanAppWireReporterIDUsesAgentIDForHumanSubmissions(t *testing.T) {
 	t.Parallel()
 

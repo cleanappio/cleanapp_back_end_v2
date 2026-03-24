@@ -53,6 +53,23 @@ func TestNormalizeDigitalSharePayloadAllowsMultipleImages(t *testing.T) {
 	}
 }
 
+func TestNormalizeDigitalSharePayloadInfersSourceAppFromSourceURL(t *testing.T) {
+	payload, err := normalizeDigitalSharePayload(
+		digitalShareSubmissionRequest{
+			Platform:    "ios",
+			CaptureMode: "share_extension",
+			SourceURL:   "https://www.twitter.com/example/status/12345",
+		},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("normalizeDigitalSharePayload returned error: %v", err)
+	}
+	if payload.SourceApp != "x.com" {
+		t.Fatalf("expected inferred source app x.com, got %q", payload.SourceApp)
+	}
+}
+
 func TestDigitalShareTitleAndDescription(t *testing.T) {
 	title, description := digitalShareTitleAndDescription(normalizedDigitalSharePayload{
 		SourceURL:   "https://example.com/post/123",

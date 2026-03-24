@@ -886,12 +886,20 @@ func computeCleanAppWireSubmissionQuality(sub cleanAppWireSubmission) float64 {
 	if strings.TrimSpace(sub.Dedupe.Fingerprint) == "" && len(sub.Dedupe.NearDuplicateKeys) == 0 {
 		anomaly = 0.1
 	}
+	shareSubmissionBoost := 0.0
+	if strings.EqualFold(strings.TrimSpace(sub.Provenance.GenerationMethod), "shared_submission") {
+		// Explicit user-initiated shares are already a strong signal. Camera-based
+		// human submissions get place certainty; share submissions need a similar
+		// confidence nudge so URL-only and image-only shares are not auto-shadowed.
+		shareSubmissionBoost = 0.12
+	}
 	q := 0.20*clamp01(sub.Report.Confidence) +
 		0.20*evidenceCompleteness +
 		0.15*placeCertainty +
 		0.15*targetCertainty +
 		0.15*novelty +
-		0.10*categoryFit -
+		0.10*categoryFit +
+		shareSubmissionBoost -
 		0.05*clamp01(policyRisk) -
 		0.10*clamp01(anomaly)
 	return round2(clamp01(q))
