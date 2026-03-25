@@ -262,6 +262,22 @@ func (d *Database) GetReportImage(seq int) ([]byte, error) {
 
 // SaveAnalysis saves the analysis result to the database
 func (d *Database) SaveAnalysis(analysis *ReportAnalysis) error {
+	tx, err := d.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin analysis save tx: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	if _, err := tx.Exec(
+		`DELETE FROM report_analysis WHERE seq = ? AND language = ?`,
+		analysis.Seq,
+		analysis.Language,
+	); err != nil {
+		return fmt.Errorf("failed to clear existing analysis: %w", err)
+	}
+
 	query := `
 	INSERT INTO report_analysis (
 		seq, source, analysis_text, analysis_image, 
@@ -272,7 +288,7 @@ func (d *Database) SaveAnalysis(analysis *ReportAnalysis) error {
 	)
 	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
-	_, err := d.db.Exec(query,
+	_, err = tx.Exec(query,
 		analysis.Seq,
 		analysis.Source,
 		analysis.AnalysisText,
@@ -294,6 +310,10 @@ func (d *Database) SaveAnalysis(analysis *ReportAnalysis) error {
 	)
 	if err != nil {
 		return fmt.Errorf("failed to save analysis: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit analysis save: %w", err)
 	}
 
 	return nil

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -107,7 +108,7 @@ func (h *Handlers) SubmitDigitalShare(c *gin.Context) {
 
 	auth := h.humanReportAuthContext("share")
 	submission := buildDigitalShareWireSubmission(payload, h.cfg.HumanIngestReportSourcePrefix)
-	receipt, statusCode := h.processCleanAppWireSubmissionInternal(
+	receipt, statusCode := h.processCleanAppWireSubmissionInternalWithHook(
 		c.Request.Context(),
 		auth,
 		submission,
@@ -115,25 +116,22 @@ func (h *Handlers) SubmitDigitalShare(c *gin.Context) {
 		c.GetHeader("User-Agent"),
 		c.GetHeader("X-Request-Id"),
 		"/api/v3/reports/digital-share",
+		func(ctx context.Context, reportSeq int) error {
+			return h.db.UpsertDigitalShareMetadata(
+				ctx,
+				reportSeq,
+				payload.SourceURL,
+				payload.SourceApp,
+				payload.Platform,
+				payload.CaptureMode,
+				payload.ClientCreatedAt,
+				payload.ClientSubmissionID,
+				payload.NormalizedSourceHash,
+				payload.SharedText,
+				toDatabaseDigitalShareAttachments(payload.Images),
+			)
+		},
 	)
-
-	if receipt.ReportID > 0 {
-		if err := h.db.UpsertDigitalShareMetadata(
-			c.Request.Context(),
-			receipt.ReportID,
-			payload.SourceURL,
-			payload.SourceApp,
-			payload.Platform,
-			payload.CaptureMode,
-			payload.ClientCreatedAt,
-			payload.ClientSubmissionID,
-			payload.NormalizedSourceHash,
-			payload.SharedText,
-			toDatabaseDigitalShareAttachments(payload.Images),
-		); err != nil {
-			log.Printf("warn: failed to persist digital-share metadata for report %d: %v", receipt.ReportID, err)
-		}
-	}
 
 	if receipt.ReportID > 0 && strings.TrimSpace(payload.DeviceID) != "" {
 		if err := h.db.LinkReportToPushInstall(c.Request.Context(), receipt.ReportID, payload.DeviceID); err != nil {

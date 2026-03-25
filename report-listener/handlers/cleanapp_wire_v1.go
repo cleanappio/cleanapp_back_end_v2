@@ -245,6 +245,8 @@ type cleanAppWireIngestCoreResult struct {
 	TrustLevel string
 }
 
+type cleanAppWirePostPersistHook func(context.Context, int) error
+
 func (h *Handlers) RegisterAgentV1(c *gin.Context) {
 	h.RegisterFetcherV1(c)
 }
@@ -499,6 +501,19 @@ func (h *Handlers) processCleanAppWireSubmission(ctx context.Context, c *gin.Con
 }
 
 func (h *Handlers) processCleanAppWireSubmissionInternal(ctx context.Context, auth cleanAppWireAuthContext, sub cleanAppWireSubmission, clientIP, userAgent, requestID, auditEndpoint string) (cleanAppWireReceiptResponse, int) {
+	return h.processCleanAppWireSubmissionInternalWithHook(ctx, auth, sub, clientIP, userAgent, requestID, auditEndpoint, nil)
+}
+
+func (h *Handlers) processCleanAppWireSubmissionInternalWithHook(
+	ctx context.Context,
+	auth cleanAppWireAuthContext,
+	sub cleanAppWireSubmission,
+	clientIP,
+	userAgent,
+	requestID,
+	auditEndpoint string,
+	postPersistHook cleanAppWirePostPersistHook,
+) (cleanAppWireReceiptResponse, int) {
 	sub, generatedSubmissionID := normalizeCleanAppWireSubmission(sub)
 	errors := validateCleanAppWireSubmission(sub, h.cfg.CleanAppWireStrictSignature)
 	if len(errors) > 0 {
@@ -588,7 +603,7 @@ func (h *Handlers) processCleanAppWireSubmissionInternal(ctx context.Context, au
 	trustLevel := laneToTrustLevel(lane)
 
 	coreItem := cleanAppWireIngestCoreItemFromSubmission(sub)
-	ingestResp, errCode, httpStatus := h.cleanAppWireIngestCore(ctx, auth, coreItem, visibility, trustLevel)
+	ingestResp, errCode, httpStatus := h.cleanAppWireIngestCore(ctx, auth, coreItem, visibility, trustLevel, postPersistHook)
 	if httpStatus >= 500 {
 		return cleanAppWireReceiptResponse{
 			ReceiptID:         newReceiptID(),
@@ -1148,7 +1163,14 @@ func cleanAppWireReporterID(auth cleanAppWireAuthContext, item cleanAppWireInges
 	return "fetcher_v1:" + auth.FetcherID
 }
 
-func (h *Handlers) cleanAppWireIngestCore(ctx context.Context, auth cleanAppWireAuthContext, item cleanAppWireIngestCoreItem, visibility, trustLevel string) (cleanAppWireIngestCoreResult, string, int) {
+func (h *Handlers) cleanAppWireIngestCore(
+	ctx context.Context,
+	auth cleanAppWireAuthContext,
+	item cleanAppWireIngestCoreItem,
+	visibility,
+	trustLevel string,
+	postPersistHook cleanAppWirePostPersistHook,
+) (cleanAppWireIngestCoreResult, string, int) {
 	existing, err := h.db.GetExistingReportSeqsV1(ctx, auth.FetcherID, []string{item.SourceID})
 	if err != nil {
 		return cleanAppWireIngestCoreResult{}, "IDEMPOTENCY_LOOKUP_FAILED", http.StatusInternalServerError
@@ -1211,7 +1233,7 @@ func (h *Handlers) cleanAppWireIngestCore(ctx context.Context, auth cleanAppWire
 		0.0,
 		0.0,
 		img,
-		title,
+		description,
 	)
 	if err != nil {
 		return cleanAppWireIngestCoreResult{}, "REPORT_INSERT_FAILED", http.StatusInternalServerError
@@ -1246,6 +1268,19 @@ func (h *Handlers) cleanAppWireIngestCore(ctx context.Context, auth cleanAppWire
 
 	if err := tx.Commit(); err != nil {
 		return cleanAppWireIngestCoreResult{}, "COMMIT_FAILED", http.StatusInternalServerError
+	}
+
+	if postPersistHook != nil {
+		if err := postPersistHook(ctx, seq); err != nil {
+			return cleanAppWireIngestCoreResult{
+				SourceID:   item.SourceID,
+				Status:     "accepted",
+				ReportSeq:  seq,
+				Queued:     false,
+				Visibility: visibility,
+				TrustLevel: trustLevel,
+			}, "POST_PERSIST_HOOK_FAILED", http.StatusInternalServerError
+		}
 	}
 
 	pub, err := h.ensureRabbitMQPublisher()
@@ -1330,6 +1365,6 @@ func (h *Handlers) cleanAppWireIngestSingleViaV1(ctx context.Context, auth clean
 	if len(req.Items) != 1 {
 		return v1BulkIngestItemResult{}, "INVALID_BATCH", http.StatusBadRequest
 	}
-	coreResp, errCode, httpStatus := h.cleanAppWireIngestCore(ctx, auth, v1BulkIngestItemToCleanAppWireIngestCoreItem(req.Items[0]), visibility, trustLevel)
+	coreResp, errCode, httpStatus := h.cleanAppWireIngestCore(ctx, auth, v1BulkIngestItemToCleanAppWireIngestCoreItem(req.Items[0]), visibility, trustLevel, nil)
 	return cleanAppWireIngestCoreResultToV1ItemResult(coreResp), errCode, httpStatus
 }
