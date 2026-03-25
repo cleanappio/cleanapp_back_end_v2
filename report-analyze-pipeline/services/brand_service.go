@@ -14,7 +14,7 @@ type brandAliasRule struct {
 }
 
 var productAliasRules = []brandAliasRule{
-	{Normalized: "claude", Display: "Claude", Aliases: []string{"claude"}, Vendors: []string{"anthropic"}},
+	{Normalized: "claude", Display: "Claude", Aliases: []string{"claude", "claude ai", "claudeai", "@claudeai"}, Vendors: []string{"anthropic"}},
 	{Normalized: "chatgpt", Display: "ChatGPT", Aliases: []string{"chatgpt"}, Vendors: []string{"openai"}},
 	{Normalized: "grok", Display: "Grok", Aliases: []string{"grok"}, Vendors: []string{"xai", "x.ai"}},
 	{Normalized: "gemini", Display: "Gemini", Aliases: []string{"gemini"}, Vendors: []string{"google"}},
@@ -72,7 +72,11 @@ func (s *BrandService) ResolveBrand(brandName string, contextParts ...string) (s
 		if !containsBrandAlias(corpus, rule.Aliases) {
 			continue
 		}
-		if normalized == "" || normalized == rule.Normalized || containsVendorAlias(normalized, rule.Vendors) || containsVendorAlias(corpus, rule.Vendors) {
+		if normalized == "" ||
+			normalized == rule.Normalized ||
+			containsBrandAlias(normalized, rule.Aliases) ||
+			containsVendorAlias(normalized, rule.Vendors) ||
+			containsVendorAlias(corpus, rule.Vendors) {
 			return rule.Normalized, rule.Display
 		}
 	}

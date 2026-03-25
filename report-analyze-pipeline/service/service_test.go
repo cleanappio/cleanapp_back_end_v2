@@ -49,6 +49,20 @@ func TestBrandDisplayNamePopulation(t *testing.T) {
 	}
 }
 
+func TestResolveBrandMapsClaudeAIHandleToClaude(t *testing.T) {
+	brandService := services.NewBrandService()
+	normalized, display := brandService.ResolveBrand(
+		"claudeai",
+		"Did Claude Quietly Kill the 2× Usage Boost Early? @claudeai",
+	)
+	if normalized != "claude" {
+		t.Fatalf("ResolveBrand() normalized = %q, want %q", normalized, "claude")
+	}
+	if display != "Claude" {
+		t.Fatalf("ResolveBrand() display = %q, want %q", display, "Claude")
+	}
+}
+
 func TestReportAnalysisWithBrandDisplayName(t *testing.T) {
 	// Create a mock analysis result
 	analysis := &database.ReportAnalysis{
