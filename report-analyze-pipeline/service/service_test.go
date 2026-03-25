@@ -167,6 +167,39 @@ func TestExtractTextFromOEmbedHTML(t *testing.T) {
 	}
 }
 
+func TestExtractXStatusID(t *testing.T) {
+	got := extractXStatusID(
+		"https://x.com/rox1903/status/2036687033008284152?s=12&t=b0l71yxSTYCEomrleQticA",
+		"Shared post/page from x.com: 2036687033008284152",
+	)
+	if got != "2036687033008284152" {
+		t.Fatalf("extractXStatusID() = %q, want %q", got, "2036687033008284152")
+	}
+}
+
+func TestBuildXOEmbedCandidatesAddsCanonicalStatusFallbacks(t *testing.T) {
+	report := &database.Report{
+		Seq:         1182555,
+		Description: "Shared post/page from x.com: 2036687033008284152",
+	}
+	got := buildXOEmbedCandidates(report, "https://x.com/rox1903/status/2036687033008284152?s=12&t=b0l71yxSTYCEomrleQticA")
+
+	expected := []string{
+		"https://x.com/rox1903/status/2036687033008284152?s=12&t=b0l71yxSTYCEomrleQticA",
+		"https://x.com/rox1903/status/2036687033008284152",
+		"https://x.com/i/status/2036687033008284152",
+		"https://twitter.com/i/status/2036687033008284152",
+	}
+	if len(got) != len(expected) {
+		t.Fatalf("buildXOEmbedCandidates() len = %d, want %d (%v)", len(got), len(expected), got)
+	}
+	for i, want := range expected {
+		if got[i] != want {
+			t.Fatalf("buildXOEmbedCandidates()[%d] = %q, want %q (all=%v)", i, got[i], want, got)
+		}
+	}
+}
+
 func TestEnrichAnalysisInputAddsThinEvidenceWarning(t *testing.T) {
 	svc := &Service{}
 	report := &database.Report{

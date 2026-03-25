@@ -19,6 +19,7 @@ var (
 	htmlTagPattern      = regexp.MustCompile(`(?s)<[^>]*>`)
 	whitespacePattern   = regexp.MustCompile(`\s+`)
 	lineBreakTagPattern = regexp.MustCompile(`(?i)<br\s*/?>|</p>|</div>|</blockquote>`)
+	xStatusIDPattern    = regexp.MustCompile(`(?i)(?:/status/|/statuses/|post/page from x\.com:\s*)(\d{8,32})`)
 )
 
 type xOEmbedResponse struct {
@@ -74,10 +75,77 @@ func fetchShareContext(report *database.Report) (string, error) {
 	host := strings.ToLower(strings.TrimPrefix(parsed.Hostname(), "www."))
 	switch host {
 	case "x.com", "twitter.com":
-		return fetchXOEmbedContext(sourceURL)
+		return fetchXContext(report, sourceURL)
 	default:
 		return "", nil
 	}
+}
+
+func fetchXContext(report *database.Report, sourceURL string) (string, error) {
+	candidates := buildXOEmbedCandidates(report, sourceURL)
+	var failures []string
+
+	for _, candidate := range candidates {
+		context, err := fetchXOEmbedContext(candidate)
+		if err == nil && strings.TrimSpace(context) != "" {
+			log.Printf("Report %d: fetched X share context via %q", report.Seq, candidate)
+			return context, nil
+		}
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("%s => %v", candidate, err))
+			continue
+		}
+		failures = append(failures, fmt.Sprintf("%s => empty post text", candidate))
+	}
+
+	if len(failures) > 0 {
+		return "", fmt.Errorf("x share context unavailable (%s)", strings.Join(failures, "; "))
+	}
+	return "", nil
+}
+
+func buildXOEmbedCandidates(report *database.Report, sourceURL string) []string {
+	candidates := make([]string, 0, 4)
+	seen := make(map[string]struct{}, 4)
+	add := func(raw string) {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			return
+		}
+		if _, ok := seen[raw]; ok {
+			return
+		}
+		seen[raw] = struct{}{}
+		candidates = append(candidates, raw)
+	}
+
+	add(sourceURL)
+
+	if parsed, err := neturl.Parse(sourceURL); err == nil {
+		parsed.RawQuery = ""
+		parsed.Fragment = ""
+		add(parsed.String())
+	}
+
+	if statusID := extractXStatusID(sourceURL, report.Description, report.SharedText); statusID != "" {
+		add("https://x.com/i/status/" + statusID)
+		add("https://twitter.com/i/status/" + statusID)
+	}
+
+	return candidates
+}
+
+func extractXStatusID(candidates ...string) string {
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		matches := xStatusIDPattern.FindStringSubmatch(candidate)
+		if len(matches) == 2 {
+			return matches[1]
+		}
+	}
+	return ""
 }
 
 func fetchXOEmbedContext(sourceURL string) (string, error) {
@@ -112,7 +180,7 @@ func fetchXOEmbedContext(sourceURL string) (string, error) {
 
 	postText := extractTextFromOEmbedHTML(payload.HTML)
 	if postText == "" {
-		return "", nil
+		return "", fmt.Errorf("oembed returned empty post text")
 	}
 
 	parts := []string{"Fetched X post context:"}
