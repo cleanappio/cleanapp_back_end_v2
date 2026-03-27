@@ -24,7 +24,7 @@ Step 1: ========: Detect the input type based on the underlying defect, not the 
 Step 2: ========: If the input is digital, then you need to detect the following information:
 - The platform/vendor;
 - The defect, check if the image contains any annotation or text that indicates a defect;
-- the platform / vendor contact emails, infer it from the platform/vendor;
+- the platform / vendor contact emails, using directly shown addresses and, when a concrete high-quality domain is explicitly present in the evidence/context, reasonable department aliases on that same domain;
 Step 3: ========: If the input is physical, then you need to detect the following information:
 - The litter, defect or any kind of hazard contained on the image;
 Step 4: ========: Fill every field in the JSON schema (see § 3) using direct evidence or the inference heuristics (see § 4).
@@ -37,7 +37,7 @@ Step 5: ========: Output a **single, valid JSON object** and nothing else.
 * All string values must be **informative**; never output the literal word "null" unless every inference avenue fails.
 * The summary must quote **critical numeric facts** (e.g. "0% men, 101.6% women").  
 * The responsible_party must include the vendor/brand name.  
-* The inferred_contact_emails must use that vendor's domain; generate 1-3 plausible addresses.  
+* The inferred_contact_emails may include directly observed addresses and reasonable department aliases on the same concrete high-quality domain provided in the evidence/context. Never invent a new domain from a place name or generic civic label (for example city.ch, city.com, municipality.gov). If no such domain or address is available, return an empty array.  
 * The suggested_remediation must **≥4 items**, including:  
   - at least one concrete QA or unit-test step  
   - at least one data-correction or back-fill step  
@@ -82,7 +82,7 @@ Phrases like “Who saw your ad”, “Ads Manager”, “Campaign — …”.
 
 Product names (“Grok”, “Reels”, “Sponsored”).
 
-Contact e-mails — If brand domain is meta.com, generate variants such as support@meta.com, ads-support@meta.com, analytics-qa@meta.com.
+Contact e-mails — Use directly visible addresses when present. If the evidence or user-provided context includes a concrete high-quality domain such as ucla.edu or law.ucla.edu, you may infer reasonable department aliases on that exact domain (for example facilities@ucla.edu, maintenance@law.ucla.edu). Never invent a fresh domain from place names or generic civic labels.
 
 Responsible party mapping —
 
@@ -130,7 +130,7 @@ Copy
   },
   "location": "x.ai/grok",
   "responsible_party": "x.ai Web Growth Engineering",
-  "inferred_contact_emails": ["support@x.ai", "web@x.ai", "info@x.ai"],
+  "inferred_contact_emails": [],
   "suggested_remediation": [
       "Reproduce the POST in dev tools and capture server response.",
       "Examine backend logs for 4xx/5xx anomalies linked to the endpoint.",
@@ -157,11 +157,7 @@ Copy
   },
   "location": "Meta / Instagram Ads Insights UI",
   "responsible_party": "Meta Ads Insights Engineering & Data QA Team",
-  "inferred_contact_emails": [
-      "ads-support@meta.com",
-      "analytics-qa@meta.com",
-      "support@fb.com"
-  ],
+  "inferred_contact_emails": [],
   "suggested_remediation": [
       "Audit the aggregation query to ensure gender percentages are normalised to 100%.",
       "Verify rounding rules and apply compensating adjustments before display.",
@@ -182,6 +178,7 @@ Rules:
 - Prefer the product/service discussed in the text over the platform where it was posted.
 - If the text describes a software, app, website, account, API, analytics, billing, or online-service issue, classify it as digital.
 - If the text describes a real-world incident, classify it as physical.
+- Only include inferred_contact_emails when a concrete address is directly present in the provided text/context, or when that context explicitly includes a concrete high-quality domain and the inferred alias stays on that exact domain. Never invent a domain from place names or generic civic labels.
 - If evidence is thin, keep the analysis generic and state only what is directly supported by the text.
 - Output one valid JSON object only.
 
