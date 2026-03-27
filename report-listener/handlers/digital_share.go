@@ -66,6 +66,7 @@ type normalizedDigitalSharePayload struct {
 	DeviceID             string
 	AppVersion           string
 	Images               []digitalShareImageAttachment
+	RemoteImageCount     int
 	SharedPayloadType    string
 	NormalizedSourceHash string
 }
@@ -97,13 +98,16 @@ func (h *Handlers) SubmitDigitalShare(c *gin.Context) {
 		return
 	}
 
+	payload = h.enrichDigitalSharePayloadWithRemoteImages(c.Request.Context(), payload)
+
 	log.Printf(
-		"digital share: submit started platform=%s source_app=%s payload=%s source_url_present=%t image_count=%d",
+		"digital share: submit started platform=%s source_app=%s payload=%s source_url_present=%t image_count=%d remote_image_count=%d",
 		payload.Platform,
 		payload.SourceApp,
 		payload.SharedPayloadType,
 		payload.SourceURL != "",
 		len(payload.Images),
+		payload.RemoteImageCount,
 	)
 
 	auth := h.humanReportAuthContext("share")
@@ -336,25 +340,32 @@ func normalizeDigitalSharePayload(
 		payload.SourceApp = inferShareSourceApp(payload.SourceURL)
 	}
 
-	switch {
-	case payload.SourceURL != "" && payload.SharedText != "" && len(payload.Images) > 0:
-		payload.SharedPayloadType = "url+text+image"
-	case payload.SourceURL != "" && len(payload.Images) > 0:
-		payload.SharedPayloadType = "url+image"
-	case payload.SharedText != "" && len(payload.Images) > 0:
-		payload.SharedPayloadType = "text+image"
-	case payload.SourceURL != "":
-		payload.SharedPayloadType = "url"
-	case payload.SharedText != "":
-		payload.SharedPayloadType = "text"
-	case len(payload.Images) > 0:
-		payload.SharedPayloadType = "image"
-	default:
+	payload.SharedPayloadType = classifyDigitalSharePayloadType(payload.SourceURL, payload.SharedText, len(payload.Images))
+	if payload.SharedPayloadType == "" {
 		return normalizedDigitalSharePayload{}, fmt.Errorf("no usable share payload")
 	}
 
 	payload.NormalizedSourceHash = digitalShareDedupKey(payload)
 	return payload, nil
+}
+
+func classifyDigitalSharePayloadType(sourceURL, sharedText string, imageCount int) string {
+	switch {
+	case strings.TrimSpace(sourceURL) != "" && strings.TrimSpace(sharedText) != "" && imageCount > 0:
+		return "url+text+image"
+	case strings.TrimSpace(sourceURL) != "" && imageCount > 0:
+		return "url+image"
+	case strings.TrimSpace(sharedText) != "" && imageCount > 0:
+		return "text+image"
+	case strings.TrimSpace(sourceURL) != "":
+		return "url"
+	case strings.TrimSpace(sharedText) != "":
+		return "text"
+	case imageCount > 0:
+		return "image"
+	default:
+		return ""
+	}
 }
 
 func normalizeDigitalShareAttachments(images []digitalShareImageAttachment) []digitalShareImageAttachment {
@@ -572,6 +583,7 @@ func buildDigitalShareWireSubmission(payload normalizedDigitalSharePayload, sour
 		"capture_mode":         payload.CaptureMode,
 		"client_created_at":    payload.ClientCreatedAt,
 		"client_submission_id": payload.ClientSubmissionID,
+		"remote_image_count":   payload.RemoteImageCount,
 	}
 
 	if payload.SourceURL != "" {
@@ -632,6 +644,9 @@ func buildDigitalShareWireSubmission(payload normalizedDigitalSharePayload, sour
 	}
 	if len(payload.Images) > 0 {
 		sub.Extensions["share_image_count"] = len(payload.Images)
+	}
+	if payload.RemoteImageCount > 0 {
+		sub.Extensions["share_remote_image_count"] = payload.RemoteImageCount
 	}
 
 	sub.Delivery.RequestedLane = wireLaneHumanAuto

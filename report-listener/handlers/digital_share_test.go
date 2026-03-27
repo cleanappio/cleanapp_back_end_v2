@@ -1,6 +1,14 @@
 package handlers
 
-import "testing"
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	neturl "net/url"
+	"strings"
+	"sync"
+	"testing"
+)
 
 func TestNormalizeDigitalSharePayloadPrefersURLOverTextURL(t *testing.T) {
 	payload, err := normalizeDigitalSharePayload(
@@ -84,5 +92,129 @@ func TestDigitalShareTitleAndDescription(t *testing.T) {
 	}
 	if description == "" {
 		t.Fatal("expected description to be populated")
+	}
+}
+
+func TestExtractDigitalShareImageCandidates(t *testing.T) {
+	pageURL, err := neturl.Parse("https://example.com/posts/123")
+	if err != nil {
+		t.Fatalf("parse page url: %v", err)
+	}
+
+	rawHTML := `
+		<html>
+			<head>
+				<meta property="og:image" content="/images/og.png" />
+				<meta name="twitter:image" content="https://cdn.example.com/twitter-card.png" />
+				<link rel="image_src" href="https://cdn.example.com/legacy.png" />
+				<script type="application/ld+json">
+					{"@context":"https://schema.org","image":{"url":"/images/jsonld.png"}}
+				</script>
+			</head>
+		</html>
+	`
+
+	got := extractDigitalShareImageCandidates(pageURL, rawHTML)
+	want := []string{
+		"https://example.com/images/og.png",
+		"https://cdn.example.com/twitter-card.png",
+		"https://cdn.example.com/legacy.png",
+		"https://example.com/images/jsonld.png",
+	}
+
+	if len(got) != len(want) {
+		t.Fatalf("candidate count = %d, want %d (%v)", len(got), len(want), got)
+	}
+	for idx := range want {
+		if got[idx] != want[idx] {
+			t.Fatalf("candidate[%d] = %q, want %q", idx, got[idx], want[idx])
+		}
+	}
+}
+
+func TestFetchDigitalShareRemoteImagesFallsBackToCrawlerUserAgent(t *testing.T) {
+	imageBytes := placeholderPNGBytes()
+	var pageUserAgentsMu sync.Mutex
+	var pageUserAgents []string
+
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/post":
+			pageUserAgentsMu.Lock()
+			pageUserAgents = append(pageUserAgents, r.UserAgent())
+			pageUserAgentsMu.Unlock()
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			if strings.Contains(r.UserAgent(), "Slackbot-LinkExpanding") {
+				_, _ = w.Write([]byte(`<html><head><meta property="og:image" content="` + server.URL + `/image.png"></head></html>`))
+				return
+			}
+			_, _ = w.Write([]byte(`<html><head><title>No preview yet</title></head></html>`))
+		case "/image.png":
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write(imageBytes)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	attachments, err := fetchDigitalShareRemoteImages(context.Background(), server.Client(), server.URL+"/post", digitalShareRemoteFetchOptions{
+		MaxImages:     2,
+		MaxTotalBytes: maxDigitalShareTotalBytes,
+	})
+	if err != nil {
+		t.Fatalf("fetchDigitalShareRemoteImages returned error: %v", err)
+	}
+	if len(attachments) != 1 {
+		t.Fatalf("attachment count = %d, want 1", len(attachments))
+	}
+	pageUserAgentsMu.Lock()
+	gotUserAgents := append([]string(nil), pageUserAgents...)
+	pageUserAgentsMu.Unlock()
+	if !strings.Contains(strings.Join(gotUserAgents, "\n"), digitalShareSlackbotUserAgent) {
+		t.Fatalf("expected crawler fallback user-agent, got %v", gotUserAgents)
+	}
+	if attachments[0].MimeType != "image/png" {
+		t.Fatalf("mime type = %q, want image/png", attachments[0].MimeType)
+	}
+	if len(attachments[0].Bytes) != len(imageBytes) {
+		t.Fatalf("image bytes len = %d, want %d", len(attachments[0].Bytes), len(imageBytes))
+	}
+}
+
+func TestEnrichDigitalSharePayloadWithRemoteImagesUpdatesPayloadType(t *testing.T) {
+	imageBytes := placeholderPNGBytes()
+
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/post":
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = w.Write([]byte(`<html><head><meta property="og:image" content="` + server.URL + `/image.png"></head></html>`))
+		case "/image.png":
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write(imageBytes)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	h := &Handlers{}
+	payload := normalizedDigitalSharePayload{
+		SourceURL:         server.URL + "/post",
+		SharedPayloadType: "url",
+	}
+
+	got := h.enrichDigitalSharePayloadWithRemoteImages(context.Background(), payload)
+	if len(got.Images) != 1 {
+		t.Fatalf("image count = %d, want 1", len(got.Images))
+	}
+	if got.RemoteImageCount != 1 {
+		t.Fatalf("remote image count = %d, want 1", got.RemoteImageCount)
+	}
+	if got.SharedPayloadType != "url+image" {
+		t.Fatalf("payload type = %q, want url+image", got.SharedPayloadType)
 	}
 }
