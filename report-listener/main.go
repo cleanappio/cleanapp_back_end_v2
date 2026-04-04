@@ -149,6 +149,10 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 		// Get reports by latitude/longitude within radius endpoint
 		api.GET("/reports/by-latlng-lite", h.GetReportsByLatLngLite)
 
+		// Sort game endpoints
+		api.GET("/reports/sort/next", h.GetNextSortReport)
+		api.POST("/reports/sort/submit", h.SubmitSortReport)
+
 		// Get reports within a supplied polygonal geometry
 		api.POST("/reports/by-geometry", h.GetReportsByGeometry)
 
