@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"math/big"
+	"strings"
 
 	"github.com/apex/log"
 	ethcommon "github.com/ethereum/go-ethereum/common"
@@ -32,6 +33,18 @@ type DailyDisburser struct {
 type KitnRefs struct {
 	kitn    *big.Int
 	kitnref *big.Int
+}
+
+func normalizeDisbursementAddress(raw string) (ethcommon.Address, bool) {
+	trimmed := strings.TrimSpace(raw)
+	if !ethcommon.IsHexAddress(trimmed) {
+		return ethcommon.Address{}, false
+	}
+	address := ethcommon.HexToAddress(trimmed)
+	if address == (ethcommon.Address{}) {
+		return ethcommon.Address{}, false
+	}
+	return address, true
 }
 
 func NewDailyDisburser(db *sql.DB) (*DailyDisburser, error) {
@@ -70,8 +83,14 @@ func (d *DailyDisburser) Disburse() error {
 			log.Errorf("Cannot scan a row: %w", err)
 			continue
 		}
-		batchKitns[ethcommon.HexToAddress(id)] = commondisburse.ToWei(float32(dailyKitns) + dailyRefKitns)
-		batchKitnsRef[ethcommon.HexToAddress(id)] = &KitnRefs{
+		address, ok := normalizeDisbursementAddress(id)
+		if !ok {
+			log.Warnf("Skipping token disbursement for invalid address %q", id)
+			continue
+		}
+
+		batchKitns[address] = commondisburse.ToWei(float32(dailyKitns) + dailyRefKitns)
+		batchKitnsRef[address] = &KitnRefs{
 			kitn:    commondisburse.ToWei(float32(dailyKitns)),
 			kitnref: commondisburse.ToWei(dailyRefKitns),
 		}

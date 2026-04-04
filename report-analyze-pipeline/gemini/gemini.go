@@ -28,10 +28,10 @@ Step 1: ========: Detect the input type based on the underlying defect, not the 
 Step 2: ========: If the input is digital, then you need to detect the following information:
 - The platform/vendor;
 - The defect, check if the image contains any annotation or text that indicates a defect;
-- the platform / vendor contact emails, infer it from the platform/vendor;
+- the platform / vendor contact emails, using directly shown addresses and, when a concrete high-quality domain is explicitly present in the evidence/context, reasonable department aliases on that same domain;
 Step 3: ========: If the input is physical, then you need to detect the following information:
 - The litter, defect or any kind of hazard contained on the image;
-- If LOCATION_CONTEXT is provided, use it to infer responsible party emails;
+- If LOCATION_CONTEXT is provided, use it to infer the responsible party and, only when it includes a concrete high-quality organization domain, reasonable department aliases on that same domain. Never invent domains from place names like city.ch or city.com;
 Step 4: ========: Fill every field in the JSON schema (see § 3) using direct evidence or the inference heuristics (see § 4).
 Step 5: ========: Output a **single, valid JSON object** and nothing else.
 
@@ -42,7 +42,7 @@ Step 5: ========: Output a **single, valid JSON object** and nothing else.
 * All string values must be **informative**; never output the literal word "null" unless every inference avenue fails.
 * The summary must quote **critical numeric facts** (e.g. "0% men, 101.6% women").  
 * The responsible_party must include the vendor/brand name OR the organization name from LOCATION_CONTEXT.  
-* The inferred_contact_emails must use the vendor's domain OR the organization's domain from LOCATION_CONTEXT; generate 1-5 plausible addresses targeting different departments.  
+* The inferred_contact_emails may include directly observed addresses and reasonable department aliases on the same concrete high-quality domain provided in the evidence/context. Never invent a new domain from a place name or generic civic label (for example city.ch, city.com, municipality.gov). If no such domain or address is available, return an empty array.  
 * The suggested_remediation must **≥4 items**, including:  
   - at least one concrete QA or unit-test step  
   - at least one data-correction or back-fill step  
@@ -87,30 +87,7 @@ Phrases like “Who saw your ad”, “Ads Manager”, “Campaign — …”.
 
 Product names (“Grok”, “Reels”, “Sponsored”).
 
-Contact e-mails — If brand domain is meta.com, generate variants such as support@meta.com, ads-support@meta.com, analytics-qa@meta.com.
-
-PHYSICAL LOCATION EMAIL INFERENCE — When LOCATION_CONTEXT is provided:
-
-University/College (domain usually .edu):
-  - facilities@<domain>, security@<domain>, custodian@<domain>, info@<domain>
-  - For sub-locations (departments, schools): <dept>-facilities@<domain>, <dept>@<domain>
-  - Example: UCLA School of Law → facilities@law.ucla.edu, security@ucla.edu, info@law.ucla.edu
-
-Hospital/Medical (domain usually .org or .com):
-  - facilities@<domain>, safety@<domain>, environmental.services@<domain>, info@<domain>
-
-Shopping Mall/Retail:
-  - management@<domain>, security@<domain>, guestservices@<domain>, info@<domain>
-
-Public Park/Government:
-  - parks@<city>.gov, publicworks@<city>.gov, 311@<city>.gov
-  - If state park: info@<parkname>.gov, ranger@<parkname>.gov
-
-Private Business:
-  - info@<domain>, support@<domain>, facilities@<domain>, contact@<domain>
-
-Airport/Transit:
-  - operations@<domain>, customerservice@<domain>, safety@<domain>
+Contact e-mails — Use directly visible addresses when present. If the evidence or LOCATION_CONTEXT includes a concrete high-quality domain such as ucla.edu or law.ucla.edu, you may infer reasonable department aliases on that exact domain (for example facilities@ucla.edu, maintenance@law.ucla.edu). Never invent a fresh domain from place names or generic civic labels.
 
 Responsible party mapping —
 
@@ -150,6 +127,7 @@ Rules:
 - Prefer the product/service discussed in the text over the platform where it was posted.
 - If the text describes a software, app, website, account, API, analytics, billing, or online-service issue, classify it as digital.
 - If the text describes a real-world incident, classify it as physical.
+- Only include inferred_contact_emails when a concrete address is directly present in the provided text/context, or when that context explicitly includes a concrete high-quality domain and the inferred alias stays on that exact domain. Never invent a domain from place names or generic civic labels.
 - If evidence is thin, keep the analysis generic and state only what is directly supported by the text.
 - Output one valid JSON object only.
 
@@ -286,7 +264,7 @@ func (c *Client) AnalyzeImageWithLocation(imageData []byte, description string, 
 	// Build the location context string to inject into the prompt
 	locationContextStr := ""
 	if locCtx != nil && (locCtx.PrimaryName != "" || locCtx.ParentOrg != "" || locCtx.Domain != "") {
-		locationContextStr = "\n\nLOCATION_CONTEXT (use this for physical report email inference):\n"
+		locationContextStr = "\n\nLOCATION_CONTEXT (use this for responsible-party attribution and any explicitly provided contacts):\n"
 		if locCtx.PrimaryName != "" {
 			locationContextStr += fmt.Sprintf("- Primary Location: %s\n", locCtx.PrimaryName)
 		}
