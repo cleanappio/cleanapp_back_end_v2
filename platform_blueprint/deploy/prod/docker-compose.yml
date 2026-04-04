@@ -57,6 +57,7 @@ services:
       - ETH_NETWORK_URL=https://sepolia.base.org
       - CONTRACT_ADDRESS=0xDc41655b749E8F2922A6E5e525Fc04a915aEaFAA
       - USERS_TABLE=users
+      - INTERNAL_ADMIN_TOKEN=${INTERNAL_ADMIN_TOKEN}
       - GIN_MODE=release
     ports:
       - 127.0.0.1:8090:8090

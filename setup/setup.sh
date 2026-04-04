@@ -444,9 +444,9 @@ fi
 gcloud scheduler jobs create http \${DISBURSEMENT_MAIN_SCHEDULER_NAME} \
   --location=us-central1 \
   --schedule="${DISBURSEMENT_MAIN_SCHEDULE}" \
-  --uri="http://${SCHEDULER_HOST}:${PIPELINES_MAIN_PORT}/tokens_disburse" \
+  --uri="https://${SCHEDULER_HOST}/tokens_disburse" \
   --message-body="{\"version\": \"2.0\"}" \
-  --headers="Content-Type=application/json"
+  --headers="Content-Type=application/json,X-Internal-Admin-Token=\${INTERNAL_ADMIN_TOKEN}"
 
 UP1_TAIL
 fi
@@ -539,6 +539,7 @@ services:
       - ETH_NETWORK_URL=${ETH_NETWORK_URL_MAIN}
       - CONTRACT_ADDRESS=${CONTRACT_ADDRESS_MAIN}
       - USERS_TABLE=users
+      - INTERNAL_ADMIN_TOKEN=\${INTERNAL_ADMIN_TOKEN}
       - GIN_MODE=${GIN_MODE}
     ports:
       - ${PIPELINES_MAIN_PORT}:${PIPELINES_MAIN_PORT}
