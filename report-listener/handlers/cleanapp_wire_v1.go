@@ -1188,7 +1188,9 @@ func (h *Handlers) cleanAppWireIngestCore(
 	}
 
 	title := clampStr(item.Title, 255)
-	description := clampStr(item.Description, 8192)
+	// The legacy reports table stores this projection in VARCHAR(255). The full
+	// Wire report remains available in wire_submissions_raw.report_json.
+	description := clampStr(item.Description, 255)
 	if description == "" {
 		description = title
 	}

@@ -23,7 +23,7 @@ services:
   # Currently running as a manual container with a bind-mounted config dir.
   cleanapp_bluesky_now:
     container_name: cleanapp_bluesky_now
-    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/bluesky-now:v3
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/bluesky-now:prod
     restart: always
     command: ["bluesky_now", "--config", "/app/config/config.toml"]
     volumes:

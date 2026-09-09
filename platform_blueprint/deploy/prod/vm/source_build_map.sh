@@ -13,6 +13,7 @@ compose_services_for_source_service() {
     email-service) echo "cleanapp_email_service" ;;
     email-service-v3) echo "cleanapp_email_service_v3" ;;
     gdpr-process-service) echo "cleanapp_gdpr_process_service" ;;
+    news-indexer-bluesky) echo "cleanapp_bluesky_indexer cleanapp_bluesky_analyzer cleanapp_bluesky_submitter cleanapp_bluesky_now" ;;
     replier-twitter) echo "cleanapp_replier_twitter" ;;
     report-analysis-backfill) echo "" ;;
     report-analyze-pipeline) echo "cleanapp_report_analyze_pipeline" ;;

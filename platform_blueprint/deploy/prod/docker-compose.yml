@@ -696,7 +696,7 @@ services:
       - SUBMIT_ENDPOINT_URL=http://cleanapp_report_listener:8080
       - SUBMIT_TOKEN=${BLUESKY_SUBMITTER_TOKEN}
       - SUBMIT_PROTOCOL=wire
-      - SUBMIT_BATCH_SIZE=500
+      - SUBMIT_BATCH_SIZE=100
       - SUBMIT_INTERVAL_SECS=30
     depends_on:
       cleanapp_db:

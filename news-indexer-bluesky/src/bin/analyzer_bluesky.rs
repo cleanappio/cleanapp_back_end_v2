@@ -145,18 +145,36 @@ async fn run_once(
 ) -> Result<()> {
     let mut conn = pool.get_conn().await?;
 
-    // Fetch unanalyzed posts
-    let rows: Vec<(String, String, String, String)> = conn
+    // Prioritize new posts. Mixing failed rows into this query made a recent
+    // persistent failure monopolize every run and slowed the anti-join.
+    let mut rows: Vec<(String, String, String, String)> = conn
         .exec(
             r#"SELECT p.uri, COALESCE(p.text,''), COALESCE(p.author_handle,''), COALESCE(p.lang,'')
                FROM indexer_bluesky_post p
                LEFT JOIN indexer_bluesky_analysis a ON a.uri = p.uri
-               WHERE a.uri IS NULL OR a.error IS NOT NULL
+               WHERE a.uri IS NULL
                ORDER BY p.created_at DESC
                LIMIT ?"#,
             (args.batch_size as u64,),
         )
         .await?;
+
+    // Retry failures only when there is spare capacity, with a cooldown so a
+    // bad post cannot become a tight loop.
+    if rows.is_empty() {
+        rows = conn
+            .exec(
+                r#"SELECT p.uri, COALESCE(p.text,''), COALESCE(p.author_handle,''), COALESCE(p.lang,'')
+                   FROM indexer_bluesky_analysis a
+                   JOIN indexer_bluesky_post p ON p.uri = a.uri
+                   WHERE a.error IS NOT NULL
+                     AND a.updated_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 6 HOUR)
+                   ORDER BY a.updated_at ASC
+                   LIMIT ?"#,
+                (args.batch_size as u64,),
+            )
+            .await?;
+    }
 
     if rows.is_empty() {
         info!("analyzer: nothing to analyze");
