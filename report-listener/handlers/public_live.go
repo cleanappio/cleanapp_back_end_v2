@@ -1,11 +1,20 @@
 package handlers
 
 import (
+	"math"
 	"strings"
 	"time"
 
 	"report-listener/models"
 )
+
+// Legacy ingestion represents a missing location as the pair (0, 0).
+// A point on either the equator or prime meridian alone remains valid.
+func hasMapLocation(lat, lon float64) bool {
+	return !math.IsNaN(lat) && !math.IsNaN(lon) &&
+		lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180 &&
+		(lat != 0 || lon != 0)
+}
 
 func publicLiveClassification(analyses []models.ReportAnalysis) string {
 	for _, analysis := range analyses {
@@ -50,6 +59,9 @@ func (h *Handlers) BuildPublicLiveBatch(reports []models.ReportWithAnalysis) (mo
 		}
 
 		classification := publicLiveClassification(report.Analysis)
+		if classification == "physical" && !hasMapLocation(report.Report.Latitude, report.Report.Longitude) {
+			continue
+		}
 		token, err := h.sealDiscoveryReportToken(classification, publicID)
 		if err != nil {
 			return models.PublicLiveReportBatch{}, err

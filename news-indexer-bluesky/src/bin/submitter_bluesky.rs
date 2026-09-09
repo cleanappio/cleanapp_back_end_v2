@@ -97,6 +97,8 @@ struct BlueskyPreparedItem {
     brand_name: String,
     inferred_contact_emails: serde_json::Value,
     url: String,
+    location: Option<serde_json::Value>,
+    source_complete: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -213,7 +215,8 @@ async fn run_once(
                    (SELECT m.sha256 FROM indexer_bluesky_media m WHERE m.post_uri=p.uri ORDER BY position ASC LIMIT 1) LIMIT 1),
                   COALESCE(a.summary, ''), COALESCE(a.report_title, ''),
                   COALESCE(a.report_description, ''), COALESCE(a.brand_display_name, ''),
-                  COALESCE(a.brand_name, ''), COALESCE(a.inferred_contact_emails, '[]')
+                  COALESCE(a.brand_name, ''), COALESCE(a.inferred_contact_emails, '[]'),
+                  CAST(p.raw AS CHAR)
            FROM (
              SELECT p.uri
              FROM indexer_bluesky_post p
@@ -223,12 +226,12 @@ async fn run_once(
              LEFT JOIN indexer_bluesky_wire_submission ws ON ws.uri = p.uri
              WHERE a.is_relevant = TRUE AND ei.seq IS NULL
                AND (? = 'legacy' OR ws.uri IS NULL)
-             ORDER BY a.uri ASC
+             ORDER BY p.created_at DESC, p.uri ASC
              LIMIT ?
            ) candidates
            JOIN indexer_bluesky_post p ON p.uri = candidates.uri
            JOIN indexer_bluesky_analysis a ON a.uri = p.uri
-           ORDER BY candidates.uri ASC"#,
+           ORDER BY p.created_at DESC, p.uri ASC"#,
         (protocol_name(protocol), batch_size as u64),
     )
     .await?;
@@ -297,6 +300,10 @@ async fn run_once(
                 .to_string()
         };
         let url = format!("https://bsky.app/profile/{}/post/{}", profile_id, post_id);
+        let raw: String = row.get::<Option<String>, _>(14).unwrap_or(None).unwrap_or_default();
+        let location = source_map_location(&raw);
+        let source_complete = text.replace("\\n", "\n").lines()
+            .any(|line| line.trim().eq_ignore_ascii_case("Status: Complete"));
 
         let title = if !report_title.is_empty() {
             truncate_chars(&report_title, 120)
@@ -332,6 +339,8 @@ async fn run_once(
             )
             .unwrap_or(json!([])),
             url,
+            location,
+            source_complete,
         });
     }
 
@@ -568,7 +577,7 @@ fn bluesky_item_to_wire_submission(it: &BlueskyPreparedItem) -> serde_json::Valu
         }));
     }
 
-    json!({
+    let mut submission = json!({
         "schema_version": "cleanapp-wire.v1",
         "source_id": it.uri,
         "submitted_at": utc_now_iso(),
@@ -591,7 +600,7 @@ fn bluesky_item_to_wire_submission(it: &BlueskyPreparedItem) -> serde_json::Valu
             "chain_of_custody": ["index_bluesky", "analyzer_bluesky", "submitter_bluesky"]
         },
         "report": {
-            "domain": "digital",
+            "domain": it.classification,
             "problem_type": "social_media_report",
             "problem_subtype": it.classification,
             "title": it.report_title,
@@ -619,9 +628,39 @@ fn bluesky_item_to_wire_submission(it: &BlueskyPreparedItem) -> serde_json::Valu
         "delivery": {
             // Bluesky posts are human-authored reports collected by an internal
             // fetcher; use the guarded human-auto policy for tier and quality.
-            "requested_lane": "human_auto"
+            "requested_lane": if it.source_complete { "shadow" } else { "human_auto" }
         }
-    })
+    });
+    if let Some(location) = &it.location {
+        submission["report"]["location"] = location.clone();
+    }
+    submission
+}
+
+// Only accept coordinates explicitly attached to a recognized source map URL.
+// Names and free text require a separate geocoding step; never default to zero.
+fn source_map_location(raw: &str) -> Option<serde_json::Value> {
+    let record: serde_json::Value = serde_json::from_str(raw).ok()?;
+    let record = record.get("record").unwrap_or(&record);
+    for facet in record.get("facets")?.as_array()? {
+        for feature in facet.get("features").and_then(|v| v.as_array()).into_iter().flatten() {
+            let Some(uri) = feature.get("uri").and_then(|v| v.as_str()) else { continue };
+            let Ok(url) = reqwest::Url::parse(uri) else { continue };
+            if !matches!(url.host_str(), Some("www.google.com" | "google.com" | "maps.google.com"))
+                || !url.path().starts_with("/maps") { continue; }
+            for (key,value) in url.query_pairs() {
+                if key != "query" && key != "q" { continue; }
+                let Some((lat,lon)) = value.split_once(',') else { continue };
+                let (Ok(lat),Ok(lon)) = (lat.trim().parse::<f64>(),lon.trim().parse::<f64>()) else { continue };
+                if lat.is_finite() && lon.is_finite() && (-90.0..=90.0).contains(&lat)
+                    && (-180.0..=180.0).contains(&lon) && (lat != 0.0 || lon != 0.0) {
+                    return Some(json!({"kind":"source_map", "lat":lat,"lng":lon,
+                        "place_confidence":1.0,"address_text":uri}));
+                }
+            }
+        }
+    }
+    None
 }
 
 fn protocol_name(protocol: SubmitProtocol) -> &'static str {

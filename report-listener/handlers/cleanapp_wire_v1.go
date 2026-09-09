@@ -922,6 +922,9 @@ func computeCleanAppWireSubmissionQuality(sub cleanAppWireSubmission) float64 {
 
 func assignCleanAppWireLane(cfg *config.Config, tier int, quality float64, evidenceCount int, requestedLane string) string {
 	requestedLane = normalizeWireSlug(requestedLane)
+	if requestedLane == wireLaneShadow {
+		return wireLaneShadow
+	}
 	if requestedLane == wireLaneHumanAuto {
 		switch {
 		case tier < cfg.CleanAppWirePublishLaneMinTier:
