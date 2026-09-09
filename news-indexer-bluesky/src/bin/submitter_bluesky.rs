@@ -712,6 +712,16 @@ fn truncate_chars(s: &str, max_chars: usize) -> String {
 mod body_limit_tests {
     use super::*;
     #[test]
+    fn extracts_source_map_coordinates_without_guessing() {
+        let raw = |url: &str| json!({"facets":[{"features":[{"uri":url}]}]}).to_string();
+        let point = source_map_location(&raw("https://www.google.com/maps/search/?api=1&query=-38.159428644010646,145.19705131346674")).unwrap();
+        assert_eq!(point["lat"], -38.159428644010646);
+        assert_eq!(point["lng"], 145.19705131346674);
+        for url in ["https://www.google.com/maps/search/?query=Langwarrin", "https://www.google.com/maps/search/?query=0,0", "https://www.google.com/maps/search/?query=91,12", "https://example.com/maps?query=10,20"] {
+            assert!(source_map_location(&raw(url)).is_none());
+        }
+    }
+    #[test]
     fn batches_preserve_every_item_and_respect_encoded_byte_limit() {
         let items = vec![
             json!({"source_id":"a", "text":"é".repeat(100)}),
