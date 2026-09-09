@@ -219,14 +219,14 @@ async fn run_once(
                   CAST(p.raw AS CHAR)
            FROM (
              SELECT p.uri
-             FROM indexer_bluesky_post p
-             JOIN indexer_bluesky_analysis a ON a.uri = p.uri
+             FROM indexer_bluesky_post p FORCE INDEX (idx_created_at)
+             STRAIGHT_JOIN indexer_bluesky_analysis a ON a.uri = p.uri
              LEFT JOIN external_ingest_index ei
                ON ei.source = 'bluesky' AND ei.external_id COLLATE utf8mb4_unicode_ci = p.uri
              LEFT JOIN indexer_bluesky_wire_submission ws ON ws.uri = p.uri
              WHERE a.is_relevant = TRUE AND ei.seq IS NULL
                AND (? = 'legacy' OR ws.uri IS NULL)
-             ORDER BY p.created_at DESC, p.uri ASC
+             ORDER BY p.created_at DESC
              LIMIT ?
            ) candidates
            JOIN indexer_bluesky_post p ON p.uri = candidates.uri
