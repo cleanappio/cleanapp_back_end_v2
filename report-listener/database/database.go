@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"report-listener/config"
@@ -19,7 +20,11 @@ import (
 
 // Database handles all database operations
 type Database struct {
-	db *sql.DB
+	db                     *sql.DB
+	sortCandidatesMu       sync.Mutex
+	sortCandidateIDs       []int
+	sortCandidatesLoadedAt time.Time
+	sortCandidatesLoading  chan struct{}
 }
 
 // PublicVisibilityWhereSQL is a reusable predicate that excludes quarantine/shadow reports.

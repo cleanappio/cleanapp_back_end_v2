@@ -93,6 +93,15 @@ func (s *Service) Start() error {
 		return err
 	}
 
+	// Prime sort candidates in the background so the first swipe avoids a cold query.
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := s.db.WarmSortCandidates(ctx); err != nil {
+			log.Printf("Sort candidate warmup failed: %v", err)
+		}
+	}()
+
 	// Start the broadcast loop
 	s.wg.Add(1)
 	go s.broadcastLoop()
