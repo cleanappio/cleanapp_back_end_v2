@@ -116,3 +116,19 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+
+  listener_schema:
+    profiles: ["tools"]
+    build:
+      context: ../../../../.ci-build/report-listener
+    command: ["./migrate"]
+    environment:
+      # Synthetic credentials for this disposable integration database only.
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_USER: root
+      DB_PASSWORD: root
+      DB_NAME: cleanapp
+      JWT_SECRET: "ci-only-synthetic-jwt-signing-key" # gitleaks:allow
+      AMQP_USER: guest
+      AMQP_PASSWORD: guest
