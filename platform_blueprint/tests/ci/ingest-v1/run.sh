@@ -34,7 +34,7 @@ rabbit_json() {
   local user="${RABBITMQ_MGMT_USER:-guest}"
   local pass="${RABBITMQ_MGMT_PASSWORD:-guest}"
   local netrc="${TMPDIR:-/tmp}/.rmq_netrc_$$"
-  printf "machine localhost login %s password %s\\n" "$user" "$pass" >"$netrc"
+  printf "machine localhost login %s password %s\n" "$user" "$pass" >"$netrc"
   chmod 600 "$netrc"
   if [[ -n "$data" ]]; then
     curl -fsS --max-time 10 --netrc-file "$netrc" -H "content-type: application/json" -X "$method" "$url" -d "$data"
@@ -81,6 +81,11 @@ if [[ "$me_id" != "$fetcher_id" ]]; then
   echo "fetcher_id mismatch: register=$fetcher_id me=$me_id" >&2
   exit 1
 fi
+
+echo "== approve registered test importer =="
+python3 -c 'import json,sys; assert json.load(sys.stdin)["status"] == "pending"' <<<"$reg_resp"
+# Approval is fixture setup in this disposable database, not a runtime bypass.
+mysql_query "UPDATE fetchers SET status='active' WHERE fetcher_id='${fetcher_id}'; UPDATE fetcher_keys SET scopes=JSON_ARRAY('fetcher:read','report:submit') WHERE fetcher_id='${fetcher_id}';"
 
 echo "== bulk ingest 1 item (quarantine) =="
 source_id="ci-src-$(date +%s)-$RANDOM"

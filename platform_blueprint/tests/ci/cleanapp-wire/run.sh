@@ -84,6 +84,11 @@ if [[ "$me_id" != "$agent_id" ]]; then
   exit 1
 fi
 
+echo "== approve registered test importer =="
+python3 -c 'import json,sys; assert json.load(sys.stdin)["status"] == "pending"' <<<"$reg_resp"
+# Approval is fixture setup in this disposable database, not a runtime bypass.
+mysql_query "UPDATE fetchers SET status='active' WHERE fetcher_id='${agent_id}'; UPDATE fetcher_keys SET scopes=JSON_ARRAY('fetcher:read','report:submit') WHERE fetcher_id='${agent_id}';"
+
 echo "== submit 1 cleanapp wire report =="
 source_id="wire-src-$(date +%s)-$RANDOM"
 payload="$(python3 - <<PY
