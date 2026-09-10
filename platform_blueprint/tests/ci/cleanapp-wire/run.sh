@@ -73,6 +73,11 @@ api_key="$(json_get 'obj["api_key"]' <<<"$reg_resp")"
 agent_id="$(json_get 'obj["fetcher_id"]' <<<"$reg_resp")"
 echo "agent_id=$agent_id"
 
+echo "== approve registered test importer =="
+python3 -c 'import json,sys; assert json.load(sys.stdin)["status"] == "pending"' <<<"$reg_resp"
+# Approval is fixture setup in this disposable database, not a runtime bypass.
+mysql_query "UPDATE fetchers SET status='active' WHERE fetcher_id='${agent_id}'; UPDATE fetcher_keys SET scopes=JSON_ARRAY('fetcher:read','report:submit') WHERE fetcher_id='${agent_id}';"
+
 echo "== agent me =="
 me_resp="$(
   curl -fsS --max-time 10 -H "Authorization: Bearer ${api_key}" \
@@ -83,11 +88,6 @@ if [[ "$me_id" != "$agent_id" ]]; then
   echo "agent_id mismatch: register=$agent_id me=$me_id" >&2
   exit 1
 fi
-
-echo "== approve registered test importer =="
-python3 -c 'import json,sys; assert json.load(sys.stdin)["status"] == "pending"' <<<"$reg_resp"
-# Approval is fixture setup in this disposable database, not a runtime bypass.
-mysql_query "UPDATE fetchers SET status='active' WHERE fetcher_id='${agent_id}'; UPDATE fetcher_keys SET scopes=JSON_ARRAY('fetcher:read','report:submit') WHERE fetcher_id='${agent_id}';"
 
 echo "== submit 1 cleanapp wire report =="
 source_id="wire-src-$(date +%s)-$RANDOM"
