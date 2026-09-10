@@ -176,4 +176,6 @@ if [[ "${msgs:-0}" == "0" ]]; then
   exit 1
 fi
 
+python3 "$ROOT_DIR/platform_blueprint/tests/ci/ingest-v1/sort_check.py" "$COMPOSE_FILE"
+
 echo "OK"
