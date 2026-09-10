@@ -14,7 +14,7 @@ VM_DIR="${ROOT_DIR}/vm"
 
 echo "[watchdog] installing on ${HOST}"
 
-tar -C "${VM_DIR}" -czf - rabbitmq_ensure.sh smoke_local.sh email_pipeline.sh backup_freshness.sh golden_path.sh public_status.sh run.sh uptime.html | \
+tar -C "${VM_DIR}" -czf - rabbitmq_ensure.sh smoke_local.sh email_pipeline.sh ingestion_pipeline.sh backup_freshness.sh golden_path.sh public_status.sh run.sh uptime.html | \
   ssh "${HOST}" "bash -lc 'set -euo pipefail; mkdir -p ~/cleanapp_watchdog; chmod 700 ~/cleanapp_watchdog; tar -xzf - -C ~/cleanapp_watchdog; chmod 700 ~/cleanapp_watchdog/*.sh'"
 
 # Install the public /uptime assets (secrets-safe) to a root-owned path nginx can read.

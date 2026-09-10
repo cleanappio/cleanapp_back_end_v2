@@ -63,3 +63,39 @@ func TestUpdateDisbursed(t *testing.T) {
 		}
 	})
 }
+
+func TestNormalizeDisbursementAddress(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		ok    bool
+	}{
+		{
+			name:  "valid address",
+			input: "0xE8790e5AF794E2Db8e1517B0700B33cAE580f119",
+			ok:    true,
+		},
+		{
+			name:  "zero address",
+			input: "0x0000000000000000000000000000000000000000",
+			ok:    false,
+		},
+		{
+			name:  "nonsense id",
+			input: "perf-probe-codex-submit-2",
+			ok:    false,
+		},
+		{
+			name:  "blank",
+			input: "   ",
+			ok:    false,
+		},
+	}
+
+	for _, test := range tests {
+		_, ok := normalizeDisbursementAddress(test.input)
+		if ok != test.ok {
+			t.Errorf("%s: expected ok=%v, got %v", test.name, test.ok, ok)
+		}
+	}
+}

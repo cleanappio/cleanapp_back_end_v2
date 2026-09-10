@@ -11,6 +11,10 @@ steps:
   - name: 'gcr.io/cloud-builders/docker'
     args: ['build', '-f', 'Dockerfile.bluesky_all', '--target', 'submitter', '-t', '${_TAG_SUBMITTER}', '.']
 
+  # Build real-time Jetstream collector image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-f', 'Dockerfile.bluesky_all', '--target', 'stream', '-t', '${_TAG_STREAM}', '.']
+
   # Build report analyzer image
   - name: 'gcr.io/cloud-builders/docker'
     args: ['build', '-f', 'Dockerfile.bluesky_all', '--target', 'report_analyzer', '-t', '${_TAG_REPORT_ANALYZER}', '.']
@@ -19,6 +23,7 @@ images:
   - '${_TAG_INDEXER}'
   - '${_TAG_ANALYZER}'
   - '${_TAG_SUBMITTER}'
+  - '${_TAG_STREAM}'
   - '${_TAG_REPORT_ANALYZER}'
 
 options:

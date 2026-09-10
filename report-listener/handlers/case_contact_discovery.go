@@ -3095,9 +3095,6 @@ func normalizeSocialRef(platform, raw string) (caseSocialRef, bool) {
 	}
 	if strings.Contains(raw, "://") {
 		if inferredPlatform, handle, ok := socialRefFromURL(raw); ok {
-			if platform == "" {
-				platform = inferredPlatform
-			}
 			return caseSocialRef{Platform: inferredPlatform, Handle: handle, URL: raw}, true
 		}
 	}

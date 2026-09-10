@@ -257,6 +257,38 @@ CREATE TABLE IF NOT EXISTS reports_owners (
   INDEX idx_is_public (is_public)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Sort game tables: per-user moderation votes plus per-report aggregates.
+CREATE TABLE IF NOT EXISTS report_sort_metrics (
+  report_seq INT NOT NULL,
+  sort_count INT NOT NULL DEFAULT 0,
+  high_value_count INT NOT NULL DEFAULT 0,
+  spam_count INT NOT NULL DEFAULT 0,
+  urgency_sum INT NOT NULL DEFAULT 0,
+  urgency_mean DECIMAL(10, 4) NOT NULL DEFAULT 0.0000,
+  last_sorted_at TIMESTAMP NULL DEFAULT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (report_seq),
+  INDEX idx_report_sort_metrics_last_sorted (last_sorted_at),
+  FOREIGN KEY (report_seq) REFERENCES reports(seq) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS report_sort_events (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  report_seq INT NOT NULL,
+  sorter_id VARCHAR(255) NOT NULL,
+  verdict ENUM('high_value', 'spam') NOT NULL,
+  urgency_score TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  reward_kitns INT NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE INDEX uq_report_sort_event_report_sorter (report_seq, sorter_id),
+  INDEX idx_report_sort_events_sorter (sorter_id, created_at),
+  INDEX idx_report_sort_events_verdict (verdict, created_at),
+  FOREIGN KEY (report_seq) REFERENCES reports(seq) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Fetcher Key System + Quarantine Ingest (v1)
 -- These tables support external agent swarms submitting reports safely with
 -- hashed API keys, quotas, audit logs, and a shadow visibility lane.

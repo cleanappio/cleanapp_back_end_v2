@@ -145,12 +145,12 @@ func (h *Handlers) mirrorLegacyBulkIngestToWire(ctx context.Context, fetcherID, 
 			MaterialHash:      materialHash,
 			SubmissionQuality: quality,
 			ReportSeq:         sql.NullInt64{Int64: int64(it.seq), Valid: it.seq > 0},
-			AgentJSON:         h.db.MarshalJSON(sub.Agent),
-			ProvenanceJSON:    h.db.MarshalJSON(sub.Provenance),
-			ReportJSON:        h.db.MarshalJSON(sub.Report),
-			DedupeJSON:        h.db.MarshalJSON(sub.Dedupe),
-			DeliveryJSON:      h.db.MarshalJSON(sub.Delivery),
-			ExtensionsJSON:    h.db.MarshalJSON(map[string]any{"legacy_source": source, "compat_mode": "v3_bulk_ingest"}),
+			AgentJSON:         h.db.EncodeJSON(sub.Agent),
+			ProvenanceJSON:    h.db.EncodeJSON(sub.Provenance),
+			ReportJSON:        h.db.EncodeJSON(sub.Report),
+			DedupeJSON:        h.db.EncodeJSON(sub.Dedupe),
+			DeliveryJSON:      h.db.EncodeJSON(sub.Delivery),
+			ExtensionsJSON:    h.db.EncodeJSON(map[string]any{"legacy_source": source, "compat_mode": "v3_bulk_ingest"}),
 		}
 		warnings := cleanAppWireWarningsForSubmission(sub, lane)
 		warnings = append(warnings, "legacy_v3_route_mirrored")
@@ -163,7 +163,7 @@ func (h *Handlers) mirrorLegacyBulkIngestToWire(ctx context.Context, fetcherID, 
 			Status:            laneToStatus(lane),
 			Lane:              lane,
 			IdempotencyReplay: false,
-			WarningsJSON:      h.db.MarshalJSON(warnings),
+			WarningsJSON:      h.db.EncodeJSON(warnings),
 			NextCheckAfter:    sql.NullTime{Time: now.Add(2 * time.Minute), Valid: true},
 		}
 		if err := h.db.InsertWireSubmissionAndReceipt(ctx, submissionRecord, receiptRecord); err != nil {

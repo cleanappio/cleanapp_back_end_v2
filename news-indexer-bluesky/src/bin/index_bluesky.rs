@@ -6,7 +6,6 @@ use mysql_async::Pool;
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
-use std::collections::HashSet;
 use std::time::Duration as StdDuration;
 use tokio::time::sleep;
 
@@ -175,15 +174,10 @@ async fn run_once(
     for query in queries {
         let tag_key = format!("search:{}", query.to_lowercase());
 
-        // Load cursor for this query
-        let cursor: Option<String> = conn
-            .exec_first(
-                "SELECT cursor_value FROM indexer_bluesky_cursor WHERE query_tag = ?",
-                (tag_key.clone(),),
-            )
-            .await?;
-
-        let mut next_cursor = cursor;
+        // Search cursors paginate one snapshot; reusing them across polling cycles
+        // can strand the worker on an expired cursor and miss all newer posts.
+        // Revisit the newest pages each cycle; post URI upserts deduplicate them.
+        let mut next_cursor: Option<String> = None;
         let mut pages = 0usize;
 
         loop {
@@ -192,7 +186,14 @@ async fn run_once(
             }
             pages += 1;
 
-            let result = search_posts(client, &access_token, query, next_cursor.as_deref()).await?;
+            let result =
+                match search_posts(client, &access_token, query, next_cursor.as_deref()).await {
+                    Ok(result) => result,
+                    Err(err) => {
+                        warn!("query '{}': {}; continuing with other queries", query, err);
+                        break;
+                    }
+                };
 
             if result.posts.is_empty() {
                 info!("query '{}': no posts in page", query);

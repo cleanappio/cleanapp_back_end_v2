@@ -288,7 +288,7 @@ func (d *Database) IncrementWireReputationSample(ctx context.Context, fetcherID 
 	return nil
 }
 
-func (d *Database) MarshalJSON(v any) []byte {
+func (d *Database) EncodeJSON(v any) []byte {
 	b, _ := json.Marshal(v)
 	return b
 }

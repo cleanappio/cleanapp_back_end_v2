@@ -375,14 +375,6 @@ func (h *Handlers) BulkIngestV1(c *gin.Context) {
 	perMinCap, _ := perMinCapAny.(int)
 	dailyCap, _ := dailyCapAny.(int)
 
-	// Fetcher-level defaults (promotion workflow can lift a fetcher out of quarantine).
-	defVisAny, _ := c.Get(middlewareCtxKeyFetcherDefaultVisibility())
-	defTrustAny, _ := c.Get(middlewareCtxKeyFetcherDefaultTrustLevel())
-	defVis, _ := defVisAny.(string)
-	defTrust, _ := defTrustAny.(string)
-	defVis = normalizeVisibility(defVis, "shadow")
-	defTrust = normalizeTrustLevel(defTrust, "unverified")
-
 	var req v1BulkIngestRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})

@@ -27,6 +27,26 @@ var googleSearchDailyCounter = struct {
 // DefaultGoogleSearchDailyLimit is the default max searches per day (can be overridden by GOOGLE_SEARCH_DAILY_LIMIT env var)
 const DefaultGoogleSearchDailyLimit = 1000
 
+var genericPlaceholderDomainTokens = map[string]struct{}{
+	"admin":             {},
+	"borough":           {},
+	"city":              {},
+	"commune":           {},
+	"county":            {},
+	"district":          {},
+	"gemeinde":          {},
+	"government":        {},
+	"gov":               {},
+	"localmunicipality": {},
+	"municip":           {},
+	"municipal":         {},
+	"municipality":      {},
+	"publicworks":       {},
+	"stadt":             {},
+	"town":              {},
+	"village":           {},
+}
+
 // POI represents a Point of Interest from Overpass
 type POI struct {
 	ID           int64             `json:"id"`
@@ -354,6 +374,99 @@ func ValidateAndFilterEmails(emails []string) []string {
 	return valid
 }
 
+func splitEmail(email string) (string, string, bool) {
+	parts := strings.Split(strings.ToLower(strings.TrimSpace(email)), "@")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return "", "", false
+	}
+	return parts[0], parts[1], true
+}
+
+func normalizeDomain(domain string) string {
+	domain = strings.ToLower(strings.TrimSpace(domain))
+	domain = strings.TrimPrefix(domain, "www.")
+	return strings.Trim(domain, ".")
+}
+
+func hasSpecificDomainToken(label string) bool {
+	tokens := strings.FieldsFunc(label, func(r rune) bool {
+		return r == '-' || r == '_' || r == '.'
+	})
+	if len(tokens) == 0 {
+		tokens = []string{label}
+	}
+
+	for _, token := range tokens {
+		token = strings.TrimSpace(token)
+		if token == "" {
+			continue
+		}
+		if _, generic := genericPlaceholderDomainTokens[token]; !generic {
+			return true
+		}
+	}
+
+	return false
+}
+
+// IsHighQualityPhysicalInferenceDomain rejects placeholder domains like city.ch while allowing
+// concrete institutional domains such as ucla.edu or law.ucla.edu.
+func IsHighQualityPhysicalInferenceDomain(domain string) bool {
+	domain = normalizeDomain(domain)
+	if domain == "" {
+		return false
+	}
+
+	labels := strings.Split(domain, ".")
+	if len(labels) < 2 {
+		return false
+	}
+
+	registrable := labels[len(labels)-2]
+	if registrable == "" {
+		return false
+	}
+
+	if _, generic := genericPlaceholderDomainTokens[registrable]; generic {
+		return false
+	}
+
+	return hasSpecificDomainToken(registrable)
+}
+
+// IsHighConfidencePhysicalEmail rejects emails on placeholder domains like city.ch while allowing
+// department aliases on concrete domains such as ucla.edu.
+func IsHighConfidencePhysicalEmail(email string) bool {
+	if !ValidateEmail(email) {
+		return false
+	}
+
+	_, domain, ok := splitEmail(email)
+	if !ok {
+		return false
+	}
+
+	return IsHighQualityPhysicalInferenceDomain(domain)
+}
+
+// FilterHighConfidencePhysicalEmails filters to deduplicated, high-confidence physical-report contacts.
+func FilterHighConfidencePhysicalEmails(emails []string) []string {
+	var valid []string
+	seen := make(map[string]bool)
+
+	for _, email := range emails {
+		email = strings.TrimSpace(email)
+		lower := strings.ToLower(email)
+
+		if IsHighConfidencePhysicalEmail(email) && !seen[lower] {
+			valid = append(valid, email)
+			seen[lower] = true
+		}
+	}
+
+	return valid
+}
+
 // ScrapeEmailsFromWebsite attempts to extract email addresses from a website
 func (c *Client) ScrapeEmailsFromWebsite(websiteURL string) ([]string, error) {
 	if websiteURL == "" {
@@ -598,47 +711,43 @@ func extractWebsiteURLsFromGoogle(html, locationName string) []string {
 	return urls
 }
 
-// GenerateHierarchyEmails generates email addresses for each level of the hierarchy
+// GenerateHierarchyEmails infers department emails only for trusted organization domains.
+// We intentionally skip placeholder municipality domains like city.ch.
 func GenerateHierarchyEmails(hierarchy []HierarchyLevel) []string {
 	var emails []string
 	seen := make(map[string]bool)
 
-	// Email patterns by type
 	patterns := map[string][]string{
-		"university":   {"facilities@", "security@", "custodian@", "info@", "accessibility@"},
-		"school":       {"facilities@", "office@", "info@"},
-		"hospital":     {"facilities@", "safety@", "info@", "patientservices@"},
-		"organization": {"facilities@", "info@", "contact@"},
-		"operator":     {"info@", "contact@", "support@"},
-		"city":         {"311@", "publicworks@", "parks@", "info@"},
-		"building":     {"facilities@", "management@", "info@"},
+		"university":   {"facilities@", "maintenance@", "security@", "info@"},
+		"school":       {"facilities@", "maintenance@", "office@"},
+		"hospital":     {"facilities@", "maintenance@", "patientservices@"},
+		"organization": {"facilities@", "maintenance@", "info@", "contact@"},
+		"operator":     {"facilities@", "maintenance@", "info@", "contact@"},
+		"building":     {"facilities@", "maintenance@", "management@"},
 	}
 
 	for _, level := range hierarchy {
-		if level.Domain == "" {
-			continue
-		}
+		if level.Domain != "" && level.Type != "city" && IsHighQualityPhysicalInferenceDomain(level.Domain) {
+			typePatterns, ok := patterns[level.Type]
+			if !ok {
+				typePatterns = patterns["organization"]
+			}
 
-		// Get patterns for this type
-		typePatterns, ok := patterns[level.Type]
-		if !ok {
-			typePatterns = patterns["organization"] // default
-		}
-
-		for _, pattern := range typePatterns {
-			email := pattern + level.Domain
-			lower := strings.ToLower(email)
-			if !seen[lower] && ValidateEmail(email) {
-				emails = append(emails, email)
-				seen[lower] = true
+			for _, pattern := range typePatterns {
+				email := pattern + level.Domain
+				lower := strings.ToLower(email)
+				if !seen[lower] && ValidateEmail(email) {
+					emails = append(emails, email)
+					seen[lower] = true
+				}
 			}
 		}
 
-		// Add the direct contact email if available
-		if level.ContactEmail != "" && !seen[strings.ToLower(level.ContactEmail)] {
-			if ValidateEmail(level.ContactEmail) {
+		if level.ContactEmail != "" {
+			lower := strings.ToLower(strings.TrimSpace(level.ContactEmail))
+			if !seen[lower] && ValidateEmail(level.ContactEmail) {
 				emails = append(emails, level.ContactEmail)
-				seen[strings.ToLower(level.ContactEmail)] = true
+				seen[lower] = true
 			}
 		}
 	}

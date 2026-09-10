@@ -432,6 +432,10 @@ func (d *Database) UpdateLastProcessedSeq(ctx context.Context, seq int) error {
 // If full_data is true, returns reports with analysis. If false, returns only reports.
 // Only returns reports that are not resolved and are not privately owned
 func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int, classification string, full_data bool) (interface{}, error) {
+	locationFilter := ""
+	if classification == "physical" {
+		locationFilter = " AND EXISTS (SELECT 1 FROM reports r WHERE r.seq=ra.seq AND r.latitude BETWEEN -90 AND 90 AND r.longitude BETWEEN -180 AND 180 AND (r.latitude <> 0 OR r.longitude <> 0))"
+	}
 	// FAST PATH: Use a simple query on report_analysis only to get the seq list
 	// This leverages the idx_report_analysis_class_valid_seq index efficiently
 	// Skip report_status and reports_owners checks for performance - they rarely filter anything
@@ -444,7 +448,7 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int, class
 		AND %s
 		ORDER BY ra.seq DESC
 		LIMIT ?
-	`, PublicVisibilityWhereSQL)
+	`, PublicVisibilityWhereSQL+locationFilter)
 
 	seqRows, err := d.db.QueryContext(ctx, seqQuery, classification, limit)
 	if err != nil {

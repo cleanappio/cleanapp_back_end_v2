@@ -713,7 +713,7 @@ func shouldSelectTargetForNotifyPlan(
 		return false
 	}
 	scope := target.DecisionScope
-	limit := 1
+	var limit int
 	switch scope {
 	case "site_ops":
 		limit = 3

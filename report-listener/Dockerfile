@@ -22,6 +22,8 @@ COPY . .
 RUN if [ -f buildinfo.vars ]; then . ./buildinfo.vars; else CLEANAPP_BUILD_VERSION=dev; CLEANAPP_GIT_SHA=; CLEANAPP_BUILD_TIME=; fi && \
     CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags "-s -w -X report-listener/version.BuildVersion=${CLEANAPP_BUILD_VERSION} -X report-listener/version.GitSHA=${CLEANAPP_GIT_SHA} -X report-listener/version.BuildTime=${CLEANAPP_BUILD_TIME}" -a -installsuffix cgo -o report-listener .
 
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags "-s -w" -o migrate ./cmd/migrate
+
 # Final stage
 FROM alpine:latest
 
@@ -37,6 +39,7 @@ WORKDIR /app
 
 # Copy binary from builder stage
 COPY --from=builder /app/report-listener .
+COPY --from=builder /app/migrate .
 
 # Change ownership to non-root user
 RUN chown -R appuser:appgroup /app

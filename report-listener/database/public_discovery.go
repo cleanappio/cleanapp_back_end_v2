@@ -135,6 +135,7 @@ func (d *Database) getPublicPhysicalPointCandidates(
 		FROM reports r FORCE INDEX (latitude_index)
 		WHERE r.latitude BETWEEN ? AND ?
 			AND r.longitude BETWEEN ? AND ?
+			AND (r.latitude <> 0 OR r.longitude <> 0)
 			AND r.public_id <> ''
 		ORDER BY r.seq DESC
 		LIMIT ? OFFSET ?

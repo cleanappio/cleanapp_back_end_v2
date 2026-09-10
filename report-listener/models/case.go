@@ -507,7 +507,7 @@ type CaseEscalationSendResponse struct {
 }
 
 type RecordNotifyExecutionTaskOutcomeResponse struct {
-	Task           NotifyExecutionTask  `json:"task"`
-	Outcome        NotifyOutcome        `json:"outcome"`
+	Task           NotifyExecutionTask    `json:"task"`
+	Outcome        NotifyOutcome          `json:"outcome"`
 	EndpointMemory *ContactEndpointMemory `json:"endpoint_memory,omitempty"`
 }

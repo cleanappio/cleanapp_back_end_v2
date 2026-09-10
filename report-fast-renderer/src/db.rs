@@ -103,6 +103,8 @@ pub fn fetch_report_points(pool: &my::Pool, classification: &str) -> Result<Vec<
           AND (rs.status IS NULL OR rs.status = 'active')
           AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE)
           AND r.latitude IS NOT NULL AND r.longitude IS NOT NULL
+          AND r.latitude BETWEEN -90 AND 90 AND r.longitude BETWEEN -180 AND 180
+          AND (r.latitude <> 0 OR r.longitude <> 0)
     "#;
     let sql = if classification.eq_ignore_ascii_case("all") {
         format!(

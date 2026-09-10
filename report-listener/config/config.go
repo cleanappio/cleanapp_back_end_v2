@@ -48,6 +48,7 @@ type Config struct {
 	AMQPPassword                   string
 	RabbitExchange                 string
 	RabbitRawReportRoutingKey      string
+	RabbitHumanReportRoutingKey    string
 	RabbitAnalysedReportRoutingKey string
 	RabbitTwitterReplyRoutingKey   string
 
@@ -151,6 +152,7 @@ func Load() (*Config, error) {
 		AMQPPassword:                   amqpPassword,
 		RabbitExchange:                 appenv.String("RABBITMQ_EXCHANGE", "cleanapp"),
 		RabbitRawReportRoutingKey:      appenv.String("RABBITMQ_RAW_REPORT_ROUTING_KEY", "report.raw"),
+		RabbitHumanReportRoutingKey:    appenv.String("RABBITMQ_HUMAN_REPORT_ROUTING_KEY", ""),
 		RabbitAnalysedReportRoutingKey: appenv.String("RABBITMQ_ANALYSED_REPORT_ROUTING_KEY", "report.analysed"),
 		RabbitTwitterReplyRoutingKey:   appenv.String("RABBITMQ_TWITTER_REPLY_ROUTING_KEY", "twitter.reply"),
 
