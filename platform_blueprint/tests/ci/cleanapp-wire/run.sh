@@ -34,7 +34,7 @@ mysql_query() {
 
 json_get() {
   local expr="$1"
-  python3 - "$expr" <<'PY'
+  python3 -c '
 import json
 import sys
 
@@ -47,7 +47,7 @@ elif value is None:
     print("")
 else:
     print(value)
-PY
+' "$expr"
 }
 
 echo "== bring up stack =="
