@@ -104,7 +104,12 @@ wait_for_sql_nonzero() {
 }
 
 echo "== bring up stack =="
-dc up -d --build
+dc build
+dc up -d --wait mysql rabbitmq
+
+# Runtime startup no longer applies schema migrations; prepare the fresh test DB.
+dc run --rm --no-deps analyzer ./migrate
+dc up -d
 
 echo "== wait services =="
 if ! wait_http_200 "http://localhost:18080/api/v3/health" 180 2; then

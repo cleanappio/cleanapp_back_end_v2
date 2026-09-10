@@ -51,7 +51,13 @@ PY
 }
 
 echo "== bring up stack =="
-dc up -d --build
+dc build
+dc up -d --wait mysql rabbitmq
+
+# Runtime startup no longer applies schema migrations; prepare the fresh test DB.
+dc run --rm --no-deps analyzer ./migrate
+dc run --rm --no-deps report_listener ./migrate
+dc up -d
 
 echo "== wait services =="
 wait_http_200 "http://localhost:18082/health" 180 2
