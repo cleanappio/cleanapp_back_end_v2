@@ -85,7 +85,7 @@ insert_report() {
   local desc="$1"
   local png_b64="iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO5+1WQAAAAASUVORK5CYII="
   dc exec -T mysql mysql -uroot -proot cleanapp -N -e \
-    "INSERT INTO reports (id, team, latitude, longitude, image, action_id, description) VALUES ('ci-pipeline', 1, 47.36, 8.55, FROM_BASE64('${png_b64}'), 'ci', '${desc}'); SELECT LAST_INSERT_ID();"
+    "INSERT INTO reports (public_id, id, team, latitude, longitude, image, action_id, description) VALUES (CONCAT('rpt_', LEFT(REPLACE(UUID(), '-', ''), 22)), 'ci-pipeline', 1, 47.36, 8.55, FROM_BASE64('${png_b64}'), 'ci', '${desc}'); SELECT LAST_INSERT_ID();"
 }
 
 wait_for_sql_nonzero() {
