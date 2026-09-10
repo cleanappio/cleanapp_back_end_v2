@@ -59,18 +59,61 @@ func secureRandomOffset(count int) (int, error) {
 // sortableReportIDs caches only an indexed pool of IDs. Privacy, status, ownership,
 // images and prior votes are rechecked against current data for every card.
 func (d *Database) sortableReportIDs(ctx context.Context) ([]int, error) {
-	d.sortCandidatesMu.Lock()
-	defer d.sortCandidatesMu.Unlock()
-	if d.sortCandidateIDs != nil && time.Since(d.sortCandidatesLoadedAt) < time.Minute {
-		return d.sortCandidateIDs, nil
+	for {
+		d.sortCandidatesMu.Lock()
+		if len(d.sortCandidateIDs) > 0 {
+			ids := d.sortCandidateIDs
+			if time.Since(d.sortCandidatesLoadedAt) >= time.Minute && d.sortCandidatesLoading == nil {
+				d.sortCandidatesLoading = make(chan struct{})
+				go func() {
+					refreshCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+					defer cancel()
+					_, _ = d.refreshSortableReportIDs(refreshCtx)
+				}()
+			}
+			d.sortCandidatesMu.Unlock()
+			return ids, nil
+		}
+		if pending := d.sortCandidatesLoading; pending != nil {
+			d.sortCandidatesMu.Unlock()
+			select {
+			case <-pending:
+				continue
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		d.sortCandidatesLoading = make(chan struct{})
+		d.sortCandidatesMu.Unlock()
+		return d.refreshSortableReportIDs(ctx)
 	}
+}
+
+// WarmSortCandidates primes the ID pool without loading images or recording votes.
+func (d *Database) WarmSortCandidates(ctx context.Context) error {
+	_, err := d.sortableReportIDs(ctx)
+	return err
+}
+
+func (d *Database) refreshSortableReportIDs(ctx context.Context) (ids []int, err error) {
+	defer func() {
+		d.sortCandidatesMu.Lock()
+		defer d.sortCandidatesMu.Unlock()
+		if err == nil {
+			d.sortCandidateIDs = ids
+			d.sortCandidatesLoadedAt = time.Now()
+		}
+		close(d.sortCandidatesLoading)
+		d.sortCandidatesLoading = nil
+	}()
+
 	rows, err := d.db.QueryContext(ctx, `SELECT DISTINCT seq FROM report_analysis
   WHERE classification = 'physical' AND is_valid = TRUE ORDER BY seq`)
 	if err != nil {
 		return nil, fmt.Errorf("load sortable report IDs: %w", err)
 	}
 	defer rows.Close()
-	ids := make([]int, 0)
+	ids = make([]int, 0)
 	for rows.Next() {
 		var id int
 		if err := rows.Scan(&id); err != nil {
@@ -82,8 +125,6 @@ func (d *Database) sortableReportIDs(ctx context.Context) ([]int, error) {
 		return nil, err
 	}
 	mathrand.Shuffle(len(ids), func(i, j int) { ids[i], ids[j] = ids[j], ids[i] })
-	d.sortCandidateIDs = ids
-	d.sortCandidatesLoadedAt = time.Now()
 	return ids, nil
 }
 

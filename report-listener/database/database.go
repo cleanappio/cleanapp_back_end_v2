@@ -24,6 +24,7 @@ type Database struct {
 	sortCandidatesMu       sync.Mutex
 	sortCandidateIDs       []int
 	sortCandidatesLoadedAt time.Time
+	sortCandidatesLoading  chan struct{}
 }
 
 // PublicVisibilityWhereSQL is a reusable predicate that excludes quarantine/shadow reports.
