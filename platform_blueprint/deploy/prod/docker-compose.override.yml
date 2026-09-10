@@ -11,6 +11,7 @@ services:
 
   cleanapp_report_analyze_human:
     extends:
+      file: docker-compose.yml
       service: cleanapp_report_analyze_pipeline
     container_name: cleanapp_report_analyze_human
     restart: always
