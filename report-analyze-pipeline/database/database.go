@@ -133,7 +133,8 @@ func (d *Database) Close() error {
 func (d *Database) GetUnanalyzedReports(cfg *config.Config, limit int) ([]Report, error) {
 	query := `
 	SELECT
-		r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.image, r.action_id, r.description,
+		r.seq, r.ts, r.id, r.team, r.latitude, r.longitude,
+		COALESCE(r.x, 0), COALESCE(r.y, 0), r.image, COALESCE(r.action_id, ''), r.description,
 		COALESCE(NULLIF(dsr.source_url, ''), NULLIF(rd.url, ''), '') AS source_url,
 		COALESCE(NULLIF(dsr.shared_text, ''), '') AS shared_text,
 		COALESCE(NULLIF(dsr.source_app, ''), '') AS source_app
@@ -199,7 +200,8 @@ func (d *Database) GetUnanalyzedReports(cfg *config.Config, limit int) ([]Report
 func (d *Database) GetReportBySeq(seq int) (*Report, error) {
 	query := `
 	SELECT
-		r.seq, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.image, r.action_id, r.description,
+		r.seq, r.ts, r.id, r.team, r.latitude, r.longitude,
+		COALESCE(r.x, 0), COALESCE(r.y, 0), r.image, COALESCE(r.action_id, ''), r.description,
 		COALESCE(NULLIF(dsr.source_url, ''), NULLIF(rd.url, ''), '') AS source_url,
 		COALESCE(NULLIF(dsr.shared_text, ''), '') AS shared_text,
 		COALESCE(NULLIF(dsr.source_app, ''), '') AS source_app
