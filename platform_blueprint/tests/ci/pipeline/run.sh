@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
+bash "$ROOT_DIR/scripts/ci/prepare_build_contexts.sh"
 COMPOSE_FILE="$ROOT_DIR/platform_blueprint/tests/ci/pipeline/docker-compose.yml"
 
 dc() {

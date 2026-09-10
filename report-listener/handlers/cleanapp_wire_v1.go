@@ -642,12 +642,12 @@ func (h *Handlers) processCleanAppWireSubmissionInternalWithHook(
 		MaterialHash:      materialHash,
 		SubmissionQuality: quality,
 		RiskScore:         auth.RiskScore,
-		AgentJSON:         h.db.MarshalJSON(sub.Agent),
-		ProvenanceJSON:    h.db.MarshalJSON(sub.Provenance),
-		ReportJSON:        h.db.MarshalJSON(sub.Report),
-		DedupeJSON:        h.db.MarshalJSON(sub.Dedupe),
-		DeliveryJSON:      h.db.MarshalJSON(sub.Delivery),
-		ExtensionsJSON:    h.db.MarshalJSON(sub.Extensions),
+		AgentJSON:         h.db.EncodeJSON(sub.Agent),
+		ProvenanceJSON:    h.db.EncodeJSON(sub.Provenance),
+		ReportJSON:        h.db.EncodeJSON(sub.Report),
+		DedupeJSON:        h.db.EncodeJSON(sub.Dedupe),
+		DeliveryJSON:      h.db.EncodeJSON(sub.Delivery),
+		ExtensionsJSON:    h.db.EncodeJSON(sub.Extensions),
 	}
 	if ingestResp.ReportSeq > 0 {
 		submissionRecord.ReportSeq = sql.NullInt64{Int64: int64(ingestResp.ReportSeq), Valid: true}
@@ -661,7 +661,7 @@ func (h *Handlers) processCleanAppWireSubmissionInternalWithHook(
 		Status:            status,
 		Lane:              lane,
 		IdempotencyReplay: ingestResp.Status == "duplicate",
-		WarningsJSON:      h.db.MarshalJSON(cleanAppWireWarningsForSubmission(sub, lane)),
+		WarningsJSON:      h.db.EncodeJSON(cleanAppWireWarningsForSubmission(sub, lane)),
 		NextCheckAfter:    nextCheckAfter,
 	}
 	if ingestResp.ReportSeq > 0 {
@@ -1310,7 +1310,12 @@ func (h *Handlers) cleanAppWireIngestCore(
 		"visibility":  visibility,
 		"tags":        item.Tags,
 	}
-	if err := pub.PublishWithRoutingKey(h.cfg.RabbitRawReportRoutingKey, msg); err != nil {
+	routingKey := h.cfg.RabbitRawReportRoutingKey
+	if auth.ActorKind == "human" && h.cfg.RabbitHumanReportRoutingKey != "" {
+		// Isolate phone submissions from the bulk import backlog.
+		routingKey = h.cfg.RabbitHumanReportRoutingKey
+	}
+	if err := pub.PublishWithRoutingKey(routingKey, msg); err != nil {
 		return cleanAppWireIngestCoreResult{
 			SourceID:   item.SourceID,
 			Status:     "accepted",

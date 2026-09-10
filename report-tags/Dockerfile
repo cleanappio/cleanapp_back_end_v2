@@ -1,6 +1,6 @@
 # Multi-stage build for Rust report-tags service
 
-FROM rust:1.85-bullseye AS builder
+FROM rust:1.94-bookworm AS builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -32,7 +32,7 @@ RUN test -f target/release/report-tags \
      fi \
   && grep -a "Report Tags Service Starting" target/release/report-tags >/dev/null || (echo "ERROR: Expected startup string not found in binary"; exit 1)
 
-FROM debian:bullseye-slim
+FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 

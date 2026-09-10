@@ -114,8 +114,10 @@ impl Callback for InMemoryReports {
 }
 
 fn has_map_location(lat: f64, lon: f64) -> bool {
-    lat.is_finite() && lon.is_finite()
-        && (-90.0..=90.0).contains(&lat) && (-180.0..=180.0).contains(&lon)
+    lat.is_finite()
+        && lon.is_finite()
+        && (-90.0..=90.0).contains(&lat)
+        && (-180.0..=180.0).contains(&lon)
         && (lat != 0.0 || lon != 0.0)
 }
 

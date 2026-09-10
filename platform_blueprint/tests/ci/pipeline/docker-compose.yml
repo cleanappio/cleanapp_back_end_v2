@@ -27,7 +27,7 @@ services:
 
   analyzer:
     build:
-      context: ../../../../report-analyze-pipeline
+      context: ../../../../.ci-build/report-analyze-pipeline
     environment:
       # Synthetic test-fixture credentials only.
       PORT: "8080"
@@ -62,7 +62,7 @@ services:
 
   tags:
     build:
-      context: ../../../../report-tags
+      context: ../../../../.ci-build/report-tags
     environment:
       # Synthetic test-fixture credentials only.
       PORT: "8080"
@@ -91,7 +91,7 @@ services:
 
   renderer:
     build:
-      context: ../../../../report-fast-renderer
+      context: ../../../../.ci-build/report-fast-renderer
     environment:
       # Synthetic test-fixture credentials only.
       SERVER_PORT: "8080"
