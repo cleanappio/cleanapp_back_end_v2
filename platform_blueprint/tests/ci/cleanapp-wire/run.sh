@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
+bash "$ROOT_DIR/scripts/ci/prepare_build_contexts.sh"
 COMPOSE_FILE="$ROOT_DIR/platform_blueprint/tests/ci/ingest-v1/docker-compose.yml"
 
 dc() {
@@ -50,7 +51,13 @@ PY
 }
 
 echo "== bring up stack =="
-dc up -d --build
+dc build
+dc up -d --wait mysql rabbitmq
+
+# Runtime startup no longer applies schema migrations; prepare the fresh test DB.
+dc run --rm --no-deps analyzer ./migrate
+dc run --rm --no-deps report_listener ./migrate
+dc up -d
 
 echo "== wait services =="
 wait_http_200 "http://localhost:18082/health" 180 2
@@ -76,6 +83,11 @@ if [[ "$me_id" != "$agent_id" ]]; then
   echo "agent_id mismatch: register=$agent_id me=$me_id" >&2
   exit 1
 fi
+
+echo "== approve registered test importer =="
+python3 -c 'import json,sys; assert json.load(sys.stdin)["status"] == "pending"' <<<"$reg_resp"
+# Approval is fixture setup in this disposable database, not a runtime bypass.
+mysql_query "UPDATE fetchers SET status='active' WHERE fetcher_id='${agent_id}'; UPDATE fetcher_keys SET scopes=JSON_ARRAY('fetcher:read','report:submit') WHERE fetcher_id='${agent_id}';"
 
 echo "== submit 1 cleanapp wire report =="
 source_id="wire-src-$(date +%s)-$RANDOM"

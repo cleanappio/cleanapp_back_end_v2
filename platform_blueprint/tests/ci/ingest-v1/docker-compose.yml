@@ -27,7 +27,7 @@ services:
 
   report_listener:
     build:
-      context: ../../../../report-listener
+      context: ../../../../.ci-build/report-listener
     environment:
       # Synthetic test-fixture credentials only.
       PORT: "8080"
@@ -48,10 +48,12 @@ services:
       RABBITMQ_ANALYSED_REPORT_ROUTING_KEY: "report.analysed"
 
       FETCHER_KEY_ENV: "test"
+      FETCHER_SELF_REGISTRATION_ENABLED: "true"
       FETCHER_REGISTER_MAX_PER_HOUR_PER_IP: "50"
       FETCHER_INGEST_MAX_BATCH_ITEMS: "100"
       FETCHER_INGEST_MAX_BODY_BYTES: "2097152"
       INTERNAL_ADMIN_TOKEN: "ci-admin-token"
+      JWT_SECRET: "ci-only-synthetic-jwt-signing-key" # gitleaks:allow
     ports:
       - "18082:8080"
     depends_on:
@@ -62,7 +64,7 @@ services:
 
   analyzer:
     build:
-      context: ../../../../report-analyze-pipeline
+      context: ../../../../.ci-build/report-analyze-pipeline
     environment:
       # Synthetic test-fixture credentials only.
       PORT: "8080"

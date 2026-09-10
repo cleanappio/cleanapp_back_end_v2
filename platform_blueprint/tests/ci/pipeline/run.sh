@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
+bash "$ROOT_DIR/scripts/ci/prepare_build_contexts.sh"
 COMPOSE_FILE="$ROOT_DIR/platform_blueprint/tests/ci/pipeline/docker-compose.yml"
 
 dc() {
@@ -84,7 +85,7 @@ insert_report() {
   local desc="$1"
   local png_b64="iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO5+1WQAAAAASUVORK5CYII="
   dc exec -T mysql mysql -uroot -proot cleanapp -N -e \
-    "INSERT INTO reports (id, team, latitude, longitude, image, action_id, description) VALUES ('ci-pipeline', 1, 47.36, 8.55, FROM_BASE64('${png_b64}'), 'ci', '${desc}'); SELECT LAST_INSERT_ID();"
+    "INSERT INTO reports (public_id, id, team, latitude, longitude, image, action_id, description) VALUES (CONCAT('rpt_', LEFT(REPLACE(UUID(), '-', ''), 22)), 'ci-pipeline', 1, 47.36, 8.55, FROM_BASE64('${png_b64}'), 'ci', '${desc}'); SELECT LAST_INSERT_ID();"
 }
 
 wait_for_sql_nonzero() {
@@ -103,7 +104,12 @@ wait_for_sql_nonzero() {
 }
 
 echo "== bring up stack =="
-dc up -d --build
+dc build
+dc up -d --wait mysql rabbitmq
+
+# Runtime startup no longer applies schema migrations; prepare the fresh test DB.
+dc run --rm --no-deps analyzer ./migrate
+dc up -d
 
 echo "== wait services =="
 if ! wait_http_200 "http://localhost:18080/api/v3/health" 180 2; then

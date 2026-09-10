@@ -1,5 +1,9 @@
 .PHONY: help gitleaks hooks ci ci-go ci-analyzer ci-ingest-v1 ci-cleanapp-wire fmt-go test-go vet-go lint-go rust-fmt rust-clippy analyzer-build-dev analyzer-tag-prod prometheus-install watchdog-install deploy-prod deploy-prod-source report-auth-up report-auth-down report-auth-logs report-auth-test
 
+HOST ?= deployer@34.122.15.16
+SOURCE_SERVICES ?=
+REF ?= HEAD
+
 help:
 	@echo "Common commands:"
 	@echo "  make gitleaks            - secret scan working tree"
@@ -92,12 +96,8 @@ report-auth-test:
 
 
 deploy-prod:
-	HOST?=deployer@34.122.15.16
 	HOST=$(HOST) RUN_GO_MIGRATIONS=1 ./platform_blueprint/deploy/prod/vm/deploy_with_digests.sh
 
 deploy-prod-source:
-	HOST?=deployer@34.122.15.16
-	SOURCE_SERVICES?=
-	REF?=HEAD
 	@if [ -z "$(SOURCE_SERVICES)" ]; then echo "SOURCE_SERVICES is required, e.g. make deploy-prod-source SOURCE_SERVICES='report-listener customer-service'"; exit 2; fi
 	HOST=$(HOST) REF=$(REF) SOURCE_SERVICES="$(SOURCE_SERVICES)" RUN_GO_MIGRATIONS=1 ./platform_blueprint/deploy/prod/vm/source_build_and_deploy.sh

@@ -158,6 +158,9 @@ func toPublicDiscoveryCards(
 		if classification == "" {
 			classification = "physical"
 		}
+		if classification == "physical" && !hasMapLocation(report.Report.Latitude, report.Report.Longitude) {
+			continue
+		}
 		token, err := tokenForReport(classification, report.Report.PublicID)
 		if err != nil {
 			return nil, err

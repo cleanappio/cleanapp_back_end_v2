@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
+bash "$ROOT_DIR/scripts/ci/prepare_build_contexts.sh"
 COMPOSE_FILE="$ROOT_DIR/platform_blueprint/tests/ci/analyzer/docker-compose.yml"
 
 dc() {
@@ -25,7 +26,12 @@ cleanup() {
 trap cleanup EXIT
 
 echo "== bring up stack =="
-dc up -d --build
+dc build
+dc up -d --wait mysql rabbitmq
+
+# Runtime startup no longer applies schema migrations; prepare the fresh test DB.
+dc run --rm --no-deps analyzer ./migrate
+dc up -d
 
 echo "== wait for analyzer health =="
 for _ in $(seq 1 90); do
@@ -59,7 +65,7 @@ PNG_B64="iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO5
 DESC="CI golden path report"
 SEQ="$(
   dc exec -T mysql mysql -uroot -proot cleanapp -N -e \
-    "INSERT INTO reports (id, team, latitude, longitude, image, action_id, description) VALUES ('ci', 1, 47.36, 8.55, FROM_BASE64('${PNG_B64}'), 'ci', '${DESC}'); SELECT LAST_INSERT_ID();"
+    "INSERT INTO reports (public_id, id, team, latitude, longitude, image, action_id, description) VALUES (CONCAT('rpt_', LEFT(REPLACE(UUID(), '-', ''), 22)), 'ci', 1, 47.36, 8.55, FROM_BASE64('${PNG_B64}'), 'ci', '${DESC}'); SELECT LAST_INSERT_ID();"
 )"
 if [[ -z "$SEQ" ]]; then
   echo "failed to insert report (no seq returned)" >&2

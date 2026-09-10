@@ -39,6 +39,26 @@ const (
 	retryReasonAwaitContactDiscovery = "await_contact_discovery"
 )
 
+var genericPlaceholderDomainTokens = map[string]struct{}{
+	"admin":             {},
+	"borough":           {},
+	"city":              {},
+	"commune":           {},
+	"county":            {},
+	"district":          {},
+	"gemeinde":          {},
+	"government":        {},
+	"gov":               {},
+	"localmunicipality": {},
+	"municip":           {},
+	"municipal":         {},
+	"municipality":      {},
+	"publicworks":       {},
+	"stadt":             {},
+	"town":              {},
+	"village":           {},
+}
+
 // isValidEmail checks if a string is a valid email address
 func (s *EmailService) isValidEmail(email string) bool {
 	email = strings.TrimSpace(email)
@@ -67,6 +87,100 @@ func (s *EmailService) isValidEmail(email string) bool {
 	}
 
 	return true
+}
+
+func splitEmailAddress(email string) (string, string, bool) {
+	parts := strings.Split(strings.ToLower(strings.TrimSpace(email)), "@")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return "", "", false
+	}
+	return parts[0], parts[1], true
+}
+
+func normalizeDomain(domain string) string {
+	domain = strings.ToLower(strings.TrimSpace(domain))
+	domain = strings.TrimPrefix(domain, "www.")
+	return strings.Trim(domain, ".")
+}
+
+func hasSpecificDomainToken(label string) bool {
+	tokens := strings.FieldsFunc(label, func(r rune) bool {
+		return r == '-' || r == '_' || r == '.'
+	})
+	if len(tokens) == 0 {
+		tokens = []string{label}
+	}
+
+	for _, token := range tokens {
+		token = strings.TrimSpace(token)
+		if token == "" {
+			continue
+		}
+		if _, generic := genericPlaceholderDomainTokens[token]; !generic {
+			return true
+		}
+	}
+
+	return false
+}
+
+func isHighQualityPhysicalInferenceDomain(domain string) bool {
+	domain = normalizeDomain(domain)
+	if domain == "" {
+		return false
+	}
+
+	labels := strings.Split(domain, ".")
+	if len(labels) < 2 {
+		return false
+	}
+
+	registrable := labels[len(labels)-2]
+	if registrable == "" {
+		return false
+	}
+
+	if _, generic := genericPlaceholderDomainTokens[registrable]; generic {
+		return false
+	}
+
+	return hasSpecificDomainToken(registrable)
+}
+
+func (s *EmailService) isHighQualityInferredEmail(email, classification string) bool {
+	if !s.isValidEmail(email) {
+		return false
+	}
+
+	if strings.EqualFold(classification, "digital") {
+		return true
+	}
+
+	_, domain, ok := splitEmailAddress(email)
+	if !ok {
+		return false
+	}
+
+	return isHighQualityPhysicalInferenceDomain(domain)
+}
+
+func (s *EmailService) filterHighQualityInferredEmails(emails []string, classification string) []string {
+	var filtered []string
+	seen := make(map[string]bool)
+
+	for _, email := range emails {
+		cleanEmail := strings.TrimSpace(email)
+		lower := strings.ToLower(cleanEmail)
+		if cleanEmail == "" || seen[lower] {
+			continue
+		}
+		if s.isHighQualityInferredEmail(cleanEmail, classification) {
+			filtered = append(filtered, cleanEmail)
+			seen[lower] = true
+		}
+	}
+
+	return filtered
 }
 
 // isEmailOptedOut checks if an email address has opted out from receiving emails
@@ -595,7 +709,7 @@ func (s *EmailService) ProcessBrandNotifications() error {
 
 		for _, email := range emails {
 			cleanEmail := strings.TrimSpace(email)
-			if cleanEmail == "" || !s.isValidEmail(cleanEmail) {
+			if cleanEmail == "" || !s.isHighQualityInferredEmail(cleanEmail, summary.Classification) {
 				continue
 			}
 
@@ -723,18 +837,18 @@ func (s *EmailService) processReport(ctx context.Context, report models.Report) 
 		emails := strings.Split(inferredStr, ",")
 		var cleanEmails []string
 
-		// Clean up each email (remove whitespace) and validate
+		// Clean up each email and apply the inferred-contact quality bar.
 		for _, email := range emails {
 			cleanEmail := strings.TrimSpace(email)
-			if cleanEmail != "" && s.isValidEmail(cleanEmail) {
+			if cleanEmail != "" && s.isHighQualityInferredEmail(cleanEmail, analysis.Classification) {
 				cleanEmails = append(cleanEmails, cleanEmail)
 			} else if cleanEmail != "" {
-				log.Warnf("Report %d: Invalid email address found in inferred contacts: %s", report.Seq, cleanEmail)
+				log.Warnf("Report %d: Rejected low-quality inferred contact email: %s", report.Seq, cleanEmail)
 			}
 		}
 
 		if len(cleanEmails) > 0 {
-			log.Infof("Report %d: Using %d valid inferred contact emails (priority over area emails): %v", report.Seq, len(cleanEmails), cleanEmails)
+			log.Infof("Report %d: Using %d high-quality inferred contact emails (priority over area emails): %v", report.Seq, len(cleanEmails), cleanEmails)
 
 			// Send emails to inferred contacts (no area context needed)
 			if err := s.sendEmailsToInferredContacts(ctx, report, analysis, cleanEmails); err != nil {
@@ -746,7 +860,7 @@ func (s *EmailService) processReport(ctx context.Context, report models.Report) 
 			// Mark report as processed and return
 			return s.markReportAsProcessed(ctx, report.Seq)
 		} else {
-			log.Infof("Report %d: No valid inferred contact emails found after validation", report.Seq)
+			log.Infof("Report %d: No high-quality inferred contact emails found after filtering", report.Seq)
 		}
 	} else if inferredStr != "" && analysis.Classification != "digital" && !s.config.UseInferredEmailsForPhysical {
 		log.Infof("Report %d: Inferred contact emails present but physical inferred-email sending disabled; falling back to area-based logic", report.Seq)
@@ -993,7 +1107,9 @@ func (s *EmailService) getAreaEmails(ctx context.Context, areaMap map[uint64]boo
 
 // sendEmailsToInferredContacts sends emails to inferred contact emails without area context
 func (s *EmailService) sendEmailsToInferredContacts(ctx context.Context, report models.Report, analysis *models.ReportAnalysis, emails []string) error {
+	emails = s.filterHighQualityInferredEmails(emails, analysis.Classification)
 	if len(emails) == 0 {
+		log.Infof("Report %d: inferred contacts were present, but none met the quality bar for sending", report.Seq)
 		return nil
 	}
 

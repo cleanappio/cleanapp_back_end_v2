@@ -446,21 +446,31 @@ func (s *Service) enrichPhysicalReportEmails(report *database.Report, analysis *
 	for i := range existingEmails {
 		existingEmails[i] = strings.TrimSpace(existingEmails[i])
 	}
-	if len(osm.ValidateAndFilterEmails(existingEmails)) >= 3 {
-		log.Printf("Report %d: Already has %d valid inferred emails, skipping OSM enrichment",
-			report.Seq, len(existingEmails))
+	existingHighConfidenceEmails := osm.FilterHighConfidencePhysicalEmails(existingEmails)
+	if len(existingHighConfidenceEmails) >= 3 {
+		log.Printf("Report %d: Already has %d high-confidence inferred emails, skipping OSM enrichment",
+			report.Seq, len(existingHighConfidenceEmails))
 		return
 	}
 
 	// Check if we have cached emails for this location
 	cachedEmails, err := s.osmService.GetCachedInferredEmails(report.Latitude, report.Longitude)
 	if err == nil && cachedEmails != "" {
-		log.Printf("Report %d: Using cached inferred emails for location (%.4f, %.4f)",
-			report.Seq, report.Latitude, report.Longitude)
-		if err := s.db.UpdateInferredContactEmails(report.Seq, cachedEmails); err != nil {
-			log.Printf("Report %d: Failed to update with cached emails: %v", report.Seq, err)
+		filteredCachedEmails := osm.FilterHighConfidencePhysicalEmails(strings.Split(cachedEmails, ","))
+		if len(filteredCachedEmails) > 0 {
+			sanitizedCachedEmails := strings.Join(filteredCachedEmails, ", ")
+			log.Printf("Report %d: Using %d cached high-confidence inferred emails for location (%.4f, %.4f)",
+				report.Seq, len(filteredCachedEmails), report.Latitude, report.Longitude)
+			if err := s.db.UpdateInferredContactEmails(report.Seq, sanitizedCachedEmails); err != nil {
+				log.Printf("Report %d: Failed to update with cached emails: %v", report.Seq, err)
+			}
+			if sanitizedCachedEmails != cachedEmails {
+				s.osmService.SaveInferredEmails(report.Latitude, report.Longitude, sanitizedCachedEmails)
+			}
+			return
 		}
-		return
+		log.Printf("Report %d: Discarded cached inferred emails after quality filtering; running fresh enrichment",
+			report.Seq)
 	}
 
 	// Collect all discovered emails with provenance
@@ -527,9 +537,9 @@ func (s *Service) enrichPhysicalReportEmails(report *database.Report, analysis *
 	}
 
 	// Step 5: If still not enough emails, try Google web search for location
-	validEmailsSoFar := osm.ValidateAndFilterEmails(allEmails)
+	validEmailsSoFar := osm.FilterHighConfidencePhysicalEmails(allEmails)
 	if len(validEmailsSoFar) < 2 && locCtx != nil && locCtx.PrimaryName != "" {
-		log.Printf("Report %d: Only %d emails from OSM, trying Google search for %q",
+		log.Printf("Report %d: Only %d high-confidence emails from OSM/web, trying Google search for %q",
 			report.Seq, len(validEmailsSoFar), locCtx.PrimaryName)
 
 		city := ""
@@ -547,9 +557,9 @@ func (s *Service) enrichPhysicalReportEmails(report *database.Report, analysis *
 		}
 	}
 
-	// Step 6: Validate and deduplicate all collected emails
-	validEmails := osm.ValidateAndFilterEmails(allEmails)
-	log.Printf("Report %d: %d valid emails after filtering (from %d total)",
+	// Step 6: Validate, deduplicate, and quality-filter all collected emails.
+	validEmails := osm.FilterHighConfidencePhysicalEmails(allEmails)
+	log.Printf("Report %d: %d high-confidence emails after filtering (from %d total discoveries)",
 		report.Seq, len(validEmails), len(allEmails))
 
 	// Step 7: If we found at least one usable mailbox, save it. Physical contact discovery is often sparse;
@@ -603,8 +613,8 @@ func (s *Service) enrichPhysicalReportEmails(report *database.Report, analysis *
 				return
 			}
 
-			// Validate LLM-generated emails
-			llmEmails := osm.ValidateAndFilterEmails(enrichedAnalysis.InferredContactEmails)
+			// Validate LLM-generated emails, but keep the same high-confidence bar as the OSM/web path.
+			llmEmails := osm.FilterHighConfidencePhysicalEmails(enrichedAnalysis.InferredContactEmails)
 			if len(llmEmails) > 0 {
 				enrichedEmails := strings.Join(llmEmails, ", ")
 				if err := s.db.UpdateInferredContactEmails(report.Seq, enrichedEmails); err != nil {

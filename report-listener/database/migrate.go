@@ -32,6 +32,7 @@ func RunMigrations(ctx context.Context, db *sql.DB) error {
 		{ID: "0020_mobile_push_delivery", Description: "create mobile push device registry and report delivery event tables", Up: func(ctx context.Context, db *sql.DB) error { return ensureMobilePushDeliveryTables(ctx, db) }},
 		{ID: "0021_digital_share_reports", Description: "create digital share report metadata table", Up: func(ctx context.Context, db *sql.DB) error { return ensureDigitalShareReportsTable(ctx, db) }},
 		{ID: "0022_digital_share_attachments", Description: "create digital share attachment table", Up: func(ctx context.Context, db *sql.DB) error { return ensureDigitalShareAttachmentsTable(ctx, db) }},
+		{ID: "0023_report_sort_tables", Description: "create report sort event and aggregate tables", Up: func(ctx context.Context, db *sql.DB) error { return ensureReportSortTables(ctx, db) }},
 	})
 }
 

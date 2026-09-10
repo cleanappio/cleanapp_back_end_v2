@@ -97,6 +97,8 @@ struct BlueskyPreparedItem {
     brand_name: String,
     inferred_contact_emails: serde_json::Value,
     url: String,
+    location: Option<serde_json::Value>,
+    source_complete: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -213,18 +215,23 @@ async fn run_once(
                    (SELECT m.sha256 FROM indexer_bluesky_media m WHERE m.post_uri=p.uri ORDER BY position ASC LIMIT 1) LIMIT 1),
                   COALESCE(a.summary, ''), COALESCE(a.report_title, ''),
                   COALESCE(a.report_description, ''), COALESCE(a.brand_display_name, ''),
-                  COALESCE(a.brand_name, ''), COALESCE(a.inferred_contact_emails, '[]')
-           FROM indexer_bluesky_post p
+                  COALESCE(a.brand_name, ''), COALESCE(a.inferred_contact_emails, '[]'),
+                  CAST(p.raw AS CHAR)
+           FROM (
+             SELECT p.uri
+             FROM indexer_bluesky_post p FORCE INDEX (idx_created_at)
+             STRAIGHT_JOIN indexer_bluesky_analysis a ON a.uri = p.uri
+             LEFT JOIN external_ingest_index ei
+               ON ei.source = 'bluesky' AND ei.external_id COLLATE utf8mb4_unicode_ci = p.uri
+             LEFT JOIN indexer_bluesky_wire_submission ws ON ws.uri = p.uri
+             WHERE a.is_relevant = TRUE AND ei.seq IS NULL
+               AND (? = 'legacy' OR ws.uri IS NULL)
+             ORDER BY p.created_at DESC
+             LIMIT ?
+           ) candidates
+           JOIN indexer_bluesky_post p ON p.uri = candidates.uri
            JOIN indexer_bluesky_analysis a ON a.uri = p.uri
-           LEFT JOIN external_ingest_index ei 
-             ON ei.source = 'bluesky' AND ei.external_id COLLATE utf8mb4_unicode_ci = p.uri
-           LEFT JOIN indexer_bluesky_wire_submission ws
-             ON ws.uri COLLATE utf8mb4_unicode_ci = p.uri
-           WHERE a.is_relevant = TRUE
-             AND ei.seq IS NULL
-             AND (? = 'legacy' OR ws.uri IS NULL)
-           ORDER BY p.created_at ASC, p.uri ASC
-           LIMIT ?"#,
+           ORDER BY p.created_at DESC, p.uri ASC"#,
         (protocol_name(protocol), batch_size as u64),
     )
     .await?;
@@ -293,6 +300,10 @@ async fn run_once(
                 .to_string()
         };
         let url = format!("https://bsky.app/profile/{}/post/{}", profile_id, post_id);
+        let raw: String = row.get::<Option<String>, _>(14).unwrap_or(None).unwrap_or_default();
+        let location = source_map_location(&raw);
+        let source_complete = text.replace("\\n", "\n").lines()
+            .any(|line| line.trim().eq_ignore_ascii_case("Status: Complete"));
 
         let title = if !report_title.is_empty() {
             truncate_chars(&report_title, 120)
@@ -328,6 +339,8 @@ async fn run_once(
             )
             .unwrap_or(json!([])),
             url,
+            location,
+            source_complete,
         });
     }
 
@@ -421,45 +434,76 @@ async fn submit_wire(
     token: &str,
     items: &[BlueskyPreparedItem],
 ) -> Result<()> {
-    let payload = json!({
-        "items": items.iter().map(bluesky_item_to_wire_submission).collect::<Vec<_>>(),
-    });
+    // The receiver limits request bodies to 2 MiB, including inline images.
+    // Item count alone cannot bound the serialized size.
+    let batches = wire_batches(
+        items.iter().map(bluesky_item_to_wire_submission).collect(),
+        2 * 1024 * 1024,
+    )?;
+    for payload in batches {
+        let batch_len = payload["items"].as_array().map_or(0, Vec::len);
+        let resp = client
+            .post(format!(
+                "{}/api/v1/agent-reports:batchSubmit",
+                endpoint_url.trim_end_matches('/')
+            ))
+            .bearer_auth(token)
+            .json(&payload)
+            .send()
+            .await;
 
-    let resp = client
-        .post(format!(
-            "{}/api/v1/agent-reports:batchSubmit",
-            endpoint_url.trim_end_matches('/')
-        ))
-        .bearer_auth(token)
-        .json(&payload)
-        .send()
-        .await;
-
-    match resp {
-        Ok(r) => {
-            if !r.status().is_success() {
-                let status = r.status();
-                let text = r.text().await.unwrap_or_default();
-                warn!("wire submit failed http {}: {}", status, text);
-                return Ok(());
-            }
-            let wire: WireBatchResponse = r.json().await.context("parse wire batch response")?;
-            persist_wire_receipts(pool, &wire).await?;
-            info!(
+        match resp {
+            Ok(r) => {
+                if !r.status().is_success() {
+                    let status = r.status();
+                    let text = r.text().await.unwrap_or_default();
+                    warn!("wire submit failed http {}: {}", status, text);
+                    return Ok(());
+                }
+                let wire: WireBatchResponse =
+                    r.json().await.context("parse wire batch response")?;
+                persist_wire_receipts(pool, &wire).await?;
+                info!(
                 "wire submitted batch: rows={} submitted={} accepted={} duplicates={} rejected={}",
-                items.len(),
+                batch_len,
                 wire.submitted,
                 wire.accepted,
                 wire.duplicates,
                 wire.rejected
             );
-        }
-        Err(e) => {
-            warn!("wire submit http error: {}", e);
+            }
+            Err(e) => {
+                warn!("wire submit http error: {}", e);
+            }
         }
     }
-
     Ok(())
+}
+
+fn wire_batches(items: Vec<serde_json::Value>, max_bytes: usize) -> Result<Vec<serde_json::Value>> {
+    let mut batches = Vec::new();
+    let mut batch = Vec::new();
+    let mut bytes = b"{\"items\":[]}".len();
+    for item in items {
+        let size = serde_json::to_vec(&item)?.len();
+        anyhow::ensure!(
+            size + b"{\"items\":[]}".len() <= max_bytes,
+            "single Wire item exceeds request body limit; source_id={}",
+            item["source_id"]
+        );
+        let separator = usize::from(!batch.is_empty());
+        if bytes + separator + size > max_bytes {
+            batches.push(json!({"items": batch}));
+            batch = Vec::new();
+            bytes = b"{\"items\":[]}".len();
+        }
+        bytes += usize::from(!batch.is_empty()) + size;
+        batch.push(item);
+    }
+    if !batch.is_empty() {
+        batches.push(json!({"items": batch}));
+    }
+    Ok(batches)
 }
 
 async fn persist_wire_receipts(pool: &Pool, wire: &WireBatchResponse) -> Result<()> {
@@ -503,13 +547,27 @@ async fn persist_wire_receipts(pool: &Pool, wire: &WireBatchResponse) -> Result<
 }
 
 fn bluesky_item_to_wire_submission(it: &BlueskyPreparedItem) -> serde_json::Value {
-    let mut evidence = vec![json!({
-        "evidence_id": format!("ev_{}", stable_slug(&it.uri)),
-        "type": "url",
-        "uri": it.url,
-        "captured_at": it.created_iso,
-    })];
-    if let Some(image_base64) = &it.image_base64 {
+    let mut evidence = vec![
+        json!({
+            "evidence_id": format!("ev_{}", stable_slug(&it.uri)),
+            "type": "url",
+            "uri": it.url,
+            "captured_at": it.created_iso,
+        }),
+        json!({
+            "evidence_id": format!("ev_source_{}", stable_slug(&it.uri)),
+            "type": "url",
+            "uri": it.uri,
+            "captured_at": it.created_iso,
+        }),
+    ];
+    // Leave enough room for report metadata and batch framing under the
+    // receiver's 2 MiB request limit. The source URL remains as evidence.
+    if let Some(image_base64) = it
+        .image_base64
+        .as_ref()
+        .filter(|data| data.len() <= 1_500_000)
+    {
         evidence.push(json!({
             "evidence_id": format!("ev_img_{}", stable_slug(&it.uri)),
             "type": "image",
@@ -519,7 +577,7 @@ fn bluesky_item_to_wire_submission(it: &BlueskyPreparedItem) -> serde_json::Valu
         }));
     }
 
-    json!({
+    let mut submission = json!({
         "schema_version": "cleanapp-wire.v1",
         "source_id": it.uri,
         "submitted_at": utc_now_iso(),
@@ -542,7 +600,7 @@ fn bluesky_item_to_wire_submission(it: &BlueskyPreparedItem) -> serde_json::Valu
             "chain_of_custody": ["index_bluesky", "analyzer_bluesky", "submitter_bluesky"]
         },
         "report": {
-            "domain": "digital",
+            "domain": it.classification,
             "problem_type": "social_media_report",
             "problem_subtype": it.classification,
             "title": it.report_title,
@@ -568,9 +626,41 @@ fn bluesky_item_to_wire_submission(it: &BlueskyPreparedItem) -> serde_json::Valu
             "tags": ["bluesky", it.classification],
         },
         "delivery": {
-            "requested_lane": "auto"
+            // Bluesky posts are human-authored reports collected by an internal
+            // fetcher; use the guarded human-auto policy for tier and quality.
+            "requested_lane": if it.source_complete { "shadow" } else { "human_auto" }
         }
-    })
+    });
+    if let Some(location) = &it.location {
+        submission["report"]["location"] = location.clone();
+    }
+    submission
+}
+
+// Only accept coordinates explicitly attached to a recognized source map URL.
+// Names and free text require a separate geocoding step; never default to zero.
+fn source_map_location(raw: &str) -> Option<serde_json::Value> {
+    let record: serde_json::Value = serde_json::from_str(raw).ok()?;
+    let record = record.get("record").unwrap_or(&record);
+    for facet in record.get("facets")?.as_array()? {
+        for feature in facet.get("features").and_then(|v| v.as_array()).into_iter().flatten() {
+            let Some(uri) = feature.get("uri").and_then(|v| v.as_str()) else { continue };
+            let Ok(url) = reqwest::Url::parse(uri) else { continue };
+            if !matches!(url.host_str(), Some("www.google.com" | "google.com" | "maps.google.com"))
+                || !url.path().starts_with("/maps") { continue; }
+            for (key,value) in url.query_pairs() {
+                if key != "query" && key != "q" { continue; }
+                let Some((lat,lon)) = value.split_once(',') else { continue };
+                let (Ok(lat),Ok(lon)) = (lat.trim().parse::<f64>(),lon.trim().parse::<f64>()) else { continue };
+                if lat.is_finite() && lon.is_finite() && (-90.0..=90.0).contains(&lat)
+                    && (-180.0..=180.0).contains(&lon) && (lat != 0.0 || lon != 0.0) {
+                    return Some(json!({"kind":"source_map", "lat":lat,"lng":lon,
+                        "place_confidence":1.0,"address_text":uri}));
+                }
+            }
+        }
+    }
+    None
 }
 
 fn protocol_name(protocol: SubmitProtocol) -> &'static str {
@@ -616,4 +706,45 @@ fn truncate_chars(s: &str, max_chars: usize) -> String {
         return s.to_string();
     }
     s.chars().take(max_chars).collect()
+}
+
+#[cfg(test)]
+mod body_limit_tests {
+    use super::*;
+    #[test]
+    fn extracts_source_map_coordinates_without_guessing() {
+        let raw = |url: &str| json!({"facets":[{"features":[{"uri":url}]}]}).to_string();
+        let point = source_map_location(&raw("https://www.google.com/maps/search/?api=1&query=-38.159428644010646,145.19705131346674")).unwrap();
+        assert_eq!(point["lat"], -38.159428644010646);
+        assert_eq!(point["lng"], 145.19705131346674);
+        for url in ["https://www.google.com/maps/search/?query=Langwarrin", "https://www.google.com/maps/search/?query=0,0", "https://www.google.com/maps/search/?query=91,12", "https://example.com/maps?query=10,20"] {
+            assert!(source_map_location(&raw(url)).is_none());
+        }
+    }
+    #[test]
+    fn batches_preserve_every_item_and_respect_encoded_byte_limit() {
+        let items = vec![
+            json!({"source_id":"a", "text":"é".repeat(100)}),
+            json!({"source_id":"b", "image":"x".repeat(200)}),
+            json!({"source_id":"c"}),
+        ];
+        let batches = wire_batches(items.clone(), 300).unwrap();
+        assert!(batches.len() > 1);
+        assert!(batches
+            .iter()
+            .all(|b| serde_json::to_vec(b).unwrap().len() <= 300));
+        let roundtrip: Vec<_> = batches
+            .iter()
+            .flat_map(|b| b["items"].as_array().unwrap().iter().cloned())
+            .collect();
+        assert_eq!(roundtrip, items);
+    }
+    #[test]
+    fn oversized_single_item_is_an_explicit_error() {
+        assert!(wire_batches(
+            vec![json!({"source_id":"large", "image":"x".repeat(400)})],
+            300
+        )
+        .is_err());
+    }
 }

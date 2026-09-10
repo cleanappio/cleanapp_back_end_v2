@@ -64,6 +64,10 @@ impl Callback for InMemoryReports {
                 let mut physical_lock = self.physical_content.write().unwrap_or_else(|e| {
                     panic!("Failed to acquire lock on physical_content: {}", e)
                 });
+                if !has_map_location(report.latitude, report.longitude) {
+                    physical_lock.remove(&report.seq);
+                    return Ok(());
+                }
                 physical_lock.insert(
                     report.seq,
                     ReportPoint {
@@ -107,6 +111,14 @@ impl Callback for InMemoryReports {
         );
         Ok(())
     }
+}
+
+fn has_map_location(lat: f64, lon: f64) -> bool {
+    lat.is_finite()
+        && lon.is_finite()
+        && (-90.0..=90.0).contains(&lat)
+        && (-180.0..=180.0).contains(&lon)
+        && (lat != 0.0 || lon != 0.0)
 }
 
 impl InMemoryReports {

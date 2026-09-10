@@ -308,7 +308,7 @@ func (h *Handlers) recordCaseDeliveryOutcomes(ctx context.Context, caseID string
 			target = targetsByID[*delivery.TargetID]
 		}
 		endpointKey := endpointKeyForTarget(target)
-		outcomeType := "sent"
+		var outcomeType string
 		switch strings.ToLower(strings.TrimSpace(delivery.DeliveryStatus)) {
 		case "sent", "delivered":
 			outcomeType = "sent"
@@ -561,11 +561,11 @@ func (h *Handlers) recordCaseExecutionOutcomeSideEffects(ctx context.Context, de
 		linkedReportSeq = detail.Case.AnchorReportSeq
 	}
 	if err := h.db.InsertCaseResolutionSignal(ctx, detail.Case.CaseID, "notify_execution_task", summary, linkedReportSeq, map[string]any{
-		"task_id":       task.ID,
-		"target_id":     task.TargetID,
-		"outcome_type":  outcomeType,
-		"note":          note,
-		"channel_type":  task.ChannelType,
+		"task_id":        task.ID,
+		"target_id":      task.TargetID,
+		"outcome_type":   outcomeType,
+		"note":           note,
+		"channel_type":   task.ChannelType,
 		"execution_mode": task.ExecutionMode,
 	}); err != nil {
 		return err

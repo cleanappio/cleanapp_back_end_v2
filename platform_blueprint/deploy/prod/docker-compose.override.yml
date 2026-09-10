@@ -5,6 +5,22 @@
 #   docker compose -f docker-compose.yml -f docker-compose.override.yml up -d
 
 services:
+  cleanapp_report_listener:
+    environment:
+      - RABBITMQ_HUMAN_REPORT_ROUTING_KEY=report.raw.human
+
+  cleanapp_report_analyze_human:
+    extends:
+      file: docker-compose.yml
+      service: cleanapp_report_analyze_pipeline
+    container_name: cleanapp_report_analyze_human
+    restart: always
+    ports: !reset []
+    environment:
+      - RABBITMQ_QUEUE=report-analysis-human-queue
+      - RABBITMQ_RAW_REPORT_ROUTING_KEY=report.raw.human
+      - RABBITMQ_PREFETCH_COUNT=1
+
   cleanapp_service:
     restart: always
 
@@ -23,7 +39,7 @@ services:
   # Currently running as a manual container with a bind-mounted config dir.
   cleanapp_bluesky_now:
     container_name: cleanapp_bluesky_now
-    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/bluesky-now:v3
+    image: us-central1-docker.pkg.dev/cleanup-mysql-v2/cleanapp-docker-repo/bluesky-now:prod
     restart: always
     command: ["bluesky_now", "--config", "/app/config/config.toml"]
     volumes:

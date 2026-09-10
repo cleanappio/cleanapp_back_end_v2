@@ -3,18 +3,35 @@ package server
 import (
 	"cleanapp/common"
 	"cleanapp/pipelines/disburse"
+	"crypto/subtle"
 	"net/http"
+	"os"
+	"strings"
 
 	"github.com/apex/log"
 	"github.com/gin-gonic/gin"
 )
 
-type DisbusrseArgs struct {
+type DisburseArgs struct {
 	Version string `json:"version"` // Must be "2.0"
 }
 
 func DisburseTokens(c *gin.Context) {
-	var args RedeemArgs
+	internalToken := strings.TrimSpace(os.Getenv("INTERNAL_ADMIN_TOKEN"))
+	if internalToken == "" {
+		log.Error("INTERNAL_ADMIN_TOKEN is not configured for /tokens_disburse")
+		c.String(http.StatusServiceUnavailable, "Internal admin token not configured.")
+		return
+	}
+
+	gotToken := strings.TrimSpace(c.GetHeader("X-Internal-Admin-Token"))
+	if gotToken == "" || subtle.ConstantTimeCompare([]byte(gotToken), []byte(internalToken)) != 1 {
+		log.Warn("Unauthorized /tokens_disburse call")
+		c.String(http.StatusUnauthorized, "Unauthorized.")
+		return
+	}
+
+	var args DisburseArgs
 
 	if err := c.BindJSON(&args); err != nil {
 		log.Errorf("Failed to get the argument in /tokens_disburse call: %w", err)

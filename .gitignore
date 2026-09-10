@@ -87,3 +87,4 @@ cli/cleanapp/dist/
 
 # npm pack artifacts
 cli/cleanapp/*.tgz
+.ci-build/

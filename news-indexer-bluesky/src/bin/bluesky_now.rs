@@ -750,17 +750,26 @@ async fn run_continuous(pool: &Pool) -> Result<()> {
 
         info!("Connecting to Jetstream (cursor: {})...", cursor);
 
-        match connect_async(&url).await {
-            Ok((ws_stream, _)) => {
+        match tokio::time::timeout(Duration::from_secs(30), connect_async(&url)).await {
+            Ok(Ok((mut ws_stream, _))) => {
                 backoff_secs = 1; // Reset backoff on success
-                let (_, mut read) = ws_stream.split();
 
                 info!("Connected to Jetstream firehose (COMPREHENSIVE mode)");
 
                 let mut message_count = 0u64;
                 let mut match_count = 0u64;
 
-                while let Some(msg) = read.next().await {
+                loop {
+                    let msg = match tokio::time::timeout(Duration::from_secs(90), ws_stream.next())
+                        .await
+                    {
+                        Ok(Some(msg)) => msg,
+                        Ok(None) => break,
+                        Err(_) => {
+                            warn!("Jetstream idle for 90 seconds; reconnecting from saved cursor");
+                            break;
+                        }
+                    };
                     match msg {
                         Ok(Message::Text(text)) => match process_message(&text, pool).await {
                             Ok(matched) => {
@@ -781,9 +790,10 @@ async fn run_continuous(pool: &Pool) -> Result<()> {
                                 debug!("Error processing message: {}", e);
                             }
                         },
-                        Ok(Message::Ping(_)) => {
-                            debug!("Received ping");
-                            // Pong is handled automatically by tungstenite
+                        Ok(Message::Ping(payload)) => {
+                            if ws_stream.send(Message::Pong(payload)).await.is_err() {
+                                break;
+                            }
                         }
                         Ok(Message::Close(_)) => {
                             warn!("WebSocket closed by server");
@@ -797,9 +807,10 @@ async fn run_continuous(pool: &Pool) -> Result<()> {
                     }
                 }
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 error!("Failed to connect: {}", e);
             }
+            Err(_) => warn!("Jetstream connection timed out"),
         }
 
         // Reconnect with exponential backoff

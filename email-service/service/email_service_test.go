@@ -98,3 +98,31 @@ func TestProcessInferredEmails(t *testing.T) {
 		})
 	}
 }
+
+func TestIsHighQualityInferredEmail(t *testing.T) {
+	service := &EmailService{}
+
+	testCases := []struct {
+		email          string
+		classification string
+		expected       bool
+		description    string
+	}{
+		{"support@company.com", "digital", true, "digital reports keep regular contact aliases"},
+		{"publicworks@city.ch", "physical", false, "physical reports reject synthetic municipal aliases"},
+		{"info@city.gov", "physical", false, "physical reports reject generic municipality placeholder domains"},
+		{"facilities@campus.edu", "physical", true, "physical reports allow department aliases on concrete domains"},
+		{"maintenance@law.ucla.edu", "physical", true, "physical reports allow inferred aliases on trusted subdomains"},
+		{"office@school.ch", "physical", true, "physical reports can keep observed school office addresses"},
+		{"principal@school.ch", "physical", true, "physical reports keep specific direct contacts"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			result := service.isHighQualityInferredEmail(tc.email, tc.classification)
+			if result != tc.expected {
+				t.Fatalf("isHighQualityInferredEmail(%q, %q) = %v, want %v", tc.email, tc.classification, result, tc.expected)
+			}
+		})
+	}
+}
