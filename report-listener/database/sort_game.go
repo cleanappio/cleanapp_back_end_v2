@@ -151,8 +151,14 @@ func (d *Database) GetNextSortableReport(ctx context.Context, sorterID string, e
 	// Walk the shuffled pool once in bounded primary-key batches. No COUNT,
 	// global timestamp sort, or large joined OFFSET is needed per swipe.
 	for visited := 0; visited < len(ids); {
-		batch := make([]int, 0, 32)
-		for visited < len(ids) && len(batch) < 32 {
+		// Most requests find a card among the first four IDs. Avoid reading
+		// 32 random image blobs when one small batch can satisfy the swipe.
+		batchSize := 4
+		if visited >= 32 {
+			batchSize = 32
+		}
+		batch := make([]int, 0, batchSize)
+		for visited < len(ids) && len(batch) < batchSize {
 			seq := ids[(start+visited)%len(ids)]
 			visited++
 			if !excluded[seq] {
