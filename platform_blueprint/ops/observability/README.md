@@ -6,6 +6,11 @@ Goals:
 - Provide metrics visibility for key services (start with `report-analyze-pipeline`).
 - Add alert routing via Alertmanager webhook.
 - Alert on missing RabbitMQ consumers/backlog via `rabbitmq_exporter`.
+- Scrape both bulk and human analyzers; alert on unavailable/disconnected human
+  workers, missing human queues, and work held without successful completions.
+- The VM watchdog also reads human queue ready/unacknowledged/consumer counts and
+  detects persistent backlog. Some exporter versions omit these gauges, so the
+  passive watchdog is required alongside Prometheus.
 
 Install:
 - `HOST=deployer@<prod-ip> platform_blueprint/ops/observability/install_prod_observability.sh`

@@ -72,9 +72,9 @@ sudo docker exec cleanapp_rabbitmq rabbitmqctl list_exchanges name type | egrep 
 echo
 echo \"== rabbitmq: queues (incl dlq) ==\"
 sudo docker exec cleanapp_rabbitmq rabbitmqctl list_queues name messages_ready messages_unacknowledged consumers \\
-  | egrep \"^(name|(report-(analysis|renderer|tags)-queue|twitter-reply-queue)(\\.dlq)?\\b)\" >/dev/null
+  | egrep \"^(name|(report-(analysis(-human)?|renderer|tags)-queue|twitter-reply-queue)(\\.dlq)?\\b)\" >/dev/null
 sudo docker exec cleanapp_rabbitmq rabbitmqctl list_queues name messages_ready messages_unacknowledged consumers \\
-  | egrep \"^(name|(report-(analysis|renderer|tags)-queue|twitter-reply-queue)(\\.dlq)?\\b)\"
+  | egrep \"^(name|(report-(analysis(-human)?|renderer|tags)-queue|twitter-reply-queue)(\\.dlq)?\\b)\"
 
 echo
 echo \"== rabbitmq: must-have bindings ==\"
@@ -82,6 +82,17 @@ sudo docker exec cleanapp_rabbitmq rabbitmqctl list_bindings source_name destina
   | egrep \"^cleanapp-exchange\\s+report-analysis-queue\\s+queue\\s+report\\.raw$\" >/dev/null
 sudo docker exec cleanapp_rabbitmq rabbitmqctl list_bindings source_name destination_name destination_kind routing_key \\
   | egrep \"^cleanapp-exchange\\s+report-analysis-queue\\s+queue\\s+report\\.raw$\"
+
+echo
+echo \"== rabbitmq: human analysis binding and retry/DLQ topology ==\"
+sudo docker exec cleanapp_rabbitmq rabbitmqctl list_bindings source_name destination_name destination_kind routing_key \\
+  | egrep \"^cleanapp-exchange\\s+report-analysis-human-queue\\s+queue\\s+report\\.raw\\.human$\" >/dev/null
+sudo docker exec cleanapp_rabbitmq rabbitmqctl list_bindings source_name destination_name destination_kind routing_key \\
+  | egrep \"^cleanapp-retry\\.report-analysis-human-queue\\s+report-analysis-human-queue\\.retry\\s+queue\\s+#$\" >/dev/null
+sudo docker exec cleanapp_rabbitmq rabbitmqctl list_bindings source_name destination_name destination_kind routing_key \\
+  | egrep \"^cleanapp-dlx\\s+report-analysis-human-queue\\.dlq\\s+queue\\s+report-analysis-human-queue\\.dlq$\" >/dev/null
+sudo docker exec cleanapp_rabbitmq rabbitmqctl list_queues name consumers --no-table-headers \\
+  | egrep \"^report-analysis-human-queue[[:space:]]+[1-9]\" >/dev/null
 
 echo
 echo \"== rabbitmq: report-analysis consumer must be present ==\"
@@ -96,6 +107,7 @@ sudo docker exec cleanapp_rabbitmq rabbitmqctl list_policies -p / | grep -F \"dl
 sudo docker exec cleanapp_rabbitmq rabbitmqctl list_policies -p / | grep -F \"dlx-report-renderer-queue\" >/dev/null
 sudo docker exec cleanapp_rabbitmq rabbitmqctl list_policies -p / | grep -F \"dlx-twitter-reply-queue\" >/dev/null
 sudo docker exec cleanapp_rabbitmq rabbitmqctl list_policies -p / | grep -F \"dlx-report-analysis-queue\" >/dev/null
+sudo docker exec cleanapp_rabbitmq rabbitmqctl list_policies -p / | grep -F \"dlx-report-analysis-human-queue\" >/dev/null
 sudo docker exec cleanapp_rabbitmq rabbitmqctl list_policies -p / | sed -n \"1,120p\"
 
 echo

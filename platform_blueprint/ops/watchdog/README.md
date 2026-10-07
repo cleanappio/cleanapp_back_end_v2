@@ -11,7 +11,10 @@ What it does each run:
 2. Run a local smoke:
    - core localhost health endpoints
    - RabbitMQ must-have bindings
-   - report-analysis/report-tags/report-renderer consumers must be present
+   - bulk and human report-analysis/report-tags/report-renderer consumers must be present
+   - human submissions must retain the `report.raw.human` binding
+   - the human analyzer must be connected and finish work; a queue with no successful
+     completions for 5 minutes or a persistent backlog for 10 minutes fails the check
 3. Verify email pipeline liveness (fails if work is due but `sent_reports_emails` isn't advancing)
 4. Verify backup freshness from `/home/deployer/backups/backup.log` (fails if too old)
 5. Write logs and a small status file.
@@ -29,6 +32,8 @@ Files installed on VM:
 - `~/cleanapp_watchdog/run.sh`
 - `~/cleanapp_watchdog/rabbitmq_ensure.sh`
 - `~/cleanapp_watchdog/smoke_local.sh`
+- `~/cleanapp_watchdog/human_queue.py` (passive; never republishes or restarts)
+- `~/cleanapp_watchdog/human_queue_state.json` (private aggregate progress markers)
 - `~/cleanapp_watchdog/email_pipeline.sh`
 - `~/cleanapp_watchdog/backup_freshness.sh`
 - `~/cleanapp_watchdog/secrets.env` (optional, not created by default)
@@ -38,3 +43,9 @@ Files installed on VM:
 Install/uninstall:
 - `platform_blueprint/ops/watchdog/install_prod_watchdog.sh`
 - `platform_blueprint/ops/watchdog/uninstall_prod_watchdog.sh`
+
+Human liveness thresholds are configurable with `HUMAN_QUEUE_STALL_SECONDS` (300)
+and `HUMAN_QUEUE_BACKLOG_SECONDS` (600). The runner records failed child checks
+explicitly and skips remediation after any failure. Golden-path recovery excludes
+human reports because they remain retained in their dedicated queue; forwarding
+them periodically to the bulk queue hides outages and can duplicate processing.

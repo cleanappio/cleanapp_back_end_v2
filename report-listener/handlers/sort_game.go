@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"errors"
+	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,7 +28,12 @@ func (h *Handlers) GetNextSortReport(c *gin.Context) {
 		return
 	}
 
-	candidate, err := h.db.GetNextSortableReport(c.Request.Context(), sorterID)
+	excluded, err := parseSortExclusions(c.Query("exclude_report_seqs"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid exclude_report_seqs"})
+		return
+	}
+	candidate, err := h.db.GetNextSortableReport(c.Request.Context(), sorterID, excluded...)
 	if err != nil {
 		switch {
 		case errors.Is(err, database.ErrNoSortableReports):
@@ -34,6 +41,7 @@ func (h *Handlers) GetNextSortReport(c *gin.Context) {
 		case errors.Is(err, database.ErrInvalidSortVote):
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid sorter_id"})
 		default:
+			log.Printf("Load sort candidate failed: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load next sortable report"})
 		}
 		return
@@ -89,4 +97,23 @@ func (h *Handlers) SubmitSortReport(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, result)
+}
+
+func parseSortExclusions(raw string) ([]int, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	parts := strings.Split(raw, ",")
+	if len(parts) > 128 {
+		return nil, database.ErrInvalidSortVote
+	}
+	seqs := make([]int, 0, len(parts))
+	for _, part := range parts {
+		seq, err := strconv.Atoi(strings.TrimSpace(part))
+		if err != nil || seq <= 0 {
+			return nil, database.ErrInvalidSortVote
+		}
+		seqs = append(seqs, seq)
+	}
+	return seqs, nil
 }

@@ -16,7 +16,7 @@ compose_services_for_source_service() {
     news-indexer-bluesky) echo "cleanapp_bluesky_indexer cleanapp_bluesky_analyzer cleanapp_bluesky_submitter cleanapp_bluesky_now" ;;
     replier-twitter) echo "cleanapp_replier_twitter" ;;
     report-analysis-backfill) echo "" ;;
-    report-analyze-pipeline) echo "cleanapp_report_analyze_pipeline" ;;
+    report-analyze-pipeline) echo "cleanapp_report_analyze_pipeline cleanapp_report_analyze_human" ;;
     report-fast-renderer) echo "cleanapp_report_renderer_service" ;;
     report-listener) echo "cleanapp_report_listener" ;;
     report-listener-v4) echo "cleanapp_report_listener_v4" ;;
@@ -38,7 +38,7 @@ repo_dir_for_compose_service() {
     cleanapp_areas_service) echo "areas-service" ;;
     cleanapp_email_service) echo "email-service" ;;
     cleanapp_report_ownership_service) echo "report-ownership-service" ;;
-    cleanapp_report_analyze_pipeline) echo "report-analyze-pipeline" ;;
+    cleanapp_report_analyze_pipeline|cleanapp_report_analyze_human) echo "report-analyze-pipeline" ;;
     cleanapp_report_processor) echo "report-processor" ;;
     cleanapp_gdpr_process_service) echo "gdpr-process-service" ;;
     *) return 1 ;;

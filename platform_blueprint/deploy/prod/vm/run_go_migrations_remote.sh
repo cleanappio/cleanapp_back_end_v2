@@ -66,19 +66,25 @@ repo_dir_for_compose_service() {
     cleanapp_areas_service) echo "areas-service" ;;
     cleanapp_email_service) echo "email-service" ;;
     cleanapp_report_ownership_service) echo "report-ownership-service" ;;
-    cleanapp_report_analyze_pipeline) echo "report-analyze-pipeline" ;;
+    cleanapp_report_analyze_pipeline|cleanapp_report_analyze_human) echo "report-analyze-pipeline" ;;
     cleanapp_report_processor) echo "report-processor" ;;
     cleanapp_gdpr_process_service) echo "gdpr-process-service" ;;
     *) return 1 ;;
   esac
 }
 
+declare -A migrated_repos=()
 for service in "$@"; do
   repo_dir="$(repo_dir_for_compose_service "$service" || true)"
   if [[ -z "${repo_dir}" ]]; then
     echo "WARN: skipping unknown migration service ${service}" >&2
     continue
   fi
+  # The bulk and human analyzers share one schema and source directory.
+  if [[ -n "${migrated_repos[${repo_dir}]:-}" ]]; then
+    continue
+  fi
+  migrated_repos["${repo_dir}"]=1
   env_file="$(mktemp)"
   if [[ -f /home/deployer/.env ]]; then
     awk 'index($0,"=")>1 && $1 !~ /^#/ {print}' /home/deployer/.env > "$env_file"

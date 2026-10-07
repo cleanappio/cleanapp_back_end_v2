@@ -33,6 +33,7 @@ Create retry exchanges/queues (TTL delay) for the same queue set:
 
 By default, the script targets these queues:
 - `report-analysis-queue`
+- `report-analysis-human-queue` (phone submissions, preserves `report.raw.human` through retries)
 - `report-renderer-queue`
 - `report-tags-queue`
 - `twitter-reply-queue`

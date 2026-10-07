@@ -274,7 +274,11 @@ func (s *Subscriber) reconnectLocked(ctx context.Context) error {
 		s.setLastError(err)
 		return fmt.Errorf("failed to declare queue: %w", err)
 	}
-	s.queue = q.Name
+	// Named queues keep the same name on reconnect. Avoid changing it while
+	// workers and health readers are using it.
+	if s.queue == "" {
+		s.queue = q.Name
+	}
 
 	select {
 	case <-ctx.Done():
@@ -410,7 +414,14 @@ func (s *Subscriber) Start(routingKeyCallbacks map[string]CallbackFunc) error {
 
 									s.opMu.Lock()
 									// Publish to retry exchange then Ack original to avoid tight retry loops.
-									publishErr = s.channel.Publish(retryExchange, delivery.RoutingKey, false, false, pub)
+									// A delivery belongs to the channel that received it. After a
+									// reconnect, the broker has already requeued its unacked copy;
+									// do not publish an additional retry through the new channel.
+									if delivery.Acknowledger != s.channel || s.channel == nil {
+										publishErr = amqp.ErrClosed
+									} else {
+										publishErr = s.channel.Publish(retryExchange, delivery.RoutingKey, false, false, pub)
+									}
 									if publishErr == nil {
 										ackErr = delivery.Ack(false)
 										if ackErr != nil {
@@ -496,7 +507,10 @@ func (s *Subscriber) Start(routingKeyCallbacks map[string]CallbackFunc) error {
 
 				ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 				s.opMu.Lock()
-				if s.conn == nil || s.conn.IsClosed() || s.channel == nil {
+				// A broker exception can close only the channel while leaving the
+				// connection open. Delivery/QoS/bind/consume failures mark us
+				// disconnected so the next attempt replaces that channel too.
+				if !s.connected.Load() || s.conn == nil || s.conn.IsClosed() || s.channel == nil {
 					if err := s.reconnectLocked(ctx); err != nil {
 						s.opMu.Unlock()
 						cancel()
@@ -525,20 +539,25 @@ func (s *Subscriber) Start(routingKeyCallbacks map[string]CallbackFunc) error {
 					continue
 				}
 
+				var bindErr error
 				for routingKey := range routingKeyCallbacks {
 					if err := s.channel.QueueBind(s.queue, routingKey, s.exchange, false, nil); err != nil {
 						s.connected.Store(false)
 						metrics.RabbitMQConnected.Set(0)
 						s.setLastError(err)
-						s.opMu.Unlock()
-						cancel()
 						log.Printf("rabbitmq bind failed queue=%s exchange=%s routing_key=%s err=%v", s.queue, s.exchange, routingKey, err)
-						time.Sleep(backoff)
-						if backoff < 30*time.Second {
-							backoff *= 2
-						}
-						continue
+						bindErr = err
+						break
 					}
+				}
+				if bindErr != nil {
+					s.opMu.Unlock()
+					cancel()
+					time.Sleep(backoff)
+					if backoff < 30*time.Second {
+						backoff *= 2
+					}
+					continue
 				}
 
 				msgs, err := s.channel.Consume(s.queue, "", false, false, false, false, nil)
@@ -630,6 +649,8 @@ func (s *Subscriber) Close() error {
 
 // IsConnected indicates if the subscriber is currently connected (best-effort).
 func (s *Subscriber) IsConnected() bool {
+	s.opMu.Lock()
+	defer s.opMu.Unlock()
 	if s.conn == nil || s.channel == nil {
 		return false
 	}

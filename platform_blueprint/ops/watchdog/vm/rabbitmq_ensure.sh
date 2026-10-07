@@ -144,6 +144,13 @@ ensure_policy_dlx "dlx-report-analysis-queue" "report-analysis-queue" "report-an
 ensure_binding "cleanapp-exchange" "report-analysis-queue" "report.raw"
 ensure_retry_for_queue "report-analysis-queue"
 
+ensure_queue "report-analysis-human-queue" '{"x-queue-type":"classic"}'
+ensure_queue "report-analysis-human-queue.dlq" '{"x-queue-type":"classic"}'
+ensure_policy_dlx "dlx-report-analysis-human-queue" "report-analysis-human-queue" "report-analysis-human-queue.dlq"
+ensure_binding "cleanapp-dlx" "report-analysis-human-queue.dlq" "report-analysis-human-queue.dlq"
+ensure_binding "cleanapp-exchange" "report-analysis-human-queue" "report.raw.human"
+ensure_retry_for_queue "report-analysis-human-queue"
+
 ensure_queue "report-tags-queue" '{"x-queue-type":"classic"}'
 ensure_queue "report-tags-queue.dlq" '{"x-queue-type":"classic"}'
 ensure_policy_dlx "dlx-report-tags-queue" "report-tags-queue" "report-tags-queue.dlq"

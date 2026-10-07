@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"report-listener/database"
 	"report-listener/middleware"
@@ -189,6 +190,10 @@ func clampStr(s string, max int) string {
 	s = strings.TrimSpace(s)
 	if max <= 0 || len(s) <= max {
 		return s
+	}
+	// Keep the byte budget without cutting a multibyte character in half.
+	for max > 0 && !utf8.RuneStart(s[max]) {
+		max--
 	}
 	return s[:max]
 }
