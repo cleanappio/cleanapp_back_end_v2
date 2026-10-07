@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"strings"
@@ -165,6 +166,25 @@ func (s *Service) publishAnalyzedReport(report *database.Report, analyses []*dat
 // It returns an error if the analysis could not be completed and saved (so callers
 // can Nack/requeue the triggering message).
 func (s *Service) AnalyzeReport(report *database.Report) error {
+	if report == nil {
+		return fmt.Errorf("cannot analyze a nil report")
+	}
+	lockCtx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
+	analysisLock, alreadyPublished, err := s.db.LockReportAnalysis(lockCtx, report.Seq)
+	cancel()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := analysisLock.Release(); err != nil {
+			log.Printf("Report %d: failed to release analysis lock: %v", report.Seq, err)
+		}
+	}()
+	if alreadyPublished {
+		log.Printf("Report %d: already analyzed and published; acknowledging queued replay", report.Seq)
+		return nil
+	}
+
 	if hydratedReport, err := s.db.GetReportBySeq(report.Seq); err == nil {
 		report = hydratedReport
 	} else {

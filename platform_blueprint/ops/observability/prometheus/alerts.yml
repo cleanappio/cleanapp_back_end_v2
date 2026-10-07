@@ -8,7 +8,35 @@ groups:
           severity: critical
         annotations:
           summary: "Analyzer RabbitMQ disconnected"
-          description: "report-analyze-pipeline reports RabbitMQ disconnected for 5+ minutes."
+          description: "Analyzer {{ $labels.job }} reports RabbitMQ disconnected for 5+ minutes."
+      - alert: HumanAnalyzerUnavailable
+        expr: up{job="report-analyze-human"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Human report analyzer unavailable"
+          description: "The isolated mobile analyzer cannot be scraped for 2+ minutes."
+      - alert: HumanReportAnalysisQueueMissing
+        expr: absent(rabbitmq_queue_state{queue="report-analysis-human-queue",state="running"}) == 1
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Human report queue missing"
+          description: "The mobile report queue is missing or stopped for 2+ minutes."
+      - alert: HumanAnalyzerStalled
+        expr: >-
+          (cleanapp_analyzer_rabbitmq_worker_in_flight{job="report-analyze-human"} > 0)
+          and on(job, instance)
+          ((sum by(job, instance) (increase(cleanapp_analyzer_rabbitmq_processed_total{job="report-analyze-human",result="success"}[5m]))
+          or on(job, instance) (0 * cleanapp_analyzer_rabbitmq_worker_in_flight{job="report-analyze-human"})) == 0)
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Human report analyzer stalled"
+          description: "The mobile analyzer holds work without a successful completion for 5+ minutes."
       - alert: ReportAnalysisQueueMissing
         expr: absent(rabbitmq_queue_state{queue="report-analysis-queue",state="running"}) == 1
         for: 5m

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -366,8 +367,8 @@ func (c *Client) TranslateAnalysis(jsonText, targetLanguage string) (string, err
 func (c *Client) generateContent(body geminiRequest) (string, error) {
 	// try v1beta first, then v1
 	endpoints := []string{
-		fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", c.model, c.apiKey),
-		fmt.Sprintf("https://generativelanguage.googleapis.com/v1/models/%s:generateContent?key=%s", c.model, c.apiKey),
+		fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent", c.model),
+		fmt.Sprintf("https://generativelanguage.googleapis.com/v1/models/%s:generateContent", c.model),
 	}
 
 	data, err := json.Marshal(body)
@@ -376,26 +377,42 @@ func (c *Client) generateContent(body geminiRequest) (string, error) {
 	}
 
 	var lastErr error
-	for _, ep := range endpoints {
+	for attempt, ep := range endpoints {
+		startedAt := time.Now()
+		apiVersion := "v1beta"
+		if attempt == 1 {
+			apiVersion = "v1"
+		}
 		req, err := http.NewRequest("POST", ep, bytes.NewBuffer(data))
 		if err != nil {
 			lastErr = fmt.Errorf("failed to create request: %w", err)
 			continue
 		}
 		req.Header.Set("Content-Type", "application/json")
+		// Keep credentials out of URL-bearing transport errors and access logs.
+		req.Header.Set("x-goog-api-key", c.apiKey)
 		resp, err := c.http.Do(req)
 		if err != nil {
+			log.Printf("gemini request model=%s api_version=%s duration_ms=%d status=0 outcome=transport_error", c.model, apiVersion, time.Since(startedAt).Milliseconds())
 			lastErr = fmt.Errorf("failed to send request: %w", err)
 			continue
 		}
-		defer resp.Body.Close()
 		bodyBytes, err := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		log.Printf("gemini request model=%s api_version=%s duration_ms=%d status=%d", c.model, apiVersion, time.Since(startedAt).Milliseconds(), resp.StatusCode)
 		if err != nil {
 			lastErr = fmt.Errorf("failed to read response: %w", err)
 			continue
 		}
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			lastErr = fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(bodyBytes))
+			// Provider messages can echo submitted data; retain status without logging report content.
+			var providerError struct {
+				Error struct {
+					Status string `json:"status"`
+				} `json:"error"`
+			}
+			_ = json.Unmarshal(bodyBytes, &providerError)
+			lastErr = fmt.Errorf("API error (status %d, code %s)", resp.StatusCode, providerError.Error.Status)
 			// retry next endpoint if available
 			continue
 		}

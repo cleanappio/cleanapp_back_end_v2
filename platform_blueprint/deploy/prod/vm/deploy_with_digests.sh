@@ -118,18 +118,6 @@ def parse_services(path):
             continue
     return services
 
-def merge_services(*sets):
-    merged = {}
-    for s in sets:
-        for name, v in s.items():
-            m = merged.get(name, {"name": name, "container_name": None, "image": None})
-            if v.get("container_name") is not None:
-                m["container_name"] = v["container_name"]
-            if v.get("image") is not None:
-                m["image"] = v["image"]
-            merged[name] = m
-    return merged
-
 def repo_from_image(img):
     if "@" in img:
         return img.split("@", 1)[0]
@@ -160,9 +148,24 @@ def pinned_digest_for(img):
             return d
     return digests[0]
 
-compose = parse_services("docker-compose.yml")
-override = parse_services("docker-compose.override.yml") if os.path.exists("docker-compose.override.yml") else {}
-services = merge_services(compose, override)
+# Compose resolves extends/overlays; reading YAML fields alone silently omits
+# images inherited by the human analyzer. Keep the resolved config in memory:
+# it contains effective environment values and must never be printed.
+compose_args = ["-f", "docker-compose.yml"]
+if os.path.exists("docker-compose.override.yml"):
+    compose_args += ["-f", "docker-compose.override.yml"]
+resolved = json.loads(subprocess.check_output(
+    docker_cmd + ["compose"] + compose_args + ["config", "--format", "json"],
+    text=True,
+))
+services = resolved["services"]
+selected = set(os.environ.get("SERVICES", "").split())
+unknown = selected - set(services)
+if unknown:
+    sys.stderr.write("ERROR: unknown selected services: " + " ".join(sorted(unknown)) + "\n")
+    sys.exit(3)
+# A partial release must retain rollback pins for services outside its scope.
+previous = parse_services("docker-compose.digests.current.yml") if os.path.exists("docker-compose.digests.current.yml") else {}
 
 lines = []
 lines.append("# Generated file: docker-compose digest pins (runtime)")
@@ -182,8 +185,21 @@ for svc_name in sorted(services.keys()):
     if not img:
         continue
     if internal_prefix and not img.startswith(internal_prefix):
-        continue
-    pinned = pinned_digest_for(img)
+        # Some older overrides contain a local image ID rather than a registry
+        # name. Resolve selected IDs back to their registry digest before pinning.
+        if svc_name in selected and img.startswith("sha256:"):
+            candidates = [d for d in inspect_repo_digests(img) if d.startswith(internal_prefix)]
+            if not candidates:
+                missing.append(f"{svc_name} (image={img})")
+                continue
+            img = candidates[0]
+        else:
+            continue
+    previous_img = (previous.get(svc_name, {}).get("image") or "").strip()
+    if selected and svc_name not in selected and "@sha256:" in previous_img:
+        pinned = previous_img
+    else:
+        pinned = pinned_digest_for(img)
     if not pinned:
         missing.append(f"{svc_name} (image={img})")
         continue
@@ -193,6 +209,12 @@ for svc_name in sorted(services.keys()):
 
 if emitted == 0:
     sys.stderr.write("ERROR: no services were pinned; refusing to write digest file\\n")
+    sys.exit(3)
+
+# Never claim a selected rollout is pinned when its digest could not resolve.
+selected_missing = [m for m in missing if not selected or m.split(" ", 1)[0] in selected]
+if selected_missing:
+    sys.stderr.write("ERROR: selected images have no digest: " + "; ".join(selected_missing) + "\n")
     sys.exit(3)
 
 if missing:

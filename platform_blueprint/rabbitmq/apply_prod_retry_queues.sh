@@ -34,6 +34,7 @@ if [[ -n "${QUEUE_NAMES:-}" ]]; then
 else
   QUEUES=(
     "report-analysis-queue"
+    "report-analysis-human-queue"
     "report-renderer-queue"
     "report-tags-queue"
     "twitter-reply-queue"

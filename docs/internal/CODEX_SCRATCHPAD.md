@@ -212,3 +212,21 @@ What worked:
 
 Next time:
 - When adding new Go deps in a module without local Go tooling, assume Cloud Build will enforce tidy behavior: either keep module files tidy in-repo or run tidy in Docker build.
+
+### 2026-10-07 (Human analyzer queue delay)
+
+Evidence:
+- A Gemini failure triggered publication to a missing human retry exchange, closing only the AMQP channel; the subscriber kept its open connection and retried QoS forever.
+- The human container stayed running with zero consumers. Five-minute watchdog recovery through bulk masked the outage and increased delays.
+- Mapping analyzer releases to human is insufficient unless digest generation resolves Compose `extends`; manual YAML field parsing omitted the human image.
+
+What worked:
+- Confirming broker-side channel exception and matching worker/database UTC traces before changing model settings or concurrency.
+- Testing channel-only failures on a disposable broker and published replay serialization on a disposable database.
+- Preserving raw reports/queue messages and protecting already published backlog copies from duplicate model work/publication.
+- Saving private production rollback configs on the VM and deploying from a clean, exact-source worktree.
+
+Next time:
+- Treat running containers and listener health as insufficient pipeline health; monitor human queue consumers, completions and persistent backlog.
+- Explicitly capture child exit status in watchdogs; a brace group checked with `||` disables Bash errexit inside it.
+- Preserve per-service digest pins during partial releases, include every analyzer consumer and verify embedded commit provenance after rollout.

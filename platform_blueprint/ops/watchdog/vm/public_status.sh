@@ -74,12 +74,29 @@ done
 
 # --- RabbitMQ queues / consumers ---
 queues_tsv="$(sudo -n docker exec "${RABBIT_CONTAINER}" rabbitmqctl list_queues name messages_ready messages_unacknowledged consumers --no-table-headers 2>/dev/null || true)"
+# Include passive progress monitoring so an occupied, connected worker can still
+# show failure when it has stopped completing human reports.
+human_liveness="$(python3 - "${HUMAN_QUEUE_STATE_FILE:-${HOME}/cleanapp_watchdog/human_queue_state.json}" <<'PY'
+import json
+from pathlib import Path
+import sys
+import time
+try:
+    state = json.loads(Path(sys.argv[1]).read_text())
+    if time.time() - state["observed_at"] > 600:
+        print("warn")
+    else:
+        print("ok" if state.get("healthy") else "fail")
+except (OSError, ValueError, KeyError):
+    print("warn")
+PY
+)"
 if [[ -z "${queues_tsv}" ]]; then
   add_check "rabbitmq" "RabbitMQ" "fail" "rabbitmqctl_failed" ""
 else
   add_check "rabbitmq" "RabbitMQ" "ok" "queues_ok" ""
 
-  for q in report-analysis-queue report-tags-queue report-renderer-queue; do
+  for q in report-analysis-queue report-analysis-human-queue report-tags-queue report-renderer-queue; do
     line="$(printf "%s\n" "${queues_tsv}" | awk -v q="${q}" '$1==q {print; exit}')"
     if [[ -z "${line}" ]]; then
       add_check "rabbit_${q}" "Queue: ${q}" "fail" "missing" ""
@@ -94,6 +111,13 @@ else
       status="fail"
     elif [[ "${ready}" != "0" ]]; then
       status="warn"
+    fi
+    if [[ "${q}" == "report-analysis-human-queue" ]]; then
+      if [[ "${human_liveness}" == "fail" ]]; then
+        status="fail"
+      elif [[ "${human_liveness}" == "warn" && "${status}" == "ok" ]]; then
+        status="warn"
+      fi
     fi
     add_check "rabbit_${q}" "Queue: ${q}" "${status}" "ready=${ready} unacked=${unacked} consumers=${consumers}" ""
   done

@@ -23,11 +23,18 @@ echo
 echo "== rabbitmq must-have binding =="
 sudo docker exec cleanapp_rabbitmq rabbitmqctl list_bindings source_name destination_name destination_kind routing_key \
   | egrep "^cleanapp-exchange\\s+report-analysis-queue\\s+queue\\s+report\\.raw$" >/dev/null
+sudo docker exec cleanapp_rabbitmq rabbitmqctl list_bindings source_name destination_name destination_kind routing_key \
+  | egrep "^cleanapp-exchange\\s+report-analysis-human-queue\\s+queue\\s+report\\.raw\\.human$" >/dev/null
 
 echo
 echo "== rabbitmq report-analysis consumer must be present =="
 sudo docker exec cleanapp_rabbitmq rabbitmqctl list_queues name consumers --no-table-headers \
   | egrep "^report-analysis-queue[[:space:]]+[1-9]" >/dev/null
+
+echo
+echo "== rabbitmq human analyzer consumer must be present =="
+sudo docker exec cleanapp_rabbitmq rabbitmqctl list_queues name consumers --no-table-headers \
+  | egrep "^report-analysis-human-queue[[:space:]]+[1-9]" >/dev/null
 
 echo
 echo "== rabbitmq report-tags consumer must be present =="

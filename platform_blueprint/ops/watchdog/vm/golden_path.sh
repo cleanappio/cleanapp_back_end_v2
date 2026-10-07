@@ -42,7 +42,9 @@ rabbit_publish_report_raw_seq() {
     -d "{\"properties\":{\"delivery_mode\":2},\"routing_key\":\"report.raw\",\"payload\":\"{\\\"seq\\\":${seq}}\",\"payload_encoding\":\"string\"}" >/dev/null
 }
 
-stuck_seqs="$(mysql_q "SET time_zone='+00:00'; SELECT r.seq FROM reports r LEFT JOIN report_analysis ra ON ra.seq=r.seq WHERE r.ts >= (UTC_TIMESTAMP() - INTERVAL ${WINDOW_MIN} MINUTE) AND r.ts <= (UTC_TIMESTAMP() - INTERVAL ${MIN_AGE_MIN} MINUTE) AND ra.seq IS NULL ORDER BY r.ts ASC LIMIT ${REQUEUE_LIMIT};")"
+# Phone submissions are already retained in the isolated human queue. Replaying
+# them to the bulk routing key masks a human outage and risks duplicate work.
+stuck_seqs="$(mysql_q "SET time_zone='+00:00'; SELECT r.seq FROM reports r LEFT JOIN report_analysis ra ON ra.seq=r.seq WHERE r.ts >= (UTC_TIMESTAMP() - INTERVAL ${WINDOW_MIN} MINUTE) AND r.ts <= (UTC_TIMESTAMP() - INTERVAL ${MIN_AGE_MIN} MINUTE) AND ra.seq IS NULL AND NOT EXISTS (SELECT 1 FROM wire_submissions_raw w WHERE w.report_seq=r.seq AND w.actor_kind='human') ORDER BY r.ts ASC LIMIT ${REQUEUE_LIMIT};")"
 if [[ -z "${stuck_seqs}" ]]; then
   echo "[golden] OK: no stuck reports detected"
   exit 0

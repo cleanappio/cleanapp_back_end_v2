@@ -1,0 +1,52 @@
+rule_files:
+  - alerts.yml
+evaluation_interval: 15s
+tests:
+  - name: human worker stuck before any successful report
+    interval: 15s
+    input_series:
+      - series: 'cleanapp_analyzer_rabbitmq_worker_in_flight{job="report-analyze-human",instance="human:8080"}'
+        values: '1+0x30'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: HumanAnalyzerStalled
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: HumanAnalyzerStalled
+        exp_alerts:
+          - exp_labels:
+              job: report-analyze-human
+              instance: human:8080
+              severity: critical
+            exp_annotations:
+              summary: Human report analyzer stalled
+              description: The mobile analyzer holds work without a successful completion for 5+ minutes.
+  - name: completing human reports remains healthy
+    interval: 15s
+    input_series:
+      - series: 'cleanapp_analyzer_rabbitmq_worker_in_flight{job="report-analyze-human",instance="human:8080"}'
+        values: '1+0x30'
+      - series: 'cleanapp_analyzer_rabbitmq_processed_total{job="report-analyze-human",instance="human:8080",result="success"}'
+        values: '0+1x30'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: HumanAnalyzerStalled
+        exp_alerts: []
+  - name: disconnected human analyzer fires independently of bulk
+    interval: 15s
+    input_series:
+      - series: 'cleanapp_analyzer_rabbitmq_connected{job="report-analyze-human",instance="human:8080"}'
+        values: '0+0x30'
+      - series: 'cleanapp_analyzer_rabbitmq_connected{job="report-analyze-pipeline",instance="bulk:8080"}'
+        values: '1+0x30'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: AnalyzerRabbitMQDisconnected
+        exp_alerts:
+          - exp_labels:
+              job: report-analyze-human
+              instance: human:8080
+              severity: critical
+            exp_annotations:
+              summary: Analyzer RabbitMQ disconnected
+              description: Analyzer report-analyze-human reports RabbitMQ disconnected for 5+ minutes.
