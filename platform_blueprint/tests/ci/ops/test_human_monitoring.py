@@ -76,6 +76,24 @@ class WatchdogRunnerTests(unittest.TestCase):
             self.assertFalse((directory / "lock").exists())
 
 
+class HumanSnapshotTests(unittest.TestCase):
+    def test_disabled_management_stats_do_not_hide_disconnected_backlog(self):
+        metrics = 'cleanapp_analyzer_rabbitmq_connected 0\ncleanapp_analyzer_rabbitmq_processed_total{result="success"} 106\n'
+        with patch("subprocess.check_output", side_effect=["report-analysis-queue\t0\t0\t1\nreport-analysis-human-queue\t42\t0\t0\n", metrics]) as command:
+            queue, connected, completed = human_queue.snapshot()
+        self.assertIn("rabbitmqctl", command.call_args_list[0].args[0])
+        self.assertEqual(queue, {"messages_ready": 42, "messages_unacknowledged": 0, "consumers": 0})
+        self.assertFalse(connected)
+        self.assertEqual(completed, 106)
+        failure = human_queue.evaluate(queue, connected, completed, {}, 1000, 300, 600)[1]
+        self.assertIn("ready=42 unacked=0 consumers=0", failure)
+
+    def test_missing_queue_is_an_error_instead_of_an_empty_healthy_snapshot(self):
+        with patch("subprocess.check_output", return_value="report-analysis-queue\t0\t0\t1\n"):
+            with self.assertRaisesRegex(ValueError, "human queue missing"):
+                human_queue.snapshot()
+
+
 class DeployPinTests(unittest.TestCase):
     def test_source_release_includes_both_analyzers(self):
         result = subprocess.check_output(["bash", str(DEPLOY / "source_build_and_deploy.sh"), "report-analyze-pipeline"],

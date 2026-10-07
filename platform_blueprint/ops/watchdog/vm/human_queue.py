@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Read-only phone queue monitoring; never requeue reports or restart workers."""
 
-import base64
 import json
 import os
 from pathlib import Path
@@ -9,7 +8,6 @@ import re
 import subprocess
 import sys
 import time
-import urllib.request
 
 
 def evaluate(queue, connected, completed, previous, now, stall_seconds, backlog_seconds):
@@ -44,18 +42,23 @@ def evaluate(queue, connected, completed, previous, now, stall_seconds, backlog_
 def snapshot():
     rabbit = os.environ.get("RABBIT_CONTAINER", "cleanapp_rabbitmq")
     worker = os.environ.get("HUMAN_ANALYZER_CONTAINER", "cleanapp_report_analyze_human")
-    # Inspect output contains secrets. Keep it in memory and print only queue counts.
-    container = json.loads(subprocess.check_output(
-        ["sudo", "-n", "docker", "inspect", rabbit], text=True, timeout=10,
-        stderr=subprocess.DEVNULL,
-    ))[0]
-    env = dict(item.split("=", 1) for item in container["Config"]["Env"] if "=" in item)
-    auth = base64.b64encode((env["RABBITMQ_DEFAULT_USER"] + ":" + env["RABBITMQ_DEFAULT_PASS"]).encode()).decode()
-    api = os.environ.get("API_BASE", "http://127.0.0.1:15672/api")
-    request = urllib.request.Request(api + "/queues/%2F/report-analysis-human-queue",
-                                     headers={"Authorization": "Basic " + auth})
-    with urllib.request.urlopen(request, timeout=10) as response:
-        queue = json.load(response)
+    # Production disables management statistics, so the HTTP queue response has
+    # metadata but no counts. Read authoritative broker counts without credentials
+    # or consuming any messages. Bound the command so cron cannot hang forever.
+    queues = subprocess.check_output(
+        ["sudo", "-n", "docker", "exec", rabbit, "rabbitmqctl", "--timeout", "15",
+         "list_queues", "-p", "/", "name", "messages_ready", "messages_unacknowledged", "consumers",
+         "--no-table-headers", "--quiet"],
+        text=True, timeout=20, stderr=subprocess.DEVNULL,
+    )
+    queue = None
+    for line in queues.splitlines():
+        fields = line.split()
+        if len(fields) == 4 and fields[0] == "report-analysis-human-queue":
+            queue = dict(zip(("messages_ready", "messages_unacknowledged", "consumers"), map(int, fields[1:])))
+            break
+    if queue is None:
+        raise ValueError("human queue missing from broker snapshot")
     metrics = subprocess.check_output(
         ["sudo", "-n", "docker", "exec", worker, "wget", "-qO-", "http://127.0.0.1:8080/metrics"],
         text=True, timeout=10, stderr=subprocess.DEVNULL,
