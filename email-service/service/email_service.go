@@ -291,14 +291,14 @@ func (s *EmailService) recordReportEmailDelivery(ctx context.Context, seq int64,
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO report_email_deliveries (
 			seq, recipient_email, delivery_status, delivery_source, provider, sent_at
-		) VALUES (?, ?, 'sent', ?, 'sendgrid', NOW())
+		) VALUES (?, ?, 'sent', ?, ?, NOW())
 		ON DUPLICATE KEY UPDATE
 			delivery_status = VALUES(delivery_status),
 			delivery_source = VALUES(delivery_source),
 			provider = VALUES(provider),
 			sent_at = VALUES(sent_at),
 			updated_at = NOW()
-	`, seq, strings.TrimSpace(email), deliverySource)
+	`, seq, strings.TrimSpace(email), deliverySource, s.email.Provider())
 	if err != nil {
 		return fmt.Errorf("failed to record report email delivery for seq %d to %s: %w", seq, email, err)
 	}
@@ -332,6 +332,11 @@ func (s *EmailService) getDailyEmailCount(ctx context.Context, brandName string)
 
 // NewEmailService creates a new email service
 func NewEmailService(cfg *config.Config) (*EmailService, error) {
+	emailSender, err := email.NewEmailSender(cfg)
+	if err != nil {
+		return nil, err
+	}
+
 	// Connect to database
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true",
 		cfg.DBUser, cfg.DBPassword, cfg.DBHost, cfg.DBPort, cfg.DBName)
@@ -351,9 +356,6 @@ func NewEmailService(cfg *config.Config) (*EmailService, error) {
 		time.Sleep(waitInterval)
 		waitInterval *= 2 // Exponential backoff: 1s, 2s, 4s, 8s, ...
 	}
-
-	// Create email sender
-	emailSender := email.NewEmailSender(cfg)
 
 	return &EmailService{
 		db:     db,

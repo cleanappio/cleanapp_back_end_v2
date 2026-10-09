@@ -43,7 +43,10 @@ func main() {
 	service := database.NewAuthService(db, encryptor, cfg.JWTSecret)
 
 	// Setup Gin router
-	router := setupRouter(service, cfg)
+	router, err := setupRouter(service, cfg)
+	if err != nil {
+		log.Fatalf("Failed to initialize router: %v", err)
+	}
 
 	// Start server
 	log.Printf("Auth service starting on port %s", cfg.Port)
@@ -52,7 +55,17 @@ func main() {
 	}
 }
 
-func setupRouter(service *database.AuthService, cfg *config.Config) *gin.Engine {
+func setupRouter(service *database.AuthService, cfg *config.Config) (*gin.Engine, error) {
+	emailSender, err := email.NewConfiguredSender(cfg.EmailProvider, cfg.SendGridAPIKey, cfg.EmailFromName, cfg.EmailFromAddress, cfg.SMTPConfig)
+	if err != nil {
+		return nil, err
+	}
+	if emailSender != nil {
+		log.Printf("Email sender initialized with %s", emailSender.Provider())
+	} else {
+		log.Println("WARNING: SendGrid API key not configured, password reset emails will not be sent")
+	}
+
 	router := gin.Default()
 
 	// Set trusted proxies from config
@@ -62,15 +75,6 @@ func setupRouter(service *database.AuthService, cfg *config.Config) *gin.Engine 
 	router.Use(middleware.CORSMiddleware(cfg.AllowedOrigins))
 	router.Use(middleware.SecurityHeaders())
 	router.Use(middleware.RateLimitMiddleware(cfg.RateLimitRPS, cfg.RateLimitBurst))
-
-	// Initialize email sender (if SendGrid is configured)
-	var emailSender *email.Sender
-	if cfg.SendGridAPIKey != "" {
-		emailSender = email.NewSender(cfg.SendGridAPIKey, cfg.SendGridFromName, cfg.SendGridFromEmail)
-		log.Println("Email sender initialized with SendGrid")
-	} else {
-		log.Println("WARNING: SendGrid API key not configured, password reset emails will not be sent")
-	}
 
 	// Initialize handlers
 	h := handlers.NewHandlers(service, emailSender, cfg.FrontendURL)
@@ -124,5 +128,5 @@ func setupRouter(service *database.AuthService, cfg *config.Config) *gin.Engine 
 		protected.DELETE("/users/me", h.DeleteUser)
 	}
 
-	return router
+	return router, nil
 }

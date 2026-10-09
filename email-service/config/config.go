@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"cleanapp-common/appenv"
+	"cleanapp-common/mailtransport"
 )
 
 type Config struct {
@@ -19,6 +20,10 @@ type Config struct {
 	SendGridAPIKey    string
 	SendGridFromName  string
 	SendGridFromEmail string
+	EmailProvider     string
+	EmailFromName     string
+	EmailFromAddress  string
+	SMTP              mailtransport.Config
 
 	OptOutURL    string
 	PollInterval string
@@ -58,6 +63,19 @@ func Load() (*Config, error) {
 	cfg.SendGridAPIKey = appenv.String("SENDGRID_API_KEY", "")
 	cfg.SendGridFromName = appenv.String("SENDGRID_FROM_NAME", "CleanApp")
 	cfg.SendGridFromEmail = appenv.String("SENDGRID_FROM_EMAIL", "info@cleanapp.io")
+	cfg.EmailProvider = strings.ToLower(appenv.String("EMAIL_PROVIDER", "sendgrid"))
+	cfg.EmailFromName = appenv.String("EMAIL_FROM_NAME", cfg.SendGridFromName)
+	cfg.EmailFromAddress = appenv.String("EMAIL_FROM_ADDRESS", cfg.SendGridFromEmail)
+	switch cfg.EmailProvider {
+	case "google_workspace":
+		cfg.SMTP, err = mailtransport.LoadConfig()
+		if err != nil {
+			return nil, fmt.Errorf("load Google Workspace email configuration: %w", err)
+		}
+	case "sendgrid":
+	default:
+		return nil, fmt.Errorf("unsupported EMAIL_PROVIDER %q", cfg.EmailProvider)
+	}
 	cfg.PollInterval = appenv.String("POLL_INTERVAL", "10s")
 	cfg.HTTPPort = appenv.String("HTTP_PORT", "8080")
 	cfg.OptOutURL = resolveOptOutURL(cfg.HTTPPort)

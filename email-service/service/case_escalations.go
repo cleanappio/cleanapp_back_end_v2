@@ -39,7 +39,7 @@ func (s *EmailService) SendCaseEscalationEmails(
 			TargetID:       recipient.TargetID,
 			Email:          emailAddr,
 			DeliverySource: strings.TrimSpace(recipient.DeliverySource),
-			Provider:       "sendgrid",
+			Provider:       s.email.Provider(),
 		}
 		if result.DeliverySource == "" {
 			result.DeliverySource = "case_target"

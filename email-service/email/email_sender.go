@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"cleanapp-common/mailtransport"
 	"email-service/config"
 	"email-service/models"
 
@@ -25,8 +26,15 @@ const (
 
 // EmailSender handles email sending functionality
 type EmailSender struct {
-	config *config.Config
-	client *sendgrid.Client
+	config    *config.Config
+	client    *sendgrid.Client
+	workspace workspaceSender
+	provider  string
+}
+
+type workspaceSender interface {
+	Send(mailtransport.Message) (string, error)
+	Provider() string
 }
 
 type CustomEmailSendResult struct {
@@ -39,11 +47,118 @@ type CustomEmailSendResult struct {
 }
 
 // NewEmailSender creates a new email sender
-func NewEmailSender(cfg *config.Config) *EmailSender {
-	client := sendgrid.NewSendClient(cfg.SendGridAPIKey)
-	return &EmailSender{
-		config: cfg,
-		client: client,
+func NewEmailSender(cfg *config.Config) (*EmailSender, error) {
+	provider := strings.ToLower(strings.TrimSpace(cfg.EmailProvider))
+	if provider == "" {
+		provider = "sendgrid"
+	}
+	sender := &EmailSender{config: cfg, provider: provider}
+	switch provider {
+	case "google_workspace":
+		workspace, err := mailtransport.New(cfg.SMTP)
+		if err != nil {
+			return nil, fmt.Errorf("initialize Google Workspace email sender: %w", err)
+		}
+		sender.workspace = workspace
+	case "sendgrid":
+		sender.client = sendgrid.NewSendClient(cfg.SendGridAPIKey)
+	default:
+		return nil, fmt.Errorf("unsupported email provider %q", provider)
+	}
+	return sender, nil
+}
+
+func (e *EmailSender) Provider() string {
+	if e == nil || e.provider == "" {
+		return "sendgrid"
+	}
+	return e.provider
+}
+
+func (e *EmailSender) message(recipient, subject, text, html string) mailtransport.Message {
+	fromName := e.config.EmailFromName
+	if fromName == "" {
+		fromName = e.config.SendGridFromName
+	}
+	fromEmail := e.config.EmailFromAddress
+	if fromEmail == "" {
+		fromEmail = e.config.SendGridFromEmail
+	}
+	return mailtransport.Message{
+		FromName: fromName, FromEmail: fromEmail, To: []string{recipient},
+		Subject: subject, Text: text, HTML: html,
+	}
+}
+
+// sendMessage selects one provider; a failed Workspace send never falls back to SendGrid.
+func (e *EmailSender) sendMessage(message mailtransport.Message) (string, error) {
+	start := time.Now()
+	if e.Provider() == "google_workspace" {
+		msgID, err := e.workspace.Send(message)
+		if err != nil {
+			return "", err
+		}
+		log.Infof("Email accepted by Google Workspace (id=%s, in %s)", msgID, time.Since(start))
+		return msgID, nil
+	}
+	legacyMessage := sendGridMessage(message)
+	response, err := e.client.Send(legacyMessage)
+	if err != nil {
+		return "", err
+	}
+	if response.StatusCode >= 200 && response.StatusCode < 300 {
+		msgID := strings.Join(response.Headers["X-Message-Id"], ",")
+		log.Infof("Email accepted by SendGrid (status=%d, id=%s, in %s)", response.StatusCode, msgID, time.Since(start))
+		return msgID, nil
+	}
+	body := response.Body
+	if len(body) > 512 {
+		body = body[:512] + "..."
+	}
+	return "", fmt.Errorf("sendgrid returned status %d (in %s): %s", response.StatusCode, time.Since(start), body)
+}
+
+func sendGridMessage(message mailtransport.Message) *mail.SGMailV3 {
+	result := mail.NewV3Mail()
+	result.SetFrom(mail.NewEmail(message.FromName, message.FromEmail))
+	result.Subject = message.Subject
+	personalization := mail.NewPersonalization()
+	for _, recipient := range message.To {
+		personalization.AddTos(mail.NewEmail(recipient, recipient))
+	}
+	result.AddPersonalizations(personalization)
+	result.AddContent(mail.NewContent("text/plain", message.Text))
+	if strings.TrimSpace(message.HTML) != "" {
+		result.AddContent(mail.NewContent("text/html", message.HTML))
+	}
+	for _, attachment := range message.Attachments {
+		legacyAttachment := mail.NewAttachment()
+		legacyAttachment.SetContent(base64.StdEncoding.EncodeToString(attachment.Data))
+		legacyAttachment.SetType(attachment.ContentType)
+		legacyAttachment.SetFilename(attachment.Filename)
+		if attachment.Inline {
+			legacyAttachment.SetDisposition("inline")
+		} else {
+			legacyAttachment.SetDisposition("attachment")
+		}
+		legacyAttachment.SetContentID(attachment.ContentID)
+		result.AddAttachment(legacyAttachment)
+	}
+	return result
+}
+
+func addReportAttachments(message *mailtransport.Message, reportImage, mapImage []byte) {
+	if len(reportImage) > 0 {
+		message.Attachments = append(message.Attachments, mailtransport.Attachment{
+			Filename: "report.jpg", ContentType: "image/jpeg", ContentID: reportImgCid,
+			Data: reportImage, Inline: true,
+		})
+	}
+	if len(mapImage) > 0 {
+		message.Attachments = append(message.Attachments, mailtransport.Attachment{
+			Filename: "map.png", ContentType: "image/png", ContentID: mapImgCid,
+			Data: mapImage, Inline: true,
+		})
 	}
 }
 
@@ -121,7 +236,7 @@ func (e *EmailSender) SendCustomEmails(recipients []string, subject, textBody, h
 		msgID, err := e.sendOneCustomEmail(recipient, subject, textBody, htmlBody)
 		result := CustomEmailSendResult{
 			Email:    recipient,
-			Provider: "sendgrid",
+			Provider: e.Provider(),
 		}
 		if err != nil {
 			result.Status = "failed"
@@ -138,89 +253,24 @@ func (e *EmailSender) SendCustomEmails(recipients []string, subject, textBody, h
 
 // sendOneAggregateEmail sends an aggregate notification to a single recipient
 func (e *EmailSender) sendOneAggregateEmail(recipient string, summary *models.BrandReportSummary, optOutURL string) error {
-	from := mail.NewEmail(e.config.SendGridFromName, e.config.SendGridFromEmail)
-
-	// Get brand display name
 	brandDisplay := summary.BrandDisplayName
 	if brandDisplay == "" {
 		brandDisplay = summary.BrandName
 	}
-
-	// Subject: "5 new reports about Brand (142 total)"
 	subject := fmt.Sprintf("%d new report", summary.NewReportCount)
 	if summary.NewReportCount != 1 {
 		subject += "s"
 	}
 	subject += fmt.Sprintf(" about %s (%d total)", brandDisplay, summary.TotalReportCount)
-
-	to := mail.NewEmail(recipient, recipient)
-
-	// Create message
-	message := mail.NewV3Mail()
-	message.SetFrom(from)
-	message.Subject = subject
-
-	p := mail.NewPersonalization()
-	p.AddTos(to)
-	message.AddPersonalizations(p)
-
-	message.AddContent(mail.NewContent("text/plain", e.getAggregateEmailText(recipient, summary, optOutURL)))
-	message.AddContent(mail.NewContent("text/html", e.getAggregateEmailHTML(recipient, summary, optOutURL)))
-
-	// Send email
-	start := time.Now()
-	response, err := e.client.Send(message)
-	if err != nil {
-		return err
-	}
-
-	duration := time.Since(start)
-	if response.StatusCode >= 200 && response.StatusCode < 300 {
-		msgID := response.Headers["X-Message-Id"]
-		log.Infof("Aggregate email accepted by SendGrid for %s (status=%d, id=%s, in %s)", recipient, response.StatusCode, msgID, duration)
-		return nil
-	}
-
-	body := response.Body
-	if len(body) > 512 {
-		body = body[:512] + "..."
-	}
-	return fmt.Errorf("sendgrid returned status %d for %s (in %s): %s", response.StatusCode, recipient, duration, body)
+	message := e.message(recipient, subject,
+		e.getAggregateEmailText(recipient, summary, optOutURL),
+		e.getAggregateEmailHTML(recipient, summary, optOutURL))
+	_, err := e.sendMessage(message)
+	return err
 }
 
 func (e *EmailSender) sendOneCustomEmail(recipient, subject, textBody, htmlBody string) (string, error) {
-	from := mail.NewEmail(e.config.SendGridFromName, e.config.SendGridFromEmail)
-	to := mail.NewEmail(recipient, recipient)
-
-	message := mail.NewV3Mail()
-	message.SetFrom(from)
-	message.Subject = subject
-
-	p := mail.NewPersonalization()
-	p.AddTos(to)
-	message.AddPersonalizations(p)
-	message.AddContent(mail.NewContent("text/plain", textBody))
-	if strings.TrimSpace(htmlBody) != "" {
-		message.AddContent(mail.NewContent("text/html", htmlBody))
-	}
-
-	start := time.Now()
-	response, err := e.client.Send(message)
-	if err != nil {
-		return "", err
-	}
-	duration := time.Since(start)
-	if response.StatusCode >= 200 && response.StatusCode < 300 {
-		msgID := strings.Join(response.Headers["X-Message-Id"], ",")
-		log.Infof("Custom email accepted by SendGrid for %s (status=%d, id=%s, in %s)", recipient, response.StatusCode, msgID, duration)
-		return msgID, nil
-	}
-
-	body := response.Body
-	if len(body) > 512 {
-		body = body[:512] + "..."
-	}
-	return "", fmt.Errorf("sendgrid returned status %d for %s (in %s): %s", response.StatusCode, recipient, duration, body)
+	return e.sendMessage(e.message(recipient, subject, textBody, htmlBody))
 }
 
 // getAggregateEmailText returns the plain text content for aggregate emails
@@ -336,74 +386,18 @@ func (e *EmailSender) getAggregateDashboardURL(summary *models.BrandReportSummar
 
 // sendOneEmail sends an email to a single recipient
 func (e *EmailSender) sendOneEmail(recipient string, reportImage, mapImage []byte) error {
-	from := mail.NewEmail(e.config.SendGridFromName, e.config.SendGridFromEmail)
-	subject := "You got a CleanApp report"
-	to := mail.NewEmail(recipient, recipient)
-
 	hasReport := len(reportImage) > 0
 	hasMap := len(mapImage) > 0
-
-	// Create message
-	message := mail.NewV3Mail()
-	message.SetFrom(from)
-	message.Subject = subject
-
-	p := mail.NewPersonalization()
-	p.AddTos(to)
-	message.AddPersonalizations(p)
-
-	message.AddContent(mail.NewContent("text/plain", e.getEmailText(recipient, hasReport, hasMap)))
-	message.AddContent(mail.NewContent("text/html", e.getEmailHtml(recipient, hasReport, hasMap)))
-
-	if hasReport {
-		encodedReportImage := base64.StdEncoding.EncodeToString(reportImage)
-		reportAttachment := mail.NewAttachment()
-		reportAttachment.SetContent(encodedReportImage)
-		reportAttachment.SetType("image/jpeg")
-		reportAttachment.SetFilename("report.jpg")
-		reportAttachment.SetDisposition("inline")
-		reportAttachment.SetContentID(reportImgCid)
-		message.AddAttachment(reportAttachment)
-	}
-
-	// Add map attachment only if mapImage is provided
-	if hasMap {
-		encodedMapImage := base64.StdEncoding.EncodeToString(mapImage)
-		mapAttachment := mail.NewAttachment()
-		mapAttachment.SetContent(encodedMapImage)
-		mapAttachment.SetType("image/png")
-		mapAttachment.SetFilename("map.png")
-		mapAttachment.SetDisposition("inline")
-		mapAttachment.SetContentID(mapImgCid)
-		message.AddAttachment(mapAttachment)
-	}
-
-	// Send email
-	start := time.Now()
-	response, err := e.client.Send(message)
-	if err != nil {
-		return err
-	}
-
-	duration := time.Since(start)
-	if response.StatusCode >= 200 && response.StatusCode < 300 {
-		msgID := response.Headers["X-Message-Id"]
-		log.Infof("Email accepted by SendGrid for %s (status=%d, id=%s, in %s)", recipient, response.StatusCode, msgID, duration)
-		return nil
-	}
-
-	body := response.Body
-	if len(body) > 512 {
-		body = body[:512] + "..."
-	}
-	return fmt.Errorf("sendgrid returned status %d for %s (in %s): %s", response.StatusCode, recipient, duration, body)
+	message := e.message(recipient, "You got a CleanApp report",
+		e.getEmailText(recipient, hasReport, hasMap),
+		e.getEmailHtml(recipient, hasReport, hasMap))
+	addReportAttachments(&message, reportImage, mapImage)
+	_, err := e.sendMessage(message)
+	return err
 }
 
 // sendOneEmailWithAnalysis sends an email to a single recipient with analysis data
 func (e *EmailSender) sendOneEmailWithAnalysis(recipient string, reportImage, mapImage []byte, analysis *models.ReportAnalysis) error {
-	from := mail.NewEmail(e.config.SendGridFromName, e.config.SendGridFromEmail)
-
-	// Create data-driven subject line: "Brand issue #N: Title"
 	brandDisplay := analysis.BrandDisplayName
 	if brandDisplay == "" {
 		brandDisplay = analysis.BrandName
@@ -411,73 +405,19 @@ func (e *EmailSender) sendOneEmailWithAnalysis(recipient string, reportImage, ma
 	if brandDisplay == "" {
 		brandDisplay = "Unknown"
 	}
-
-	// Truncate title to ~50 chars for subject line
 	shortTitle := analysis.Title
 	if len(shortTitle) > 50 {
 		shortTitle = shortTitle[:47] + "..."
 	}
-
 	subject := fmt.Sprintf("%s issue #%d: %s", brandDisplay, analysis.BrandReportCount, shortTitle)
-
-	to := mail.NewEmail(recipient, recipient)
-
 	hasReport := len(reportImage) > 0
 	hasMap := len(mapImage) > 0
-
-	// Create message
-	message := mail.NewV3Mail()
-	message.SetFrom(from)
-	message.Subject = subject
-
-	p := mail.NewPersonalization()
-	p.AddTos(to)
-	message.AddPersonalizations(p)
-
-	message.AddContent(mail.NewContent("text/plain", e.getEmailTextWithAnalysis(recipient, analysis, hasReport, hasMap)))
-	message.AddContent(mail.NewContent("text/html", e.getEmailHtmlWithAnalysis(recipient, analysis, hasReport, hasMap)))
-
-	if hasReport {
-		encodedReportImage := base64.StdEncoding.EncodeToString(reportImage)
-		reportAttachment := mail.NewAttachment()
-		reportAttachment.SetContent(encodedReportImage)
-		reportAttachment.SetType("image/jpeg")
-		reportAttachment.SetFilename("report.jpg")
-		reportAttachment.SetDisposition("inline")
-		reportAttachment.SetContentID(reportImgCid)
-		message.AddAttachment(reportAttachment)
-	}
-
-	// Add map attachment only if mapImage is provided
-	if hasMap {
-		encodedMapImage := base64.StdEncoding.EncodeToString(mapImage)
-		mapAttachment := mail.NewAttachment()
-		mapAttachment.SetContent(encodedMapImage)
-		mapAttachment.SetType("image/png")
-		mapAttachment.SetFilename("map.png")
-		mapAttachment.SetDisposition("inline")
-		mapAttachment.SetContentID(mapImgCid)
-		message.AddAttachment(mapAttachment)
-	}
-
-	// Send email
-	start := time.Now()
-	response, err := e.client.Send(message)
-	if err != nil {
-		return err
-	}
-
-	duration := time.Since(start)
-	if response.StatusCode >= 200 && response.StatusCode < 300 {
-		msgID := response.Headers["X-Message-Id"]
-		log.Infof("Email with analysis accepted by SendGrid for %s (status=%d, id=%s, in %s)", recipient, response.StatusCode, msgID, duration)
-		return nil
-	}
-	body := response.Body
-	if len(body) > 512 {
-		body = body[:512] + "..."
-	}
-	return fmt.Errorf("sendgrid returned status %d for %s (in %s): %s", response.StatusCode, recipient, duration, body)
+	message := e.message(recipient, subject,
+		e.getEmailTextWithAnalysis(recipient, analysis, hasReport, hasMap),
+		e.getEmailHtmlWithAnalysis(recipient, analysis, hasReport, hasMap))
+	addReportAttachments(&message, reportImage, mapImage)
+	_, err := e.sendMessage(message)
+	return err
 }
 
 // addLabel adds text to an image

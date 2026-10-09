@@ -230,3 +230,20 @@ Next time:
 - Treat running containers and listener health as insufficient pipeline health; monitor human queue consumers, completions and persistent backlog.
 - Explicitly capture child exit status in watchdogs; a brace group checked with `||` disables Bash errexit inside it.
 - Preserve per-service digest pins during partial releases, include every analyzer consumer and verify embedded commit provenance after rollout.
+
+### 2026-10-10 (Outgoing mail migration to Workspace)
+
+What worked:
+- Confirmed live production uses email-service 1.0.38 and auth-service; Rust V3 is inactive.
+- Verified info@cleanapp.io is an active licensed Workspace user and production egress is 34.122.15.16.
+- Added shared verified STARTTLS SMTP transport and provider selection for both active senders.
+- Retained templates, inline CIDs, recipient rules and explicit SendGrid rollback; new deliveries record the selected provider.
+- Prepared a Workspace relay rule restricted to registered users, one production IP and required TLS.
+
+Limitations at preparation time:
+- Google rejected the production IP before relay authorization; source readiness is not a live cutover.
+- Saving new SMTP relay authorization requires user confirmation in browser policy.
+
+Next time:
+- Verify Google acceptance and recipient authentication headers before completing a provider cutover.
+- Keep production image digests and main source aligned; preserve rollback configuration privately.

@@ -1,9 +1,11 @@
 package config
 
 import (
+	"fmt"
 	"strings"
 
 	"cleanapp-common/appenv"
+	"cleanapp-common/mailtransport"
 )
 
 type Config struct {
@@ -35,7 +37,11 @@ type Config struct {
 	AppleKeyID         string
 	ApplePrivateKey    string
 
-	// Email Configuration (SendGrid)
+	// Email configuration. SendGrid fields remain for rollback compatibility.
+	EmailProvider     string
+	EmailFromName     string
+	EmailFromAddress  string
+	SMTPConfig        mailtransport.Config
 	SendGridAPIKey    string
 	SendGridFromName  string
 	SendGridFromEmail string
@@ -84,10 +90,23 @@ func Load() (*Config, error) {
 		cfg.TrustedProxies = trustedProxies
 	}
 
-	// Email configuration (SendGrid)
+	// Provider-specific credentials are loaded only for the selected transport.
 	cfg.SendGridAPIKey = appenv.String("SENDGRID_API_KEY", "")
 	cfg.SendGridFromName = appenv.String("SENDGRID_FROM_NAME", "CleanApp")
 	cfg.SendGridFromEmail = appenv.String("SENDGRID_FROM_EMAIL", "info@cleanapp.io")
+	cfg.EmailProvider = strings.ToLower(appenv.String("EMAIL_PROVIDER", "sendgrid"))
+	cfg.EmailFromName = appenv.String("EMAIL_FROM_NAME", cfg.SendGridFromName)
+	cfg.EmailFromAddress = appenv.String("EMAIL_FROM_ADDRESS", cfg.SendGridFromEmail)
+	switch cfg.EmailProvider {
+	case "google_workspace":
+		cfg.SMTPConfig, err = mailtransport.LoadConfig()
+		if err != nil {
+			return nil, fmt.Errorf("google_workspace email configuration: %w", err)
+		}
+	case "sendgrid":
+	default:
+		return nil, fmt.Errorf("unsupported EMAIL_PROVIDER %q", cfg.EmailProvider)
+	}
 
 	// Frontend URL for password reset links
 	cfg.FrontendURL = appenv.String("FRONTEND_URL", "https://cleanapp.io")

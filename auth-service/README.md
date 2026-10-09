@@ -74,6 +74,40 @@ JWT_SECRET=<required-jwt-secret>
 PORT=8080
 ```
 
+### Password reset emails through Google Workspace
+
+Set the provider explicitly to send password reset emails from the Workspace
+account. The production SMTP relay configuration is:
+
+```env
+EMAIL_PROVIDER=google_workspace
+EMAIL_FROM_NAME=CleanApp
+EMAIL_FROM_ADDRESS=info@cleanapp.io
+SMTP_HOST=smtp-relay.gmail.com
+SMTP_PORT=587
+SMTP_TIMEOUT=30s
+FRONTEND_URL=https://cleanapp.io
+```
+
+Workspace's SMTP relay must allow the server's outbound IP and require TLS.
+The transport uses STARTTLS and verifies the server certificate. IP-authorized
+relay needs no SMTP username or password. For authenticated SMTP, set
+`SMTP_USERNAME=info@cleanapp.io` together with either `SMTP_PASSWORD` or
+`SMTP_PASSWORD_FILE` pointing to a mounted secret; use `smtp.gmail.com` when
+authenticating directly to the mailbox. Keep credentials out of checked-in files.
+
+Selecting `google_workspace` initializes the password reset sender even when
+`SENDGRID_API_KEY` is absent. Invalid SMTP configuration fails service startup.
+SMTP delivery failures keep the existing password reset response that avoids
+revealing whether the account exists, and are logged for operators. The reset
+link, subject, and text/HTML email content are unchanged.
+
+`EMAIL_FROM_NAME` and `EMAIL_FROM_ADDRESS` fall back to `SENDGRID_FROM_NAME`
+and `SENDGRID_FROM_EMAIL`, then to `CleanApp` and `info@cleanapp.io`.
+For rollback, set `EMAIL_PROVIDER=sendgrid` and provide `SENDGRID_API_KEY`.
+An unset provider retains the legacy SendGrid behavior, including disabled email
+when its API key is absent.
+
 ### Quick Start with Docker
 
 ```bash
