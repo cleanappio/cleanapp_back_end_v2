@@ -145,6 +145,13 @@ func (s *Sender) Send(message Message) (string, error) {
 		return "", fmt.Errorf("SMTP greeting: %w", err)
 	}
 	defer client.Close()
+	// Google expects an identifiable application domain. net/smtp defaults to
+	// "localhost", and Extension otherwise hides errors from its implicit EHLO.
+	// Hello also retains this name for the EHLO repeated after STARTTLS.
+	helloDomain := from[strings.LastIndexByte(from, '@')+1:]
+	if err := client.Hello(helloDomain); err != nil {
+		return "", fmt.Errorf("SMTP EHLO: %w", err)
+	}
 	if ok, _ := client.Extension("STARTTLS"); !ok {
 		return "", fmt.Errorf("SMTP server must support STARTTLS")
 	}

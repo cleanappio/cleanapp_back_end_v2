@@ -87,6 +87,7 @@ type peerOptions struct {
 	reject        string
 	quitFails     bool
 	stallGreeting bool
+	helloFails    bool
 }
 
 type peerResult struct {
@@ -170,8 +171,16 @@ func startSMTPPeer(t *testing.T, options peerOptions) (Config, *x509.CertPool, <
 				_ = send("550 simulated " + command + " rejection")
 				continue
 			}
+			if options.helloFails && (command == "EHLO" || command == "HELO") {
+				_ = send("550 simulated greeting rejection")
+				continue
+			}
 			switch command {
 			case "EHLO":
+				if line != "EHLO cleanapp.io" {
+					result.err = fmt.Errorf("expected sender domain in EHLO, got %q", line)
+					return
+				}
 				if !secured && !options.noTLS {
 					err = send("250-smtp.test\r\n250 STARTTLS")
 				} else if secured {
@@ -272,6 +281,18 @@ func TestSendVerifiedSTARTTLSAndAuth(t *testing.T) {
 	if result.auth != "\x00info@cleanapp.io\x00test-password" {
 		t.Fatal("incorrect authentication payload")
 	}
+	helloCount := 0
+	for _, command := range result.commands {
+		if strings.HasPrefix(command, "EHLO ") {
+			if command != "EHLO cleanapp.io" {
+				t.Fatal("EHLO did not identify sender domain")
+			}
+			helloCount++
+		}
+	}
+	if helloCount != 2 {
+		t.Fatalf("expected domain EHLO before and after TLS, got %d", helloCount)
+	}
 	if sender.Provider() != "google_workspace" || Provider() != sender.Provider() {
 		t.Fatal("incorrect provider")
 	}
@@ -288,6 +309,23 @@ func TestSendVerifiedSTARTTLSAndAuth(t *testing.T) {
 	decoded, err := io.ReadAll(quotedprintable.NewReader(message.Body))
 	if err != nil || !strings.Contains(string(decoded), ".dot-stuffed line") {
 		t.Fatal("SMTP dot transparency changed body")
+	}
+}
+
+func TestSendPropagatesGreetingFailure(t *testing.T) {
+	cfg, roots, results := startSMTPPeer(t, peerOptions{helloFails: true})
+	_, err := trustedSender(t, cfg, roots).Send(basicMessage())
+	if err == nil || !strings.Contains(err.Error(), "SMTP EHLO:") || !strings.Contains(err.Error(), "550") {
+		t.Fatalf("expected explicit greeting failure, got %v", err)
+	}
+	result := <-results
+	if result.err != nil {
+		t.Fatal(result.err)
+	}
+	for _, command := range result.commands {
+		if command == "STARTTLS" || strings.HasPrefix(command, "MAIL ") {
+			t.Fatal("continued delivery after failed greeting")
+		}
 	}
 }
 

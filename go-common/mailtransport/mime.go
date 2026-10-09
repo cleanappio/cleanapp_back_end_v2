@@ -57,6 +57,9 @@ func encodeMessage(message Message) ([]byte, string, string, []string, error) {
 			return nil, "", "", nil, err
 		}
 		body, err = multipartEntity("alternative", []entity{text, html})
+		if err != nil {
+			return nil, "", "", nil, err
+		}
 	} else if message.HTML != "" {
 		body, err = textEntity("text/html", message.HTML)
 	} else {
