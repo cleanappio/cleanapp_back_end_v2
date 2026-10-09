@@ -251,6 +251,24 @@ GET /health
 ```
 Simple health check endpoint.
 
+### Mobile Report Delivery Notifications
+
+The email service calls the internal, token-protected `POST /internal/mobile-push/report-deliveries` after report processing. Existing device delivery and deduplication behavior is unchanged. APNS carries the following string fields under `cleanapp`; FCM carries them under `message.data`:
+
+| Field | Meaning |
+|-------|---------|
+| `seq`, `status` | Report sequence and `sent` or `processed_no_delivery` status |
+| `navigate_to` | `my_report_details`, retained for existing clients |
+| `initial_section` | `escalation_log`, selects the report's delivery log on compatible clients |
+| `recipient_count` | Successful recipient count supplied by the email service, encoded as a string |
+| `public_id` | Public report identifier, when available |
+| `recipient_email`, `recipient_name` | Latest successful recipient and optional display name or organization |
+| `sent_at` | Latest successful recipient's recorded receipt time in UTC RFC3339; omitted when unavailable |
+
+Recipient metadata comes from `report_email_deliveries` rows with `delivery_status = 'sent'`, ordered by receipt time. `sent_at` is never inferred from the processing marker or the current time. Clients should refresh the owned report's `POST /read_report_email_status` response for the full recipient list when opening the log.
+
+Focused verification: `go test ./handlers -run 'ReportDeliveryPush|ReportProcessedPush' -count=1` checks backward-compatible navigation, the log section, recipient count, UTC receipt times, and missing receipt metadata without sending notifications.
+
 ## Configuration
 
 The service is configured via environment variables:
