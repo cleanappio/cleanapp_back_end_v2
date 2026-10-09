@@ -311,6 +311,14 @@ services:
       - SENDGRID_API_KEY=${SENDGRID_API_KEY}
       - SENDGRID_FROM_NAME=CleanApp
       - SENDGRID_FROM_EMAIL=info@cleanapp.io
+      - EMAIL_PROVIDER=${EMAIL_PROVIDER:-sendgrid}
+      - EMAIL_FROM_NAME=${EMAIL_FROM_NAME:-}
+      - EMAIL_FROM_ADDRESS=${EMAIL_FROM_ADDRESS:-}
+      - SMTP_HOST=${SMTP_HOST:-smtp-relay.gmail.com}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USERNAME=${SMTP_USERNAME:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - SMTP_TIMEOUT=${SMTP_TIMEOUT:-30s}
       - FRONTEND_URL=https://dev.cleanapp.io
     ports:
       - 9084:8080
@@ -389,6 +397,14 @@ services:
       - SENDGRID_API_KEY=${SENDGRID_API_KEY}
       - SENDGRID_FROM_NAME=CleanApp
       - SENDGRID_FROM_EMAIL=info@cleanapp.io
+      - EMAIL_PROVIDER=${EMAIL_PROVIDER:-sendgrid}
+      - EMAIL_FROM_NAME=${EMAIL_FROM_NAME:-}
+      - EMAIL_FROM_ADDRESS=${EMAIL_FROM_ADDRESS:-}
+      - SMTP_HOST=${SMTP_HOST:-smtp-relay.gmail.com}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USERNAME=${SMTP_USERNAME:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - SMTP_TIMEOUT=${SMTP_TIMEOUT:-30s}
       - HTTP_PORT=8080
       - POLL_INTERVAL=10s
       - OPT_OUT_URL=http://dev.cleanapp.io/api/optout

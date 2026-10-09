@@ -1,15 +1,28 @@
 package email
 
 import (
+	"cleanapp-common/mailtransport"
 	"fmt"
+	"strings"
 
+	"github.com/sendgrid/rest"
 	"github.com/sendgrid/sendgrid-go"
 	"github.com/sendgrid/sendgrid-go/helpers/mail"
 )
 
-// Sender handles sending emails via SendGrid
+type sendGridClient interface {
+	Send(*mail.SGMailV3) (*rest.Response, error)
+}
+
+type workspaceSender interface {
+	Send(mailtransport.Message) (string, error)
+}
+
+// Sender sends password reset messages through the configured provider.
 type Sender struct {
-	client    *sendgrid.Client
+	client    sendGridClient
+	workspace workspaceSender
+	provider  string
 	fromName  string
 	fromEmail string
 }
@@ -18,9 +31,34 @@ type Sender struct {
 func NewSender(apiKey, fromName, fromEmail string) *Sender {
 	return &Sender{
 		client:    sendgrid.NewSendClient(apiKey),
+		provider:  "sendgrid",
 		fromName:  fromName,
 		fromEmail: fromEmail,
 	}
+}
+
+// NewConfiguredSender preserves the legacy disabled sender when SendGrid has no
+// key, while an explicitly selected Workspace sender must be configured.
+func NewConfiguredSender(provider, apiKey, fromName, fromEmail string, smtpConfig mailtransport.Config) (*Sender, error) {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "", "sendgrid":
+		if apiKey == "" {
+			return nil, nil
+		}
+		return NewSender(apiKey, fromName, fromEmail), nil
+	case "google_workspace":
+		transport, err := mailtransport.New(smtpConfig)
+		if err != nil {
+			return nil, fmt.Errorf("initialize google_workspace email sender: %w", err)
+		}
+		return &Sender{workspace: transport, provider: "google_workspace", fromName: fromName, fromEmail: fromEmail}, nil
+	default:
+		return nil, fmt.Errorf("unsupported EMAIL_PROVIDER %q", provider)
+	}
+}
+
+func (s *Sender) Provider() string {
+	return s.provider
 }
 
 // SendPasswordResetEmail sends a password reset email with the reset link
@@ -81,6 +119,21 @@ The CleanApp Team`, resetURL)
     </div>
 </body>
 </html>`, resetURL, resetURL)
+
+	if s.workspace != nil {
+		_, err := s.workspace.Send(mailtransport.Message{
+			FromName:  s.fromName,
+			FromEmail: s.fromEmail,
+			To:        []string{recipientEmail},
+			Subject:   subject,
+			Text:      plainText,
+			HTML:      htmlContent,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to send password reset email via google_workspace: %w", err)
+		}
+		return nil
+	}
 
 	message := mail.NewSingleEmail(from, subject, to, plainText, htmlContent)
 

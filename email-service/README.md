@@ -54,7 +54,7 @@ The service follows the same logic as the original `sendAffectedPolygonsEmails()
 1. **Polling**: Continuously polls for unprocessed reports
 2. **Spatial Query**: Uses MySQL spatial functions to find areas containing report points
 3. **Email Lookup**: Finds email addresses for areas with consent
-4. **Email Sending**: Sends emails with report image and map via SendGrid
+4. **Email Sending**: Sends emails with report image and map through the configured provider
 5. **Tracking**: Marks reports as processed to avoid duplicate emails
 
 ## Database Schema
@@ -96,10 +96,17 @@ The service uses environment variables for configuration:
 - `MYSQL_PASSWORD`: MySQL password (required outside local dev)
 - `MYSQL_DB`: MySQL database (default: cleanapp)
 
-### SendGrid
-- `SENDGRID_API_KEY`: SendGrid API key (required)
-- `SENDGRID_FROM_NAME`: From name (default: CleanApp)
-- `SENDGRID_FROM_EMAIL`: From email (default: info@cleanapp.io)
+### Outgoing email
+- `EMAIL_PROVIDER`: `google_workspace` selects SMTP; `sendgrid` retains the legacy provider for rollback (default: `sendgrid`).
+- `EMAIL_FROM_NAME`: From name (default: `SENDGRID_FROM_NAME`, then `CleanApp`).
+- `EMAIL_FROM_ADDRESS`: From address (default: `SENDGRID_FROM_EMAIL`, then `info@cleanapp.io`).
+- `SMTP_HOST`: SMTP host (default: `smtp-relay.gmail.com`).
+- `SMTP_PORT`: SMTP port (default: `587`).
+- `SMTP_TIMEOUT`: SMTP timeout (default: `30s`).
+- `SMTP_USERNAME`, `SMTP_PASSWORD`: Credentials if the Google Workspace relay requires SMTP authentication. `SMTP_PASSWORD_FILE` can supply a mounted secret instead of `SMTP_PASSWORD`.
+- `SENDGRID_API_KEY`: Required only when selecting SendGrid.
+
+For Google Workspace, configure its SMTP relay to authorize the deployment's public IP and the `info@cleanapp.io` sender, or provide credentials for an authorized account. All SMTP connections require TLS. Invalid SMTP configuration prevents service startup; a rejected or failed send remains a failure and does not fall back to SendGrid. Existing opt-outs, recipient selection, schedules, throttles, templates, and inline image references are preserved. New delivery records identify the selected provider as `google_workspace` or `sendgrid`; historical records are unchanged.
 
 ### Service
 - `POLL_INTERVAL`: How often to poll for new reports (default: 10s)
@@ -110,8 +117,11 @@ The service uses environment variables for configuration:
 
 ### Using Docker Compose
 ```bash
-# Set your SendGrid API key
-export SENDGRID_API_KEY=your_api_key_here
+# Select the Google Workspace relay authorized for this deployment
+export EMAIL_PROVIDER=google_workspace
+export EMAIL_FROM_ADDRESS=info@cleanapp.io
+export SMTP_HOST=smtp-relay.gmail.com
+export SMTP_PORT=587
 
 # Set custom configuration (optional)
 export POLL_INTERVAL=60s
@@ -192,5 +202,5 @@ The service logs:
 
 - Go 1.24+
 - MySQL 8.0+ with spatial extensions
-- SendGrid account and API key
-- **Gin framework** for high-performance HTTP API 
+- Authorized Google Workspace SMTP relay, or a SendGrid account and API key for rollback
+- **Gin framework** for high-performance HTTP API
