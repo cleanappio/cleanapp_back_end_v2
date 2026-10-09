@@ -247,3 +247,31 @@ Limitations at preparation time:
 Next time:
 - Verify Google acceptance and recipient authentication headers before completing a provider cutover.
 - Keep production image digests and main source aligned; preserve rollback configuration privately.
+
+Session-end update:
+
+- Saved the approved Workspace SMTP relay rule for registered users, production
+  egress `34.122.15.16` and required TLS.
+- Added apex SPF `v=spf1 include:_spf.google.com ~all` through Namecheap,
+  preserving the 49 existing DNS records; authoritative DNS exposes the record.
+- PR #143 merged as `d205fee705eac9bfd87eec6cccbdfb7bb575bb5c` after checks passed.
+- Source-built and deployed both active services from the merged commit through
+  the canonical digest workflow. Health, embedded commit, immutable digests,
+  `google_workspace`, sender `info@cleanapp.io` and verified TLS all passed.
+  Critical auth configuration and all 35 unrelated containers/pins were unchanged;
+  no mailbox password or SMTP credential was added. V3 remains inactive.
+- Enabled 2048-bit domain DKIM with selector `cleanapp20261010`, publishing its
+  public TXT record while preserving the original 49 DNS records. Externally
+  received production messages passed aligned DKIM and DMARC. Google MX still
+  cached old SPF data; public DNS already exposes the correct SPF record.
+- The deployed application and password-reset tests reached the owned Gmail
+  inbox. Later domain-signed tests were placed in Spam; Gmail explicitly attributed
+  this to previous cleanapp.io messages being marked as spam. Kept mailbox
+  classification untouched rather than changing test results.
+- At 22:51:19 UTC, natural notifications recorded 7,101 report-recipient delivery
+  links for 1,951 reports and 132 distinct recipients using `google_workspace`.
+  No fresh SMTP/provider errors were observed. The first candidate query took
+  5m44s; candidate SQL, scheduling and recipient selection are byte-for-byte
+  unchanged from the previous deployed email commit.
+- Rollback snapshots remain private on the VM. Preserve the old auth image locally
+  because it had no registry digest; do not prune it until rollback is unnecessary.

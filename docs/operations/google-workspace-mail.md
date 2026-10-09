@@ -27,6 +27,30 @@ Relay mail does not create a message in the mailbox's Gmail Sent folder.
 Google can take up to 24 hours to apply routing settings. Test authorization from
 the production server before enabling application sends.
 
+## Domain authentication
+
+`cleanapp.io` uses Namecheap BasicDNS. Its apex SPF TXT record is
+`v=spf1 include:_spf.google.com ~all`, saved and verified on 2026-10-10 while
+preserving all existing DNS records. Include any additional active direct senders
+in the same SPF record; do not create a second SPF record.
+
+Domain DKIM was enabled on 2026-10-10 using a 2048-bit key with selector
+`cleanapp20261010` and the public TXT record at
+`cleanapp20261010._domainkey.cleanapp.io`. Google Admin → Gmail → Authenticate
+email shows `Authenticating email with DKIM`. An externally received production
+test message passed `dkim=pass header.i=@cleanapp.io` and `dmarc=pass`. Preserve
+this signing record. Google's default `gappssmtp.com` signature previously passed
+DKIM without aligning with `cleanapp.io`.
+
+The existing `_dmarc` policy remains `p=none`. SPF is published in authoritative
+and public DNS, but the first post-cutover Gmail messages still reported
+`spf=none` from cached pre-publication DNS. Recheck recipient headers after caches
+expire; do not infer SPF acceptance solely from DNS publication.
+
+Verify external delivery shows aligned `spf=pass` and `dmarc=pass`; after enabling
+domain DKIM, verify `dkim=pass header.d=cleanapp.io`. DNS publication alone does
+not establish recipient authentication or inbox delivery.
+
 ## Service configuration
 
 Set these variables for **both** active services:
@@ -91,6 +115,37 @@ response can otherwise create duplicates. Existing service scheduling remains in
 control. Workspace relay imposes sending and recipient quotas; monitor rejected
 sends before increasing notification volume.
 
+## Production rollout record (2026-10-10)
+
+PR #143 merged as `d205fee705eac9bfd87eec6cccbdfb7bb575bb5c` after all release
+checks passed. Both services were built from this commit and deployed through the
+canonical source-build/digest workflow with no schema migrations:
+
+- Auth: `sha256:a5188dbcb413f4085d7d05cc81e2dcc5881447f0027db909bf2381e620e157fc`.
+- Email: `sha256:1475dd2a372eda28f81d8ee8376e3f7e9518820cef5b3a1ad35482541b4a836f`.
+
+Runtime health, embedded commit, provider, sender and verified TLS passed. Critical
+auth settings and all 35 unrelated containers/digest pins were unchanged. Both
+production application and password-reset test messages reached the owned Gmail
+inbox. Later domain-signed tests passed DKIM and DMARC, but Gmail placed them in
+Spam due to previous `cleanapp.io` messages being marked as spam. Do not equate
+authentication success with inbox placement or modify mailbox classification to
+hide a test result.
+
+At 22:51:19 UTC, natural report notifications had recorded 7,101 report-recipient
+delivery links for 1,951 reports and 132 distinct recipients as
+`google_workspace`. These are report-recipient rows, not individual SMTP messages.
+No fresh provider errors were observed. The first candidate query took 5m44s;
+selection, scheduling and candidate SQL were unchanged from the old deployed
+commit.
+
+Private rollback files are in
+`/home/deployer/incidents/20261010-workspace-mail`. The old auth image has no
+registry digest, so retain its local image ID and use `--pull never` for rollback.
+
 References: [Google SMTP relay setup](https://knowledge.workspace.google.com/admin/gmail/advanced/route-outgoing-smtp-relay-messages-through-google),
 [application SMTP options](https://knowledge.workspace.google.com/admin/gmail/send-email-from-a-printer-scanner-or-app),
-[Gmail sending limits](https://knowledge.workspace.google.com/admin/gmail/gmail-sending-limits-in-google-workspace).
+[Gmail sending limits](https://knowledge.workspace.google.com/admin/gmail/gmail-sending-limits-in-google-workspace),
+[SPF setup](https://knowledge.workspace.google.com/admin/security/set-up-spf),
+[DKIM setup](https://knowledge.workspace.google.com/admin/security/set-up-dkim),
+[DMARC setup](https://knowledge.workspace.google.com/admin/security/set-up-dmarc).
