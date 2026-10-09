@@ -4,6 +4,21 @@ Run as root on the VM. Private snapshots and renamed containers provide rollback
 import json, os, pathlib, subprocess, sys, time
 import yaml
 
+# Compose's !reset/!override tags must survive a YAML round trip.
+class Tagged:
+    def __init__(self, tag, value): self.tag, self.value = tag, value
+class ComposeLoader(yaml.SafeLoader): pass
+class ComposeDumper(yaml.SafeDumper): pass
+def load_tag(loader, suffix, node):
+    if isinstance(node, yaml.SequenceNode): value=loader.construct_sequence(node,deep=True)
+    elif isinstance(node, yaml.MappingNode): value=loader.construct_mapping(node,deep=True)
+    else: value=loader.construct_scalar(node)
+    return Tagged('!'+suffix,value)
+def dump_tag(dumper, value):
+    node=dumper.represent_data(value.value); node.tag=value.tag; return node
+ComposeLoader.add_multi_constructor('!',load_tag)
+ComposeDumper.add_representer(Tagged,dump_tag)
+
 IMAGE = sys.argv[1]
 STAMP = '20261009-diverse'
 ROOT = pathlib.Path('/home/deployer/bluesky-rollouts') / STAMP
@@ -25,12 +40,16 @@ def call(args):
 call(['docker','pull',IMAGE])
 specs = json.loads(call(['docker','inspect',*BINARIES]))
 snapshot=ROOT/'before.json'
-if snapshot.exists(): raise RuntimeError('Rollback snapshot exists; refusing to overwrite it')
-snapshot.write_text(json.dumps(specs)); os.chmod(snapshot,0o600)
+if snapshot.exists():
+    saved=json.loads(snapshot.read_text())
+    if {x['Id'] for x in saved}!={x['Id'] for x in specs}:
+        raise RuntimeError('Rollback snapshot belongs to different containers')
+else:
+    snapshot.write_text(json.dumps(specs)); os.chmod(snapshot,0o600)
 override=pathlib.Path('/home/deployer/docker-compose.override.yml')
 backup=ROOT/'docker-compose.override.yml'
-backup.write_bytes(override.read_bytes()); os.chmod(backup,0o600)
-config=yaml.safe_load(override.read_text()) or {}
+if not backup.exists(): backup.write_bytes(override.read_bytes()); os.chmod(backup,0o600)
+config=yaml.load(override.read_text(),Loader=ComposeLoader) or {}
 services=config.setdefault('services',{})
 for spec in specs:
     name=spec['Name'].lstrip('/')
@@ -78,7 +97,7 @@ try:
     after=json.loads(call(['docker','inspect',*BINARIES]))
     if any(not x['State']['Running'] or x['RestartCount'] for x in after):
         raise RuntimeError('A worker failed startup')
-    override.write_text(yaml.safe_dump(config,sort_keys=False))
+    override.write_text(yaml.dump(config,Dumper=ComposeDumper,sort_keys=False))
     print('Rollout complete: four Bluesky workers running; previous containers retained for rollback.')
 except Exception:
     for name,old in reversed(changed):
