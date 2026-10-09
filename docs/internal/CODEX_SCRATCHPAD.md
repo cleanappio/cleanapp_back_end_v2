@@ -275,3 +275,16 @@ Session-end update:
   unchanged from the previous deployed email commit.
 - Rollback snapshots remain private on the VM. Preserve the old auth image locally
   because it had no registry digest; do not prune it until rollback is unnecessary.
+
+### 2026-10-10 (Mobile delivery notification destination)
+
+What worked:
+- Checked the complete email-service to listener to APNS/FCM flow before adding payload fields. Existing sends and per-device deduplication remain unchanged.
+- Added string `recipient_count` and `initial_section=escalation_log` while retaining `navigate_to=my_report_details` for older mobile clients.
+- Kept `sent_at` sourced exclusively from successful recipient receipts; missing metadata remains absent. Focused tests cover UTC timestamps, unavailable receipts and processed reports without delivery.
+- `go test ./...` and `go vet ./...` passed in report-listener. No production notifications were triggered by verification.
+- The deployed listener identifies commit `4bfa9c609174`; its listener source matches the current main baseline. Intervening shared changes only add the unused mailtransport package.
+
+Next time:
+- Refresh the owned report delivery-status API for durable log details; push payloads are navigation hints and may predate later deliveries.
+- Preserve the distinction between processing timestamps and recorded successful email receipt times.

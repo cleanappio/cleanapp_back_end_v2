@@ -187,28 +187,7 @@ func (h *Handlers) dispatchReportDeliveryPush(ctx context.Context, seq int, stat
 	}
 
 	title, body := buildReportDeliveryPushMessage(status, recipientCount, recipients)
-	message := map[string]string{
-		"seq":    strconv.Itoa(seq),
-		"status": status,
-	}
-	if publicID != "" {
-		message["public_id"] = publicID
-	}
-	if len(recipients) > 0 {
-		primary := recipients[0]
-		if primary.Email != "" {
-			message["recipient_email"] = primary.Email
-		}
-		if primary.DisplayName != "" {
-			message["recipient_name"] = primary.DisplayName
-		} else if primary.Organization != "" {
-			message["recipient_name"] = primary.Organization
-		}
-		if primary.SentAt != nil {
-			message["sent_at"] = primary.SentAt.UTC().Format(time.RFC3339)
-		}
-	}
-	message["navigate_to"] = "my_report_details"
+	message := buildReportDeliveryPushData(seq, status, recipientCount, publicID, recipients)
 
 	sent := 0
 	skipped := 0
@@ -257,6 +236,36 @@ func (h *Handlers) dispatchReportDeliveryPush(ctx context.Context, seq int, stat
 	}
 
 	return sent, skipped, nil
+}
+
+// Delivery receipt times come from successful report_email_deliveries rows, not
+// the report's processing timestamp. Missing receipt metadata stays absent.
+func buildReportDeliveryPushData(seq int, status string, recipientCount int, publicID string, recipients []models.ReportDeliveryRecipient) map[string]string {
+	message := map[string]string{
+		"seq":             strconv.Itoa(seq),
+		"status":          status,
+		"recipient_count": strconv.Itoa(recipientCount),
+		"navigate_to":     "my_report_details",
+		"initial_section": "escalation_log",
+	}
+	if publicID != "" {
+		message["public_id"] = publicID
+	}
+	if len(recipients) > 0 {
+		primary := recipients[0]
+		if primary.Email != "" {
+			message["recipient_email"] = primary.Email
+		}
+		if primary.DisplayName != "" {
+			message["recipient_name"] = primary.DisplayName
+		} else if primary.Organization != "" {
+			message["recipient_name"] = primary.Organization
+		}
+		if primary.SentAt != nil {
+			message["sent_at"] = primary.SentAt.UTC().Format(time.RFC3339)
+		}
+	}
+	return message
 }
 
 func formatPushTimestamp(sentAt *time.Time) string {
