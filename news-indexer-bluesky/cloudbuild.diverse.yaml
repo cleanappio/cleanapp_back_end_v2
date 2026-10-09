@@ -1,0 +1,7 @@
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: ['build', '-f', 'Dockerfile.diverse', '-t', '${_IMAGE}', '.']
+images: ['${_IMAGE}']
+options:
+  machineType: E2_HIGHCPU_32
+timeout: 1800s

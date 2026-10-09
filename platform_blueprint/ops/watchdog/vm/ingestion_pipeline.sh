@@ -24,7 +24,7 @@ if [[ "${cursor_fresh}" != "1" ]]; then
   exit 1
 fi
 
-pending="$(mysql_n "SELECT EXISTS(SELECT 1 FROM indexer_bluesky_analysis a LEFT JOIN external_ingest_index ei ON ei.source='bluesky' AND ei.external_id COLLATE utf8mb4_unicode_ci=a.uri LEFT JOIN indexer_bluesky_wire_submission ws ON ws.uri=a.uri WHERE a.is_relevant=TRUE AND ei.seq IS NULL AND ws.uri IS NULL LIMIT 1);")"
+pending="$(mysql_n "SELECT EXISTS(SELECT 1 FROM indexer_bluesky_post p FORCE INDEX (idx_created_at) STRAIGHT_JOIN indexer_bluesky_analysis a ON a.uri=p.uri LEFT JOIN external_ingest_index ei ON ei.source='bluesky' AND ei.external_id COLLATE utf8mb4_unicode_ci=p.uri LEFT JOIN indexer_bluesky_wire_submission ws ON ws.uri=p.uri WHERE p.created_at >= UTC_TIMESTAMP()-INTERVAL 48 HOUR AND p.created_at <= UTC_TIMESTAMP()+INTERVAL 5 MINUTE AND a.is_relevant=TRUE AND a.error IS NULL AND ei.seq IS NULL AND ws.uri IS NULL AND (a.classification='digital' OR EXISTS(SELECT 1 FROM indexer_bluesky_media m WHERE m.post_uri=p.uri AND m.sha256 IS NOT NULL)) LIMIT 1);")"
 if [[ "${pending}" == "1" ]]; then
   submit_fresh="$(mysql_n "SELECT COUNT(*) FROM indexer_bluesky_wire_submission WHERE submitted_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 20 MINUTE);")"
   if [[ "${submit_fresh}" == "0" ]]; then
