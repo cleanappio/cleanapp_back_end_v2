@@ -12,6 +12,10 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 #[path = "../indexer_bluesky_schema.rs"]
 mod indexer_bluesky_schema;
+#[path = "../media.rs"]
+mod media;
+#[path = "../selection.rs"]
+mod selection;
 
 /// BlueskyNow: Real-time Jetstream firehose consumer for CleanApp
 #[derive(Parser, Debug, Clone)]
@@ -832,7 +836,7 @@ async fn process_message(raw: &str, pool: &Pool) -> Result<bool> {
         static CURSOR_UPDATE_INTERVAL: std::sync::atomic::AtomicU64 =
             std::sync::atomic::AtomicU64::new(0);
         let last = CURSOR_UPDATE_INTERVAL.load(std::sync::atomic::Ordering::Relaxed);
-        if event.time_us - last > 1_000_000 {
+        if event.time_us.saturating_sub(last) > 1_000_000 {
             // Update every ~1 second
             CURSOR_UPDATE_INTERVAL.store(event.time_us, std::sync::atomic::Ordering::Relaxed);
             update_cursor(pool, event.time_us).await?;
@@ -862,27 +866,29 @@ async fn process_message(raw: &str, pool: &Pool) -> Result<bool> {
     // Normalize to BlueskyPost
     let post = normalize_post(&event.did, commit, record)?;
 
-    // Skip very short posts (likely not useful)
-    if post.text.len() < 10 {
+    if !selection::fresh(post.created_at.as_deref(), chrono::Utc::now()) {
         return Ok(false);
     }
-
-    // Check negative keywords (spam filter)
-    let text_lower = post.text.to_lowercase();
-    for kw in NEGATIVE_KEYWORDS {
-        if text_lower.contains(kw) {
+    let embed = record.get("embed");
+    let has_images = embed.is_some_and(|e| !selection::images(e).is_empty());
+    let issue_kind = selection::kind(&post.text, has_images);
+    if issue_kind.is_none() {
+        return Ok(false);
+    }
+    if let Some(embed) = embed {
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(15))
+            .build()?;
+        let mut conn = pool.get_conn().await?;
+        let count =
+            media::store_images(&client, &mut conn, &post.uri, &post.author_did, embed).await?;
+        if issue_kind == Some(selection::IssueKind::Physical) && count == 0 {
+            return Ok(false);
+        }
+        if !has_images && selection::kind(&post.text, false).is_none() {
             return Ok(false);
         }
     }
-
-    // Check for complaint/issue indicators - this is our main filter
-    // The analyzer will determine the brand later
-    let has_complaint_indicator = COMPLAINT_KEYWORDS.iter().any(|kw| text_lower.contains(kw));
-    if !has_complaint_indicator {
-        return Ok(false);
-    }
-
-    // Store the post - analyzer_bluesky will determine brand
     store_post(pool, &post).await?;
 
     info!("📥 Complaint found: {}", truncate_text(&post.text, 80));
@@ -967,7 +973,14 @@ async fn store_post(pool: &Pool, post: &BlueskyPost) -> Result<()> {
             &post.author_did,
             post.author_handle.as_deref().unwrap_or(""),
             &post.text,
-            post.created_at.as_deref(),
+            post.created_at
+                .as_deref()
+                .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                .map(|t| {
+                    t.with_timezone(&chrono::Utc)
+                        .format("%Y-%m-%d %H:%M:%S")
+                        .to_string()
+                }),
             &raw_json,
         ),
     )

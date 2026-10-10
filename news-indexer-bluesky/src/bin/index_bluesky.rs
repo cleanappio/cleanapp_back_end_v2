@@ -5,12 +5,16 @@ use mysql_async::prelude::*;
 use mysql_async::Pool;
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
-use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::time::Duration as StdDuration;
 use tokio::time::sleep;
 
 #[path = "../indexer_bluesky_schema.rs"]
 mod indexer_bluesky_schema;
+#[path = "../media.rs"]
+mod media;
+#[path = "../selection.rs"]
+mod selection;
 
 #[derive(Parser, Debug, Clone)]
 struct Args {
@@ -29,7 +33,7 @@ struct Args {
     #[arg(
         long,
         env = "BSKY_SEARCH_QUERIES",
-        default_value = "fatal bug,app crash,horrible UX,broken feature,keeps crashing,feature request,missing dark mode,battery drain,laggy,freezes,login broken,sync fails,unusable,showstopper bug"
+        default_value = selection::SEARCH_QUERIES
     )]
     search_queries: String,
 }
@@ -85,18 +89,6 @@ struct Record {
     created_at: Option<String>,
     langs: Option<Vec<String>>,
 }
-
-// Negative keywords to filter out noise
-const NEGATIVE_KEYWORDS: &[&str] = &[
-    "giveaway",
-    "promo",
-    "nft",
-    "crypto airdrop",
-    "follow for follow",
-    "f4f",
-    "follow back",
-    "followback",
-];
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -172,12 +164,12 @@ async fn run_once(
     let mut total_new = 0usize;
 
     for query in queries {
-        let tag_key = format!("search:{}", query.to_lowercase());
-
-        // Search cursors paginate one snapshot; reusing them across polling cycles
-        // can strand the worker on an expired cursor and miss all newer posts.
-        // Revisit the newest pages each cycle; post URI upserts deduplicate them.
+        // Search cursors page backwards; never carry them into the next poll.
+        // Each query receives the same page budget, always newest first.
         let mut next_cursor: Option<String> = None;
+        let mut author_counts: HashMap<String, usize> = HashMap::new();
+        let since =
+            (chrono::Utc::now() - chrono::Duration::hours(selection::MAX_AGE_HOURS)).to_rfc3339();
         let mut pages = 0usize;
 
         loop {
@@ -187,7 +179,9 @@ async fn run_once(
             pages += 1;
 
             let result =
-                match search_posts(client, &access_token, query, next_cursor.as_deref()).await {
+                match search_posts(client, &access_token, query, next_cursor.as_deref(), &since)
+                    .await
+                {
                     Ok(result) => result,
                     Err(err) => {
                         warn!("query '{}': {}; continuing with other queries", query, err);
@@ -208,12 +202,30 @@ async fn run_once(
             );
 
             for post in result.posts.iter() {
-                // Skip if contains negative keywords
-                let text_lower = post.record.text.to_lowercase();
-                if NEGATIVE_KEYWORDS.iter().any(|kw| text_lower.contains(kw)) {
+                if !selection::fresh(post.record.created_at.as_deref(), chrono::Utc::now()) {
                     continue;
                 }
-
+                let has_images = post
+                    .embed
+                    .as_ref()
+                    .is_some_and(|e| !selection::images(e).is_empty());
+                if selection::kind(&post.record.text, has_images).is_none() {
+                    continue;
+                }
+                let count = author_counts.entry(post.author.did.clone()).or_default();
+                if *count >= 3 {
+                    continue;
+                }
+                *count += 1;
+                let exists: Option<u8> = conn
+                    .exec_first(
+                        "SELECT 1 FROM indexer_bluesky_post WHERE uri=?",
+                        (&post.uri,),
+                    )
+                    .await?;
+                if exists.is_some() {
+                    continue;
+                }
                 // Check language (allow en, es, or unspecified)
                 if let Some(ref langs) = post.record.langs {
                     if !langs.is_empty() {
@@ -241,6 +253,25 @@ async fn run_once(
                     .cloned()
                     .unwrap_or_default();
 
+                let stored_images = if let Some(ref embed) = post.embed {
+                    match media::store_images(client, &mut conn, &post.uri, &post.author.did, embed)
+                        .await
+                    {
+                        Ok(count) => count,
+                        Err(e) => {
+                            warn!("embed handling error for {}: {}", post.uri, e);
+                            0
+                        }
+                    }
+                } else {
+                    0
+                };
+                if selection::kind(&post.record.text, has_images)
+                    == Some(selection::IssueKind::Physical)
+                    && stored_images == 0
+                {
+                    continue;
+                }
                 // Upsert post
                 conn.exec_drop(
                     r#"INSERT INTO indexer_bluesky_post
@@ -261,27 +292,9 @@ async fn run_once(
                 .await?;
 
                 total_new += 1;
-
-                // Handle embedded images
-                if let Some(ref embed) = post.embed {
-                    if let Err(e) = handle_embed(client, &mut conn, &post.uri, embed).await {
-                        warn!("embed handling error for {}: {}", post.uri, e);
-                    }
-                }
             }
 
-            // Update cursor
             next_cursor = result.cursor.clone();
-            if let Some(ref c) = result.cursor {
-                conn.exec_drop(
-                    r#"INSERT INTO indexer_bluesky_cursor (query_tag, cursor_value)
-                       VALUES (?, ?)
-                       ON DUPLICATE KEY UPDATE cursor_value = VALUES(cursor_value), updated_at = NOW()"#,
-                    (tag_key.clone(), c.clone()),
-                )
-                .await?;
-            }
-
             if result.cursor.is_none() {
                 break;
             }
@@ -323,10 +336,12 @@ async fn search_posts(
     access_token: &str,
     query: &str,
     cursor: Option<&str>,
+    since: &str,
 ) -> Result<SearchPostsResponse> {
     let mut url = format!(
-        "https://bsky.social/xrpc/app.bsky.feed.searchPosts?q={}&limit=50",
-        urlencoding::encode(query)
+        "https://bsky.social/xrpc/app.bsky.feed.searchPosts?q={}&limit=50&sort=latest&since={}",
+        urlencoding::encode(query),
+        urlencoding::encode(since)
     );
 
     if let Some(c) = cursor {
@@ -355,74 +370,4 @@ async fn search_posts(
 
     let result: SearchPostsResponse = resp.json().await?;
     Ok(result)
-}
-
-async fn handle_embed(
-    client: &reqwest::Client,
-    conn: &mut mysql_async::Conn,
-    post_uri: &str,
-    embed: &JsonValue,
-) -> Result<()> {
-    // Handle images embed
-    let images = embed
-        .get("images")
-        .or_else(|| {
-            embed
-                .get("$type")
-                .and_then(|t| t.as_str())
-                .filter(|t| *t == "app.bsky.embed.images#view")
-                .and_then(|_| embed.get("images"))
-        })
-        .and_then(|i| i.as_array());
-
-    if let Some(images) = images {
-        let mut position = 0;
-        for img in images {
-            // Get fullsize URL
-            let url = img
-                .get("fullsize")
-                .or_else(|| img.get("thumb"))
-                .and_then(|u| u.as_str());
-
-            if let Some(img_url) = url {
-                // Download image
-                match client.get(img_url).send().await {
-                    Ok(resp) if resp.status().is_success() => {
-                        let bytes = resp.bytes().await?;
-                        if !bytes.is_empty() {
-                            let mut hasher = Sha256::new();
-                            hasher.update(&bytes);
-                            let digest = hasher.finalize().to_vec();
-
-                            // Insert blob (shared table with Twitter)
-                            conn.exec_drop(
-                                "INSERT IGNORE INTO indexer_media_blob (sha256, data) VALUES (?, ?)",
-                                (digest.clone(), bytes.as_ref()),
-                            )
-                            .await?;
-
-                            // Insert media reference
-                            conn.exec_drop(
-                                r#"INSERT INTO indexer_bluesky_media (post_uri, position, sha256, url)
-                                   VALUES (?, ?, ?, ?)
-                                   ON DUPLICATE KEY UPDATE sha256=VALUES(sha256), url=VALUES(url)"#,
-                                (post_uri, position, digest, img_url),
-                            )
-                            .await?;
-
-                            position += 1;
-                        }
-                    }
-                    Ok(resp) => {
-                        warn!("image download failed {}: {}", img_url, resp.status());
-                    }
-                    Err(e) => {
-                        warn!("image download error {}: {}", img_url, e);
-                    }
-                }
-            }
-        }
-    }
-
-    Ok(())
 }

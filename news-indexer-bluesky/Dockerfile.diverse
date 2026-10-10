@@ -1,0 +1,13 @@
+FROM rust:1.88-bookworm AS builder
+RUN apt-get update && apt-get install -y --no-install-recommends pkg-config libssl-dev clang && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY src ./src
+RUN cargo test --bins && cargo build --release --bin index_bluesky --bin bluesky_now --bin analyzer_bluesky --bin submitter_bluesky
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libssl3 && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /app/target/release/index_bluesky /app/target/release/bluesky_now /app/target/release/analyzer_bluesky /app/target/release/submitter_bluesky /usr/local/bin/
+WORKDIR /srv
+ENV RUST_LOG=info
+ENV RUST_BACKTRACE=1
