@@ -454,12 +454,12 @@ CREATE TABLE IF NOT EXISTS external_ingest_index (
   external_id VARCHAR(255) NOT NULL,
   seq INT NOT NULL,
   source_timestamp DATETIME NULL,
-  source_url VARCHAR(512) NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  source_url VARCHAR(500) NULL,
+  created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (source, external_id),
   INDEX idx_seq (seq)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Structured metadata for digital reports (company/product/url).
 CREATE TABLE IF NOT EXISTS report_details (
