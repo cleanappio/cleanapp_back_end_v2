@@ -32,15 +32,17 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	// Match production: legacy report/index tables use unicode_ci, while Wire,
+	// ownership/status and case tables use 0900_ai_ci. JSON extraction is binary.
 	statements := []string{
-		`CREATE TABLE reports (seq INT PRIMARY KEY,public_id VARCHAR(64),ts DATETIME,latitude DOUBLE,longitude DOUBLE,image BLOB)`,
-		`CREATE TABLE report_analysis (seq INT,language VARCHAR(8),brand_name VARCHAR(255),brand_display_name VARCHAR(255),is_valid BOOL,classification VARCHAR(32),created_at DATETIME,title TEXT,summary TEXT,severity_level DOUBLE,FULLTEXT KEY fixture_original_fulltext (title,summary))`,
-		`CREATE TABLE report_raw (report_seq INT PRIMARY KEY,source_type VARCHAR(64),source_id VARCHAR(255),fetcher_id VARCHAR(64),visibility VARCHAR(16))`,
-		`CREATE TABLE external_ingest_index (seq INT,source VARCHAR(64),external_id VARCHAR(255),source_url VARCHAR(512),source_timestamp DATETIME)`,
-		`CREATE TABLE wire_submissions_raw (report_seq INT,report_json JSON,provenance_json JSON,observed_at DATETIME,submitted_at DATETIME,actor_kind VARCHAR(32),channel VARCHAR(32),extensions_json JSON)`,
-		`CREATE TABLE report_status (seq INT,status VARCHAR(32))`,
-		`CREATE TABLE reports_owners (seq INT,owner VARCHAR(64),is_public BOOL)`,
-		`CREATE TABLE case_reports (seq INT,case_id VARCHAR(64))`,
+		`CREATE TABLE reports (seq INT PRIMARY KEY,public_id VARCHAR(32),ts DATETIME,latitude DOUBLE,longitude DOUBLE,image BLOB) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+		`CREATE TABLE report_analysis (seq INT,language VARCHAR(2),brand_name VARCHAR(255),brand_display_name VARCHAR(255),is_valid BOOL,classification VARCHAR(32),created_at DATETIME,title VARCHAR(500),summary TEXT,severity_level DOUBLE,FULLTEXT KEY fixture_original_fulltext (title,summary)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+		`CREATE TABLE report_raw (report_seq INT PRIMARY KEY,source_type VARCHAR(64),source_id VARCHAR(255),fetcher_id VARCHAR(64),visibility VARCHAR(16)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
+		`CREATE TABLE external_ingest_index (seq INT,source VARCHAR(64),external_id VARCHAR(255),source_url VARCHAR(500),source_timestamp DATETIME) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+		`CREATE TABLE wire_submissions_raw (report_seq INT,report_json JSON,provenance_json JSON,observed_at DATETIME,submitted_at DATETIME,actor_kind VARCHAR(32),channel VARCHAR(32),extensions_json JSON) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
+		`CREATE TABLE report_status (seq INT,status VARCHAR(32)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
+		`CREATE TABLE reports_owners (seq INT,owner VARCHAR(64),is_public BOOL) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
+		`CREATE TABLE case_reports (seq INT,case_id VARCHAR(64)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
 	}
 	// A pre-existing table is an error rather than silently overwriting data.
 	created := []string{}
