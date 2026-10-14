@@ -39,6 +39,9 @@ func TestProjectionPreservesStrictModeLiteralPathsAndChildOnlyConstraint(t *test
 		if strings.Contains(trigger.body, "UPDATE wire_submissions_raw") || strings.Contains(trigger.body, "ALTER") {
 			t.Fatal("projection changed parent history/schema")
 		}
+		if trigger.event != "DELETE" && (!strings.Contains(trigger.body, "REPLACE INTO wire_evidence_projection") || strings.Contains(trigger.body, "ON DUPLICATE KEY UPDATE")) {
+			t.Fatal("trigger retained equal-value JSON update instead of exact node replacement")
+		}
 	}
 }
 
@@ -72,7 +75,7 @@ func TestBackfillIsBoundedLockingAndRestoresSession(t *testing.T) {
 	}
 	expectSession(mock)
 	mock.ExpectBegin()
-	mock.ExpectExec(`INSERT INTO wire_evidence_projection .* FROM wire_submissions_raw ws WHERE ws.report_seq IN \(\?,\?\) FOR SHARE ON DUPLICATE KEY UPDATE`).WithArgs(10, 11).WillReturnResult(sqlmock.NewResult(0, 2))
+	mock.ExpectExec(`REPLACE INTO wire_evidence_projection .* FROM wire_submissions_raw ws WHERE ws.report_seq IN \(\?,\?\) FOR SHARE$`).WithArgs(10, 11).WillReturnResult(sqlmock.NewResult(0, 2))
 	mock.ExpectCommit()
 	expectRestore(mock)
 	if n, err := Backfill(context.Background(), db, []int{10, 11}); err != nil || n != 2 {
@@ -92,7 +95,7 @@ func TestBackfillFailureRollsBackAndDiscardsUnrestoredConnection(t *testing.T) {
 	expectSession(mock)
 	mock.ExpectBegin()
 	copyFailure, restoreFailure := errors.New("copy failed"), errors.New("reset failed")
-	mock.ExpectExec(`INSERT INTO wire_evidence_projection`).WillReturnError(copyFailure)
+	mock.ExpectExec(`REPLACE INTO wire_evidence_projection`).WillReturnError(copyFailure)
 	mock.ExpectRollback()
 	mock.ExpectExec(`SET SESSION sql_mode=\?,lock_wait_timeout=\?,innodb_lock_wait_timeout=\?`).WithArgs(strictMode, 60, 50).WillReturnError(restoreFailure)
 	if _, err := Backfill(context.Background(), db, []int{10}); !errors.Is(err, copyFailure) || !errors.Is(err, restoreFailure) {

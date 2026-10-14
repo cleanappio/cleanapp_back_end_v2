@@ -127,6 +127,7 @@ func TestWireMetaProjectionMySQLFixture(t *testing.T) {
 	largeDoc, _ := json.Marshal(map[string]any{"digital_context": map[string]any{"platform": "github", "metadata": map[string]any{"source_url": "", "source_published_at": "2026-01-01", "author_did": map[string]any{"id": "did:fixture"}}, "source_url": " HTTPS://example.test/source ", "url": "null", "author_handle": []string{"fixture"}}, "evidence_bundle": []map[string]any{{"uri": "data:image/png;base64," + strings.Repeat("A", 1024*1024)}}})
 	insert("large-uri", "fixture", 3, "2026-10-02", "2026-10-01", string(largeDoc), nil, nil)
 	insert("absent", "fixture", 4, "2026-10-03", nil, `{}`, nil, nil)
+	insert("numeric", "fixture", 3, "2026-10-03", nil, `{"digital_context":{"metadata":{"author_did":1,"source_published_at":null}}}`, nil, nil)
 	exec(`CREATE TRIGGER wire_original_before BEFORE INSERT ON wire_submissions_raw FOR EACH ROW SET @wire_original_before=COALESCE(@wire_original_before,0)+1`)
 	var name, beforeDDL, afterDDL, beforeHistory, afterHistory string
 	var beforeID, afterID uint64
@@ -193,6 +194,36 @@ func TestWireMetaProjectionMySQLFixture(t *testing.T) {
 	if string(blocker) != `"__non_http_source_uri__"` || string(mediaURI) != `"__non_http_source_uri__"` || string(stringNull) != `"null"` || string(httpURI) != `" HTTPS://example.test/source "` {
 		t.Fatal("URI gate changed absent/null/HTTP/blocker semantics or copied inline media")
 	}
+	assertNumeric := func(id, kind string) {
+		t.Helper()
+		var parentKind, childKind, nullKind string
+		if err := db.QueryRow(`SELECT JSON_TYPE(JSON_EXTRACT(ws.report_json,'$.digital_context.metadata.author_did')),JSON_TYPE(h.author_did),JSON_TYPE(h.source_published_at) FROM wire_submissions_raw ws JOIN wire_evidence_projection h ON h.submission_id=ws.submission_id WHERE ws.submission_id=?`, id).Scan(&parentKind, &childKind, &nullKind); err != nil || parentKind != "INTEGER" || childKind != kind || nullKind != "NULL" {
+			t.Fatalf("exact numeric/JSON-null type differs: parent=%s child=%s null=%s err=%v", parentKind, childKind, nullKind, err)
+		}
+	}
+	// An equal-value 1 -> 1.0 JSON UPDATE is a no-op. Force a different value
+	// first so this fixture stores a real DOUBLE corruption for repair.
+	corruptNumeric := func(id string) {
+		t.Helper()
+		exec(`UPDATE wire_evidence_projection SET author_did=CAST('2.0' AS JSON) WHERE submission_id=?`, id)
+		exec(`UPDATE wire_evidence_projection SET author_did=CAST('1.0' AS JSON) WHERE submission_id=?`, id)
+		assertNumeric(id, "DOUBLE")
+	}
+	corruptNumeric("numeric")
+	if _, err := wiremeta.Backfill(context.Background(), db, []int{3}); err != nil {
+		t.Fatal(err)
+	}
+	assertNumeric("numeric", "INTEGER")
+	assertWireMetaFallbackParity(t, db)
+	// Child FK moves its ID before AFTER UPDATE, so deleting only OLD.id no
+	// longer reaches this corrupted row. NEW-key replacement must repair it.
+	corruptNumeric("numeric")
+	exec(`UPDATE wire_submissions_raw SET submission_id='numeric-moved' WHERE submission_id='numeric'`)
+	assertNumeric("numeric-moved", "INTEGER")
+	if err := db.QueryRow(`SELECT COUNT(*) FROM wire_evidence_projection WHERE BINARY submission_id='numeric'`).Scan(&existing); err != nil || existing != 0 {
+		t.Fatal("numeric PK move retained OLD identity")
+	}
+	assertWireMetaFallbackParity(t, db)
 	strict, err := db.Conn(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -310,6 +341,14 @@ func TestWireMetaProjectionMySQLFixture(t *testing.T) {
 	}
 	exec(`DROP TRIGGER wire_meta_fixture_delay`)
 	assertSession()
+	// Physical replacement is allowed only for a derived child with no
+	// downstream FK consumers, never for a business-record parent.
+	defer db.Exec(`DROP TABLE IF EXISTS fixture_wire_consumer`)
+	exec(`CREATE TABLE fixture_wire_consumer(id INT PRIMARY KEY,submission_id VARCHAR(64) NOT NULL,FOREIGN KEY(submission_id) REFERENCES wire_evidence_projection(submission_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`)
+	if err := wiremeta.Migrate(context.Background(), db); err == nil {
+		t.Fatal("accepted incoming child FK incompatible with exact replacement")
+	}
+	exec(`DROP TABLE fixture_wire_consumer`)
 	// A real parent metadata lock must fail in five seconds without killing
 	// another session, changing parent identity, or silently using unbounded DDL.
 	exec(`DROP TRIGGER wire_evidence_after_update`)

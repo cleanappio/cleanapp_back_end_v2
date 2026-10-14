@@ -10,7 +10,8 @@ import (
 
 // Backfill copies a caller-selected cohort batch under current source locks
 // through commit. Concurrent parent writes then apply after the copy, avoiding
-// stale overwrites/deletion resurrection. UPSERT repairs partial migrations.
+// stale overwrites/deletion resurrection. Physical replacement also repairs
+// JSON INTEGER/DOUBLE type differences which MySQL's equal-value UPDATE skips.
 func Backfill(ctx context.Context, db *sql.DB, seqs []int) (affected int64, retErr error) {
 	if len(seqs) == 0 {
 		return 0, nil
@@ -34,11 +35,7 @@ func Backfill(ctx context.Context, db *sql.DB, seqs []int) (affected int64, retE
 		args[i] = seq
 	}
 	columns := projectionColumns()
-	updates := []string{}
-	for _, name := range columns {
-		updates = append(updates, name+"=VALUES("+name+")")
-	}
-	query := "INSERT INTO wire_evidence_projection (" + strings.Join(columns, ",") + ") SELECT " + strings.Join(sourceExpressions("ws"), ",") + " FROM wire_submissions_raw ws WHERE ws.report_seq IN (" + strings.TrimRight(strings.Repeat("?,", len(seqs)), ",") + ") FOR SHARE ON DUPLICATE KEY UPDATE " + strings.Join(updates, ",")
+	query := "REPLACE INTO wire_evidence_projection (" + strings.Join(columns, ",") + ") SELECT " + strings.Join(sourceExpressions("ws"), ",") + " FROM wire_submissions_raw ws WHERE ws.report_seq IN (" + strings.TrimRight(strings.Repeat("?,", len(seqs)), ",") + ") FOR SHARE"
 	res, err := tx.ExecContext(ctx, query, args...)
 	if err != nil {
 		return 0, fmt.Errorf("copy Wire metadata batch: %w", err)

@@ -137,14 +137,13 @@ type projectionTrigger struct{ name, event, body string }
 func projectionTriggers() []projectionTrigger {
 	columns := projectionColumns()
 	values := sourceExpressions("NEW")
-	updates := []string{}
-	for i, name := range columns {
-		updates = append(updates, name+"="+values[i])
-	}
-	upsert := "INSERT INTO wire_evidence_projection (" + strings.Join(columns, ",") + ") VALUES (" + strings.Join(values, ",") + ") ON DUPLICATE KEY UPDATE " + strings.Join(updates, ",") + ";"
+	// The parent FK can cascade a moved PK to the child before AFTER UPDATE.
+	// REPLACE writes every exact JSON node, even when equal numeric values have
+	// different types; an UPSERT may leave the old child's numeric type intact.
+	replacement := "REPLACE INTO wire_evidence_projection (" + strings.Join(columns, ",") + ") VALUES (" + strings.Join(values, ",") + ");"
 	return []projectionTrigger{
-		{"wire_evidence_after_insert", "INSERT", upsert},
-		{"wire_evidence_after_update", "UPDATE", `BEGIN DELETE FROM wire_evidence_projection WHERE submission_id=OLD.submission_id; ` + upsert + ` END`},
+		{"wire_evidence_after_insert", "INSERT", replacement},
+		{"wire_evidence_after_update", "UPDATE", `BEGIN DELETE FROM wire_evidence_projection WHERE submission_id=OLD.submission_id; ` + replacement + ` END`},
 		{"wire_evidence_after_delete", "DELETE", `DELETE FROM wire_evidence_projection WHERE submission_id=OLD.submission_id`},
 	}
 }
@@ -284,6 +283,14 @@ func verifyTable(ctx context.Context, conn *sql.Conn) error {
 	}
 	if count != len(expected) || engine != "InnoDB" {
 		return fmt.Errorf("Wire metadata projection has extra columns or an unexpected engine")
+	}
+	// This derived table is never a business-record parent. Replacement must
+	// not delete rows referenced by other tables or invoke their cascades.
+	if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS WHERE UNIQUE_CONSTRAINT_SCHEMA=DATABASE() AND REFERENCED_TABLE_NAME='wire_evidence_projection'`).Scan(&count); err != nil {
+		return err
+	}
+	if count != 0 {
+		return fmt.Errorf("Wire metadata projection has incoming foreign keys incompatible with replacement")
 	}
 	rows, err := conn.QueryContext(ctx, `SELECT INDEX_NAME,NON_UNIQUE,SEQ_IN_INDEX,COLUMN_NAME,SUB_PART,COLLATION,INDEX_TYPE,IS_VISIBLE FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='wire_evidence_projection' ORDER BY INDEX_NAME,SEQ_IN_INDEX`)
 	if err != nil {

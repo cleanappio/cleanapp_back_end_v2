@@ -76,7 +76,14 @@ func TestWireAuditMySQLFixture(t *testing.T) {
 	}
 	// JSON numeric comparison considers integer 1 and double 1.0 equal, but
 	// their stored node type and JSON_UNQUOTE source semantics differ.
+	// MySQL skips 1 -> 1.0 as a semantically equal JSON assignment. Change
+	// the value first so the corruption really persists as a DOUBLE node.
+	exec(`UPDATE wire_evidence_projection SET author_did=CAST('2.0' AS JSON) WHERE submission_id='second'`)
 	exec(`UPDATE wire_evidence_projection SET author_did=CAST('1.0' AS JSON) WHERE submission_id='second'`)
+	var originalNumericType, projectedNumericType string
+	if err := db.QueryRow(`SELECT JSON_TYPE(JSON_EXTRACT(ws.report_json,'$.digital_context.metadata.author_did')),JSON_TYPE(h.author_did) FROM wire_submissions_raw ws JOIN wire_evidence_projection h ON h.submission_id=ws.submission_id WHERE ws.submission_id='second'`).Scan(&originalNumericType, &projectedNumericType); err != nil || originalNumericType != "INTEGER" || projectedNumericType != "DOUBLE" {
+		t.Fatalf("numeric corruption did not persist: original=%s projected=%s err=%v", originalNumericType, projectedNumericType, err)
+	}
 	var numericEqual int
 	if err := db.QueryRow(`SELECT JSON_EXTRACT(ws.report_json,'$.digital_context.metadata.author_did') <=> h.author_did FROM wire_submissions_raw ws JOIN wire_evidence_projection h ON h.submission_id=ws.submission_id WHERE ws.submission_id='second'`).Scan(&numericEqual); err != nil || numericEqual != 1 {
 		t.Fatal("fixture did not reproduce JSON numeric type equality")
@@ -87,6 +94,14 @@ func TestWireAuditMySQLFixture(t *testing.T) {
 	}
 	if _, err := wiremeta.Backfill(context.Background(), db, []int{2}); err != nil {
 		t.Fatal(err)
+	}
+
+	if err := db.QueryRow(`SELECT JSON_TYPE(author_did) FROM wire_evidence_projection WHERE submission_id='second'`).Scan(&projectedNumericType); err != nil || projectedNumericType != "INTEGER" {
+		t.Fatalf("snapshot repair retained a different numeric type: projected=%s err=%v", projectedNumericType, err)
+	}
+	counts, err = auditBatch(context.Background(), db, []int{1, 2})
+	if err != nil || !counts.equal() {
+		t.Fatalf("snapshot repair failed immediate exact audit: counts=%+v err=%v", counts, err)
 	}
 
 	// Absent SQL NULL differs from a present literal JSON null; the numeric audit
