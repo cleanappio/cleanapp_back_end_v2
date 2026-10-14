@@ -17,7 +17,7 @@ func (s DatabaseStore) Candidates(ctx context.Context, opts Options) ([]Candidat
 		placeholders[i] = "?"
 		args = append(args, brand)
 	}
-	query := `SELECT ra.seq, MAX(ra.brand_name) FROM report_analysis ra WHERE ra.seq > ? AND ra.brand_name IN (` + strings.Join(placeholders, ",") + `)`
+	query := `SELECT ra.seq, MAX(ra.brand_name), COALESCE(MAX(CASE WHEN ra.language = 'en' THEN NULLIF(ra.title, '') END), MAX(NULLIF(ra.title, '')), '') FROM report_analysis ra WHERE ra.seq > ? AND ra.brand_name IN (` + strings.Join(placeholders, ",") + `)`
 	if !opts.Force {
 		query += ` AND COALESCE(ra.evidence_version,0) < 1`
 	}
@@ -31,7 +31,7 @@ func (s DatabaseStore) Candidates(ctx context.Context, opts Options) ([]Candidat
 	candidates := []Candidate{}
 	for rows.Next() {
 		var row Candidate
-		if err := rows.Scan(&row.Seq, &row.Brand); err != nil {
+		if err := rows.Scan(&row.Seq, &row.Brand, &row.Title); err != nil {
 			return nil, err
 		}
 		candidates = append(candidates, row)

@@ -152,7 +152,15 @@ go run ./cmd/evidence-backfill --dry-run --brand grok --limit 50
 go run ./cmd/evidence-backfill --dry-run --brands claude,claudecode,anthropic,grok,openai,chatgpt --limit 200
 ```
 
-Each JSON output line identifies the report and proposed evidence fields. The
+Each JSON output line identifies the report (`seq`, `brand`, and its existing
+`title`), proposed evidence fields, `source_type`, `original_text_available`, and
+`original_media_available`. The title comes deterministically from an existing
+English analysis when available, otherwise an existing translated title; each
+report appears once. Media availability requires a valid original image and
+rejects placeholder blobs. Full raw original bodies, media bytes, source IDs, and
+contact metadata are not printed. When intake privacy flags require redaction,
+the review output withholds titles and extracted text while preserving source
+availability flags. The
 final line contains `examined`, `written`, `failed`, `last_seq`, and `label_counts`.
 These are label counts, **not classifier precision**. Evaluate precision against
 manually reviewed originals, including journalism quoting first-person accounts,

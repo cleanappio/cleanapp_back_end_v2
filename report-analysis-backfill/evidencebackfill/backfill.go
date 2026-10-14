@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 )
 
@@ -39,6 +40,7 @@ func (o Options) Validate() error {
 type Candidate struct {
 	Seq   int    `json:"seq"`
 	Brand string `json:"brand"`
+	Title string `json:"title"`
 }
 type Store interface {
 	Candidates(context.Context, Options) ([]Candidate, error)
@@ -78,6 +80,7 @@ func Run(ctx context.Context, opts Options, store Store, classifier evidence.Cla
 			return result, err
 		}
 		original, err := store.Original(ctx, row.Seq)
+		originalResolved := err == nil
 		fields := evidence.Unknown("Stored original could not be resolved.")
 		if err == nil {
 			fields, err = evidence.Classify(classifier, original, row.Brand)
@@ -87,9 +90,23 @@ func Run(ctx context.Context, opts Options, store Store, classifier evidence.Cla
 		result.LabelCounts[fields.ReportKind]++
 		item := struct {
 			Candidate
-			Evidence evidence.Fields `json:"evidence"`
-			Error    string          `json:"error,omitempty"`
-		}{Candidate: row, Evidence: fields}
+			SourceType             string          `json:"source_type"`
+			OriginalTextAvailable  bool            `json:"original_text_available"`
+			OriginalMediaAvailable bool            `json:"original_media_available"`
+			Evidence               evidence.Fields `json:"evidence"`
+			Error                  string          `json:"error,omitempty"`
+		}{Candidate: row, SourceType: reviewSourceType(original.SourceType), OriginalTextAvailable: originalResolved && strings.TrimSpace(original.Text) != "", OriginalMediaAvailable: originalResolved && evidence.ValidOriginalImage(original.Image), Evidence: fields}
+		if !originalResolved {
+			item.SourceType = "unknown"
+		}
+		if original.RequiresRedaction {
+			// This is a review output copy: persisted extraction is unchanged, and the
+			// public API independently applies its own privacy guards.
+			item.Title = "[Title withheld: source requires redaction]"
+			item.Evidence.EvidenceExcerpt = ""
+			item.Evidence.ReportedImpact = ""
+			item.Evidence.ClassificationReason = "Original evidence requires redaction; extracted text omitted from review output."
+		}
 		if err != nil {
 			result.Failed++
 			item.Error = "Original resolution or evidence classification failed; row was not written."
@@ -107,4 +124,14 @@ func Run(ctx context.Context, opts Options, store Store, classifier evidence.Cla
 		return result, err
 	}
 	return result, nil
+}
+
+// Source type is an audit category, never a caller's raw identifier or URL.
+func reviewSourceType(source string) string {
+	switch source {
+	case "human_submission", "digital_share", "github_issue", "twitter", "x", "bluesky":
+		return source
+	default:
+		return "unknown"
+	}
 }
