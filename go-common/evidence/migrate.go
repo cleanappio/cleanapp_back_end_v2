@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 )
 
 // Migrate is called only by explicit service cmd/migrate entrypoints. It never
@@ -17,6 +18,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		{"entity_relationship", "VARCHAR(16) NOT NULL DEFAULT 'unknown'"},
 		{"evidence_version", "INT NOT NULL DEFAULT 0"},
 	}
+	additions := make([]string, 0, len(columns))
 	for _, column := range columns {
 		var count int
 		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'report_analysis' AND COLUMN_NAME = ?`, column.name).Scan(&count); err != nil {
@@ -25,8 +27,14 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		if count > 0 {
 			continue
 		}
-		if _, err := db.ExecContext(ctx, "ALTER TABLE report_analysis ADD COLUMN "+column.name+" "+column.definition); err != nil {
-			return fmt.Errorf("add evidence column %s: %w", column.name, err)
+		additions = append(additions, "ADD COLUMN "+column.name+" "+column.definition)
+	}
+	// A FULLTEXT index prevents instant column additions. Batch missing columns
+	// so the server can perform any required table rebuild once, not per column.
+	// Indexes stay separate to preserve instant additions where supported.
+	if len(additions) > 0 {
+		if _, err := db.ExecContext(ctx, "ALTER TABLE report_analysis "+strings.Join(additions, ", ")); err != nil {
+			return fmt.Errorf("add evidence columns: %w", err)
 		}
 	}
 	var count int

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"cleanapp-common/evidence"
 	"github.com/go-sql-driver/mysql"
 )
 
@@ -33,7 +34,7 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 	defer db.Close()
 	statements := []string{
 		`CREATE TABLE reports (seq INT PRIMARY KEY,public_id VARCHAR(64),ts DATETIME,latitude DOUBLE,longitude DOUBLE,image BLOB)`,
-		`CREATE TABLE report_analysis (seq INT,language VARCHAR(8),brand_name VARCHAR(255),brand_display_name VARCHAR(255),is_valid BOOL,classification VARCHAR(32),created_at DATETIME,title TEXT,summary TEXT,severity_level DOUBLE,report_kind VARCHAR(16),evidence_excerpt TEXT,reported_impact TEXT,classification_reason TEXT,entity_relationship VARCHAR(16),evidence_version INT)`,
+		`CREATE TABLE report_analysis (seq INT,language VARCHAR(8),brand_name VARCHAR(255),brand_display_name VARCHAR(255),is_valid BOOL,classification VARCHAR(32),created_at DATETIME,title TEXT,summary TEXT,severity_level DOUBLE,FULLTEXT KEY fixture_original_fulltext (title,summary))`,
 		`CREATE TABLE report_raw (report_seq INT PRIMARY KEY,source_type VARCHAR(64),source_id VARCHAR(255),fetcher_id VARCHAR(64),visibility VARCHAR(16))`,
 		`CREATE TABLE external_ingest_index (seq INT,source VARCHAR(64),external_id VARCHAR(255),source_url VARCHAR(512),source_timestamp DATETIME)`,
 		`CREATE TABLE wire_submissions_raw (report_seq INT,report_json JSON,provenance_json JSON,observed_at DATETIME,submitted_at DATETIME,actor_kind VARCHAR(32),channel VARCHAR(32),extensions_json JSON)`,
@@ -53,6 +54,14 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 			t.Fatal(err)
 		}
 		created = append(created, strings.Fields(statement)[2])
+	}
+	// Exercise the real additive migration on a FULLTEXT table, as production
+	// has one. Re-running it must preserve field order and skip existing schema.
+	if err := evidence.Migrate(context.Background(), db); err != nil {
+		t.Fatalf("FULLTEXT evidence migration: %v", err)
+	}
+	if err := evidence.Migrate(context.Background(), db); err != nil {
+		t.Fatalf("idempotent evidence migration: %v", err)
 	}
 	fixtures := []string{
 		`INSERT INTO reports VALUES (1,'r_1','2026-10-14',0,0,''),(2,'r_2','2026-10-14',0,0,''),(3,'r_3','2026-10-14',0,0,''),(4,'r_4','2026-10-14',0,0,''),(5,'r_5','2026-10-14',0,0,''),(6,'r_6','2026-10-14',0,0,''),(7,'r_7','2026-10-14',0,0,''),(8,'r_8','2026-10-14',0,0,'')`,
