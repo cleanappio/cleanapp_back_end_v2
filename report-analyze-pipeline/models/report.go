@@ -21,6 +21,12 @@ type Report struct {
 
 // ReportAnalysis represents an analysis result
 type ReportAnalysis struct {
+	ReportKind            string    `json:"report_kind"`
+	EvidenceExcerpt       string    `json:"evidence_excerpt"`
+	ReportedImpact        string    `json:"reported_impact"`
+	ClassificationReason  string    `json:"classification_reason"`
+	EntityRelationship    string    `json:"entity_relationship"`
+	EvidenceVersion       int       `json:"evidence_version"`
 	Seq                   int       `json:"seq"`
 	Source                string    `json:"source"`
 	AnalysisText          string    `json:"analysis_text"`

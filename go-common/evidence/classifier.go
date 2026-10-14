@@ -1,0 +1,32 @@
+package evidence
+
+// Classifier uses the same narrow source-only schema across provider clients.
+type Classifier interface {
+	AnalyzeEvidence(original, entity string) (Fields, error)
+}
+
+// ImageClassifier accepts retained original media rather than generated analysis images.
+type ImageClassifier interface {
+	AnalyzeEvidenceImage(image []byte, original, entity string) (Fields, error)
+}
+
+func Classify(client Classifier, original Original, entity string) (Fields, error) {
+	if original.Text == "" && !ValidOriginalImage(original.Image) {
+		return Unknown(original.Reason), nil
+	}
+	if client == nil {
+		return Unknown("Evidence classifier is unavailable."), nil
+	}
+	var fields Fields
+	var err error
+	if mediaClient, ok := client.(ImageClassifier); ok && ValidOriginalImage(original.Image) {
+		fields, err = mediaClient.AnalyzeEvidenceImage(original.Image, original.Text, entity)
+	} else {
+		fields, err = client.AnalyzeEvidence(original.Text, entity)
+	}
+	if err != nil {
+		return Unknown("Evidence classification failed; retained source remains available."), err
+	}
+	_, supportsImage := client.(ImageClassifier)
+	return fields.NormalizeWithMedia(original.Text, supportsImage && ValidOriginalImage(original.Image)), nil
+}

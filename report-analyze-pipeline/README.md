@@ -240,3 +240,46 @@ Brand names are normalized by:
 - Database connection issues are handled gracefully
 - OpenAI API errors are logged with retry logic
 - The service continues running even if individual reports fail 
+
+## Evidence classification and original sources
+
+Run `go run ./cmd/migrate` before deploying this version. Migration
+`0006_report_evidence` adds `report_kind`, `evidence_excerpt`, `reported_impact`,
+`classification_reason`, `entity_relationship`, and `evidence_version` to
+`report_analysis`. It also adds indexes for brand/kind reads and bounded recent
+intake selection. Service startup performs no schema changes.
+
+Experience (`firsthand`, `coverage`, `unknown`) is separate from how a report
+entered CleanApp and from independent verification. Both Gemini and OpenAI use
+the shared `cleanapp-common/evidence` source-only schema. Normal image analysis,
+titles, and generated summaries cannot supply evidence for that classification.
+Missing/malformed labels become `unknown`. Textual known labels need a literal
+contiguous original-source excerpt, bounded to 600 Unicode characters. Original
+photo evidence is supported without inventing a quote; placeholder images are
+rejected. Evidence fields are copied unchanged to translations.
+
+The original resolver prefers a complete retained Wire
+`report.digital_context.metadata.original_text` snapshot, then the matching raw
+GitHub issue, X tweet, or Bluesky post in its indexer table. Truncated snapshots
+are ignored in favor of the full stored upstream source. Unknown imported
+sources and unavailable originals remain unknown. It preserves all raw sources
+and records privacy flags separately; public API readers must obey PII/redaction
+flags when presenting excerpts and images.
+
+Imports that already contain generated analysis (`skip_ai`) also need evidence
+classification. The bounded worker updates only evidence fields for reports
+introduced during the last day; it does not regenerate summaries or publish
+routing events. `EVIDENCE_WORKER_ENABLED` defaults to `true`,
+`EVIDENCE_WORKER_BATCH_SIZE` defaults to 10 and is capped at 50, and
+`ANALYSIS_INTERVAL` controls polling (at least five seconds). Older reports use
+the explicit evidence backfill command in `report-analysis-backfill`. Classification
+failures remain unknown; these are model-assisted labels, not measured precision
+or a claim that an issue was reproduced.
+
+Evidence classification adds one source-only provider request to normal analysis
+when an original is available. The same process-wide budget covers these calls
+and the import worker: `EVIDENCE_REQUESTS_PER_MINUTE` defaults to 20 (allowed
+range 1–120, invalid settings revert to 20). Provider fallback requests consume
+that same budget. Existing full analysis and translation requests retain their
+queue controls. Account for the added requests when sizing provider quota and
+cost; run a reviewed dry-run cohort before a historical backfill.
