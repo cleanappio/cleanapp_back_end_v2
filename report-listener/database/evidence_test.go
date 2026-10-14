@@ -59,6 +59,41 @@ func TestEvidenceQueryCountAndPageShareCanonicalUniverse(t *testing.T) {
 	}
 }
 
+func TestEvidenceCaseMappingUsesTheDedupWinnerAndIndexedPrivacyLookup(t *testing.T) {
+	filter, _ := NormalizeEvidenceFilter(EvidenceFilter{BrandName: "anthropic"})
+	query, _ := evidenceBrandCTE(filter)
+	order := "PARTITION BY source_key ORDER BY evidence_version DESC, evidence_strength DESC, entity_relevance DESC, seq DESC"
+	if !strings.Contains(query, "ROW_NUMBER() OVER ("+order+") AS duplicate_rank") || !strings.Contains(query, "FIRST_VALUE(seq) OVER ("+order+") AS representative_seq") {
+		t.Fatal("case membership must follow the same canonical winner as duplicate ranking")
+	}
+	if !strings.Contains(query, "JOIN representatives n ON n.seq = cr.seq GROUP BY n.representative_seq") || strings.Contains(query, "e.source_key = n.source_key") {
+		t.Fatal("case mapping must use integer report sequences without a computed-key scope cross join")
+	}
+	if !strings.Contains(query, "(SELECT COUNT(*) FROM reports_owners ro WHERE ro.seq = r.seq AND ro.owner IS NOT NULL AND ro.owner <> '' AND ro.is_public = FALSE) = 0") {
+		t.Fatal("privacy lookup must remain correlated by indexed sequence and reject every identified private owner")
+	}
+}
+
+func TestEvidenceMetadataProjectionKeepsUnprojectedHistory(t *testing.T) {
+	filter, _ := NormalizeEvidenceFilter(EvidenceFilter{BrandName: "anthropic"})
+	query, _ := evidenceBrandCTE(filter)
+	if !strings.Contains(query, "LEFT JOIN report_metadata_projection m ON m.seq=ra.seq") || !strings.Contains(query, "LEFT JOIN reports fallback ON fallback.seq=CASE WHEN m.seq IS NULL THEN ra.seq ELSE NULL END") {
+		t.Fatal("historical fallback must use a null lookup key for already projected reports")
+	}
+	for _, field := range []string{"id", "public_id", "ts", "latitude", "longitude"} {
+		if !strings.Contains(query, "CASE WHEN m.seq IS NOT NULL THEN m."+field+" ELSE fallback."+field+" END AS "+field) {
+			t.Fatalf("projection must preserve nullable metadata without coalescing stale fallback values: %s", field)
+		}
+	}
+	order := "PARTITION BY group_key ORDER BY evidence_strength DESC, entity_relevance DESC, severity_level DESC, COALESCE(observed_at,source_timestamp,ts) DESC,seq DESC"
+	if !strings.Contains(query, "ROW_NUMBER() OVER ("+order+") AS family_rank") || !strings.Contains(query, "FIRST_VALUE(seq) OVER ("+order+") AS family_representative_seq") {
+		t.Fatal("family aggregate mapping must follow its exact ranking representative")
+	}
+	if strings.Contains(query, "fs.group_key=f.group_key") || !strings.Contains(query, "fs.family_representative_seq=f.family_representative_seq") {
+		t.Fatal("family aggregates must join on integer representatives")
+	}
+}
+
 func TestEvidenceSafeSourcesAndOriginalDates(t *testing.T) {
 	if safeEvidenceURL("javascript:alert(1)") != "" || safeEvidenceURL("https://user:secret@example.com/a") != "" || safeEvidenceURL("http://localhost/a") != "" {
 		t.Fatal("unsafe public source admitted")

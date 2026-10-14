@@ -7,6 +7,7 @@ import (
 
 	"cleanapp-common/evidence"
 	"cleanapp-common/migrator"
+	"cleanapp-common/reportmeta"
 )
 
 func RunMigrations(ctx context.Context, db *sql.DB) error {
@@ -37,6 +38,7 @@ func RunMigrations(ctx context.Context, db *sql.DB) error {
 		{ID: "0024_report_evidence", Description: "create per-report evidence storage", Up: evidence.Migrate},
 		// Covers environments that recorded the earlier column-based step.
 		{ID: "0025_report_evidence_store", Description: "ensure evidence storage without rebuilding analysis history", Up: evidence.Migrate},
+		{ID: "0026_report_metadata_projection", Description: "create raw report metadata projection and maintenance triggers", Up: reportmeta.Migrate},
 	})
 }
 

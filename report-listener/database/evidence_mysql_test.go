@@ -4,10 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 
 	"cleanapp-common/evidence"
+	"cleanapp-common/reportmeta"
 	"github.com/go-sql-driver/mysql"
 	"report-listener/models"
 )
@@ -128,6 +130,27 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+
+	// Existing history is not implicitly copied by a startup migration. The
+	// conditional fallback must retain it, and partial deterministic backfill
+	// must not alter scoped visibility, source deduplication or family counts.
+	var existingMetadataTables int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='report_metadata_projection'`).Scan(&existingMetadataTables); err != nil {
+		t.Fatal(err)
+	}
+	if existingMetadataTables != 0 {
+		t.Fatal("fixture refuses a pre-existing report_metadata_projection table")
+	}
+	created = append(created, "report_metadata_projection")
+	for attempt := 0; attempt < 2; attempt++ {
+		if err := reportmeta.Migrate(context.Background(), db); err != nil {
+			t.Fatalf("metadata projection migration attempt%d: %v", attempt+1, err)
+		}
+		if showCreate("reports") != legacyReportSchema || showCreate("report_analysis") != legacyAnalysisSchema {
+			t.Fatal("metadata projection migration altered a legacy table definition")
+		}
+	}
+
 	d := &Database{db: db}
 	page, err := d.GetEvidenceBrandPage(context.Background(), EvidenceFilter{BrandName: "anthropic", Kind: "firsthand"})
 	if err != nil {
@@ -136,12 +159,42 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 	if page.Total != 1 || len(page.Reports) != 1 || page.KindCounts.Firsthand != 1 || page.KindCounts.Coverage != 1 || page.KindCounts.Unknown != 1 || page.KindCounts.All != 3 {
 		t.Fatalf("public family/filter counts wrong: %+v", page)
 	}
+
+	if _, err := db.Exec(`INSERT INTO report_metadata_projection (seq,id,public_id,ts,latitude,longitude,has_original_media) SELECT seq,id,public_id,ts,latitude,longitude,LENGTH(image)>0 FROM reports WHERE MOD(seq,2)=0`); err != nil {
+		t.Fatal(err)
+	}
+	mixed, err := d.GetEvidenceBrandPage(context.Background(), EvidenceFilter{BrandName: "anthropic", Kind: "firsthand"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(page, mixed) {
+		t.Fatal("partial metadata projection changed public page, family counts, source dates or privacy")
+	}
+	var projectedRows int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM report_metadata_projection`).Scan(&projectedRows); err != nil || projectedRows != 4 {
+		t.Fatalf("fixture must exercise projected and unprojected history: rows=%d err=%v", projectedRows, err)
+	}
+
 	rec := page.Reports[0].Recurrence
 	if rec.SupportingReportCount != 2 || rec.DuplicateImportCount != 1 || rec.SourceAccountCount == nil || *rec.SourceAccountCount != 2 {
 		t.Fatalf("canonical sources/accounts inflated: %+v", rec)
 	}
 	if page.Reports[0].Evidence.ObservedAt == nil || page.Reports[0].Evidence.ObservedAt.Day() != 28 || page.Reports[0].Evidence.SourcePublishedAt.Month() != 3 {
 		t.Fatal("genuine original observation and later publication conflated")
+	}
+	beyond, err := d.GetEvidenceBrandPage(context.Background(), EvidenceFilter{BrandName: "anthropic", Kind: "firsthand", Offset: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if beyond.Total != 1 || beyond.KindCounts.All != 3 || len(beyond.Reports) != 0 || beyond.HasMore {
+		t.Fatalf("empty offset page lost exact source counts or exposed a synthetic row: %+v", beyond)
+	}
+	empty, err := d.GetEvidenceBrandPage(context.Background(), EvidenceFilter{BrandName: "absentbrand"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if empty.Total != 0 || empty.KindCounts.All != 0 || len(empty.Reports) != 0 || empty.HasMore {
+		t.Fatalf("empty scope exposed a synthetic count row: %+v", empty)
 	}
 	twitter, err := d.GetEvidenceBrandPage(context.Background(), EvidenceFilter{BrandName: "anthropic", Product: "claude"})
 	if err != nil {
@@ -280,6 +333,13 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 	}
 	if archivePage.Total != 5 || archivePage.KindCounts.Unknown != 5 || archivePage.KindCounts.Firsthand != 0 {
 		t.Fatalf("archive metadata promoted missing originals or lost entries: %+v", archivePage.KindCounts)
+	}
+	noFirsthand, err := d.GetEvidenceBrandPage(context.Background(), EvidenceFilter{BrandName: "archivetimetest", Kind: "firsthand"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if noFirsthand.Total != 0 || noFirsthand.KindCounts.Unknown != 5 || noFirsthand.KindCounts.All != 5 || len(noFirsthand.Reports) != 0 {
+		t.Fatalf("empty firsthand filter lost accessible unknown facet counts: %+v", noFirsthand)
 	}
 	archiveBySeq := map[int]*models.PublicEvidence{}
 	for _, report := range archivePage.Reports {
