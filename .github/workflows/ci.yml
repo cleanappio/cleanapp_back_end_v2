@@ -77,9 +77,16 @@ jobs:
         run: |
           docker exec -e MYSQL_PWD=local-evidence-fixture ${{ job.services.mysql.id }} mysql -uroot -e 'CREATE DATABASE metadata_projection_evidence_test;'
           go test ./database -run '^TestMetadataProjectionMySQLFixture$' -count=1 -v
+      - name: Check Go grouping against MySQL window and collation semantics
+        working-directory: report-listener
+        env:
+          GROUPING_TEST_DSN: "root:local-evidence-fixture@tcp(127.0.0.1:33306)/grouping_parity_evidence_test?parseTime=true&charset=utf8mb4"
+        run: |
+          docker exec -e MYSQL_PWD=local-evidence-fixture ${{ job.services.mysql.id }} mysql -uroot -e 'CREATE DATABASE grouping_parity_evidence_test;'
+          go test ./database -run '^TestEvidenceGroupingMySQLParityFixture$' -count=1 -v
 
   evidence_original_mysql:
-    name: Large original source (MySQL 8.0.44)
+    name: Original lookup and online index (MySQL 8.0.44)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     services:
@@ -107,6 +114,13 @@ jobs:
       - name: Resolve large retained originals without sorting payloads
         working-directory: report-analyze-pipeline
         run: go test ./service -run '^TestLargeWireOriginalAvoidsPayloadSortMySQL$' -count=1 -v
+      - name: Add a covering index without rebuilding FULLTEXT analysis history
+        working-directory: report-listener
+        env:
+          EVIDENCE_INDEX_TEST_DSN: "root:local-evidence-fixture@tcp(127.0.0.1:33306)/classification_cover_evidence_test?parseTime=true&charset=utf8mb4"
+        run: |
+          docker exec -e MYSQL_PWD=local-evidence-fixture ${{ job.services.mysql.id }} mysql -uroot -e 'CREATE DATABASE classification_cover_evidence_test;'
+          go test ./database -run '^TestEvidenceIndexMySQLFixture$' -count=1 -v
 
   golangci:
     name: Go Lint (golangci-lint)
