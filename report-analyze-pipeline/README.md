@@ -244,10 +244,7 @@ Brand names are normalized by:
 ## Evidence classification and original sources
 
 Run `go run ./cmd/migrate` before deploying this version. Migration
-`0006_report_evidence` adds `report_kind`, `evidence_excerpt`, `reported_impact`,
-`classification_reason`, `entity_relationship`, and `evidence_version` to
-`report_analysis`. It also adds indexes for brand/kind reads and bounded recent
-intake selection. Service startup performs no schema changes.
+`0006_report_evidence` creates the separate `report_evidence` table, keyed by report sequence. `0007_report_evidence_store` ensures that table also exists where the older migration was already recorded. The existing analysis table, full-text index, summaries, and history remain unchanged. Service startup performs no schema changes.
 
 Experience (`firsthand`, `coverage`, `unknown`) is separate from how a report
 entered CleanApp and from independent verification. Both Gemini and OpenAI use
@@ -256,7 +253,7 @@ titles, and generated summaries cannot supply evidence for that classification.
 Missing/malformed labels become `unknown`. Textual known labels need a literal
 contiguous original-source excerpt, bounded to 600 Unicode characters. Original
 photo evidence is supported without inventing a quote; placeholder images are
-rejected. Evidence fields are copied unchanged to translations.
+rejected. One evidence row is shared by every translation. It saves after English analysis commits; metadata storage failures preserve translations and the single normal routing event. Version-zero retries cannot overwrite completed enrichment.
 
 The original resolver prefers a complete retained Wire
 `report.digital_context.metadata.original_text` snapshot, then the matching raw
@@ -267,9 +264,7 @@ and records privacy flags separately; public API readers must obey PII/redaction
 flags when presenting excerpts and images.
 
 Imports that already contain generated analysis (`skip_ai`) also need evidence
-classification. The bounded worker updates only evidence fields for reports
-introduced during the last day; it does not regenerate summaries or publish
-routing events. `EVIDENCE_WORKER_ENABLED` defaults to `true`,
+classification. The worker scans only the newest 50,000 sequence values using the reports primary key, qualifying recent report/Wire/index ingestion during the last day. Old publication timestamps can qualify through actual recent Wire/index ingestion. It updates only separate evidence metadata and does not regenerate summaries or publish routing events. Older sequences require explicit historical backfill. `EVIDENCE_WORKER_ENABLED` defaults to `true`,
 `EVIDENCE_WORKER_BATCH_SIZE` defaults to 10 and is capped at 50, and
 `ANALYSIS_INTERVAL` controls polling (at least five seconds). Older reports use
 the explicit evidence backfill command in `report-analysis-backfill`. Classification

@@ -15,7 +15,7 @@ func TestPendingEvidenceIncludesExistingAnalysisAndBoundsSequenceAndIngestionTim
 	}
 	defer sqlDB.Close()
 	db := &Database{db: sqlDB}
-	mock.ExpectQuery(`SELECT r.seq, .*FROM reports r LEFT JOIN report_evidence ev ON ev.seq = r.seq.*r.seq > GREATEST\(0, CAST\(\(SELECT COALESCE\(MAX\(seq\), 0\) FROM reports\) AS SIGNED\) - 50000\).*COALESCE\(ev.evidence_version, 0\) = 0.*EXISTS \(SELECT 1 FROM report_analysis ra WHERE ra.seq = r.seq\).*r.ts >= UTC_TIMESTAMP\(\) - INTERVAL 1 DAY.*wire_submissions_raw ws.*ws.created_at >= UTC_TIMESTAMP\(\) - INTERVAL 1 DAY.*external_ingest_index ei.*ei.created_at >= UTC_TIMESTAMP\(\) - INTERVAL 1 DAY.*ORDER BY r.seq ASC LIMIT`).WithArgs(10).WillReturnRows(sqlmock.NewRows([]string{"seq", "brand"}).AddRow(99, "grok"))
+	mock.ExpectQuery(`SELECT /\*\+ MAX_EXECUTION_TIME\(8000\) \*/ r.seq, .*FROM reports r LEFT JOIN report_evidence ev ON ev.seq = r.seq.*r.seq > GREATEST\(0, CAST\(\(SELECT COALESCE\(MAX\(seq\), 0\) FROM reports\) AS SIGNED\) - 50000\).*COALESCE\(ev.evidence_version, 0\) = 0.*\(SELECT 1 FROM report_analysis ra WHERE ra.seq = r.seq LIMIT 1\) IS NOT NULL.*r.ts >= UTC_TIMESTAMP\(\) - INTERVAL 1 DAY.*wire_submissions_raw ws.*ws.created_at >= UTC_TIMESTAMP\(\) - INTERVAL 1 DAY.*external_ingest_index ei.*ei.created_at >= UTC_TIMESTAMP\(\) - INTERVAL 1 DAY.*ORDER BY r.seq DESC LIMIT`).WithArgs(10).WillReturnRows(sqlmock.NewRows([]string{"seq", "brand"}).AddRow(99, "grok"))
 	got, err := db.GetPendingEvidenceReports(context.Background(), 10)
 	if err != nil || len(got) != 1 || got[0].Seq != 99 {
 		t.Fatalf("got %#v err=%v", got, err)
@@ -76,7 +76,7 @@ func TestMainAnalysisEvidenceFailureIsPersistedAsRetryableVersionZero(t *testing
 	}
 	// The production worker selects existing analysis whose failed evidence is
 	// still version0, rather than requiring the entire report to be unanalyzed.
-	mock.ExpectQuery(`SELECT r.seq, .*COALESCE\(ev.evidence_version, 0\) = 0.*LIMIT`).WithArgs(10).WillReturnRows(sqlmock.NewRows([]string{"seq", "brand"}).AddRow(44, "grok"))
+	mock.ExpectQuery(`SELECT .*r.seq, .*COALESCE\(ev.evidence_version, 0\) = 0.*LIMIT`).WithArgs(10).WillReturnRows(sqlmock.NewRows([]string{"seq", "brand"}).AddRow(44, "grok"))
 	pending, err := db.GetPendingEvidenceReports(context.Background(), 10)
 	if err != nil || len(pending) != 1 || pending[0].Seq != 44 {
 		t.Fatalf("not retryable: %#v err=%v", pending, err)
@@ -107,7 +107,7 @@ func TestEvidenceWriteFailureDoesNotRollbackCommittedNormalAnalysis(t *testing.T
 	}
 	// A missing evidence record is also eligible. No rollback or normal-analysis
 	// update is expected after the separate evidence write fails.
-	mock.ExpectQuery(`SELECT r.seq, .*LEFT JOIN report_evidence ev.*COALESCE\(ev.evidence_version, 0\) = 0.*LIMIT`).WithArgs(10).WillReturnRows(sqlmock.NewRows([]string{"seq", "brand"}).AddRow(45, ""))
+	mock.ExpectQuery(`SELECT .*r.seq, .*LEFT JOIN report_evidence ev.*COALESCE\(ev.evidence_version, 0\) = 0.*LIMIT`).WithArgs(10).WillReturnRows(sqlmock.NewRows([]string{"seq", "brand"}).AddRow(45, ""))
 	if pending, err := db.GetPendingEvidenceReports(context.Background(), 10); err != nil || len(pending) != 1 {
 		t.Fatalf("missing evidence was not retryable: %#v err=%v", pending, err)
 	}

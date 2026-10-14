@@ -11,16 +11,16 @@ type PendingEvidence struct {
 	Brand string
 }
 
-const pendingEvidenceQuery = `SELECT r.seq,
+const pendingEvidenceQuery = `SELECT /*+ MAX_EXECUTION_TIME(8000) */ r.seq,
  (SELECT COALESCE(MAX(brand_name), '') FROM report_analysis WHERE seq = r.seq)
  FROM reports r LEFT JOIN report_evidence ev ON ev.seq = r.seq
  WHERE r.seq > GREATEST(0, CAST((SELECT COALESCE(MAX(seq), 0) FROM reports) AS SIGNED) - 50000)
  AND COALESCE(ev.evidence_version, 0) = 0
- AND EXISTS (SELECT 1 FROM report_analysis ra WHERE ra.seq = r.seq)
+ AND (SELECT 1 FROM report_analysis ra WHERE ra.seq = r.seq LIMIT 1) IS NOT NULL
  AND (r.ts >= UTC_TIMESTAMP() - INTERVAL 1 DAY
    OR EXISTS (SELECT 1 FROM wire_submissions_raw ws WHERE ws.report_seq = r.seq AND ws.created_at >= UTC_TIMESTAMP() - INTERVAL 1 DAY)
    OR EXISTS (SELECT 1 FROM external_ingest_index ei WHERE ei.seq = r.seq AND ei.created_at >= UTC_TIMESTAMP() - INTERVAL 1 DAY))
- ORDER BY r.seq ASC LIMIT ?`
+ ORDER BY r.seq DESC LIMIT ?`
 
 // GetPendingEvidenceReports covers new imports whose existing analysis bypasses
 // the main analyzer (for example skip_ai GitHub/X imports). Historic work is an
@@ -28,6 +28,8 @@ const pendingEvidenceQuery = `SELECT r.seq,
 // using the existing reports primary key without a timestamp index or blob scan.
 // Recent server-side Wire/index creation also qualifies imports whose source
 // publication timestamp is old. Older sequence values require explicit backfill.
+// Scalar presence prevents MySQL from materializing a large RA semijoin, while
+// descending primary-key order prioritizes fresh reports without a filesort.
 func (d *Database) GetPendingEvidenceReports(ctx context.Context, limit int) ([]PendingEvidence, error) {
 	if limit < 1 || limit > 50 {
 		return nil, fmt.Errorf("evidence batch limit must be between 1 and 50")

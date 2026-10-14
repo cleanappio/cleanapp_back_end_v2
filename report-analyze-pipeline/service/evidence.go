@@ -36,7 +36,11 @@ func (s *Service) processEvidenceBatch() {
 	if batchSize > 50 {
 		batchSize = 50
 	}
-	pending, err := s.db.GetPendingEvidenceReports(ctx, batchSize)
+	// Limit only candidate selection; provider and persistence work keep their
+	// independent contexts after this short query deadline is released.
+	queryCtx, cancelQuery := context.WithTimeout(ctx, 10*time.Second)
+	pending, err := s.db.GetPendingEvidenceReports(queryCtx, batchSize)
+	cancelQuery()
 	if err != nil {
 		log.Print("Evidence worker: pending query failed")
 		return
