@@ -168,6 +168,8 @@ func toPublicDiscoveryCards(
 
 		item := models.PublicDiscoveryCard{
 			DiscoveryToken: token,
+			Evidence:       report.Evidence,
+			Recurrence:     report.Recurrence,
 			Title:          analysis.Title,
 			Summary:        analysis.Summary,
 			Classification: classification,
@@ -343,60 +345,7 @@ func (h *Handlers) GetPublicDiscoverySearch(c *gin.Context) {
 }
 
 func (h *Handlers) GetPublicDiscoveryByBrand(c *gin.Context) {
-	brandName := strings.TrimSpace(c.Query("brand_name"))
-	if brandName == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing 'brand_name' parameter"})
-		return
-	}
-
-	language := c.DefaultQuery("lang", "en")
-	limit, err := parseOptionalInt(c.Query("n"), publicDiscoveryDefaultLimit)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'n' parameter"})
-		return
-	}
-	limit = clampInt(limit, 1, publicDiscoveryMaxLimit)
-
-	reportsLite, err := h.db.GetReportsByBrandNameLite(c.Request.Context(), brandName, limit)
-	if err != nil {
-		log.Printf("Failed to get public discovery by-brand '%s': %v", brandName, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve reports"})
-		return
-	}
-
-	items, err := toPublicDiscoveryCards(reportsLite, language, h.sealDiscoveryReportToken)
-	if err != nil {
-		log.Printf("Failed to build public discovery by-brand '%s': %v", brandName, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve reports"})
-		return
-	}
-
-	totalCount := len(items)
-	highPriorityCount := 0
-	mediumPriorityCount := 0
-	if cached, ok, fresh := h.getBrandCountsCached(brandName); ok && fresh {
-		totalCount = cached.Total
-		highPriorityCount = cached.High
-		mediumPriorityCount = cached.Medium
-	} else {
-		countCtx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
-		total, high, medium, countErr := h.db.GetBrandPriorityCountsByBrandName(countCtx, brandName)
-		cancel()
-		if countErr == nil {
-			totalCount = total
-			highPriorityCount = high
-			mediumPriorityCount = medium
-			h.setBrandCountsCached(brandName, total, high, medium)
-		}
-	}
-
-	c.JSON(http.StatusOK, models.PublicDiscoveryBatch{
-		Items:               items,
-		Count:               len(items),
-		TotalCount:          totalCount,
-		HighPriorityCount:   highPriorityCount,
-		MediumPriorityCount: mediumPriorityCount,
-	})
+	h.serveEvidenceBrand(c, true)
 }
 
 func (h *Handlers) GetPublicDiscoveryByLatLng(c *gin.Context) {
