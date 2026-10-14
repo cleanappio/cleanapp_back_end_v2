@@ -36,6 +36,8 @@ func TestEvidenceGroupingMySQLParityFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	// SET SESSION below and the inserts must share one fixture connection.
+	db.SetMaxOpenConns(1)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	exec := func(query string, args ...any) {
@@ -74,16 +76,41 @@ func TestEvidenceGroupingMySQLParityFixture(t *testing.T) {
 	}
 	inputs = append(inputs, groupingRecord(22, "source:Path", "firsthand"), groupingRecord(23, "source:path", "firsthand"), groupingRecord(24, "source:pad-one", "firsthand"), groupingRecord(25, "source:pad-two", "firsthand"))
 	caseIDs[24], caseIDs[25] = "case_pad", "case_pad "
+	zero := time.Time{}
+	for seq := 30; seq <= 36; seq++ {
+		r := groupingRecord(seq, fmt.Sprintf("source:zero-or-null:%d", seq), "firsthand")
+		r.IngestedAt = zero
+		r.IngestedAtNull = seq != 30
+		switch seq {
+		case 31:
+			r.PublishedAt = &zero
+		case 32, 33:
+			r.ObservedAt, r.PublishedAt = &zero, &zero
+		}
+		inputs = append(inputs, r)
+	}
+	caseIDs[33], caseIDs[34] = "case_known_zero", "case_known_zero"
+	caseIDs[35], caseIDs[36] = "case_all_null", "case_all_null"
+	var priorMode string
+	if err := db.QueryRowContext(ctx, `SELECT @@SESSION.sql_mode`).Scan(&priorMode); err != nil {
+		t.Fatal(err)
+	}
+	exec(`SET SESSION sql_mode=''`)
 	for _, r := range inputs {
 		var account any
 		if r.SourceAccountKey != "" {
 			account = r.SourceAccountKey
 		}
-		exec(`INSERT INTO grouping_inputs VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, r.Seq, r.SourceKey, account, r.Kind, r.Version, r.Excerpt != "", r.Impact != "", r.HasOriginalMedia, r.PrivacyRestricted, r.Relationship, r.Severity, r.ObservedAt, r.PublishedAt, r.IngestedAt)
+		var ingested any
+		if !r.IngestedAtNull {
+			ingested = groupingSQLFixtureDate(&r.IngestedAt)
+		}
+		exec(`INSERT INTO grouping_inputs VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, r.Seq, r.SourceKey, account, r.Kind, r.Version, r.Excerpt != "", r.Impact != "", r.HasOriginalMedia, r.PrivacyRestricted, r.Relationship, r.Severity, groupingSQLFixtureDate(r.ObservedAt), groupingSQLFixtureDate(r.PublishedAt), ingested)
 		if caseID, linked := caseIDs[r.Seq]; linked {
 			exec(`INSERT INTO grouping_cases VALUES (?,?)`, r.Seq, caseID)
 		}
 	}
+	exec(`SET SESSION sql_mode=?`, priorMode)
 	refs := map[int]evidenceCaseReference{}
 	caseRows, err := db.QueryContext(ctx, `SELECT seq,MIN(case_id) AS case_id FROM grouping_cases GROUP BY seq ORDER BY case_id`)
 	if err != nil {
@@ -105,6 +132,11 @@ func TestEvidenceGroupingMySQLParityFixture(t *testing.T) {
 		for _, sortBy := range []string{"signal", "recent", "recurrence"} {
 			for _, offset := range []int{0, 2, 100} {
 				f := EvidenceFilter{Kind: kind, Sort: sortBy, Limit: 3, Offset: offset}
+				if offset == 0 {
+					// Include the ancient zero/NULL groups for every kind/sort,
+					// while keeping a bounded middle page and empty-offset checks.
+					f.Limit = 50
+				}
 				actual := groupEvidenceRecords(inputs, refs, f)
 				predicate := "1=1"
 				args := []any{}
@@ -174,6 +206,16 @@ func TestEvidenceGroupingMySQLParityFixture(t *testing.T) {
 			}
 		}
 	}
+}
+
+func groupingSQLFixtureDate(value *time.Time) any {
+	if value == nil {
+		return nil
+	}
+	if value.IsZero() {
+		return "0000-00-00 00:00:00"
+	}
+	return *value
 }
 
 func groupingNullableTimeEqual(actual *time.Time, expected sql.NullTime) bool {

@@ -33,9 +33,10 @@ type evidenceSourceGroup struct {
 }
 
 type evidenceFamilyGroup struct {
-	record     evidenceRecord
-	members    []int
-	lastSignal time.Time
+	record          evidenceRecord
+	members         []int
+	lastSignal      time.Time
+	lastSignalKnown bool
 }
 
 // groupEvidenceRecords accepts one visible, source-ranked normalized row per
@@ -98,6 +99,7 @@ func groupEvidenceRecords(records []evidenceRecord, caseIDs map[int]evidenceCase
 		accounts := map[string]struct{}{}
 		allAccountsKnown := true
 		var lastSignal time.Time
+		lastSignalKnown := false
 		for _, index := range members {
 			member := entries[index]
 			r.FamilyDuplicates += member.ImportCount - 1
@@ -108,8 +110,9 @@ func groupEvidenceRecords(records []evidenceRecord, caseIDs map[int]evidenceCase
 			}
 			r.LatestObservedAt = evidenceLatestDate(r.LatestObservedAt, member.ObservedAt)
 			r.LatestPublishedAt = evidenceLatestDate(r.LatestPublishedAt, member.PublishedAt)
-			if signal := evidenceIndividualSignalDate(member); signal.After(lastSignal) {
+			if signal := evidenceIndividualSignalDate(member); evidenceIndividualSignalKnown(member) && (!lastSignalKnown || signal.After(lastSignal)) {
 				lastSignal = signal
+				lastSignalKnown = true
 			}
 		}
 		r.SourceAccountCount = nil
@@ -122,7 +125,7 @@ func groupEvidenceRecords(records []evidenceRecord, caseIDs map[int]evidenceCase
 		} else if r.Severity >= 0.4 {
 			page.Medium++
 		}
-		grouped = append(grouped, evidenceFamilyGroup{record: r, members: members, lastSignal: lastSignal})
+		grouped = append(grouped, evidenceFamilyGroup{record: r, members: members, lastSignal: lastSignal, lastSignalKnown: lastSignalKnown})
 	}
 	page.Total = len(grouped)
 	sort.Slice(grouped, func(i, j int) bool { return evidenceBriefingBefore(grouped[i], grouped[j], f.Sort) })
@@ -218,6 +221,10 @@ func evidenceIndividualSignalDate(r evidenceRecord) time.Time {
 	return r.IngestedAt
 }
 
+func evidenceIndividualSignalKnown(r evidenceRecord) bool {
+	return r.ObservedAt != nil || r.PublishedAt != nil || !r.IngestedAtNull
+}
+
 func evidenceLatestDate(a, b *time.Time) *time.Time {
 	if b != nil && (a == nil || b.After(*a)) {
 		return b
@@ -235,6 +242,9 @@ func evidenceFamilyBefore(a, b evidenceRecord) bool {
 	if a.Severity != b.Severity {
 		return a.Severity > b.Severity
 	}
+	if evidenceIndividualSignalKnown(a) != evidenceIndividualSignalKnown(b) {
+		return evidenceIndividualSignalKnown(a)
+	}
 	if left, right := evidenceIndividualSignalDate(a), evidenceIndividualSignalDate(b); !left.Equal(right) {
 		return left.After(right)
 	}
@@ -245,6 +255,9 @@ func evidenceBriefingBefore(a, b evidenceFamilyGroup, sortBy string) bool {
 	left, right := a.record, b.record
 	switch sortBy {
 	case "recent":
+		if a.lastSignalKnown != b.lastSignalKnown {
+			return a.lastSignalKnown
+		}
 		if !a.lastSignal.Equal(b.lastSignal) {
 			return a.lastSignal.After(b.lastSignal)
 		}
@@ -254,6 +267,9 @@ func evidenceBriefingBefore(a, b evidenceFamilyGroup, sortBy string) bool {
 		}
 		if evidenceStrength(left) != evidenceStrength(right) {
 			return evidenceStrength(left) > evidenceStrength(right)
+		}
+		if a.lastSignalKnown != b.lastSignalKnown {
+			return a.lastSignalKnown
 		}
 		if !a.lastSignal.Equal(b.lastSignal) {
 			return a.lastSignal.After(b.lastSignal)
@@ -270,6 +286,9 @@ func evidenceBriefingBefore(a, b evidenceFamilyGroup, sortBy string) bool {
 		}
 		if left.Severity != right.Severity {
 			return left.Severity > right.Severity
+		}
+		if a.lastSignalKnown != b.lastSignalKnown {
+			return a.lastSignalKnown
 		}
 		if !a.lastSignal.Equal(b.lastSignal) {
 			return a.lastSignal.After(b.lastSignal)

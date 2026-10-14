@@ -394,11 +394,13 @@ func ensureFetcherTables(ctx context.Context, db *sql.DB) error {
             source VARCHAR(64) NOT NULL,
             external_id VARCHAR(255) NOT NULL,
             seq INT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            source_timestamp DATETIME NULL,
+            source_url VARCHAR(500) NULL,
+            created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             PRIMARY KEY (source, external_id),
             INDEX idx_seq (seq)
-        )`,
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 	}
 	for _, stmt := range stmts {
 		if _, err := db.ExecContext(ctx, stmt); err != nil {

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 
+	"cleanapp-common/eiiheader"
 	"cleanapp-common/evidence"
 	"cleanapp-common/migrator"
 	"cleanapp-common/reportmeta"
@@ -40,6 +41,7 @@ func RunMigrations(ctx context.Context, db *sql.DB) error {
 		{ID: "0025_report_evidence_store", Description: "ensure evidence storage without rebuilding analysis history", Up: evidence.Migrate},
 		{ID: "0026_report_metadata_projection", Description: "create raw report metadata projection and maintenance triggers", Up: reportmeta.Migrate},
 		{ID: "0027_evidence_brand_core_index", Description: "add online covering index for digital evidence brand scopes", Up: ensureEvidenceBrandCoreIndex},
+		{ID: "0028_external_source_header_projection", Description: "create transactional external source header projection", Up: eiiheader.Migrate},
 	})
 }
 
