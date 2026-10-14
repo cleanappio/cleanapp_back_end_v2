@@ -16,13 +16,13 @@ const pendingEvidenceQuery = `WITH pending_candidates AS (
  FROM reports candidate LEFT JOIN report_evidence ev ON ev.seq = candidate.seq
  WHERE candidate.seq > GREATEST(0, CAST((SELECT COALESCE(MAX(seq), 0) FROM reports) AS SIGNED) - 50000)
  AND COALESCE(ev.evidence_version, 0) = 0
- AND (SELECT 1 FROM report_analysis ra WHERE ra.seq = candidate.seq LIMIT 1) IS NOT NULL
  ORDER BY candidate.seq DESC LIMIT 50000
 )
  SELECT /*+ MAX_EXECUTION_TIME(8000) */ r.seq,
  (SELECT COALESCE(MAX(brand_name), '') FROM report_analysis WHERE seq = r.seq)
  FROM pending_candidates c STRAIGHT_JOIN reports r ON r.seq = c.seq
- WHERE (r.ts >= UTC_TIMESTAMP() - INTERVAL 1 DAY
+ WHERE (SELECT 1 FROM report_analysis ra WHERE ra.seq = r.seq LIMIT 1) IS NOT NULL
+ AND (r.ts >= UTC_TIMESTAMP() - INTERVAL 1 DAY
    OR EXISTS (SELECT 1 FROM wire_submissions_raw ws WHERE ws.report_seq = r.seq AND ws.created_at >= UTC_TIMESTAMP() - INTERVAL 1 DAY)
    OR EXISTS (SELECT 1 FROM external_ingest_index ei WHERE ei.seq = r.seq AND ei.created_at >= UTC_TIMESTAMP() - INTERVAL 1 DAY))
  ORDER BY r.seq DESC LIMIT ?`
@@ -37,8 +37,9 @@ const pendingEvidenceQuery = `WITH pending_candidates AS (
 // descending primary-key order prioritizes fresh reports. The candidate LIMIT
 // prevents merging: the integer primary-key window already contains at most
 // 50,000 rows, so it preserves every eligible sequence. STRAIGHT_JOIN makes those
-// candidates drive timestamp/source qualification, after completed evidence has
-// been excluded, instead of letting MySQL probe Wire/index rows first.
+// candidates drive analysis-presence and timestamp/source qualification, after
+// completed evidence has been excluded, instead of probing stable RA/Wire/index
+// rows on every scan.
 func (d *Database) GetPendingEvidenceReports(ctx context.Context, limit int) ([]PendingEvidence, error) {
 	if limit < 1 || limit > 50 {
 		return nil, fmt.Errorf("evidence batch limit must be between 1 and 50")

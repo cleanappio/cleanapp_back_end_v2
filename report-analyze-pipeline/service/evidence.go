@@ -7,28 +7,80 @@ import (
 	"time"
 )
 
-func (s *Service) processPendingEvidence() {
-	interval := s.config.AnalysisInterval
-	if interval < 5*time.Second {
-		interval = 5 * time.Second
-	}
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
+const (
+	evidenceActivePollInterval = 5 * time.Second
+	evidenceIdlePollInterval   = 60 * time.Second
+)
+
+type evidenceBatchState uint8
+
+const (
+	evidenceBatchEmpty evidenceBatchState = iota
+	evidenceBatchFound
+	evidenceBatchQueryFailed
+)
+
+type evidencePollTimer interface {
+	C() <-chan time.Time
+	Stop() bool
+}
+type realEvidenceTimer struct{ *time.Timer }
+
+func (t realEvidenceTimer) C() <-chan time.Time { return t.Timer.C }
+
+// A fresh timer starts after each batch completes. Idle/failed scans therefore
+// cannot accumulate ticker events and immediately repeat a costly query.
+func runEvidencePolling(ctx context.Context, newTimer func(time.Duration) evidencePollTimer, batch func(context.Context) evidenceBatchState) {
+	delay := evidenceActivePollInterval
+	for ctx.Err() == nil {
+		timer := newTimer(delay)
 		select {
-		case <-s.stopChan:
+		case <-ctx.Done():
+			timer.Stop()
 			return
-		case <-ticker.C:
-			s.processEvidenceBatch()
+		case <-timer.C():
+			timer.Stop()
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		state := batch(ctx)
+		delay = evidenceIdlePollInterval
+		if state == evidenceBatchFound {
+			delay = evidenceActivePollInterval
 		}
 	}
 }
 
-func (s *Service) processEvidenceBatch() {
+func (s *Service) processPendingEvidence() {
+	s.processPendingEvidenceWithClock(func(delay time.Duration) evidencePollTimer {
+		return realEvidenceTimer{time.NewTimer(delay)}
+	})
+}
+
+func (s *Service) processPendingEvidenceWithClock(newTimer func(time.Duration) evidencePollTimer) {
+	ctx, cancel := context.WithCancel(context.Background())
+	watcherDone := make(chan struct{})
+	go func() {
+		defer close(watcherDone)
+		select {
+		case <-s.stopChan:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	defer func() { cancel(); <-watcherDone }()
+	runEvidencePolling(ctx, newTimer, s.processEvidenceBatchWithContext)
+}
+
+func (s *Service) processEvidenceBatch() evidenceBatchState {
+	return s.processEvidenceBatchWithContext(context.Background())
+}
+
+func (s *Service) processEvidenceBatchWithContext(ctx context.Context) evidenceBatchState {
 	// Bounded, sequential work avoids duplicate bursts of provider calls. The
 	// primary analyzer persists once per seq, so missing/failed evidence and
 	// bypassed imports enter without redoing their existing normal analyses.
-	ctx := context.Background()
 	batchSize := s.config.EvidenceWorkerBatchSize
 	if batchSize < 1 {
 		batchSize = 10
@@ -43,13 +95,18 @@ func (s *Service) processEvidenceBatch() {
 	cancelQuery()
 	if err != nil {
 		log.Print("Evidence worker: pending query failed")
-		return
+		return evidenceBatchQueryFailed
+	}
+	if len(pending) == 0 {
+		return evidenceBatchEmpty
 	}
 	classifier, _ := s.llmClient.(evidence.Classifier)
 	for _, item := range pending {
 		select {
 		case <-s.stopChan:
-			return
+			return evidenceBatchFound
+		case <-ctx.Done():
+			return evidenceBatchFound
 		default:
 		}
 		original, err := evidence.LoadOriginal(ctx, s.db.GetDB(), item.Seq)
@@ -65,4 +122,5 @@ func (s *Service) processEvidenceBatch() {
 			log.Printf("Evidence worker seq=%d: save failed; retaining retry eligibility", item.Seq)
 		}
 	}
+	return evidenceBatchFound
 }

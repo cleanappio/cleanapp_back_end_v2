@@ -87,7 +87,9 @@ func TestEvidenceCandidateDeadlineIsCanceledBeforeIndependentEnrichment(t *testi
 	svc := &Service{config: &config.Config{EvidenceWorkerBatchSize: 10}, db: store, llmClient: client}
 	expectNativeOriginal(mock, 74)
 	start := time.Now()
-	svc.processEvidenceBatch()
+	if state := svc.processEvidenceBatch(); state != evidenceBatchFound {
+		t.Fatal("selected work did not restore active worker cadence")
+	}
 	deadline, bounded := store.pendingContext.Deadline()
 	if !bounded || deadline.Sub(start) > 10*time.Second+100*time.Millisecond {
 		t.Fatal("candidate query lacks a short bounded deadline")
@@ -108,12 +110,27 @@ func TestEvidenceCandidateTimeoutDoesNotClassifySaveOrRoute(t *testing.T) {
 	client := &analysisClient{}
 	publisher := &recordingPublisher{}
 	svc := &Service{config: &config.Config{EvidenceWorkerBatchSize: 10}, db: store, llmClient: client, publisher: publisher}
-	svc.processEvidenceBatch()
+	if state := svc.processEvidenceBatch(); state != evidenceBatchQueryFailed {
+		t.Fatal("candidate timeout was treated as a successful empty scan")
+	}
 	if _, bounded := store.pendingContext.Deadline(); !bounded {
 		t.Fatal("candidate timeout was not bounded")
 	}
 	if len(store.evidenceWrites) != 0 || len(store.analyses) != 0 || client.calls != 0 || len(publisher.events) != 0 {
 		t.Fatal("timed-out candidate lookup changed analysis or routing")
+	}
+}
+
+func TestEmptyEvidenceScanDoesNotClassifySaveOrRoute(t *testing.T) {
+	store := &analysisStore{evidenceVersion: evidence.Version}
+	client := &analysisClient{}
+	publisher := &recordingPublisher{}
+	svc := &Service{config: &config.Config{EvidenceWorkerBatchSize: 10}, db: store, llmClient: client, publisher: publisher}
+	if state := svc.processEvidenceBatch(); state != evidenceBatchEmpty {
+		t.Fatal("successful empty scan did not request idle backoff")
+	}
+	if len(store.evidenceWrites) != 0 || len(store.analyses) != 0 || client.calls != 0 || len(publisher.events) != 0 {
+		t.Fatal("empty candidate scan changed analysis or routing")
 	}
 }
 func (d *analysisStore) ReportVisibility(int) (string, error) { return "public", nil }
