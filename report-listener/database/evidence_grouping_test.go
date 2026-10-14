@@ -175,6 +175,46 @@ func TestEvidenceGroupingDatesAccountsAndFamilyRepresentativeUseIndividualSignal
 	}
 }
 
+func TestEvidenceGroupingDistinguishesNullAndNonNullZeroSignalDates(t *testing.T) {
+	zero := time.Time{}
+	ingested := groupingRecord(1, "zero-ingested", "firsthand")
+	ingested.IngestedAt = zero
+	published := groupingRecord(2, "zero-published", "firsthand")
+	published.PublishedAt = &zero
+	observed := groupingRecord(3, "zero-observed", "firsthand")
+	observed.ObservedAt = &zero
+	missing := groupingRecord(9, "null-dates", "firsthand")
+	missing.IngestedAt, missing.IngestedAtNull = zero, true
+	for _, sortBy := range []string{"signal", "recent", "recurrence"} {
+		page := groupEvidenceRecords([]evidenceRecord{missing, observed, ingested, published}, nil, EvidenceFilter{Kind: "all", Sort: sortBy, Limit: 12})
+		if got := groupingSeqs(page); !reflect.DeepEqual(got, []int{3, 2, 1, 9}) {
+			t.Fatalf("sort %s treated a non-NULL zero date as NULL or used a later fallback: %v", sortBy, got)
+		}
+	}
+	// All three COALESCE dates are NULL for the higher-sequence import. The
+	// non-NULL zero observation must win and remain a non-NULL MAX result.
+	known := groupingRecord(10, "family-zero", "firsthand")
+	known.ObservedAt, known.PublishedAt, known.IngestedAt, known.IngestedAtNull = &zero, &zero, zero, true
+	missing.Seq, missing.SourceKey = 100, "family-null"
+	otherMissing := missing
+	otherMissing.Seq, otherMissing.SourceKey = 20, "all-null-one"
+	lastMissing := otherMissing
+	lastMissing.Seq, lastMissing.SourceKey = 30, "all-null-two"
+	refs := groupingCases(map[int]string{10: "case_zero", 100: "case_zero", 20: "case_null", 30: "case_null"})
+	for _, sortBy := range []string{"signal", "recent", "recurrence"} {
+		page := groupEvidenceRecords([]evidenceRecord{missing, lastMissing, known, otherMissing}, refs, EvidenceFilter{Kind: "all", Sort: sortBy, Limit: 12})
+		if got := groupingSeqs(page); !reflect.DeepEqual(got, []int{10, 30}) {
+			t.Fatalf("sort %s lost known-zero family MAX or NULL family ordering: %v", sortBy, got)
+		}
+		if r := page.Records[0]; r.LatestObservedAt == nil || !r.LatestObservedAt.IsZero() || r.LatestPublishedAt == nil || !r.LatestPublishedAt.IsZero() || r.SupportingCount != 2 {
+			t.Fatal("non-NULL zero family dates became NULL")
+		}
+		if r := page.Records[1]; r.LatestObservedAt != nil || r.LatestPublishedAt != nil {
+			t.Fatal("all-NULL family dates became a synthetic date")
+		}
+	}
+}
+
 func TestEvidenceGroupingSortsCountsAndEmptyOffset(t *testing.T) {
 	a := groupingRecord(1, "a", "firsthand")
 	a.Impact = "impact"

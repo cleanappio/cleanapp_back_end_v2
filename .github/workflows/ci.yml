@@ -121,6 +121,20 @@ jobs:
         run: |
           docker exec -e MYSQL_PWD=local-evidence-fixture ${{ job.services.mysql.id }} mysql -uroot -e 'CREATE DATABASE classification_cover_evidence_test;'
           go test ./database -run '^TestEvidenceIndexMySQLFixture$' -count=1 -v
+      - name: Preserve original source JSON, identity and date semantics
+        working-directory: report-listener
+        env:
+          EVIDENCE_SOURCE_TEST_DSN: "root:local-evidence-fixture@tcp(127.0.0.1:33306)/source_normalization_evidence_test?parseTime=true&charset=utf8mb4"
+        run: |
+          docker exec -e MYSQL_PWD=local-evidence-fixture ${{ job.services.mysql.id }} mysql -uroot -e 'CREATE DATABASE source_normalization_evidence_test;'
+          go test ./database -run '^TestEvidenceSourceNormalizationMySQLFixture$' -count=1 -v
+      - name: Maintain cohort source headers without changing intake constraints
+        working-directory: report-listener
+        env:
+          EII_HEADER_TEST_DSN: "root:local-evidence-fixture@tcp(127.0.0.1:33306)/eii_header_evidence_test?parseTime=true&charset=utf8mb4"
+        run: |
+          docker exec -e MYSQL_PWD=local-evidence-fixture ${{ job.services.mysql.id }} mysql -uroot -e 'CREATE DATABASE eii_header_evidence_test;'
+          go test ./database -run '^TestEIIHeaderProjectionMySQLFixture$' -count=1 -v
 
   golangci:
     name: Go Lint (golangci-lint)

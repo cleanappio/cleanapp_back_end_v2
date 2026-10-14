@@ -248,6 +248,7 @@ type evidenceRecord struct {
 	Seq                                                           int
 	PublicID                                                      string
 	IngestedAt                                                    time.Time
+	IngestedAtNull                                                bool
 	IngestionTimeMissing                                          bool
 	Latitude, Longitude                                           float64
 	Title, Summary, Classification, Language, Brand, BrandDisplay string
