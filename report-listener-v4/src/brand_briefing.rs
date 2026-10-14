@@ -46,7 +46,10 @@ impl BrandBriefingClient {
             {
                 Ok(IpAddr::V4(ip)) => ip.is_loopback() || ip.is_private() || ip.is_link_local(),
                 Ok(IpAddr::V6(ip)) => {
-                    ip.is_loopback() || ip.is_unique_local() || ip.is_unicast_link_local()
+                    // Keep compatibility with the production Rust 1.82 builder:
+                    // fc00::/7 is unique-local, fe80::/10 is link-local.
+                    let prefix = ip.segments()[0];
+                    ip.is_loopback() || (prefix & 0xfe00) == 0xfc00 || (prefix & 0xffc0) == 0xfe80
                 }
                 Err(_) => {
                     !host.is_empty()
@@ -331,5 +334,20 @@ mod tests {
         )
         .is_ok());
         assert!(BrandBriefingClient::new("http://[::1]:9081", Duration::from_secs(2)).is_ok());
+        for url in [
+            "http://[fc00::1]:9081",
+            "http://[fd12::1]:9081",
+            "http://[fe80::1]:9081",
+            "http://[febf::1]:9081",
+        ] {
+            assert!(BrandBriefingClient::new(url, Duration::from_secs(2)).is_ok());
+        }
+        for url in [
+            "http://[fbff::1]:9081",
+            "http://[fe00::1]:9081",
+            "http://[fec0::1]:9081",
+        ] {
+            assert!(BrandBriefingClient::new(url, Duration::from_secs(2)).is_err());
+        }
     }
 }
