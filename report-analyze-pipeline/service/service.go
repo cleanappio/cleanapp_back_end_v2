@@ -33,7 +33,7 @@ type analysisDatabase interface {
 	GetReportImage(int) ([]byte, error)
 	SaveAnalysis(*database.ReportAnalysis) error
 	SaveEvidence(context.Context, int, evidence.Fields, int) error
-	GetPendingEvidenceReports(context.Context, int) ([]database.PendingEvidence, error)
+	ScanPendingEvidenceReports(context.Context, int, database.EvidenceScanCursor) (database.EvidenceScanBatch, error)
 	ReportVisibility(int) (string, error)
 	MarkAnalysedPublished(int)
 	UpdateInferredContactEmails(int, string) error
@@ -55,6 +55,7 @@ type Service struct {
 	contactService *contacts.ContactService
 	publisher      analysisPublisher
 	stopChan       chan bool
+	evidenceCursor database.EvidenceScanCursor
 }
 
 // NewService creates a new report analysis service

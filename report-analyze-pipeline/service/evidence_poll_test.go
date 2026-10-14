@@ -67,7 +67,7 @@ func TestEvidencePollingBacksOffEmptyAndFailedScansThenResumesAfterWork(t *testi
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	clock := &fakeEvidenceClock{timers: make(chan *fakeEvidenceTimer, 8)}
-	outcomes := []evidenceBatchState{evidenceBatchEmpty, evidenceBatchQueryFailed, evidenceBatchFound, evidenceBatchEmpty}
+	outcomes := []evidenceBatchState{evidenceBatchPartial, evidenceBatchEmpty, evidenceBatchQueryFailed, evidenceBatchFound, evidenceBatchEmpty}
 	calls := make(chan evidenceBatchState, len(outcomes))
 	done := make(chan struct{})
 	go func() {
@@ -81,7 +81,7 @@ func TestEvidencePollingBacksOffEmptyAndFailedScansThenResumesAfterWork(t *testi
 		})
 	}()
 	timer := nextEvidenceTimer(t, clock, 5*time.Second)
-	for i, delay := range []time.Duration{60 * time.Second, 60 * time.Second, 5 * time.Second, 60 * time.Second} {
+	for i, delay := range []time.Duration{5 * time.Second, 60 * time.Second, 60 * time.Second, 5 * time.Second, 60 * time.Second} {
 		timer.fire()
 		select {
 		case state := <-calls:
@@ -126,10 +126,10 @@ type blockingEvidenceQueryStore struct {
 	queried chan context.Context
 }
 
-func (s *blockingEvidenceQueryStore) GetPendingEvidenceReports(ctx context.Context, _ int) ([]database.PendingEvidence, error) {
+func (s *blockingEvidenceQueryStore) ScanPendingEvidenceReports(ctx context.Context, _ int, _ database.EvidenceScanCursor) (database.EvidenceScanBatch, error) {
 	s.queried <- ctx
 	<-ctx.Done()
-	return nil, ctx.Err()
+	return database.EvidenceScanBatch{}, ctx.Err()
 }
 
 func TestEvidenceWorkerShutdownCancelsScanAndPreservesPrimaryInterval(t *testing.T) {
