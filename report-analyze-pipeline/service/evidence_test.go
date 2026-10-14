@@ -63,17 +63,17 @@ func (d *analysisStore) SaveEvidence(ctx context.Context, seq int, fields eviden
 	d.evidenceVersion = version
 	return nil
 }
-func (d *analysisStore) GetPendingEvidenceReports(ctx context.Context, _ int) ([]database.PendingEvidence, error) {
+func (d *analysisStore) ScanPendingEvidenceReports(ctx context.Context, _ int, cursor database.EvidenceScanCursor) (database.EvidenceScanBatch, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.pendingContext = ctx
 	if d.pendingErr != nil {
-		return nil, d.pendingErr
+		return database.EvidenceScanBatch{}, d.pendingErr
 	}
 	if d.evidenceVersion >= evidence.Version {
-		return nil, nil
+		return database.EvidenceScanBatch{NextCursor: cursor}, nil
 	}
-	return []database.PendingEvidence{{Seq: d.report.Seq}}, nil
+	return database.EvidenceScanBatch{Items: []database.PendingEvidence{{Seq: d.report.Seq}}, NextCursor: cursor}, nil
 }
 
 func TestEvidenceCandidateDeadlineIsCanceledBeforeIndependentEnrichment(t *testing.T) {
@@ -205,7 +205,7 @@ func TestMainAnalysisPersistsAndRoutesDespiteEvidenceSaveFailure(t *testing.T) {
 	if strings.Contains(logs.String(), "PRIVATE_EVIDENCE_VALUE") {
 		t.Fatal("evidence storage error leaked extracted data")
 	}
-	if pending, err := store.GetPendingEvidenceReports(context.Background(), 10); err != nil || len(pending) != 1 {
+	if pending, err := store.ScanPendingEvidenceReports(context.Background(), 10, database.EvidenceScanCursor{}); err != nil || len(pending.Items) != 1 {
 		t.Fatal("failed evidence storage no longer retryable")
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -267,6 +267,80 @@ func TestEvidenceWorkerRetriesResolverAndModelFailuresWithoutEvents(t *testing.T
 	svc.processEvidenceBatch()
 	if len(store.evidenceWrites) != 1 || store.evidenceVersion != evidence.Version || len(store.analyses) != 0 || len(publisher.events) != 0 {
 		t.Fatal("worker retry did not remain evidence-only")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+type cursorEvidenceStore struct {
+	*analysisStore
+	batch   database.EvidenceScanBatch
+	scanErr error
+	inputs  []database.EvidenceScanCursor
+	limits  []int
+}
+
+func (s *cursorEvidenceStore) ScanPendingEvidenceReports(ctx context.Context, limit int, cursor database.EvidenceScanCursor) (database.EvidenceScanBatch, error) {
+	s.pendingContext = ctx
+	s.inputs = append(s.inputs, cursor)
+	s.limits = append(s.limits, limit)
+	return s.batch, s.scanErr
+}
+
+func TestEvidencePartialScanPreservesProgressAndActiveCadenceWithoutEnrichment(t *testing.T) {
+	cursor := database.EvidenceScanCursor{Before: 90000, RetryHigh: []int64{95000}}
+	store := &cursorEvidenceStore{analysisStore: &analysisStore{}, batch: database.EvidenceScanBatch{NextCursor: cursor, MoreToScan: true}}
+	client := &analysisClient{}
+	publisher := &recordingPublisher{}
+	svc := &Service{config: &config.Config{EvidenceWorkerBatchSize: 1000}, db: store, llmClient: client, publisher: publisher}
+	if svc.processEvidenceBatch() != evidenceBatchPartial || svc.evidenceCursor.Before != 90000 || store.limits[0] != 50 {
+		t.Fatal("partial scan lost active cadence/progress/configured cap")
+	}
+	if client.calls != 0 || len(store.evidenceWrites) != 0 || len(publisher.events) != 0 {
+		t.Fatal("partial empty scan performed enrichment/routing")
+	}
+	store.scanErr = context.DeadlineExceeded
+	store.batch = database.EvidenceScanBatch{}
+	if svc.processEvidenceBatch() != evidenceBatchQueryFailed || svc.evidenceCursor.Before != 90000 {
+		t.Fatal("failed scan advanced/cleared prior cursor")
+	}
+}
+
+func TestEvidenceFailedEnrichmentRetainsRetryAnchorsUntilSubsequentEmptyProof(t *testing.T) {
+	sqlDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sqlDB.Close()
+	cursor := database.EvidenceScanCursor{Before: 500, RetryHigh: []int64{500}}
+	store := &cursorEvidenceStore{analysisStore: &analysisStore{sqlDB: sqlDB, report: &database.Report{Seq: 74}}, batch: database.EvidenceScanBatch{Items: []database.PendingEvidence{{Seq: 74}}, NextCursor: cursor, MoreToScan: true}}
+	client := &analysisClient{evidenceErr: errors.New("temporary provider outage")}
+	publisher := &recordingPublisher{}
+	svc := &Service{config: &config.Config{EvidenceWorkerBatchSize: 10}, db: store, llmClient: client, publisher: publisher}
+	expectNativeOriginal(mock, 74)
+	if svc.processEvidenceBatch() != evidenceBatchFound || len(store.evidenceWrites) != 0 || len(svc.evidenceCursor.RetryHigh) != 1 {
+		t.Fatal("failed classification skipped anchored work")
+	}
+	client.evidenceErr = nil
+	store.evidenceSaveErr = errors.New("temporary evidence storage outage")
+	expectNativeOriginal(mock, 74)
+	svc.processEvidenceBatch()
+	if len(store.inputs[1].RetryHigh) != 1 || len(svc.evidenceCursor.RetryHigh) != 1 {
+		t.Fatal("failed save dropped anchored retry")
+	}
+	store.evidenceSaveErr = nil
+	expectNativeOriginal(mock, 74)
+	svc.processEvidenceBatch()
+	if client.calls != 3 || store.evidenceVersion != evidence.Version || len(svc.evidenceCursor.RetryHigh) != 1 {
+		t.Fatal("successful save removed anchor before empty selection proof")
+	}
+	store.batch = database.EvidenceScanBatch{}
+	if svc.processEvidenceBatch() != evidenceBatchEmpty || len(svc.evidenceCursor.RetryHigh) != 0 {
+		t.Fatal("subsequent empty proof did not release anchor/idle")
+	}
+	if len(store.analyses) != 0 || len(publisher.events) != 0 {
+		t.Fatal("cursor retry reran normal analysis or routing")
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

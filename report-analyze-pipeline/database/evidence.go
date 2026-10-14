@@ -11,42 +11,38 @@ type PendingEvidence struct {
 	Brand string
 }
 
-const pendingEvidenceQuery = `WITH pending_candidates AS (
- SELECT candidate.seq
- FROM reports candidate LEFT JOIN report_evidence ev ON ev.seq = candidate.seq
- WHERE candidate.seq > GREATEST(0, CAST((SELECT COALESCE(MAX(seq), 0) FROM reports) AS SIGNED) - 50000)
- AND COALESCE(ev.evidence_version, 0) = 0
- ORDER BY candidate.seq DESC LIMIT 50000
-)
- SELECT /*+ MAX_EXECUTION_TIME(8000) */ r.seq,
+const evidenceWindowSize int64 = 50000
+const evidenceChunkSize int64 = 500
+const evidenceChunksPerPoll = 4
+
+// CASE keeps completed evidence outside analysis/source lookups. Explicit
+// sequence bounds contain at most 500 positions and PRIMARY descending order
+// avoids materializing/sorting the entire 50000-position worker window.
+const pendingEvidenceChunkQuery = `SELECT /*+ MAX_EXECUTION_TIME(8000) */ r.seq,
  (SELECT COALESCE(MAX(brand_name), '') FROM report_analysis WHERE seq = r.seq)
- FROM pending_candidates c STRAIGHT_JOIN reports r ON r.seq = c.seq
- WHERE (SELECT 1 FROM report_analysis ra WHERE ra.seq = r.seq LIMIT 1) IS NOT NULL
- AND (r.ts >= UTC_TIMESTAMP() - INTERVAL 1 DAY
-   OR EXISTS (SELECT 1 FROM wire_submissions_raw ws WHERE ws.report_seq = r.seq AND ws.created_at >= UTC_TIMESTAMP() - INTERVAL 1 DAY)
-   OR EXISTS (SELECT 1 FROM external_ingest_index ei WHERE ei.seq = r.seq AND ei.created_at >= UTC_TIMESTAMP() - INTERVAL 1 DAY))
+ FROM reports r FORCE INDEX (PRIMARY) LEFT JOIN report_evidence ev ON ev.seq = r.seq
+ WHERE r.seq > ? AND r.seq <= ?
+ AND CASE WHEN COALESCE(ev.evidence_version, 0) = 0 THEN
+   (SELECT 1 FROM report_analysis ra WHERE ra.seq = r.seq LIMIT 1) IS NOT NULL
+   AND (r.ts >= UTC_TIMESTAMP() - INTERVAL 1 DAY
+     OR EXISTS (SELECT 1 FROM wire_submissions_raw ws WHERE ws.report_seq = r.seq AND ws.created_at >= UTC_TIMESTAMP() - INTERVAL 1 DAY)
+     OR EXISTS (SELECT 1 FROM external_ingest_index ei WHERE ei.seq = r.seq AND ei.created_at >= UTC_TIMESTAMP() - INTERVAL 1 DAY))
+   ELSE FALSE END
  ORDER BY r.seq DESC LIMIT ?`
 
-// GetPendingEvidenceReports covers new imports whose existing analysis bypasses
-// the main analyzer (for example skip_ai GitHub/X imports). Historic work is an
-// explicit bounded backfill. Only the newest 50,000 sequence values are scanned,
-// using the existing reports primary key without a timestamp index or blob scan.
-// Recent server-side Wire/index creation also qualifies imports whose source
-// publication timestamp is old. Older sequence values require explicit backfill.
-// Scalar presence prevents MySQL from materializing a large RA semijoin, while
-// descending primary-key order prioritizes fresh reports. The candidate LIMIT
-// prevents merging: the integer primary-key window already contains at most
-// 50,000 rows, so it preserves every eligible sequence. STRAIGHT_JOIN makes those
-// candidates drive analysis-presence and timestamp/source qualification, after
-// completed evidence has been excluded, instead of probing stable RA/Wire/index
-// rows on every scan.
-func (d *Database) GetPendingEvidenceReports(ctx context.Context, limit int) ([]PendingEvidence, error) {
+// GetPendingEvidenceChunk selects within one bounded range of the same recent
+// evidence window. The worker samples MAX once per round and never changes
+// original publication, server-ingestion eligibility, or analysis/routing state.
+func (d *Database) GetPendingEvidenceChunk(ctx context.Context, low, high int64, limit int) ([]PendingEvidence, error) {
 	if limit < 1 || limit > 50 {
 		return nil, fmt.Errorf("evidence batch limit must be between 1 and 50")
 	}
-	rows, err := d.db.QueryContext(ctx, pendingEvidenceQuery, limit)
+	if low < 0 || high < low || high-low > evidenceChunkSize {
+		return nil, fmt.Errorf("evidence sequence chunk must contain at most 500 positions")
+	}
+	rows, err := d.db.QueryContext(ctx, pendingEvidenceChunkQuery, low, high, limit)
 	if err != nil {
-		return nil, fmt.Errorf("query pending evidence (explicit migrations required): %w", err)
+		return nil, fmt.Errorf("query bounded pending evidence (explicit migrations required): %w", err)
 	}
 	defer rows.Close()
 	pending := []PendingEvidence{}

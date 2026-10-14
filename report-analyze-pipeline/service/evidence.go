@@ -18,6 +18,7 @@ const (
 	evidenceBatchEmpty evidenceBatchState = iota
 	evidenceBatchFound
 	evidenceBatchQueryFailed
+	evidenceBatchPartial
 )
 
 type evidencePollTimer interface {
@@ -46,7 +47,7 @@ func runEvidencePolling(ctx context.Context, newTimer func(time.Duration) eviden
 		}
 		state := batch(ctx)
 		delay = evidenceIdlePollInterval
-		if state == evidenceBatchFound {
+		if state == evidenceBatchFound || state == evidenceBatchPartial {
 			delay = evidenceActivePollInterval
 		}
 	}
@@ -91,17 +92,21 @@ func (s *Service) processEvidenceBatchWithContext(ctx context.Context) evidenceB
 	// Limit only candidate selection; provider and persistence work keep their
 	// independent contexts after this short query deadline is released.
 	queryCtx, cancelQuery := context.WithTimeout(ctx, 10*time.Second)
-	pending, err := s.db.GetPendingEvidenceReports(queryCtx, batchSize)
+	batch, err := s.db.ScanPendingEvidenceReports(queryCtx, batchSize, s.evidenceCursor)
 	cancelQuery()
 	if err != nil {
 		log.Print("Evidence worker: pending query failed")
 		return evidenceBatchQueryFailed
 	}
-	if len(pending) == 0 {
+	s.evidenceCursor = batch.NextCursor
+	if len(batch.Items) == 0 {
+		if batch.MoreToScan {
+			return evidenceBatchPartial
+		}
 		return evidenceBatchEmpty
 	}
 	classifier, _ := s.llmClient.(evidence.Classifier)
-	for _, item := range pending {
+	for _, item := range batch.Items {
 		select {
 		case <-s.stopChan:
 			return evidenceBatchFound
