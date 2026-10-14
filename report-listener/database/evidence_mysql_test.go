@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"cleanapp-common/eiiheader"
 	"cleanapp-common/evidence"
 	"cleanapp-common/reportmeta"
 	"github.com/go-sql-driver/mysql"
@@ -35,14 +36,15 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	db.SetMaxOpenConns(1)
 	// Match production: legacy report/index tables use unicode_ci, while Wire,
 	// ownership/status and case tables use 0900_ai_ci. JSON extraction is binary.
 	statements := []string{
 		`CREATE TABLE reports (seq INT PRIMARY KEY,public_id VARCHAR(32),ts DATETIME,latitude DOUBLE,longitude DOUBLE,image BLOB,id VARCHAR(255) NOT NULL DEFAULT '') DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
-		`CREATE TABLE report_analysis (seq INT,language VARCHAR(2),brand_name VARCHAR(255),brand_display_name VARCHAR(255),is_valid BOOL,classification VARCHAR(32),created_at DATETIME,title VARCHAR(500),summary TEXT,severity_level DOUBLE,FULLTEXT KEY fixture_original_fulltext (title,summary)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+		`CREATE TABLE report_analysis (seq INT,language VARCHAR(2),brand_name VARCHAR(255),brand_display_name VARCHAR(255),is_valid BOOL,classification VARCHAR(32),created_at DATETIME,title VARCHAR(500),summary TEXT,severity_level FLOAT,FULLTEXT KEY fixture_original_fulltext (title,summary)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 		`CREATE TABLE report_raw (report_seq INT PRIMARY KEY,source_type VARCHAR(64),source_id VARCHAR(255),fetcher_id VARCHAR(64),visibility VARCHAR(16)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
-		`CREATE TABLE external_ingest_index (seq INT,source VARCHAR(64),external_id VARCHAR(255),source_url VARCHAR(500),source_timestamp DATETIME,created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
-		`CREATE TABLE wire_submissions_raw (report_seq INT,report_json JSON,provenance_json JSON,observed_at DATETIME,submitted_at DATETIME,actor_kind VARCHAR(32),channel VARCHAR(32),extensions_json JSON) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
+		`CREATE TABLE external_ingest_index (seq INT NOT NULL,source VARCHAR(64) NOT NULL,external_id VARCHAR(255) NOT NULL,source_url VARCHAR(500),source_timestamp DATETIME,created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(source,external_id,seq),KEY idx_seq(seq)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+		`CREATE TABLE wire_submissions_raw (submission_id VARCHAR(64) NOT NULL DEFAULT (UUID()) PRIMARY KEY,report_seq INT,report_json JSON,provenance_json JSON,observed_at DATETIME,submitted_at DATETIME,actor_kind VARCHAR(32),channel VARCHAR(32),extensions_json JSON) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
 		`CREATE TABLE report_status (seq INT,status VARCHAR(32)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
 		`CREATE TABLE reports_owners (seq INT,owner VARCHAR(64),is_public BOOL) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
 		`CREATE TABLE case_reports (seq INT,case_id VARCHAR(64)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
@@ -98,6 +100,10 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 			t.Fatal("evidence migration rewrote legacy analysis history")
 		}
 	}
+	if err := ensureEvidenceBrandCoreIndex(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	legacyAnalysisSchema = showCreate("report_analysis")
 	fixtures := []string{
 		`INSERT INTO reports (seq,public_id,ts,latitude,longitude,image) VALUES (1,'r_1','2026-10-14',0,0,''),(2,'r_2','2026-10-14',0,0,''),(3,'r_3','2026-10-14',0,0,''),(4,'r_4','2026-10-14',0,0,''),(5,'r_5','2026-10-14',0,0,''),(6,'r_6','2026-10-14',0,0,''),(7,'r_7','2026-10-14',0,0,''),(8,'r_8','2026-10-14',0,0,'')`,
 		`INSERT INTO report_analysis VALUES
@@ -130,6 +136,27 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	var existingHeaderTables int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='external_ingest_header_projection'`).Scan(&existingHeaderTables); err != nil {
+		t.Fatal(err)
+	}
+	if existingHeaderTables != 0 {
+		t.Fatal("fixture refuses a pre-existing external_ingest_header_projection table")
+	}
+	created = append(created, "external_ingest_header_projection")
+	legacySourceSchema := showCreate("external_ingest_index")
+	for attempt := 0; attempt < 2; attempt++ {
+		if err := eiiheader.Migrate(context.Background(), db); err != nil {
+			t.Fatal(err)
+		}
+		if showCreate("external_ingest_index") != legacySourceSchema {
+			t.Fatal("source header migration altered its parent")
+		}
+	}
+	var initiallyProjected int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM external_ingest_header_projection`).Scan(&initiallyProjected); err != nil || initiallyProjected != 0 {
+		t.Fatal("header migration must retain unprojected history without an implicit backfill")
+	}
 
 	// Existing history is not implicitly copied by a startup migration. The
 	// conditional fallback must retain it, and partial deterministic backfill
@@ -142,6 +169,23 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 		t.Fatal("fixture refuses a pre-existing report_metadata_projection table")
 	}
 	created = append(created, "report_metadata_projection")
+	// Retain an old zero-date row before the metadata triggers exist. It remains
+	// unprojected historical input, so its raw date presence must survive fallback.
+	var originalMode string
+	if err := db.QueryRow(`SELECT @@SESSION.sql_mode`).Scan(&originalMode); err != nil {
+		t.Fatal(err)
+	}
+	zeroMode := strings.ReplaceAll(strings.ReplaceAll(originalMode, "NO_ZERO_DATE", ""), "NO_ZERO_IN_DATE", "")
+	if _, err := db.Exec(`SET SESSION sql_mode=?`, zeroMode); err != nil {
+		t.Fatal(err)
+	}
+	_, zeroErr := db.Exec(`INSERT INTO reports (seq,public_id,ts,latitude,longitude,image) VALUES(107,'r_107','0000-00-00 00:00:00',0,0,'')`)
+	if _, err := db.Exec(`SET SESSION sql_mode=?`, originalMode); err != nil {
+		t.Fatal(err)
+	}
+	if zeroErr != nil {
+		t.Fatal(zeroErr)
+	}
 	for attempt := 0; attempt < 2; attempt++ {
 		if err := reportmeta.Migrate(context.Background(), db); err != nil {
 			t.Fatalf("metadata projection migration attempt%d: %v", attempt+1, err)
@@ -169,6 +213,20 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 	}
 	if !reflect.DeepEqual(page, mixed) {
 		t.Fatal("partial metadata projection changed public page, family counts, source dates or privacy")
+	}
+	if _, err := eiiheader.Backfill(context.Background(), db, []int{1}); err != nil {
+		t.Fatal(err)
+	}
+	partialHeader, err := d.GetEvidenceBrandPage(context.Background(), EvidenceFilter{BrandName: "anthropic", Kind: "firsthand"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(page, partialHeader) {
+		t.Fatal("partial source header projection changed source selection, fields, dates or exact counts")
+	}
+	var headerRows int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM external_ingest_header_projection`).Scan(&headerRows); err != nil || headerRows != 1 {
+		t.Fatal("fixture must exercise mixed projected/unprojected source keys")
 	}
 	var projectedRows int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM report_metadata_projection`).Scan(&projectedRows); err != nil || projectedRows != 4 {
@@ -503,6 +561,131 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 			}
 		default:
 			t.Fatalf("unexpected privacy fixture family: %s", *recurrence.CaseID)
+		}
+	}
+	// Production stores severity as FLOAT. SQL's comparisons use its actual
+	// stored value, rather than the rounded text representation sent by drivers.
+	for _, statement := range []string{
+		`INSERT INTO reports (seq,public_id,ts,latitude,longitude,image) VALUES (101,'r_101',NULL,0,0,''),(102,'r_102','2026-10-14',0,0,''),(103,'r_103','2026-10-14',0,0,''),(104,'r_104','2026-10-14',0,0,''),(105,'r_105','2026-10-14',0,0,''),(106,'r_106','2026-10-14',0,0,'')`,
+		`INSERT INTO report_analysis VALUES (101,'en','floatboundary','Boundary',TRUE,'digital','2026-10-14','Null original date','Summary',0.4),(102,'en','floatboundary','Boundary',TRUE,'digital','2026-10-14','Near medium','Summary',0.39999998),(103,'en','floatboundary','Boundary',TRUE,'digital','2026-10-14','Near medium high','Summary',0.40000004),(104,'en','floatboundary','Boundary',TRUE,'digital','2026-10-14','High boundary','Summary',0.7),(105,'en','floatboundary','Boundary',TRUE,'digital','2026-10-14','Near high','Summary',0.69999994),(106,'en','floatboundary','Boundary',TRUE,'digital','2026-10-14','Above high','Summary',0.70000005)`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var sqlHigh, sqlMedium int
+	if _, err := db.Exec(`INSERT INTO report_analysis VALUES(107,'en','floatboundary','Boundary',TRUE,'digital','2026-10-14','Zero original date','Summary',0.4)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT SUM(severity_level>=0.7),SUM(severity_level>=0.4 AND severity_level<0.7) FROM report_analysis WHERE brand_name='floatboundary'`).Scan(&sqlHigh, &sqlMedium); err != nil {
+		t.Fatal(err)
+	}
+	boundaries, err := d.GetEvidenceBrandPage(context.Background(), EvidenceFilter{BrandName: "floatboundary", Kind: "all", Sort: "recent"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if boundaries.High != sqlHigh || boundaries.Medium != sqlMedium {
+		t.Fatalf("stored FLOAT threshold counts differ from SQL: high=%d/%d medium=%d/%d", boundaries.High, sqlHigh, boundaries.Medium, sqlMedium)
+	}
+	if last := boundaries.Reports[len(boundaries.Reports)-1]; last.Report.Seq != 101 || last.Report.Timestamp.Year() != 1970 || last.Evidence.IngestedAt != nil {
+		t.Fatal("NULL date must rank last and retain the public epoch fallback")
+	}
+	if zero := boundaries.Reports[len(boundaries.Reports)-2]; zero.Report.Seq != 107 || !zero.Report.Timestamp.IsZero() || zero.Evidence.IngestedAt != nil {
+		t.Fatal("stored zero date must precede NULL and retain its existing public value")
+	}
+	// Inline image URIs must not become source identities or enter the compact
+	// JSON normalizer. A nonHTTP higher-priority node still blocks fallback;
+	// literal JSON/string null remains eligible for the original URL fallback.
+	for _, statement := range []string{
+		`INSERT INTO reports (seq,public_id,ts,latitude,longitude,image) VALUES(108,'r_108','2026-10-14',0,0,''),(109,'r_109','2026-10-14',0,0,''),(110,'r_110','2026-10-14',0,0,'')`,
+		`INSERT INTO report_analysis VALUES(108,'en','inlineuritest','Inline',TRUE,'digital','2026-10-14','Inline image observation','Summary',0.5),(109,'en','inlineuritest','Inline',TRUE,'digital','2026-10-14','Blocked fallback','Summary',0.5),(110,'en','inlineuritest','Inline',TRUE,'digital','2026-10-14','Literal null fallback','Summary',0.5)`,
+		`INSERT INTO wire_submissions_raw(report_seq,report_json,provenance_json,submitted_at,actor_kind,channel) VALUES(108,JSON_OBJECT('evidence_bundle',JSON_ARRAY(JSON_OBJECT('uri',CONCAT('data:image/png;base64,',REPEAT('A',8388609))))),'{}','2026-10-14','machine','wire'),(109,'{"digital_context":{"metadata":{"source_url":"data:placeholder"}},"evidence_bundle":[{"uri":"https://example.com/blocked"}]}','{}','2026-10-14','machine','wire'),(110,'{"digital_context":{"metadata":{"source_url":"null"}},"evidence_bundle":[{"uri":"https://example.com/allowed"}]}','{}','2026-10-14','machine','wire')`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	inlinePage, err := d.GetEvidenceBrandPage(context.Background(), EvidenceFilter{BrandName: "inlineuritest", Kind: "all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range inlinePage.Reports {
+		switch item.Report.Seq {
+		case 108, 109:
+			if item.Evidence.SourceURL != nil {
+				t.Fatal("inline URI or blocked fallback became a source link")
+			}
+		case 110:
+			if stringValue(item.Evidence.SourceURL) != "https://example.com/allowed" {
+				t.Fatal("literal null source URL lost its original fallback")
+			}
+		}
+	}
+	var retainedURILength int
+	if err := db.QueryRow(`SELECT CHAR_LENGTH(JSON_UNQUOTE(JSON_EXTRACT(report_json,'$.evidence_bundle[0].uri'))) FROM wire_submissions_raw WHERE report_seq=108`).Scan(&retainedURILength); err != nil || retainedURILength < 8388609 {
+		t.Fatal("read projection changed retained original payload")
+	}
+	for _, statement := range []string{
+		`INSERT INTO reports(seq,public_id,ts,latitude,longitude,image) VALUES(112,'r_112','2026-01-01',0,0,''),(113,'r_113','2026-02-01',0,0,''),(114,'r_114','2026-01-01',0,0,''),(115,'r_115','2026-02-01',0,0,''),(116,'r_116','2026-01-01',0,0,''),(117,'r_117','2026-02-01',0,0,''),(118,'r_118','2026-01-01',0,0,'')`,
+		`INSERT INTO report_analysis VALUES(112,'en','nullseverity','Severity',TRUE,'digital','2026-10-14','Known zero family','Summary',0),(113,'en','nullseverity','Severity',TRUE,'digital','2026-10-14','NULL family','Summary',NULL),(114,'en','nullseverity','Severity',TRUE,'digital','2026-10-14','Known negative family','Summary',-0.1),(115,'en','nullseverity','Severity',TRUE,'digital','2026-10-14','NULL negative family','Summary',NULL),(116,'en','nullseverity','Severity',TRUE,'digital','2026-10-14','Known zero singleton','Summary',0),(117,'en','nullseverity','Severity',TRUE,'digital','2026-10-14','NULL singleton','Summary',NULL),(118,'en','nullseverity','Severity',TRUE,'digital','2026-10-14','Known negative singleton','Summary',-0.1),(NULL,'en','orphananalysis','Orphan',TRUE,'digital','2026-10-14','No report link','Summary',1),(9999,'en','orphananalysis','Orphan',TRUE,'digital','2026-10-14','Missing parent','Summary',1)`,
+		`INSERT INTO report_evidence(seq,report_kind,evidence_excerpt,reported_impact,classification_reason,entity_relationship,evidence_version) SELECT seq,'firsthand','I observed an issue','Workflow blocked','Own observation','affected',1 FROM report_analysis WHERE brand_name='nullseverity'`,
+		`INSERT INTO case_reports VALUES(112,'severity_zero_family'),(113,'severity_zero_family'),(114,'severity_negative_family'),(115,'severity_negative_family')`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	nullSeverity, err := d.GetEvidenceBrandPage(context.Background(), EvidenceFilter{BrandName: "nullseverity", Kind: "firsthand", Sort: "signal"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, want := range []int{112, 114, 116, 118, 117} {
+		if len(nullSeverity.Reports) != 5 || nullSeverity.Reports[i].Report.Seq != want {
+			t.Fatalf("SQL NULL severity ordering[%d] differs", i)
+		}
+	}
+	for _, statement := range []string{
+		`INSERT INTO reports(seq,public_id,ts,latitude,longitude,image) VALUES(119,'r_119','2026-10-14',0,0,''),(120,'r_120','2026-10-14',0,0,'')`,
+		`INSERT INTO report_analysis VALUES(119,'en','tiedanalysis','Low display',TRUE,'digital','2026-10-14','Low title','Low summary',0.2),(119,'en','tiedanalysis','High display',TRUE,'digital','2026-10-14','High title','High summary',0.9),(120,NULL,'tiedanalysis','Nullable display',TRUE,'digital',NULL,'Nullable title','Nullable summary',NULL),(120,NULL,'tiedanalysis','Zero display',TRUE,'digital',NULL,'Zero title','Zero summary',0)`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tied, err := d.GetEvidenceBrandPage(context.Background(), EvidenceFilter{BrandName: "tiedanalysis", Kind: "all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tied.Reports) != 2 {
+		t.Fatal("tied analyses lost public reports")
+	}
+	for _, item := range tied.Reports {
+		a := item.Analysis[0]
+		var coherent int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM report_analysis WHERE seq=? AND COALESCE(language,'')=? AND brand_name=? AND classification=? AND COALESCE(CAST(severity_level AS DOUBLE),0)=? AND title=? AND summary=? AND brand_display_name=?`, item.Report.Seq, a.Language, a.BrandName, a.Classification, a.SeverityLevel, a.Title, a.Summary, a.BrandDisplayName).Scan(&coherent); err != nil || coherent < 1 {
+			t.Fatal("tied analysis returned metadata and display fields from different rows")
+		}
+	}
+	// The independent adapter and executable SQL reference share every public
+	// field, facet, source/family count and page boundary across mixed scopes.
+	for _, brand := range []string{"anthropic", "translationtest", "archivetimetest", "identitytest", "ranktest", "privacytest", "floatboundary", "inlineuritest", "nullseverity", "orphananalysis", "absentbrand"} {
+		for _, kind := range []string{"firsthand", "coverage", "unknown", "all"} {
+			for _, sortBy := range []string{"signal", "recent", "recurrence"} {
+				for _, offset := range []int{0, 1, 100} {
+					filter := EvidenceFilter{BrandName: brand, Kind: kind, Sort: sortBy, Offset: offset, Limit: 2, Language: "fr"}
+					actual, err := d.GetEvidenceBrandPage(context.Background(), filter)
+					if err != nil {
+						t.Fatalf("bulk %s/%s/%s/%d: %v", brand, kind, sortBy, offset, err)
+					}
+					reference, err := d.getEvidenceBrandPageSQL(context.Background(), filter)
+					if err != nil {
+						t.Fatalf("SQL reference %s/%s/%s/%d: %v", brand, kind, sortBy, offset, err)
+					}
+					if !reflect.DeepEqual(actual, reference) {
+						t.Fatalf("bulk/reference parity %s/%s/%s/%d differs: actual=%+v reference=%+v", brand, kind, sortBy, offset, actual, reference)
+					}
+				}
+			}
 		}
 	}
 }
