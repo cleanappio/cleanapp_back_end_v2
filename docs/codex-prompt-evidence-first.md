@@ -40,6 +40,10 @@ Classification definitions:
 - **Coverage:** relayed news, commentary, reposts, press releases, status/news syndication, or someone else's incident without the author's own observation. Seriousness does not convert coverage into firsthand experience.
 - **Unknown:** the available original evidence cannot support a confident choice, or the original is unavailable.
 
+First-person wording alone does not establish a firsthand incident. Require the current author's own observed malfunction, failed action, visible defect, or concrete reproduction. Chatbot status replies, bounty logistics, generic apologies, acknowledgements, and patch/verification claims are not user-observed failures. An attached screenshot of someone else's report does not transfer that experience to the reposting author. Keep experienced consequences separate from status, bounty, or verification assertions.
+
+Pass retained public source-author and quote/reply context alongside the original wording and media. Keep this separate from the machine or human actor that submitted the material to CleanApp; metadata does not verify human identity. Preserve immutable source author/relation metadata where available. Test bot coordination replies, a repost containing a quoted user's screenshot, and the separately attributed original user's complaint before backfill writes.
+
 Treat model output as untrusted extraction. Invalid enums become unknown. Unsafe/private excerpts are withheld from public presentation. Do not allow a client or model to assign independent verification, source-account independence, or direct human submission status.
 
 Build a reusable original-evidence resolver. Inspect `external_ingest_index`, raw intake provenance, retained Wire submission JSON, `digital_share_reports`, and source indexer tables. Resolve GitHub issue bodies, X post text, and Bluesky post text using deterministic source identifiers. An imported summary in `reports.description` is not an acceptable fallback. Reuse the resolver for normal analysis, backfill, and grounded public metadata; keep read query cost bounded.
@@ -59,6 +63,8 @@ For X, Bluesky, and GitHub submitters, preserve actual original body/text alongs
 Preserve deterministic source IDs and platform/account metadata internally. Do not expose reporter identifiers unnecessarily. Retain provenance through both Wire and supported legacy ingestion paths. Use the canonical enrichment service as the authority for experience classification; avoid a competing unsynchronized intake classifier.
 
 Set submission time to actual submission time. A post's publication time is not automatically the time its incident occurred. Set `observed_at` only when supplied as an actual observation time; leave it absent when unknown. Never manufacture incident recency from ingestion timestamps. Existing source-capture timestamps may be retained with their actual meaning.
+
+Audit historical importers before assigning dates. For a proven archive import that stored publication time in `reports.ts`, expose that time as publication and use the actual index creation time for ingestion. Require deterministic importer identity, not a source label alone. Missing ingestion metadata stays unknown.
 
 ## Backend: public report and brand contract
 
@@ -130,6 +136,8 @@ Extend `report-analysis-backfill` with evidence-only enrichment using the same p
 ```
 
 Dry run writes nothing: no analysis updates, audit-table mutations, migrations, or progress checkpoints. Print report identifier, proposed kind, original-source availability, and title. Print **label counts**, not a mislabeled precision summary. Compare a representative source-reviewed sample against the classifier to measure precision separately. Include quotes/reposts, syndication, ambiguous material, direct reports, historical closed issues, genuine singletons, and third-party integration complaints.
+
+For a large approved cohort, record an inclusive `--through-seq` snapshot boundary and use disjoint bounded partitions (`--shard-count`, `--shard-index`) with a deliberate combined provider budget. Advance `--after-seq` only after a batch has zero failures; retry failed batches using their original bounds so transient failures remain eligible. Verify every eligible analysis row in the fixed cohort was enriched, including honest unknown records whose originals are unavailable.
 
 Tests must cover:
 

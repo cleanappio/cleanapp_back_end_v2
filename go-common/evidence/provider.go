@@ -48,6 +48,10 @@ func (p *Provider) AnalyzeEvidence(original, entity string) (Fields, error) {
 	return p.AnalyzeEvidenceImage(nil, original, entity)
 }
 func (p *Provider) AnalyzeEvidenceImage(image []byte, original, entity string) (Fields, error) {
+	return p.AnalyzeOriginalEvidence(Original{Image: image, Text: original}, entity)
+}
+func (p *Provider) AnalyzeOriginalEvidence(source Original, entity string) (Fields, error) {
+	image, original := source.Image, source.Text
 	prompt := Prompt
 	mimeType := http.DetectContentType(image)
 	hasImage := ValidOriginalImage(image)
@@ -57,18 +61,18 @@ func (p *Provider) AnalyzeEvidenceImage(image []byte, original, entity string) (
 	var request any
 	var endpoints []string
 	if p.kind == "openai" {
-		content := []any{map[string]any{"type": "text", "text": Input(original, entity)}}
+		content := []any{map[string]any{"type": "text", "text": OriginalInput(source, entity)}}
 		if hasImage {
 			content = append(content, map[string]any{"type": "image_url", "image_url": map[string]any{"url": "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(image)}})
 		}
-		request = map[string]any{"model": p.model, "messages": []any{map[string]any{"role": "system", "content": prompt}, map[string]any{"role": "user", "content": content}}}
+		request = map[string]any{"model": p.model, "temperature": 0, "messages": []any{map[string]any{"role": "system", "content": prompt}, map[string]any{"role": "user", "content": content}}}
 		endpoints = []string{"https://api.openai.com/v1/chat/completions"}
 	} else {
-		parts := []any{map[string]any{"text": prompt}, map[string]any{"text": Input(original, entity)}}
+		parts := []any{map[string]any{"text": prompt}, map[string]any{"text": OriginalInput(source, entity)}}
 		if hasImage {
 			parts = append(parts, map[string]any{"inline_data": map[string]any{"mime_type": mimeType, "data": base64.StdEncoding.EncodeToString(image)}})
 		}
-		request = map[string]any{"contents": []any{map[string]any{"role": "user", "parts": parts}}}
+		request = map[string]any{"generationConfig": map[string]any{"temperature": 0}, "contents": []any{map[string]any{"role": "user", "parts": parts}}}
 		endpoints = []string{fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent", p.model), fmt.Sprintf("https://generativelanguage.googleapis.com/v1/models/%s:generateContent", p.model)}
 	}
 	body, err := json.Marshal(request)
