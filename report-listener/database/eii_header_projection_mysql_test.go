@@ -33,6 +33,33 @@ func TestEIIHeaderProjectionMySQLFixture(t *testing.T) {
 	}
 	defer db.Close()
 	db.SetMaxOpenConns(5)
+	t.Run("fresh_bootstrap", func(t *testing.T) {
+		defer db.Exec(`DROP TABLE IF EXISTS fetchers`)
+		defer db.Exec(`DROP TABLE IF EXISTS external_ingest_index`)
+		defer db.Exec(`DROP TABLE IF EXISTS external_ingest_header_projection`)
+		if err := ensureFetcherTables(context.Background(), db); err != nil {
+			t.Fatal(err)
+		}
+		var name, before, after string
+		if err := db.QueryRow(`SHOW CREATE TABLE external_ingest_index`).Scan(&name, &before); err != nil {
+			t.Fatal(err)
+		}
+		for i := 0; i < 2; i++ {
+			if err := eiiheader.Migrate(context.Background(), db); err != nil {
+				t.Fatalf("fresh bootstrap is incompatible with header migration: %v", err)
+			}
+			if err := ensureFetcherTables(context.Background(), db); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := db.QueryRow(`SHOW CREATE TABLE external_ingest_index`).Scan(&name, &after); err != nil || before != after {
+			t.Fatal("header migration/bootstrap retry changed an existing EII table")
+		}
+		if _, err := db.Exec(`INSERT INTO external_ingest_index (source,external_id,seq,source_url,source_timestamp,created_at) VALUES ('bootstrap','source',1,'https://example.test/source',NULL,NULL)`); err != nil {
+			t.Fatal(err)
+		}
+		assertEIIHeaderFallbackParity(t, db)
+	})
 	exec := func(query string, args ...any) {
 		t.Helper()
 		if _, err := db.Exec(query, args...); err != nil {
