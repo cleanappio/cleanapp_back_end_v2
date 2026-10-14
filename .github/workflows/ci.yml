@@ -78,6 +78,36 @@ jobs:
           docker exec -e MYSQL_PWD=local-evidence-fixture ${{ job.services.mysql.id }} mysql -uroot -e 'CREATE DATABASE metadata_projection_evidence_test;'
           go test ./database -run '^TestMetadataProjectionMySQLFixture$' -count=1 -v
 
+  evidence_original_mysql:
+    name: Large original source (MySQL 8.0.44)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      mysql:
+        image: mysql:8.0.44
+        env:
+          MYSQL_ROOT_PASSWORD: local-evidence-fixture
+          MYSQL_ROOT_HOST: "%"
+          MYSQL_DATABASE: original_resolver_evidence_test
+        ports:
+          - 33306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost --password=local-evidence-fixture"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      EVIDENCE_ORIGINAL_TEST_DSN: "root:local-evidence-fixture@tcp(127.0.0.1:33306)/original_resolver_evidence_test?parseTime=true&charset=utf8mb4"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Resolve large retained originals without sorting payloads
+        working-directory: report-analyze-pipeline
+        run: go test ./service -run '^TestLargeWireOriginalAvoidsPayloadSortMySQL$' -count=1 -v
+
   golangci:
     name: Go Lint (golangci-lint)
     runs-on: ubuntu-latest
