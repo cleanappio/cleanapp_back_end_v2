@@ -149,18 +149,24 @@ func evidenceBrandCTE(f EvidenceFilter) (string, []interface{}) {
 	return evidenceCTE(f, "ra.brand_name IN ("+strings.Join(placeholders, ",")+") AND ra.classification = 'digital'", args)
 }
 
+// The September archive importer wrote Reddit publication time into reports.ts,
+// and indexing time into external_ingest_index.created_at. Its exact ID hash
+// proves this path; a source label alone cannot change unrelated report dates.
+const trustedRedditArchiveSQL = "(eii.source = 'reddit_archive' AND LEFT(r.id,7) = 'reddit_' AND CHAR_LENGTH(r.id) > 7 AND eii.external_id = LEFT(SHA1(CONCAT('reddit:',SUBSTRING(r.id,8))),32))"
+
 func evidenceCTE(f EvidenceFilter, analysisWhere string, args []interface{}) (string, []interface{}) {
 	query := fmt.Sprintf(`WITH preferred AS (
   SELECT ra.seq,ra.language,ra.created_at,ra.brand_name,ra.brand_display_name,ra.classification,ra.title,ra.summary,ra.severity_level,ra.report_kind,ra.evidence_excerpt,ra.reported_impact,ra.classification_reason,ra.entity_relationship,ra.evidence_version, ROW_NUMBER() OVER (PARTITION BY ra.seq ORDER BY (ra.language = ?) DESC, (ra.language = 'en') DESC, ra.language ASC, ra.created_at DESC) AS analysis_rank
-  FROM report_analysis ra WHERE %s AND ra.is_valid = TRUE
+  FROM report_analysis ra WHERE %[1]s AND ra.is_valid = TRUE
  ), candidates AS (
-  SELECT r.seq, r.public_id, r.ts, r.latitude, r.longitude, (LENGTH(r.image) > 0) AS has_original_media,
+  SELECT r.seq, r.public_id, CASE WHEN %[4]s AND eii.created_at IS NOT NULL THEN eii.created_at ELSE r.ts END AS ts, r.latitude, r.longitude, (LENGTH(r.image) > 0) AS has_original_media,
+   COALESCE((%[4]s AND eii.created_at IS NULL),FALSE) AS ingestion_time_missing,
    ra.title, ra.summary, ra.classification, ra.severity_level, ra.language, ra.brand_name, ra.brand_display_name,
    CASE WHEN ra.evidence_version > 0 AND ra.report_kind IN ('firsthand','coverage') THEN ra.report_kind ELSE 'unknown' END AS report_kind,
    ra.evidence_excerpt, ra.reported_impact, ra.classification_reason, ra.entity_relationship, ra.evidence_version,
    COALESCE(NULLIF(eii.source,''), NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.digital_context.platform')),''), NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.digital_context.legacy_source')),''), rr.source_type, '') COLLATE utf8mb4_bin AS source_platform,
    COALESCE(NULLIF(eii.source_url,''), NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.digital_context.metadata.source_url')),'null'), NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.digital_context.source_url')),'null'), NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.digital_context.url')),'null'), JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.evidence_bundle[0].uri')), '') COLLATE utf8mb4_bin AS source_url,
-   COALESCE(eii.source_timestamp, CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.digital_context.metadata.source_published_at')) REGEXP '(Z|[+]00:00)$' THEN STR_TO_DATE(REPLACE(LEFT(JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.digital_context.metadata.source_published_at')),19),'T',' '),'%%Y-%%m-%%d %%H:%%i:%%s') ELSE NULL END, CASE WHEN JSON_EXTRACT(ws.report_json,'$.digital_context.metadata.source_published_at') IS NULL AND JSON_UNQUOTE(JSON_EXTRACT(ws.provenance_json,'$.generation_method')) IN ('twitter_submitter','github_issue_submitter','bluesky_submitter','human_authored_public') THEN ws.observed_at ELSE NULL END) AS source_timestamp,
+   COALESCE(eii.source_timestamp, CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.digital_context.metadata.source_published_at')) REGEXP '(Z|[+]00:00)$' THEN STR_TO_DATE(REPLACE(LEFT(JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.digital_context.metadata.source_published_at')),19),'T',' '),'%%Y-%%m-%%d %%H:%%i:%%s') ELSE NULL END, CASE WHEN JSON_EXTRACT(ws.report_json,'$.digital_context.metadata.source_published_at') IS NULL AND JSON_UNQUOTE(JSON_EXTRACT(ws.provenance_json,'$.generation_method')) IN ('twitter_submitter','github_issue_submitter','bluesky_submitter','human_authored_public') THEN ws.observed_at ELSE NULL END, CASE WHEN %[4]s THEN r.ts ELSE NULL END) AS source_timestamp,
    ws.observed_at AS raw_observed_at, ws.submitted_at, (COALESCE(JSON_EXTRACT(ws.extensions_json,'$.observation_time_supplied'),FALSE) = TRUE) AS observation_time_supplied, (JSON_EXTRACT(ws.report_json,'$.digital_context.metadata.source_published_at') IS NOT NULL) AS explicit_source_publication,
    COALESCE(ws.actor_kind, '') AS actor_kind, COALESCE(ws.channel,'') AS intake_channel,
    COALESCE(JSON_UNQUOTE(JSON_EXTRACT(ws.provenance_json,'$.generation_method')),'') AS generation_method,
@@ -173,7 +179,7 @@ func evidenceCTE(f EvidenceFilter, analysisWhere string, args []interface{}) (st
   LEFT JOIN report_raw rr ON rr.report_seq = r.seq
   LEFT JOIN external_ingest_index eii ON eii.seq = r.seq
   LEFT JOIN wire_submissions_raw ws ON ws.report_seq = r.seq
-  WHERE ra.analysis_rank = 1 AND r.public_id <> '' AND %s
+  WHERE ra.analysis_rank = 1 AND r.public_id <> '' AND %[2]s
    AND NOT EXISTS (SELECT 1 FROM report_status rs WHERE rs.seq = r.seq AND rs.status IS NOT NULL AND rs.status <> 'active')
    AND NOT EXISTS (SELECT 1 FROM reports_owners ro WHERE ro.seq = r.seq AND ro.owner IS NOT NULL AND ro.owner <> '' AND ro.is_public = FALSE)
  ), provenance AS (
@@ -204,11 +210,11 @@ func evidenceCTE(f EvidenceFilter, analysisWhere string, args []interface{}) (st
  ), entries AS (SELECT * FROM representatives WHERE duplicate_rank = 1),
  case_links AS (SELECT e.seq, MIN(cr.case_id) AS case_id FROM case_reports cr JOIN normalized n ON n.seq = cr.seq JOIN entries e ON e.source_key = n.source_key GROUP BY e.seq),
  tagged AS (SELECT e.*, cl.case_id, CASE WHEN cl.case_id IS NULL THEN source_key ELSE CONCAT('family:',cl.case_id) END AS group_key FROM entries e LEFT JOIN case_links cl ON cl.seq=e.seq),
- filtered AS (SELECT tagged.*, ROW_NUMBER() OVER (PARTITION BY group_key ORDER BY evidence_strength DESC, entity_relevance DESC, severity_level DESC, COALESCE(observed_at,source_timestamp,ts) DESC,seq DESC) AS family_rank FROM tagged WHERE %s),
+ filtered AS (SELECT tagged.*, ROW_NUMBER() OVER (PARTITION BY group_key ORDER BY evidence_strength DESC, entity_relevance DESC, severity_level DESC, COALESCE(observed_at,source_timestamp,ts) DESC,seq DESC) AS family_rank FROM tagged WHERE %[3]s),
  family_stats AS (SELECT group_key, COUNT(*) AS supporting_report_count, CASE WHEN COUNT(source_account_key)=COUNT(*) THEN COUNT(DISTINCT source_account_key) ELSE NULL END AS source_account_count, SUM(import_count)-COUNT(*) AS duplicate_import_count, MAX(COALESCE(observed_at,source_timestamp,ts)) AS last_signal_at, MAX(observed_at) AS latest_observed_at, MAX(source_timestamp) AS latest_source_published_at FROM filtered GROUP BY group_key),
  family_samples AS (SELECT group_key, JSON_ARRAYAGG(JSON_OBJECT('title',title,'source_url',source_url,'report_kind',report_kind,'source_published_at',DATE_FORMAT(source_timestamp,'%%Y-%%m-%%dT%%H:%%i:%%sZ'))) AS supporting_sources FROM filtered WHERE family_rank <= 8 GROUP BY group_key),
  briefing AS (SELECT f.*, fs.supporting_report_count, fs.source_account_count, fs.duplicate_import_count, fs.supporting_report_count AS related_observation_count, fs.last_signal_at, fs.latest_observed_at, fs.latest_source_published_at, samples.supporting_sources FROM filtered f JOIN family_stats fs ON fs.group_key=f.group_key JOIN family_samples samples ON samples.group_key=f.group_key WHERE family_rank=1)
- `, analysisWhere, PublicVisibilityWhereSQL, evidenceKindWhere(f.Kind))
+ `, analysisWhere, PublicVisibilityWhereSQL, evidenceKindWhere(f.Kind), trustedRedditArchiveSQL)
 	if f.Kind != "all" {
 		args = append(args, f.Kind)
 	}
@@ -219,6 +225,7 @@ type evidenceRecord struct {
 	Seq                                                           int
 	PublicID                                                      string
 	IngestedAt                                                    time.Time
+	IngestionTimeMissing                                          bool
 	Latitude, Longitude                                           float64
 	Title, Summary, Classification, Language, Brand, BrandDisplay string
 	Severity                                                      float64
@@ -278,7 +285,7 @@ func (d *Database) GetEvidenceBrandPage(ctx context.Context, f EvidenceFilter) (
 	listArgs = append(listArgs, f.Limit, f.Offset)
 	query := cte + `SELECT seq,public_id,ts,latitude,longitude,title,summary,classification,severity_level,language,brand_name,brand_display_name,
  report_kind,COALESCE(evidence_excerpt,''),COALESCE(reported_impact,''),COALESCE(classification_reason,''),COALESCE(entity_relationship,'unknown'),evidence_version,
- source_platform,source_url,source_timestamp,observed_at,actor_kind,fetcher_id,privacy_restricted,source_key,import_count,case_id,related_observation_count,has_original_media,external_source,intake_channel,generation_method,COALESCE(source_account_key,''),group_key,supporting_report_count,source_account_count,duplicate_import_count,supporting_sources,latest_observed_at,latest_source_published_at
+ source_platform,source_url,source_timestamp,observed_at,actor_kind,fetcher_id,privacy_restricted,source_key,import_count,case_id,related_observation_count,has_original_media,external_source,intake_channel,generation_method,COALESCE(source_account_key,''),group_key,supporting_report_count,source_account_count,duplicate_import_count,supporting_sources,latest_observed_at,latest_source_published_at,ingestion_time_missing
  FROM briefing` + ` ORDER BY ` + evidenceOrderBy(f.Sort) + ` LIMIT ? OFFSET ?`
 	mediaSeqs := []int{}
 	rows, err := tx.QueryContext(queryCtx, query, listArgs...)
@@ -288,7 +295,7 @@ func (d *Database) GetEvidenceBrandPage(ctx context.Context, f EvidenceFilter) (
 	for rows.Next() {
 		var r evidenceRecord
 		if err := rows.Scan(&r.Seq, &r.PublicID, &r.IngestedAt, &r.Latitude, &r.Longitude, &r.Title, &r.Summary, &r.Classification, &r.Severity, &r.Language, &r.Brand, &r.BrandDisplay,
-			&r.Kind, &r.Excerpt, &r.Impact, &r.Reason, &r.Relationship, &r.Version, &r.SourcePlatform, &r.SourceURL, &r.PublishedAt, &r.ObservedAt, &r.ActorKind, &r.FetcherID, &r.PrivacyRestricted, &r.SourceKey, &r.ImportCount, &r.CaseID, &r.RelatedCount, &r.HasOriginalMedia, &r.ExternalSource, &r.IntakeChannel, &r.GenerationMethod, &r.SourceAccountKey, &r.GroupKey, &r.SupportingCount, &r.SourceAccountCount, &r.FamilyDuplicates, &r.SupportingSourcesJSON, &r.LatestObservedAt, &r.LatestPublishedAt); err != nil {
+			&r.Kind, &r.Excerpt, &r.Impact, &r.Reason, &r.Relationship, &r.Version, &r.SourcePlatform, &r.SourceURL, &r.PublishedAt, &r.ObservedAt, &r.ActorKind, &r.FetcherID, &r.PrivacyRestricted, &r.SourceKey, &r.ImportCount, &r.CaseID, &r.RelatedCount, &r.HasOriginalMedia, &r.ExternalSource, &r.IntakeChannel, &r.GenerationMethod, &r.SourceAccountKey, &r.GroupKey, &r.SupportingCount, &r.SourceAccountCount, &r.FamilyDuplicates, &r.SupportingSourcesJSON, &r.LatestObservedAt, &r.LatestPublishedAt, &r.IngestionTimeMissing); err != nil {
 			rows.Close()
 			return page, err
 		}
@@ -404,7 +411,11 @@ func (r evidenceRecord) publicEvidence() models.PublicEvidence {
 	default:
 		relationship = "unknown"
 	}
-	ev := models.PublicEvidence{ReportKind: kind, IntakeMethod: intake, IntakeLabel: label, SourcePlatform: evidenceText(platform, 64), SourceURL: evidenceText(sourceURL, 2048), SourcePublishedAt: r.PublishedAt, ObservedAt: r.ObservedAt, IngestedAt: r.IngestedAt, EntityRelationship: relationship, ValidationStatus: "not_independently_reproduced", UpstreamStatus: "unknown", ResolutionStatus: "unknown", WhySurfaced: []string{}, EvidenceVersion: r.Version, HasOriginalMedia: r.HasOriginalMedia && !r.PrivacyRestricted}
+	var ingestedAt *time.Time
+	if !r.IngestionTimeMissing {
+		ingestedAt = &r.IngestedAt
+	}
+	ev := models.PublicEvidence{ReportKind: kind, IntakeMethod: intake, IntakeLabel: label, SourcePlatform: evidenceText(platform, 64), SourceURL: evidenceText(sourceURL, 2048), SourcePublishedAt: r.PublishedAt, ObservedAt: r.ObservedAt, IngestedAt: ingestedAt, EntityRelationship: relationship, ValidationStatus: "not_independently_reproduced", UpstreamStatus: "unknown", ResolutionStatus: "unknown", WhySurfaced: []string{}, EvidenceVersion: r.Version, HasOriginalMedia: r.HasOriginalMedia && !r.PrivacyRestricted}
 	if r.Version > 0 && !r.PrivacyRestricted {
 		if !sensitiveEvidence.MatchString(r.Excerpt) && !hasUnsafeEvidenceControls(r.Excerpt) {
 			ev.Excerpt = evidenceText(r.Excerpt, 500)
@@ -496,7 +507,7 @@ func (d *Database) AttachPublicEvidence(ctx context.Context, reports []*models.R
 	cte, args := evidenceCTE(EvidenceFilter{Kind: "all"}, "ra.seq IN ("+strings.Join(placeholders, ",")+")", args)
 	query := cte + `SELECT seq,public_id,ts,latitude,longitude,title,summary,classification,severity_level,language,brand_name,brand_display_name,
  report_kind,COALESCE(evidence_excerpt,''),COALESCE(reported_impact,''),COALESCE(classification_reason,''),COALESCE(entity_relationship,'unknown'),evidence_version,
- source_platform,source_url,source_timestamp,observed_at,actor_kind,fetcher_id,privacy_restricted,source_key,1,NULL,1,has_original_media,external_source,intake_channel,generation_method,COALESCE(source_account_key,''),source_key,1,CASE WHEN source_account_key IS NULL THEN NULL ELSE 1 END,0,JSON_ARRAY(),observed_at,source_timestamp FROM normalized`
+ source_platform,source_url,source_timestamp,observed_at,actor_kind,fetcher_id,privacy_restricted,source_key,1,NULL,1,has_original_media,external_source,intake_channel,generation_method,COALESCE(source_account_key,''),source_key,1,CASE WHEN source_account_key IS NULL THEN NULL ELSE 1 END,0,JSON_ARRAY(),observed_at,source_timestamp,ingestion_time_missing FROM normalized`
 	queryCtx, cancel := withPublicDiscoveryTimeout(ctx)
 	defer cancel()
 	rows, err := d.db.QueryContext(queryCtx, query, args...)
@@ -508,7 +519,7 @@ func (d *Database) AttachPublicEvidence(ctx context.Context, reports []*models.R
 	for rows.Next() {
 		var r evidenceRecord
 		if err := rows.Scan(&r.Seq, &r.PublicID, &r.IngestedAt, &r.Latitude, &r.Longitude, &r.Title, &r.Summary, &r.Classification, &r.Severity, &r.Language, &r.Brand, &r.BrandDisplay,
-			&r.Kind, &r.Excerpt, &r.Impact, &r.Reason, &r.Relationship, &r.Version, &r.SourcePlatform, &r.SourceURL, &r.PublishedAt, &r.ObservedAt, &r.ActorKind, &r.FetcherID, &r.PrivacyRestricted, &r.SourceKey, &r.ImportCount, &r.CaseID, &r.RelatedCount, &r.HasOriginalMedia, &r.ExternalSource, &r.IntakeChannel, &r.GenerationMethod, &r.SourceAccountKey, &r.GroupKey, &r.SupportingCount, &r.SourceAccountCount, &r.FamilyDuplicates, &r.SupportingSourcesJSON, &r.LatestObservedAt, &r.LatestPublishedAt); err != nil {
+			&r.Kind, &r.Excerpt, &r.Impact, &r.Reason, &r.Relationship, &r.Version, &r.SourcePlatform, &r.SourceURL, &r.PublishedAt, &r.ObservedAt, &r.ActorKind, &r.FetcherID, &r.PrivacyRestricted, &r.SourceKey, &r.ImportCount, &r.CaseID, &r.RelatedCount, &r.HasOriginalMedia, &r.ExternalSource, &r.IntakeChannel, &r.GenerationMethod, &r.SourceAccountKey, &r.GroupKey, &r.SupportingCount, &r.SourceAccountCount, &r.FamilyDuplicates, &r.SupportingSourcesJSON, &r.LatestObservedAt, &r.LatestPublishedAt, &r.IngestionTimeMissing); err != nil {
 			return err
 		}
 		bySeq[r.Seq] = r

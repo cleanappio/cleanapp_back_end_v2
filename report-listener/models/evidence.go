@@ -12,7 +12,7 @@ type PublicEvidence struct {
 	SourceURL            *string    `json:"source_url"`
 	SourcePublishedAt    *time.Time `json:"source_published_at"`
 	ObservedAt           *time.Time `json:"observed_at"`
-	IngestedAt           time.Time  `json:"ingested_at"`
+	IngestedAt           *time.Time `json:"ingested_at"`
 	Excerpt              *string    `json:"excerpt"`
 	ReportedImpact       *string    `json:"reported_impact"`
 	ClassificationReason *string    `json:"classification_reason"`

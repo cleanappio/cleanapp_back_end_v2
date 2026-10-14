@@ -9,6 +9,7 @@ import (
 
 	"cleanapp-common/evidence"
 	"github.com/go-sql-driver/mysql"
+	"report-listener/models"
 )
 
 // This fixture is intentionally opt-in and refuses nonlocal/non-test databases.
@@ -35,10 +36,10 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 	// Match production: legacy report/index tables use unicode_ci, while Wire,
 	// ownership/status and case tables use 0900_ai_ci. JSON extraction is binary.
 	statements := []string{
-		`CREATE TABLE reports (seq INT PRIMARY KEY,public_id VARCHAR(32),ts DATETIME,latitude DOUBLE,longitude DOUBLE,image BLOB) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+		`CREATE TABLE reports (seq INT PRIMARY KEY,public_id VARCHAR(32),ts DATETIME,latitude DOUBLE,longitude DOUBLE,image BLOB,id VARCHAR(255) NOT NULL DEFAULT '') DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 		`CREATE TABLE report_analysis (seq INT,language VARCHAR(2),brand_name VARCHAR(255),brand_display_name VARCHAR(255),is_valid BOOL,classification VARCHAR(32),created_at DATETIME,title VARCHAR(500),summary TEXT,severity_level DOUBLE,FULLTEXT KEY fixture_original_fulltext (title,summary)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 		`CREATE TABLE report_raw (report_seq INT PRIMARY KEY,source_type VARCHAR(64),source_id VARCHAR(255),fetcher_id VARCHAR(64),visibility VARCHAR(16)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
-		`CREATE TABLE external_ingest_index (seq INT,source VARCHAR(64),external_id VARCHAR(255),source_url VARCHAR(500),source_timestamp DATETIME) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+		`CREATE TABLE external_ingest_index (seq INT,source VARCHAR(64),external_id VARCHAR(255),source_url VARCHAR(500),source_timestamp DATETIME,created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 		`CREATE TABLE wire_submissions_raw (report_seq INT,report_json JSON,provenance_json JSON,observed_at DATETIME,submitted_at DATETIME,actor_kind VARCHAR(32),channel VARCHAR(32),extensions_json JSON) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
 		`CREATE TABLE report_status (seq INT,status VARCHAR(32)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
 		`CREATE TABLE reports_owners (seq INT,owner VARCHAR(64),is_public BOOL) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
@@ -66,7 +67,7 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 		t.Fatalf("idempotent evidence migration: %v", err)
 	}
 	fixtures := []string{
-		`INSERT INTO reports VALUES (1,'r_1','2026-10-14',0,0,''),(2,'r_2','2026-10-14',0,0,''),(3,'r_3','2026-10-14',0,0,''),(4,'r_4','2026-10-14',0,0,''),(5,'r_5','2026-10-14',0,0,''),(6,'r_6','2026-10-14',0,0,''),(7,'r_7','2026-10-14',0,0,''),(8,'r_8','2026-10-14',0,0,'')`,
+		`INSERT INTO reports (seq,public_id,ts,latitude,longitude,image) VALUES (1,'r_1','2026-10-14',0,0,''),(2,'r_2','2026-10-14',0,0,''),(3,'r_3','2026-10-14',0,0,''),(4,'r_4','2026-10-14',0,0,''),(5,'r_5','2026-10-14',0,0,''),(6,'r_6','2026-10-14',0,0,''),(7,'r_7','2026-10-14',0,0,''),(8,'r_8','2026-10-14',0,0,'')`,
 		`INSERT INTO report_analysis VALUES
   (1,'en','claude','Claude',TRUE,'digital','2026-10-14','Failure one','AI summary',0.7,'firsthand','I see failure one','Workflow blocked','Original describes own issue','affected',1),
   (1,'fr','claude','Claude',TRUE,'digital','2026-10-14','Echec','Resume',0.7,'firsthand','I see failure one','Workflow blocked','Original describes own issue','affected',1),
@@ -77,7 +78,7 @@ func TestEvidenceMySQLFixture(t *testing.T) {
   (6,'en','claude','Claude',TRUE,'digital','2026-10-14','Quarantined','AI summary',0.9,'firsthand','I see failure six','','Own issue','affected',1),
   (7,'en','claude','Claude',TRUE,'digital','2026-10-14','Private','AI summary',0.9,'firsthand','I see failure seven','','Own issue','affected',1),
  (8,'en','claude','Claude',TRUE,'digital','2026-10-14','Inactive','AI summary',0.9,'firsthand','I see failure eight','','Own issue','affected',1)`,
-		`INSERT INTO external_ingest_index VALUES (1,'twitter','10','https://twitter.com/person/status/10?utm_source=share','2026-02-01'),(5,'twitter','10','https://x.com/person/status/10/','2026-02-01'),(2,'github_issue','20','https://github.com/org/repo/issues/20','2026-03-01')`,
+		`INSERT INTO external_ingest_index (seq,source,external_id,source_url,source_timestamp) VALUES (1,'twitter','10','https://twitter.com/person/status/10?utm_source=share','2026-02-01'),(5,'twitter','10','https://x.com/person/status/10/','2026-02-01'),(2,'github_issue','20','https://github.com/org/repo/issues/20','2026-03-01')`,
 		`INSERT INTO report_raw VALUES (6,'twitter','60','fetcher','quarantine')`,
 		`INSERT INTO report_status VALUES (8,'resolved')`,
 		`INSERT INTO reports_owners VALUES (7,'private-user',FALSE)`,
@@ -131,17 +132,71 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 		t.Fatal("product filter counts included another product")
 	}
 
+	// Only the archive importer's stable ID hash proves that its reports.ts
+	// means original publication, while index.created_at records acquisition.
+	archiveFixtures := []string{
+		`INSERT INTO reports (seq,public_id,ts,latitude,longitude,image,id) VALUES (22,'r_22','2025-09-05',0,0,'','reddit_t1_original'),(23,'r_23','2026-10-16',0,0,'','reddit_unmatched'),(24,'r_24','2026-10-17',0,0,'','reddit_t1_other_source'),(25,'r_25','2025-09-03',0,0,'','reddit_t3_explicit'),(26,'r_26','2025-09-01',0,0,'','reddit_t1_missing_ingest')`,
+		`INSERT INTO report_analysis VALUES
+  (22,'en','archivetimetest','Archive time test',TRUE,'digital','2026-10-14','Retained summary','AI summary',0.5,'unknown','','','Original missing','unknown',1),
+  (23,'en','archivetimetest','Archive time test',TRUE,'digital','2026-10-14','Unmatched ID','AI summary',0.5,'unknown','','','Original missing','unknown',1),
+  (24,'en','archivetimetest','Archive time test',TRUE,'digital','2026-10-14','Other source','AI summary',0.5,'unknown','','','Original missing','unknown',1),
+  (25,'en','archivetimetest','Archive time test',TRUE,'digital','2026-10-14','Explicit publication','AI summary',0.5,'unknown','','','Original missing','unknown',1),
+  (26,'en','archivetimetest','Archive time test',TRUE,'digital','2026-10-14','Missing indexing time','AI summary',0.5,'unknown','','','Original missing','unknown',1)`,
+		`INSERT INTO external_ingest_index VALUES (22,'reddit_archive',LEFT(SHA1('reddit:t1_original'),32),'',NULL,'2026-10-15'),(23,'reddit_archive','unmatched','',NULL,'2026-10-15'),(24,'twitter',LEFT(SHA1('reddit:t1_other_source'),32),'',NULL,'2026-10-15'),(25,'reddit_archive',LEFT(SHA1('reddit:t3_explicit'),32),'','2025-08-07','2026-10-18'),(26,'reddit_archive',LEFT(SHA1('reddit:t1_missing_ingest'),32),'',NULL,NULL)`,
+	}
+	for _, statement := range archiveFixtures {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	archivePage, err := d.GetEvidenceBrandPage(context.Background(), EvidenceFilter{BrandName: "archivetimetest", Kind: "unknown"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if archivePage.Total != 5 || archivePage.KindCounts.Unknown != 5 || archivePage.KindCounts.Firsthand != 0 {
+		t.Fatalf("archive metadata promoted missing originals or lost entries: %+v", archivePage.KindCounts)
+	}
+	archiveBySeq := map[int]*models.PublicEvidence{}
+	for _, report := range archivePage.Reports {
+		archiveBySeq[report.Report.Seq] = report.Evidence
+	}
+	original := archiveBySeq[22]
+	if original.SourcePublishedAt == nil || original.SourcePublishedAt.Format("2006-01-02") != "2025-09-05" || original.IngestedAt == nil || original.IngestedAt.Format("2006-01-02") != "2026-10-15" || original.ObservedAt != nil {
+		t.Fatalf("archive publication and indexing dates conflated: %+v", original)
+	}
+	for _, seq := range []int{23, 24} {
+		unchanged := archiveBySeq[seq]
+		if unchanged.SourcePublishedAt != nil || unchanged.IngestedAt == nil || unchanged.IngestedAt.Year() != 2026 || unchanged.IngestedAt.Day() != seq-7 {
+			t.Fatalf("unproven archive path changed timestamps for%d: %+v", seq, unchanged)
+		}
+	}
+	explicit := archiveBySeq[25]
+	if explicit.SourcePublishedAt == nil || explicit.SourcePublishedAt.Format("2006-01-02") != "2025-08-07" || explicit.IngestedAt == nil || explicit.IngestedAt.Format("2006-01-02") != "2026-10-18" {
+		t.Fatalf("explicit source publication lost precedence: %+v", explicit)
+	}
+	missing := archiveBySeq[26]
+	if missing.SourcePublishedAt == nil || missing.SourcePublishedAt.Format("2006-01-02") != "2025-09-01" || missing.IngestedAt != nil {
+		t.Fatalf("null archive indexing time invented an ingestion date: %+v", missing)
+	}
+	details := []*models.ReportWithAnalysis{{Report: models.Report{Seq: 22}}, {Report: models.Report{Seq: 26}}}
+	if err := d.AttachPublicEvidence(context.Background(), details); err != nil {
+		t.Fatal(err)
+	}
+	if details[0].Evidence == nil || details[0].Evidence.SourcePublishedAt == nil || details[0].Evidence.IngestedAt == nil || !details[0].Evidence.SourcePublishedAt.Equal(*original.SourcePublishedAt) || !details[0].Evidence.IngestedAt.Equal(*original.IngestedAt) || details[1].Evidence.IngestedAt != nil {
+		t.Fatal("detail/archive list timestamps disagree")
+	}
+
 	// Case-sensitive source identifiers and URL paths must not collapse under
 	// either legacy unicode_ci or modern 0900_ai_ci table collations.
 	identityFixtures := []string{
-		`INSERT INTO reports VALUES (17,'r_17','2026-10-14',0,0,''),(18,'r_18','2026-10-14',0,0,''),(19,'r_19','2026-10-14',0,0,''),(20,'r_20','2026-10-14',0,0,''),(21,'r_21','2026-10-14',0,0,'')`,
+		`INSERT INTO reports (seq,public_id,ts,latitude,longitude,image) VALUES (17,'r_17','2026-10-14',0,0,''),(18,'r_18','2026-10-14',0,0,''),(19,'r_19','2026-10-14',0,0,''),(20,'r_20','2026-10-14',0,0,''),(21,'r_21','2026-10-14',0,0,'')`,
 		`INSERT INTO report_analysis VALUES
   (17,'en','identitytest','Identity test',TRUE,'digital','2026-10-14','Upper path','AI summary',0.5,'firsthand','Original upper path','','Own observation','affected',1),
   (18,'en','identitytest','Identity test',TRUE,'digital','2026-10-14','Lower path','AI summary',0.5,'firsthand','Original lower path','','Own observation','affected',1),
   (19,'en','identitytest','Identity test',TRUE,'digital','2026-10-14','Upper ID','AI summary',0.5,'firsthand','Original upper ID','','Own observation','affected',1),
   (20,'en','identitytest','Identity test',TRUE,'digital','2026-10-14','Lower ID','AI summary',0.5,'firsthand','Original lower ID','','Own observation','affected',1),
   (21,'en','identitytest','Identity test',TRUE,'digital','2026-10-14','Duplicate upper path','AI summary',0.5,'firsthand','Original upper path','','Own observation','affected',1)`,
-		`INSERT INTO external_ingest_index VALUES (17,'archive','url-upper','https://example.com/Path',NULL),(18,'archive','url-lower','https://example.com/path',NULL),(19,'reddit','ABC','',NULL),(20,'reddit','abc','',NULL),(21,'archive','url-upper','https://example.com/Path',NULL)`,
+		`INSERT INTO external_ingest_index (seq,source,external_id,source_url,source_timestamp) VALUES (17,'archive','url-upper','https://example.com/Path',NULL),(18,'archive','url-lower','https://example.com/path',NULL),(19,'reddit','ABC','',NULL),(20,'reddit','abc','',NULL),(21,'archive','url-upper','https://example.com/Path',NULL)`,
 		`INSERT INTO report_raw VALUES (19,'reddit','ABC','fetcher','public'),(20,'reddit','abc','fetcher','public')`,
 	}
 	for _, statement := range identityFixtures {
@@ -167,7 +222,7 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 	// Equal evidence completeness favors entity relevance. A strong singleton
 	// must outrank a larger family whose reported impact is undocumented.
 	rankingFixtures := []string{
-		`INSERT INTO reports VALUES (9,'r_9','2026-10-14',0,0,''),(10,'r_10','2026-10-14',0,0,''),(11,'r_11','2026-10-14',0,0,''),(12,'r_12','2026-10-14',0,0,''),(13,'r_13','2026-10-14',0,0,''),(14,'r_14','2026-10-14',0,0,''),(15,'r_15','2026-10-14',0,0,''),(16,'r_16','2026-10-14',0,0,'')`,
+		`INSERT INTO reports (seq,public_id,ts,latitude,longitude,image) VALUES (9,'r_9','2026-10-14',0,0,''),(10,'r_10','2026-10-14',0,0,''),(11,'r_11','2026-10-14',0,0,''),(12,'r_12','2026-10-14',0,0,''),(13,'r_13','2026-10-14',0,0,''),(14,'r_14','2026-10-14',0,0,''),(15,'r_15','2026-10-14',0,0,''),(16,'r_16','2026-10-14',0,0,'')`,
 		`INSERT INTO report_analysis VALUES
    (9,'en','ranktest','Rank test',TRUE,'digital','2026-10-14','Strong singleton','AI summary',0.5,'firsthand','I observed a failure','Work blocked','Own observation','affected',1),
    (10,'en','ranktest','Rank test',TRUE,'digital','2026-10-14','Weak family one','AI summary',0.9,'firsthand','I observed a failure','','Own observation','affected',1),

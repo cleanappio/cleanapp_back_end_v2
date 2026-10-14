@@ -41,7 +41,7 @@ func TestEvidenceBrandRequestDefaultsAndExplicitFilters(t *testing.T) {
 }
 func TestPublicDiscoveryCarriesEvidenceAndRelatedFamily(t *testing.T) {
 	added := time.Date(2026, 10, 14, 0, 0, 0, 0, time.UTC)
-	ev := &models.PublicEvidence{ReportKind: "firsthand", IngestedAt: added}
+	ev := &models.PublicEvidence{ReportKind: "firsthand", IngestedAt: &added}
 	rec := &models.PublicRecurrence{IssueID: "issue_1", Grouping: "related_issue_family", SupportingReportCount: 2, Independence: "unassessed"}
 	rows := []models.ReportWithMinimalAnalysis{{Report: models.Report{PublicID: "r_test", Timestamp: added}, Analysis: []models.MinimalAnalysis{{Classification: "digital", Language: "en", Title: "Specific issue"}}, Evidence: ev, Recurrence: rec}}
 	cards, err := toPublicDiscoveryCards(rows, "en", func(classification, id string) (string, error) { return "opaque-token", nil })
