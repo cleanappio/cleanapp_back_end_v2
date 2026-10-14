@@ -130,6 +130,40 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 	if product.Total != 1 || product.Reports[0].Recurrence.SupportingReportCount != 1 {
 		t.Fatal("product filter counts included another product")
 	}
+
+	// Case-sensitive source identifiers and URL paths must not collapse under
+	// either legacy unicode_ci or modern 0900_ai_ci table collations.
+	identityFixtures := []string{
+		`INSERT INTO reports VALUES (17,'r_17','2026-10-14',0,0,''),(18,'r_18','2026-10-14',0,0,''),(19,'r_19','2026-10-14',0,0,''),(20,'r_20','2026-10-14',0,0,''),(21,'r_21','2026-10-14',0,0,'')`,
+		`INSERT INTO report_analysis VALUES
+  (17,'en','identitytest','Identity test',TRUE,'digital','2026-10-14','Upper path','AI summary',0.5,'firsthand','Original upper path','','Own observation','affected',1),
+  (18,'en','identitytest','Identity test',TRUE,'digital','2026-10-14','Lower path','AI summary',0.5,'firsthand','Original lower path','','Own observation','affected',1),
+  (19,'en','identitytest','Identity test',TRUE,'digital','2026-10-14','Upper ID','AI summary',0.5,'firsthand','Original upper ID','','Own observation','affected',1),
+  (20,'en','identitytest','Identity test',TRUE,'digital','2026-10-14','Lower ID','AI summary',0.5,'firsthand','Original lower ID','','Own observation','affected',1),
+  (21,'en','identitytest','Identity test',TRUE,'digital','2026-10-14','Duplicate upper path','AI summary',0.5,'firsthand','Original upper path','','Own observation','affected',1)`,
+		`INSERT INTO external_ingest_index VALUES (17,'archive','url-upper','https://example.com/Path',NULL),(18,'archive','url-lower','https://example.com/path',NULL),(19,'reddit','ABC','',NULL),(20,'reddit','abc','',NULL),(21,'archive','url-upper','https://example.com/Path',NULL)`,
+		`INSERT INTO report_raw VALUES (19,'reddit','ABC','fetcher','public'),(20,'reddit','abc','fetcher','public')`,
+	}
+	for _, statement := range identityFixtures {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	identityPage, err := d.GetEvidenceBrandPage(context.Background(), EvidenceFilter{BrandName: "identitytest", Kind: "firsthand"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if identityPage.Total != 4 || identityPage.KindCounts.Firsthand != 4 || len(identityPage.Reports) != 4 {
+		t.Fatalf("case-sensitive originals collapsed: total=%d firsthand=%d reports=%d", identityPage.Total, identityPage.KindCounts.Firsthand, len(identityPage.Reports))
+	}
+	duplicates := 0
+	for _, report := range identityPage.Reports {
+		duplicates += report.Recurrence.DuplicateImportCount
+	}
+	if duplicates != 1 {
+		t.Fatalf("identical source URL imports not collapsed: duplicates=%d", duplicates)
+	}
+
 	// Equal evidence completeness favors entity relevance. A strong singleton
 	// must outrank a larger family whose reported impact is undocumented.
 	rankingFixtures := []string{

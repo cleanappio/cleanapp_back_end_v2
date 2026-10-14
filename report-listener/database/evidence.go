@@ -136,6 +136,9 @@ func evidenceOrderBy(sortBy string) string {
 
 // Count and page queries share the exact same universe. Translations and imports
 // are collapsed before filtering; case links describe related observations only.
+// Computed source fields use a binary collation: legacy indexed tables and Wire
+// metadata have different collations, and source IDs / URL paths are case-sensitive.
+// Keep the stored index columns untouched so indexed joins remain available.
 func evidenceBrandCTE(f EvidenceFilter) (string, []interface{}) {
 	placeholders := make([]string, len(f.Brands))
 	args := []interface{}{f.Language}
@@ -155,14 +158,14 @@ func evidenceCTE(f EvidenceFilter, analysisWhere string, args []interface{}) (st
    ra.title, ra.summary, ra.classification, ra.severity_level, ra.language, ra.brand_name, ra.brand_display_name,
    CASE WHEN ra.evidence_version > 0 AND ra.report_kind IN ('firsthand','coverage') THEN ra.report_kind ELSE 'unknown' END AS report_kind,
    ra.evidence_excerpt, ra.reported_impact, ra.classification_reason, ra.entity_relationship, ra.evidence_version,
-   COALESCE(NULLIF(eii.source,''), NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.digital_context.platform')),''), NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.digital_context.legacy_source')),''), rr.source_type, '') AS source_platform,
-   COALESCE(NULLIF(eii.source_url,''), NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.digital_context.metadata.source_url')),'null'), NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.digital_context.source_url')),'null'), NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.digital_context.url')),'null'), JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.evidence_bundle[0].uri')), '') AS source_url,
+   COALESCE(NULLIF(eii.source,''), NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.digital_context.platform')),''), NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.digital_context.legacy_source')),''), rr.source_type, '') COLLATE utf8mb4_bin AS source_platform,
+   COALESCE(NULLIF(eii.source_url,''), NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.digital_context.metadata.source_url')),'null'), NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.digital_context.source_url')),'null'), NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.digital_context.url')),'null'), JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.evidence_bundle[0].uri')), '') COLLATE utf8mb4_bin AS source_url,
    COALESCE(eii.source_timestamp, CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.digital_context.metadata.source_published_at')) REGEXP '(Z|[+]00:00)$' THEN STR_TO_DATE(REPLACE(LEFT(JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.digital_context.metadata.source_published_at')),19),'T',' '),'%%Y-%%m-%%d %%H:%%i:%%s') ELSE NULL END, CASE WHEN JSON_EXTRACT(ws.report_json,'$.digital_context.metadata.source_published_at') IS NULL AND JSON_UNQUOTE(JSON_EXTRACT(ws.provenance_json,'$.generation_method')) IN ('twitter_submitter','github_issue_submitter','bluesky_submitter','human_authored_public') THEN ws.observed_at ELSE NULL END) AS source_timestamp,
    ws.observed_at AS raw_observed_at, ws.submitted_at, (COALESCE(JSON_EXTRACT(ws.extensions_json,'$.observation_time_supplied'),FALSE) = TRUE) AS observation_time_supplied, (JSON_EXTRACT(ws.report_json,'$.digital_context.metadata.source_published_at') IS NOT NULL) AS explicit_source_publication,
    COALESCE(ws.actor_kind, '') AS actor_kind, COALESCE(ws.channel,'') AS intake_channel,
    COALESCE(JSON_UNQUOTE(JSON_EXTRACT(ws.provenance_json,'$.generation_method')),'') AS generation_method,
    (eii.source IS NOT NULL) AS indexed_source, COALESCE(rr.fetcher_id,'') AS fetcher_id,
-   COALESCE(eii.external_id, rr.source_id, '') AS original_id,
+   COALESCE(eii.external_id, rr.source_id, '') COLLATE utf8mb4_bin AS original_id,
    COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.digital_context.metadata.author_did')),'null'), NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.digital_context.metadata.author_username')),'null'), NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.digital_context.metadata.author_handle')),'null'), NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.digital_context.author_handle')),'null')) AS source_author,
    CASE WHEN JSON_EXTRACT(ws.report_json,'$.privacy.contains_pii') = TRUE OR JSON_EXTRACT(ws.report_json,'$.privacy.requires_redaction') = TRUE THEN 1 ELSE 0 END AS privacy_restricted,
    ROW_NUMBER() OVER (PARTITION BY r.seq ORDER BY eii.source ASC, eii.external_id ASC, ws.submitted_at DESC) AS source_rank
