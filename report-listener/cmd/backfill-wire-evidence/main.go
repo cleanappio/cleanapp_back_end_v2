@@ -205,7 +205,11 @@ func auditSQL() string {
 	comparisons := []string{"NOT(BINARY ws.submission_id <=> BINARY h.submission_id)", "NOT(ws.report_seq <=> h.report_seq)", "NOT(ws.observed_at <=> h.observed_at)", "NOT(ws.submitted_at <=> h.submitted_at)", "NOT(BINARY ws.actor_kind <=> BINARY h.actor_kind)", "NOT(BINARY ws.channel <=> BINARY h.channel)"}
 	nodes := wiremeta.NodeExpressions("ws")
 	for i, name := range wiremeta.NodeColumns() {
-		comparisons = append(comparisons, "NOT("+nodes[i]+" <=> h."+name+")")
+		// CASE URI expressions serialize JSON as SQL text; JSON-column assignment
+		// parses that text. Compare the same canonical typed serialization, with
+		// binary equality so integer 1 and double 1.0 cannot silently compare equal.
+		typed := "CAST(" + nodes[i] + " AS JSON)"
+		comparisons = append(comparisons, "NOT(JSON_TYPE("+typed+") <=> JSON_TYPE(h."+name+")) OR NOT(BINARY CAST("+typed+" AS CHAR CHARACTER SET utf8mb4) <=> BINARY CAST(h."+name+" AS CHAR CHARACTER SET utf8mb4))")
 	}
 	return `WITH cohort AS (
 	SELECT seq FROM JSON_TABLE(?, '$[*]' COLUMNS(seq INT PATH '$' ERROR ON ERROR)) c

@@ -71,8 +71,8 @@ func TestWireMetaProjectionMySQLFixture(t *testing.T) {
 	defer db.Close()
 	db.SetMaxOpenConns(6)
 	var version string
-	if err := db.QueryRow(`SELECT VERSION()`).Scan(&version); err != nil || !strings.HasPrefix(version, "8.0.44") {
-		t.Fatal("Wire projection fixture requires actual MySQL8.0.44")
+	if err := db.QueryRow(`SELECT VERSION()`).Scan(&version); err != nil || !(strings.HasPrefix(version, "8.0.44") || strings.HasPrefix(version, "8.4.")) {
+		t.Fatal("Wire projection fixture requires actual MySQL8.0.44 or 8.4")
 	}
 	exec := func(query string, args ...any) {
 		t.Helper()

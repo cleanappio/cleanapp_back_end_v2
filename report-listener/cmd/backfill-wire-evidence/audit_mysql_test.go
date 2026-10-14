@@ -44,7 +44,7 @@ func TestWireAuditMySQLFixture(t *testing.T) {
 	exec(`CREATE TABLE reports(seq INT PRIMARY KEY)`)
 	exec(`INSERT INTO reports VALUES(1),(2)`)
 	exec(`CREATE TABLE wire_submissions_raw (submission_id VARCHAR(64) PRIMARY KEY,report_seq INT NULL,observed_at TIMESTAMP NULL,submitted_at TIMESTAMP NOT NULL,actor_kind VARCHAR(32) NOT NULL DEFAULT 'machine',channel VARCHAR(32) NOT NULL DEFAULT 'wire',report_json JSON,provenance_json JSON,extensions_json JSON,KEY fixture_seq(report_seq),CONSTRAINT fixture_report_fk FOREIGN KEY(report_seq) REFERENCES reports(seq) ON DELETE SET NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`)
-	exec(`INSERT INTO wire_submissions_raw VALUES ('first',1,NULL,'2026-10-14','machine','wire','{"digital_context":{"metadata":{"source_url":null},"source_url":"https://example.test/source"},"privacy":{"contains_pii":false}}','{"generation_method":"import"}','{"observation_time_supplied":true}'),('second',2,'2026-10-01','2026-10-14','human','web','{}','{}',NULL)`)
+	exec(`INSERT INTO wire_submissions_raw VALUES ('first',1,NULL,'2026-10-14','machine','wire','{"digital_context":{"metadata":{"source_url":null},"source_url":"https://example.test/source"},"privacy":{"contains_pii":false}}','{"generation_method":"import"}','{"observation_time_supplied":true}'),('second',2,'2026-10-01','2026-10-14','human','web','{"digital_context":{"metadata":{"author_did":1}}}','{}',NULL)`)
 	if err := wiremeta.Migrate(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
@@ -58,10 +58,37 @@ func TestWireAuditMySQLFixture(t *testing.T) {
 	if _, err := wiremeta.Backfill(context.Background(), db, []int{1, 2}); err != nil {
 		t.Fatal(err)
 	}
+	// URI CASE expressions have a SQL string result. JSON-column assignment
+	// parses that result; compare the same typed value when auditing a copy.
+	node := wiremeta.NodeExpressions("ws")[2]
+	var rawMismatch, typedMismatch int
+	if err := db.QueryRow(`SELECT NOT(`+node+` <=> h.metadata_source_url),NOT(CAST(`+node+` AS JSON) <=> h.metadata_source_url) FROM wire_submissions_raw ws JOIN wire_evidence_projection h ON h.submission_id=ws.submission_id WHERE ws.submission_id='first'`).Scan(&rawMismatch, &typedMismatch); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("literal-null URI comparison: raw_mismatch=%d typed_mismatch=%d", rawMismatch, typedMismatch)
+	if typedMismatch != 0 {
+		t.Fatal("copied URI node differs after exact JSON typing")
+	}
+
 	counts, err = auditBatch(context.Background(), db, []int{1, 2})
 	if err != nil || !counts.equal() || counts.ParentRows != 2 {
 		t.Fatalf("copied scalar audit differs: %+v err=%v", counts, err)
 	}
+	// JSON numeric comparison considers integer 1 and double 1.0 equal, but
+	// their stored node type and JSON_UNQUOTE source semantics differ.
+	exec(`UPDATE wire_evidence_projection SET author_did=CAST('1.0' AS JSON) WHERE submission_id='second'`)
+	var numericEqual int
+	if err := db.QueryRow(`SELECT JSON_EXTRACT(ws.report_json,'$.digital_context.metadata.author_did') <=> h.author_did FROM wire_submissions_raw ws JOIN wire_evidence_projection h ON h.submission_id=ws.submission_id WHERE ws.submission_id='second'`).Scan(&numericEqual); err != nil || numericEqual != 1 {
+		t.Fatal("fixture did not reproduce JSON numeric type equality")
+	}
+	counts, err = auditBatch(context.Background(), db, []int{1, 2})
+	if err != nil || counts.StaleHeaders != 1 || counts.equal() {
+		t.Fatalf("numeric source node audit: counts=%+v err=%v", counts, err)
+	}
+	if _, err := wiremeta.Backfill(context.Background(), db, []int{2}); err != nil {
+		t.Fatal(err)
+	}
+
 	// Absent SQL NULL differs from a present literal JSON null; the numeric audit
 	// must notice that corruption rather than silently treating both as missing.
 	exec(`UPDATE wire_evidence_projection SET requires_redaction=CAST('null' AS JSON) WHERE submission_id='second'`)

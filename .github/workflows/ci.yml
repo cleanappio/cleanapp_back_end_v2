@@ -44,7 +44,7 @@ jobs:
   evidence_mysql:
     name: Evidence briefing (MySQL 8)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     services:
       mysql:
         image: mysql:8.4
@@ -69,7 +69,7 @@ jobs:
           cache: true
       - name: Check selection, counts, provenance and dates on MySQL
         working-directory: report-listener
-        run: go test ./database -run '^TestEvidence(MySQLFixture|ArchiveNormalizationMySQLFixture)$' -count=1 -timeout=25m -v
+        run: go test ./database -run '^TestEvidence(MySQLFixture|ArchiveNormalizationMySQLFixture)$' -count=1 -v
       - name: Check transactional metadata projection on MySQL
         working-directory: report-listener
         env:
@@ -98,7 +98,7 @@ jobs:
   evidence_original_mysql:
     name: Original lookup and online index (MySQL 8.0.44)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 10
     services:
       mysql:
         image: mysql:8.0.44
@@ -151,7 +151,7 @@ jobs:
           EVIDENCE_TEST_DSN: "root:local-evidence-fixture@tcp(127.0.0.1:33306)/reader_parity_evidence_test?parseTime=true&charset=utf8mb4"
         run: |
           docker exec -e MYSQL_PWD=local-evidence-fixture ${{ job.services.mysql.id }} mysql -uroot -e 'CREATE DATABASE reader_parity_evidence_test;'
-          go test ./database -run '^TestEvidence(MySQLFixture|ArchiveNormalizationMySQLFixture)$' -count=1 -timeout=25m -v
+          go test ./database -run '^TestEvidence(MySQLFixture|ArchiveNormalizationMySQLFixture)$' -count=1 -v
       - name: Preserve Wire JSON nodes, cascades, bootstrap and cohort audit
         working-directory: report-listener
         env:
