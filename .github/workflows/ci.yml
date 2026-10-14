@@ -69,7 +69,7 @@ jobs:
           cache: true
       - name: Check selection, counts, provenance and dates on MySQL
         working-directory: report-listener
-        run: go test ./database -run '^TestEvidenceMySQLFixture$' -count=1 -v
+        run: go test ./database -run '^TestEvidence(MySQLFixture|ArchiveNormalizationMySQLFixture)$' -count=1 -v
       - name: Check transactional metadata projection on MySQL
         working-directory: report-listener
         env:
@@ -135,6 +135,20 @@ jobs:
         run: |
           docker exec -e MYSQL_PWD=local-evidence-fixture ${{ job.services.mysql.id }} mysql -uroot -e 'CREATE DATABASE eii_header_evidence_test;'
           go test ./database -run '^TestEIIHeaderProjectionMySQLFixture$' -count=1 -v
+      - name: Compare the complete reader and narrow archive path with SQL
+        working-directory: report-listener
+        env:
+          EVIDENCE_TEST_DSN: "root:local-evidence-fixture@tcp(127.0.0.1:33306)/reader_parity_evidence_test?parseTime=true&charset=utf8mb4"
+        run: |
+          docker exec -e MYSQL_PWD=local-evidence-fixture ${{ job.services.mysql.id }} mysql -uroot -e 'CREATE DATABASE reader_parity_evidence_test;'
+          go test ./database -run '^TestEvidence(MySQLFixture|ArchiveNormalizationMySQLFixture)$' -count=1 -v
+      - name: Exclude completed worker candidates before source lookups
+        working-directory: report-analyze-pipeline
+        env:
+          EVIDENCE_TEST_DSN: "root:local-evidence-fixture@tcp(127.0.0.1:33306)/worker_gate_evidence_test?parseTime=true&charset=utf8mb4"
+        run: |
+          docker exec -e MYSQL_PWD=local-evidence-fixture ${{ job.services.mysql.id }} mysql -uroot -e 'CREATE DATABASE worker_gate_evidence_test;'
+          go test ./database -run '^TestPendingEvidenceMySQL' -count=1 -v
 
   golangci:
     name: Go Lint (golangci-lint)

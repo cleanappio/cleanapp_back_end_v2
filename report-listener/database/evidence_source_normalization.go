@@ -36,7 +36,7 @@ type evidenceSourceNormalizationRow struct {
 // authoritative while avoiding legacy-table joins and windowed JSON payloads.
 // Batches only bound the parameter size; every statement uses the caller's same
 // transaction snapshot and source-ranked, visibility-checked inputs.
-func normalizeEvidenceSources(ctx context.Context, tx *sql.Tx, inputs []evidenceSourceNormalizationRow) (map[int]evidenceRecord, error) {
+func normalizeEvidenceSourcesSQL(ctx context.Context, tx *sql.Tx, inputs []evidenceSourceNormalizationRow) (map[int]evidenceRecord, error) {
 	output := make(map[int]evidenceRecord, len(inputs))
 	for start := 0; start < len(inputs); {
 		end := min(start+1000, len(inputs))

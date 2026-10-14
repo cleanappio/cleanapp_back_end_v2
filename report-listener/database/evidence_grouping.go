@@ -239,6 +239,9 @@ func evidenceFamilyBefore(a, b evidenceRecord) bool {
 	if evidenceRelevance(a) != evidenceRelevance(b) {
 		return evidenceRelevance(a) > evidenceRelevance(b)
 	}
+	if a.SeverityNull != b.SeverityNull {
+		return !a.SeverityNull
+	}
 	if a.Severity != b.Severity {
 		return a.Severity > b.Severity
 	}
@@ -283,6 +286,9 @@ func evidenceBriefingBefore(a, b evidenceFamilyGroup, sortBy string) bool {
 		}
 		if left.SupportingCount != right.SupportingCount {
 			return left.SupportingCount > right.SupportingCount
+		}
+		if left.SeverityNull != right.SeverityNull {
+			return !left.SeverityNull
 		}
 		if left.Severity != right.Severity {
 			return left.Severity > right.Severity

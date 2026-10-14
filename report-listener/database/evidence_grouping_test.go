@@ -246,6 +246,39 @@ func TestEvidenceGroupingSortsCountsAndEmptyOffset(t *testing.T) {
 	}
 }
 
+func TestEvidenceGroupingNullableSeverityPreservesSQLRankingAndNumericFallback(t *testing.T) {
+	zero := groupingRecord(1, "known-zero", "firsthand")
+	zero.Severity, zero.IngestedAt = 0, *groupingDate(1)
+	negative := groupingRecord(2, "known-negative", "firsthand")
+	negative.Severity, negative.IngestedAt = -0.1, *groupingDate(2)
+	missing := groupingRecord(3, "null-severity", "firsthand")
+	missing.Severity, missing.SeverityNull, missing.IngestedAt = 0, true, *groupingDate(3)
+	inputs := []evidenceRecord{missing, negative, zero}
+	for sortBy, wanted := range map[string][]int{"signal": {1, 2, 3}, "recent": {3, 2, 1}, "recurrence": {3, 2, 1}} {
+		page := groupEvidenceRecords(inputs, nil, EvidenceFilter{Kind: "all", Sort: sortBy, Limit: 12})
+		if got := groupingSeqs(page); !reflect.DeepEqual(got, wanted) || page.High != 0 || page.Medium != 0 {
+			t.Fatalf("sort %s changed SQL NULL severity ordering/counts: %v", sortBy, got)
+		}
+	}
+	// Family representative selection always orders severity before its date,
+	// including for recent/recurrence pages. SQL NULL follows known negatives.
+	refs := groupingCases(map[int]string{1: "case_nullable", 2: "case_nullable", 3: "case_nullable"})
+	for _, sortBy := range []string{"signal", "recent", "recurrence"} {
+		page := groupEvidenceRecords(inputs, refs, EvidenceFilter{Kind: "all", Sort: sortBy, Limit: 12})
+		if got := groupingSeqs(page); !reflect.DeepEqual(got, []int{1}) {
+			t.Fatalf("sort %s chose NULL severity ahead of known zero: %v", sortBy, got)
+		}
+		page = groupEvidenceRecords([]evidenceRecord{negative, missing}, refs, EvidenceFilter{Kind: "all", Sort: sortBy, Limit: 12})
+		if got := groupingSeqs(page); !reflect.DeepEqual(got, []int{2}) {
+			t.Fatalf("sort %s chose NULL severity ahead of a known negative: %v", sortBy, got)
+		}
+	}
+	page := groupEvidenceRecords([]evidenceRecord{missing}, nil, EvidenceFilter{Kind: "all", Limit: 12})
+	if !page.Records[0].SeverityNull || page.Records[0].Severity != 0 {
+		t.Fatal("grouping changed the public numeric fallback for NULL severity")
+	}
+}
+
 func TestEvidenceGroupingIsDeterministicAndDoesNotModifyInput(t *testing.T) {
 	rows := []evidenceRecord{groupingRecord(1, "a", "firsthand"), groupingRecord(2, "b", "firsthand")}
 	before := append([]evidenceRecord(nil), rows...)

@@ -69,6 +69,9 @@ func TestEvidenceCaseMappingUsesTheDedupWinnerAndIndexedPrivacyLookup(t *testing
 	if !strings.Contains(query, "JOIN representatives n ON n.seq = cr.seq GROUP BY n.representative_seq") || strings.Contains(query, "e.source_key = n.source_key") {
 		t.Fatal("case mapping must use integer report sequences without a computed-key scope cross join")
 	}
+	if !strings.Contains(query, "(SELECT COUNT(*) FROM report_status rs WHERE rs.seq = r.seq AND rs.status IS NOT NULL AND rs.status <> 'active') = 0") || strings.Contains(query, "NOT EXISTS (SELECT 1 FROM report_status") {
+		t.Fatal("status and ownership must use correlated indexed scalar guards without a materialized status antijoin")
+	}
 	if !strings.Contains(query, "(SELECT COUNT(*) FROM reports_owners ro WHERE ro.seq = r.seq AND ro.owner IS NOT NULL AND ro.owner <> '' AND ro.is_public = FALSE) = 0") {
 		t.Fatal("privacy lookup must remain correlated by indexed sequence and reject every identified private owner")
 	}
