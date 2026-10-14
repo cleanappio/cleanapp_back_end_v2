@@ -26,6 +26,9 @@ func run() error {
 	brands := flag.String("brands", "", "comma-separated normalized brands")
 	limit := flag.Int("limit", 50, "maximum reports (1-10000)")
 	after := flag.Int("after-seq", 0, "resume after sequence")
+	through := flag.Int("through-seq", 0, "inclusive snapshot boundary, zero leaves the upper bound open")
+	shards := flag.Int("shard-count", 1, "non-overlapping report-sequence partitions, maximum 8")
+	shard := flag.Int("shard-index", 0, "zero-based partition to process")
 	dryRun := flag.Bool("dry-run", false, "classify and print without database writes (default behavior)")
 	apply := flag.Bool("apply", false, "explicitly write additive evidence fields")
 	force := flag.Bool("force", false, "reclassify previously enriched reports")
@@ -46,7 +49,7 @@ func run() error {
 			seen[name] = true
 		}
 	}
-	opts := evidencebackfill.Options{Brands: requested, Limit: *limit, AfterSeq: *after, Apply: *apply, Force: *force, Interval: *interval}
+	opts := evidencebackfill.Options{Brands: requested, Limit: *limit, AfterSeq: *after, ThroughSeq: *through, ShardCount: *shards, ShardIndex: *shard, Apply: *apply, Force: *force, Interval: *interval}
 	if err := opts.Validate(); err != nil {
 		return err
 	}

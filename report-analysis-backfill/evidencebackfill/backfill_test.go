@@ -58,6 +58,27 @@ func TestValidateRejectsUnboundedAndUnscopedRuns(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsOverlappingOrInvalidShardAndSnapshotSettings(t *testing.T) {
+	for _, opts := range []Options{
+		{Brands: []string{"grok"}, Limit: 50, ThroughSeq: -1},
+		{Brands: []string{"grok"}, Limit: 50, AfterSeq: 100, ThroughSeq: 99},
+		{Brands: []string{"grok"}, Limit: 50, ShardCount: -1},
+		{Brands: []string{"grok"}, Limit: 50, ShardCount: 9},
+		{Brands: []string{"grok"}, Limit: 50, ShardCount: 8, ShardIndex: 8},
+		{Brands: []string{"grok"}, Limit: 50, ShardCount: 8, ShardIndex: -1},
+		{Brands: []string{"grok"}, Limit: 50, ShardIndex: 1},
+	} {
+		if opts.Validate() == nil {
+			t.Fatalf("accepted %#v", opts)
+		}
+	}
+	for shard := 0; shard < 8; shard++ {
+		if err := (Options{Brands: []string{"grok"}, Limit: 50, ThroughSeq: 100, ShardCount: 8, ShardIndex: shard}).Validate(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 type reviewStore struct {
 	originals map[int]evidence.Original
 	saved     int

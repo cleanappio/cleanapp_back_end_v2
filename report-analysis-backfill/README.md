@@ -186,5 +186,16 @@ The shared evidence provider also enforces a process-wide request budget:
 cannot bypass that provider budget. A backfill process has its own budget, so
 allocate combined quota deliberately if running beside the production worker.
 
+For a complete historical cohort, record its maximum sequence and use
+`--through-seq` as an inclusive fixed boundary. Up to eight independent processes
+can use the same brands/boundary with `--shard-count` and distinct zero-based
+`--shard-index` values. Partitions use report sequence modulo the shard count;
+all translations of one report stay together, and partitions do not overlap.
+Each process retains its own provider budget, so the combined allocation is the
+sum of their budgets. New reports beyond the snapshot remain with normal intake.
+Advance `--after-seq` only after a batch reports zero failures. Retry failed
+batches with their original bounds; successful versioned rows are skipped and
+failed rows remain eligible without `--force`.
+
 Candidates include every analysis language, and translations are grouped by report
 sequence so one source produces one classifier call and one label count.

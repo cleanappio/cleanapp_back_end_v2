@@ -13,12 +13,15 @@ import (
 )
 
 type Options struct {
-	Brands   []string
-	Limit    int
-	AfterSeq int
-	Apply    bool
-	Force    bool
-	Interval time.Duration
+	Brands     []string
+	Limit      int
+	AfterSeq   int
+	ThroughSeq int
+	ShardCount int
+	ShardIndex int
+	Apply      bool
+	Force      bool
+	Interval   time.Duration
 }
 
 func (o Options) Validate() error {
@@ -30,6 +33,16 @@ func (o Options) Validate() error {
 	}
 	if o.AfterSeq < 0 {
 		return fmt.Errorf("after-seq must be nonnegative")
+	}
+	if o.ThroughSeq < 0 || (o.ThroughSeq > 0 && o.ThroughSeq < o.AfterSeq) {
+		return fmt.Errorf("through-seq must be nonnegative and at least after-seq")
+	}
+	shards := o.ShardCount
+	if shards == 0 {
+		shards = 1
+	}
+	if shards < 1 || shards > 8 || o.ShardIndex < 0 || o.ShardIndex >= shards {
+		return fmt.Errorf("shard-count must be between 1 and 8 and shard-index must be within the shard count")
 	}
 	if o.Interval < 0 {
 		return fmt.Errorf("interval must be nonnegative")

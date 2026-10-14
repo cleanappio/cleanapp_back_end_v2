@@ -13,11 +13,20 @@ type DatabaseStore struct{ DB *sql.DB }
 func (s DatabaseStore) Candidates(ctx context.Context, opts Options) ([]Candidate, error) {
 	placeholders := make([]string, len(opts.Brands))
 	args := []any{opts.AfterSeq}
+	query := `SELECT ra.seq, MAX(ra.brand_name), COALESCE(MAX(CASE WHEN ra.language = 'en' THEN NULLIF(ra.title, '') END), MAX(NULLIF(ra.title, '')), '') FROM report_analysis ra WHERE ra.seq > ?`
+	if opts.ThroughSeq > 0 {
+		query += ` AND ra.seq <= ?`
+		args = append(args, opts.ThroughSeq)
+	}
+	if opts.ShardCount > 1 {
+		query += ` AND MOD(ra.seq, ?) = ?`
+		args = append(args, opts.ShardCount, opts.ShardIndex)
+	}
 	for i, brand := range opts.Brands {
 		placeholders[i] = "?"
 		args = append(args, brand)
 	}
-	query := `SELECT ra.seq, MAX(ra.brand_name), COALESCE(MAX(CASE WHEN ra.language = 'en' THEN NULLIF(ra.title, '') END), MAX(NULLIF(ra.title, '')), '') FROM report_analysis ra WHERE ra.seq > ? AND ra.brand_name IN (` + strings.Join(placeholders, ",") + `)`
+	query += ` AND ra.brand_name IN (` + strings.Join(placeholders, ",") + `)`
 	if !opts.Force {
 		query += ` AND COALESCE(ra.evidence_version,0) < 1`
 	}
