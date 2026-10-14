@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"cleanapp-common/wiremeta"
 	"report-listener/models"
 )
 
@@ -216,8 +217,8 @@ func loadEvidenceIndexSources(ctx context.Context, tx *sql.Tx, ids []int, source
 }
 
 type evidenceWireHeader struct {
-	ID  string
-	Seq int
+	ID  string `json:"id"`
+	Seq int    `json:"seq"`
 }
 
 func loadEvidenceWireSources(ctx context.Context, tx *sql.Tx, ids []int, sources map[int]evidenceSourceNormalizationRow) error {
@@ -285,34 +286,37 @@ func loadEvidenceWireSources(ctx context.Context, tx *sql.Tx, ids []int, sources
 		}
 	}
 	headers = winners
-	wireIDs := make([]string, len(headers))
-	for i, h := range headers {
-		wireIDs[i] = h.ID
+	encoded, _ := json.Marshal(headers)
+	// Covered IDs above remain authoritative. A projection with a stale report
+	// link (a parent FK SET NULL does not fire Wire triggers) cannot match it.
+	// SQL NULL nodes in a matching projection are authoritative missing nodes;
+	// COALESCE would incorrectly resurrect values from the original payload.
+	choose := func(projected, original string) string {
+		return "CASE WHEN h.submission_id IS NOT NULL THEN " + projected + " ELSE " + original + " END"
 	}
-	encoded, _ := json.Marshal(wireIDs)
-	paths := []string{"$.digital_context.platform", "$.digital_context.legacy_source", "$.digital_context.metadata.source_url", "$.digital_context.source_url", "$.digital_context.url", "$.evidence_bundle[0].uri", "$.digital_context.metadata.source_published_at", "$.digital_context.metadata.author_did", "$.digital_context.metadata.author_username", "$.digital_context.metadata.author_handle", "$.digital_context.author_handle", "$.privacy.contains_pii", "$.privacy.requires_redaction"}
-	columns := []string{"ws.report_seq", "DATE_FORMAT(ws.observed_at,'%Y-%m-%d %H:%i:%s.%f')", "DATE_FORMAT(ws.submitted_at,'%Y-%m-%d %H:%i:%s.%f')", "COALESCE(ws.actor_kind,'')", "COALESCE(ws.channel,'')"}
-	for i, path := range paths {
-		node := "JSON_EXTRACT(ws.report_json,'" + path + "')"
-		if i >= 2 && i <= 5 {
-			// NonHTTP URLs already have no public/canonical identity. Preserve
-			// missing and literal null nodes, whose fallback behavior differs;
-			// keep other nonHTTP values as blockers without transferring images.
-			node = "CASE WHEN " + node + " IS NULL THEN NULL WHEN JSON_UNQUOTE(" + node + ")='null' OR LOWER(LEFT(TRIM(JSON_UNQUOTE(" + node + ")),8)) REGEXP '^https?://' THEN " + node + " ELSE JSON_QUOTE('__non_http_source_uri__') END"
-		}
-		columns = append(columns, node)
+	columns := []string{"ids.seq",
+		"DATE_FORMAT(" + choose("h.observed_at", "ws.observed_at") + ",'%Y-%m-%d %H:%i:%s.%f')",
+		"DATE_FORMAT(" + choose("h.submitted_at", "ws.submitted_at") + ",'%Y-%m-%d %H:%i:%s.%f')",
+		"COALESCE(" + choose("h.actor_kind", "ws.actor_kind") + ",'')",
+		"COALESCE(" + choose("h.channel", "ws.channel") + ",'')"}
+	nodeColumns, originalNodes := wiremeta.NodeColumns(), wiremeta.NodeExpressions("ws")
+	for i, name := range nodeColumns {
+		columns = append(columns, choose("h."+name, originalNodes[i]))
 	}
-	columns = append(columns, "JSON_EXTRACT(ws.provenance_json,'$.generation_method')", "JSON_EXTRACT(ws.extensions_json,'$.observation_time_supplied')")
-	rows, err = tx.QueryContext(ctx, `SELECT `+strings.Join(columns, ",")+` FROM JSON_TABLE(?, '$[*]' COLUMNS(id VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci PATH '$')) ids JOIN wire_submissions_raw ws ON ws.submission_id=ids.id`, string(encoded))
+	rows, err = tx.QueryContext(ctx, `SELECT `+strings.Join(columns, ",")+` FROM JSON_TABLE(?, '$[*]' COLUMNS(id VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci PATH '$.id',seq INT PATH '$.seq')) ids
+ LEFT JOIN wire_evidence_projection h ON h.submission_id=ids.id AND h.report_seq=ids.seq
+ LEFT JOIN wire_submissions_raw ws ON ws.submission_id=CASE WHEN h.submission_id IS NULL THEN ids.id ELSE NULL END AND ws.report_seq=ids.seq
+ WHERE h.submission_id IS NOT NULL OR ws.submission_id IS NOT NULL`, string(encoded))
 	if err != nil {
 		return fmt.Errorf("read selected evidence Wire metadata: %w", err)
 	}
 	defer rows.Close()
+	loaded := map[int]bool{}
 	for rows.Next() {
 		var seq int
 		var observed, submitted sql.NullString
 		var actor, channel string
-		nodes := make([][]byte, len(paths)+2)
+		nodes := make([][]byte, len(nodeColumns))
 		dest := []interface{}{&seq, &observed, &submitted, &actor, &channel}
 		for i := range nodes {
 			dest = append(dest, &nodes[i])
@@ -320,6 +324,10 @@ func loadEvidenceWireSources(ctx context.Context, tx *sql.Tx, ids []int, sources
 		if err := rows.Scan(dest...); err != nil {
 			return err
 		}
+		if loaded[seq] || counts[seq] == 0 {
+			return fmt.Errorf("selected evidence Wire metadata has an invalid report identity")
+		}
+		loaded[seq] = true
 		s := sources[seq]
 		s.WireObserved = nullableEvidenceString(observed)
 		s.WireSubmitted = nullableEvidenceString(submitted)
@@ -357,13 +365,19 @@ func loadEvidenceWireSources(ctx context.Context, tx *sql.Tx, ids []int, sources
 		s.WireReport, _ = json.Marshal(report)
 		provenance := map[string]json.RawMessage{}
 		extensions := map[string]json.RawMessage{}
-		put(provenance, "generation_method", nodes[len(paths)])
-		put(extensions, "observation_time_supplied", nodes[len(paths)+1])
+		put(provenance, "generation_method", nodes[13])
+		put(extensions, "observation_time_supplied", nodes[14])
 		s.WireProvenance, _ = json.Marshal(provenance)
 		s.WireExtensions, _ = json.Marshal(extensions)
 		sources[seq] = s
 	}
-	return rows.Err()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(loaded) != len(headers) {
+		return fmt.Errorf("selected evidence Wire metadata is incomplete")
+	}
+	return nil
 }
 
 func loadEvidenceCaseReferences(ctx context.Context, tx *sql.Tx, ids []int) (map[int]evidenceCaseReference, error) {

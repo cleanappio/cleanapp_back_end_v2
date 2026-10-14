@@ -44,7 +44,7 @@ jobs:
   evidence_mysql:
     name: Evidence briefing (MySQL 8)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     services:
       mysql:
         image: mysql:8.4
@@ -69,7 +69,7 @@ jobs:
           cache: true
       - name: Check selection, counts, provenance and dates on MySQL
         working-directory: report-listener
-        run: go test ./database -run '^TestEvidence(MySQLFixture|ArchiveNormalizationMySQLFixture)$' -count=1 -v
+        run: go test ./database -run '^TestEvidence(MySQLFixture|ArchiveNormalizationMySQLFixture)$' -count=1 -timeout=25m -v
       - name: Check transactional metadata projection on MySQL
         working-directory: report-listener
         env:
@@ -84,11 +84,21 @@ jobs:
         run: |
           docker exec -e MYSQL_PWD=local-evidence-fixture ${{ job.services.mysql.id }} mysql -uroot -e 'CREATE DATABASE grouping_parity_evidence_test;'
           go test ./database -run '^TestEvidenceGroupingMySQLParityFixture$' -count=1 -v
+      - name: Check Wire scalar metadata and bootstrap on MySQL 8.4
+        working-directory: report-listener
+        env:
+          WIRE_META_TEST_DSN: "root:local-evidence-fixture@tcp(127.0.0.1:33306)/wire_meta_evidence_test?parseTime=true&charset=utf8mb4"
+          WIRE_BOOTSTRAP_TEST_DSN: "root:local-evidence-fixture@tcp(127.0.0.1:33306)/wire_projection_bootstrap_evidence_test?parseTime=true&charset=utf8mb4"
+          WIRE_AUDIT_TEST_DSN: "root:local-evidence-fixture@tcp(127.0.0.1:33306)/wire_audit_evidence_test?parseTime=true&charset=utf8mb4"
+        run: |
+          docker exec -e MYSQL_PWD=local-evidence-fixture ${{ job.services.mysql.id }} mysql -uroot -e 'CREATE DATABASE wire_meta_evidence_test; CREATE DATABASE wire_projection_bootstrap_evidence_test; CREATE DATABASE wire_audit_evidence_test;'
+          go test ./database -run '^TestWire(MetaProjection|ProjectionBootstrap)MySQLFixture$' -count=1 -v
+          go test ./cmd/backfill-wire-evidence -run '^TestWireAuditMySQLFixture$' -count=1 -v
 
   evidence_original_mysql:
     name: Original lookup and online index (MySQL 8.0.44)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     services:
       mysql:
         image: mysql:8.0.44
@@ -141,7 +151,17 @@ jobs:
           EVIDENCE_TEST_DSN: "root:local-evidence-fixture@tcp(127.0.0.1:33306)/reader_parity_evidence_test?parseTime=true&charset=utf8mb4"
         run: |
           docker exec -e MYSQL_PWD=local-evidence-fixture ${{ job.services.mysql.id }} mysql -uroot -e 'CREATE DATABASE reader_parity_evidence_test;'
-          go test ./database -run '^TestEvidence(MySQLFixture|ArchiveNormalizationMySQLFixture)$' -count=1 -v
+          go test ./database -run '^TestEvidence(MySQLFixture|ArchiveNormalizationMySQLFixture)$' -count=1 -timeout=25m -v
+      - name: Preserve Wire JSON nodes, cascades, bootstrap and cohort audit
+        working-directory: report-listener
+        env:
+          WIRE_META_TEST_DSN: "root:local-evidence-fixture@tcp(127.0.0.1:33306)/wire_meta_evidence_test?parseTime=true&charset=utf8mb4"
+          WIRE_BOOTSTRAP_TEST_DSN: "root:local-evidence-fixture@tcp(127.0.0.1:33306)/wire_projection_bootstrap_evidence_test?parseTime=true&charset=utf8mb4"
+          WIRE_AUDIT_TEST_DSN: "root:local-evidence-fixture@tcp(127.0.0.1:33306)/wire_audit_evidence_test?parseTime=true&charset=utf8mb4"
+        run: |
+          docker exec -e MYSQL_PWD=local-evidence-fixture ${{ job.services.mysql.id }} mysql -uroot -e 'CREATE DATABASE wire_meta_evidence_test; CREATE DATABASE wire_projection_bootstrap_evidence_test; CREATE DATABASE wire_audit_evidence_test;'
+          go test ./database -run '^TestWire(MetaProjection|ProjectionBootstrap)MySQLFixture$' -count=1 -v
+          go test ./cmd/backfill-wire-evidence -run '^TestWireAuditMySQLFixture$' -count=1 -v
       - name: Exclude completed worker candidates before source lookups
         working-directory: report-analyze-pipeline
         env:

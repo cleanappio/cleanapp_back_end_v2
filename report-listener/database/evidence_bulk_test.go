@@ -46,7 +46,7 @@ func TestWireCoveredReadUsesTimestampsOnlyForDuplicateGroups(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT ws.submission_id,ws.report_seq FROM ` + evidenceIDsTable + ` STRAIGHT_JOIN wire_submissions_raw ws ON ws.report_seq=ids.seq ORDER BY ws.submission_id`)).WithArgs("[1,2]").WillReturnRows(sqlmock.NewRows([]string{"id", "seq"}).AddRow("é-single", 1).AddRow("z-new", 2).AddRow("z-old", 2))
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT ws.submission_id,ws.report_seq FROM ` + evidenceIDsTable + ` JOIN wire_submissions_raw ws ON ws.report_seq=ids.seq ORDER BY ws.report_seq,ws.submitted_at DESC`)).WithArgs("[2]").WillReturnRows(sqlmock.NewRows([]string{"id", "seq"}).AddRow("z-old", 2).AddRow("z-new", 2))
 	columns := []string{"seq", "observed", "submitted", "actor", "channel", "p0", "p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9", "p10", "p11", "p12", "generation", "flag"}
-	mock.ExpectQuery("SELECT ws.report_seq,DATE_FORMAT").WithArgs(`["é-single","z-old"]`).WillReturnRows(sqlmock.NewRows(columns).AddRow(1, nil, nil, "human", "web", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil).AddRow(2, nil, nil, "machine", "wire", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+	mock.ExpectQuery("SELECT ids.seq,DATE_FORMAT.*LEFT JOIN wire_evidence_projection h ON h.submission_id=ids.id AND h.report_seq=ids.seq.*LEFT JOIN wire_submissions_raw ws ON ws.submission_id=CASE WHEN h.submission_id IS NULL THEN ids.id ELSE NULL END AND ws.report_seq=ids.seq").WithArgs(`[{"id":"é-single","seq":1},{"id":"z-old","seq":2}]`).WillReturnRows(sqlmock.NewRows(columns).AddRow(1, nil, nil, "human", "web", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil).AddRow(2, nil, nil, "machine", "wire", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 	sources := map[int]evidenceSourceNormalizationRow{1: {Seq: 1}, 2: {Seq: 2}}
 	if err := loadEvidenceWireSources(context.Background(), tx, []int{1, 2}, sources); err != nil {
 		t.Fatal(err)
@@ -75,7 +75,7 @@ func TestWireSingleSubmissionDoesNotReadTimestampHeader(t *testing.T) {
 		t.Fatal(err)
 	}
 	mock.ExpectQuery("SELECT ws.submission_id,ws.report_seq.*STRAIGHT_JOIN").WithArgs("[1]").WillReturnRows(sqlmock.NewRows([]string{"id", "seq"}).AddRow("single", 1))
-	mock.ExpectQuery("SELECT ws.report_seq,DATE_FORMAT").WithArgs(`["single"]`).WillReturnRows(sqlmock.NewRows([]string{"seq", "observed", "submitted", "actor", "channel", "p0", "p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9", "p10", "p11", "p12", "generation", "flag"}).AddRow(1, nil, nil, "human", "web", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+	mock.ExpectQuery("SELECT ids.seq,DATE_FORMAT.*LEFT JOIN wire_evidence_projection h ON h.submission_id=ids.id AND h.report_seq=ids.seq.*LEFT JOIN wire_submissions_raw ws ON ws.submission_id=CASE WHEN h.submission_id IS NULL THEN ids.id ELSE NULL END AND ws.report_seq=ids.seq").WithArgs(`[{"id":"single","seq":1}]`).WillReturnRows(sqlmock.NewRows([]string{"seq", "observed", "submitted", "actor", "channel", "p0", "p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9", "p10", "p11", "p12", "generation", "flag"}).AddRow(1, nil, nil, "human", "web", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 	if err := loadEvidenceWireSources(context.Background(), tx, []int{1}, map[int]evidenceSourceNormalizationRow{1: {Seq: 1}}); err != nil {
 		t.Fatal(err)
 	}
@@ -100,5 +100,28 @@ func TestEvidencePreferredAnalysisPreservesSQLLanguageAndNullOrdering(t *testing
 	nullLanguage := evidenceAnalysisCore{}
 	if preferredEvidenceAnalysis(nullLanguage, english) {
 		t.Fatal("NULL preference flags must follow a known false/true flag")
+	}
+}
+
+func TestWireMissingSelectedMetadataFailsClosed(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectBegin()
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mock.ExpectQuery("SELECT ws.submission_id,ws.report_seq.*STRAIGHT_JOIN").WithArgs("[1]").WillReturnRows(sqlmock.NewRows([]string{"id", "seq"}).AddRow("single", 1))
+	mock.ExpectQuery("SELECT ids.seq,DATE_FORMAT").WithArgs(`[{"id":"single","seq":1}]`).WillReturnRows(sqlmock.NewRows([]string{"seq", "observed", "submitted", "actor", "channel", "p0", "p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9", "p10", "p11", "p12", "generation", "flag"}))
+	if err := loadEvidenceWireSources(context.Background(), tx, []int{1}, map[int]evidenceSourceNormalizationRow{1: {Seq: 1}}); err == nil {
+		t.Fatal("missing selected Wire metadata silently defaulted privacy/provenance")
+	}
+	mock.ExpectRollback()
+	tx.Rollback()
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"cleanapp-common/eiiheader"
 	"cleanapp-common/evidence"
 	"cleanapp-common/reportmeta"
+	"cleanapp-common/wiremeta"
 	"github.com/go-sql-driver/mysql"
 	"report-listener/models"
 )
@@ -45,7 +46,7 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 		`CREATE TABLE report_analysis (seq INT,language VARCHAR(2),brand_name VARCHAR(255),brand_display_name VARCHAR(255),is_valid BOOL,classification VARCHAR(32),created_at DATETIME,title VARCHAR(500),summary TEXT,severity_level FLOAT,FULLTEXT KEY fixture_original_fulltext (title,summary)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 		`CREATE TABLE report_raw (report_seq INT PRIMARY KEY,source_type VARCHAR(64),source_id VARCHAR(255),fetcher_id VARCHAR(64),visibility VARCHAR(16)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
 		`CREATE TABLE external_ingest_index (seq INT NOT NULL,source VARCHAR(64) NOT NULL,external_id VARCHAR(255) NOT NULL,source_url VARCHAR(500),source_timestamp DATETIME,created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(source,external_id,seq),KEY idx_seq(seq)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
-		`CREATE TABLE wire_submissions_raw (submission_id VARCHAR(64) NOT NULL DEFAULT (UUID()) PRIMARY KEY,report_seq INT,report_json JSON,provenance_json JSON,observed_at DATETIME,submitted_at DATETIME,actor_kind VARCHAR(32),channel VARCHAR(32),extensions_json JSON,KEY fixture_wire_report_seq(report_seq)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
+		`CREATE TABLE wire_submissions_raw (submission_id VARCHAR(64) NOT NULL DEFAULT (UUID()) PRIMARY KEY,report_seq INT,report_json JSON,provenance_json JSON,observed_at TIMESTAMP NULL,submitted_at TIMESTAMP NOT NULL,actor_kind VARCHAR(32) NOT NULL DEFAULT 'machine',channel VARCHAR(32) NOT NULL DEFAULT 'wire',extensions_json JSON,KEY fixture_wire_report_seq(report_seq)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
 		`CREATE TABLE report_status (seq INT,status VARCHAR(32)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
 		`CREATE TABLE reports_owners (seq INT,owner VARCHAR(64),is_public BOOL) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
 		`CREATE TABLE case_reports (seq INT,case_id VARCHAR(64)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
@@ -159,6 +160,25 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 		t.Fatal("header migration must retain unprojected history without an implicit backfill")
 	}
 
+	var existingWireTables int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='wire_evidence_projection'`).Scan(&existingWireTables); err != nil || existingWireTables != 0 {
+		t.Fatal("fixture refuses a pre-existing Wire evidence projection table")
+	}
+	created = append(created, "wire_evidence_projection")
+	legacyWireSchema := showCreate("wire_submissions_raw")
+	for attempt := 0; attempt < 2; attempt++ {
+		if err := wiremeta.Migrate(context.Background(), db); err != nil {
+			t.Fatal(err)
+		}
+		if showCreate("wire_submissions_raw") != legacyWireSchema {
+			t.Fatal("Wire projection migration altered its parent")
+		}
+	}
+	var initiallyProjectedWire int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM wire_evidence_projection`).Scan(&initiallyProjectedWire); err != nil || initiallyProjectedWire != 0 {
+		t.Fatal("Wire projection migration must not copy historical payloads")
+	}
+
 	// Existing history is not implicitly copied by a startup migration. The
 	// conditional fallback must retain it, and partial deterministic backfill
 	// must not alter scoped visibility, source deduplication or family counts.
@@ -232,6 +252,31 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 	var projectedRows int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM report_metadata_projection`).Scan(&projectedRows); err != nil || projectedRows != 4 {
 		t.Fatalf("fixture must exercise projected and unprojected history: rows=%d err=%v", projectedRows, err)
+	}
+
+	if _, err := wiremeta.Backfill(context.Background(), db, []int{1}); err != nil {
+		t.Fatal(err)
+	}
+	partialWire, err := d.GetEvidenceBrandPage(context.Background(), EvidenceFilter{BrandName: "anthropic", Kind: "firsthand"})
+	if err != nil || !reflect.DeepEqual(page, partialWire) {
+		t.Fatalf("partial Wire projection changed exact public semantics: %v", err)
+	}
+	var wireHeaderRows int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM wire_evidence_projection`).Scan(&wireHeaderRows); err != nil || wireHeaderRows != 1 {
+		t.Fatal("fixture must exercise mixed projected and unprojected Wire submissions")
+	}
+
+	// A report FK can change the parent link without firing Wire triggers. A
+	// stale copied report_seq must be ignored by the authoritative ID/seq guard.
+	if _, err := db.Exec(`UPDATE wire_evidence_projection SET report_seq=999 WHERE report_seq=1`); err != nil {
+		t.Fatal(err)
+	}
+	mismatchedWire, err := d.GetEvidenceBrandPage(context.Background(), EvidenceFilter{BrandName: "anthropic", Kind: "firsthand"})
+	if err != nil || !reflect.DeepEqual(page, mismatchedWire) {
+		t.Fatalf("stale Wire link bypassed original metadata fallback: %v", err)
+	}
+	if _, err := wiremeta.Backfill(context.Background(), db, []int{1}); err != nil {
+		t.Fatal(err)
 	}
 
 	rec := page.Reports[0].Recurrence
@@ -626,6 +671,11 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 	if err := db.QueryRow(`SELECT CHAR_LENGTH(JSON_UNQUOTE(JSON_EXTRACT(report_json,'$.evidence_bundle[0].uri'))) FROM wire_submissions_raw WHERE report_seq=108`).Scan(&retainedURILength); err != nil || retainedURILength < 8388609 {
 		t.Fatal("read projection changed retained original payload")
 	}
+	var projectedURILength int
+	if err := db.QueryRow(`SELECT CHAR_LENGTH(JSON_UNQUOTE(evidence_uri)) FROM wire_evidence_projection WHERE report_seq=108`).Scan(&projectedURILength); err != nil || projectedURILength > 128 {
+		t.Fatal("transactional URI projection copied oversized inline media")
+	}
+
 	for _, statement := range []string{
 		`INSERT INTO reports(seq,public_id,ts,latitude,longitude,image) VALUES(121,'r_121','2026-10-14',0,0,''),(122,'r_122','2026-10-14',0,0,'')`,
 		`INSERT INTO report_analysis VALUES(121,'en','inlineuritest','Wire',TRUE,'digital','2026-10-14','Latest Wire observation','Summary',0.5),(122,'en','inlineuritest','Wire',TRUE,'digital','2026-10-14','Tied Wire observation','Summary',0.5)`,
