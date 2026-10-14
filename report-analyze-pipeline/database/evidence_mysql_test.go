@@ -91,13 +91,13 @@ func TestPendingEvidenceMySQLBoundedRecentImports(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []PendingEvidence{{Seq: 10002, Brand: "grok"}, {Seq: 10003, Brand: "claude"}, {Seq: 10004, Brand: "openai"}, {Seq: 10007, Brand: "openai"}}
+	want := []PendingEvidence{{Seq: 10007, Brand: "openai"}, {Seq: 10004, Brand: "openai"}, {Seq: 10003, Brand: "claude"}, {Seq: 10002, Brand: "grok"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("recent/cutoff/version/translation eligibility incorrect: %#v", got)
 	}
 	limited, err := store.GetPendingEvidenceReports(context.Background(), 2)
 	if err != nil || !reflect.DeepEqual(limited, want[:2]) {
-		t.Fatalf("bounded ascending batch incorrect: %#v err=%v", limited, err)
+		t.Fatalf("bounded newest-first batch incorrect: %#v err=%v", limited, err)
 	}
 	// Old publication dates qualify through recent immutable server ingestion;
 	// old sequence values, old imports, completed rows, and unanalyzed rows do not.

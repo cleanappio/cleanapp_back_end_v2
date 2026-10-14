@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"cleanapp-common/events"
 	"cleanapp-common/evidence"
@@ -33,6 +34,8 @@ type analysisStore struct {
 	evidenceVersion  int
 	evidenceSaveErr  error
 	publishedMarkers int
+	pendingContext   context.Context
+	pendingErr       error
 }
 
 func (d *analysisStore) GetDB() *sql.DB { return d.sqlDB }
@@ -47,9 +50,12 @@ func (d *analysisStore) SaveAnalysis(a *database.ReportAnalysis) error {
 	d.analyses = append(d.analyses, a)
 	return nil
 }
-func (d *analysisStore) SaveEvidence(_ context.Context, seq int, fields evidence.Fields, version int) error {
+func (d *analysisStore) SaveEvidence(ctx context.Context, seq int, fields evidence.Fields, version int) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	d.evidenceWrites = append(d.evidenceWrites, evidenceWrite{seq: seq, version: version, fields: fields, normalCount: len(d.analyses)})
 	if d.evidenceSaveErr != nil {
 		return d.evidenceSaveErr
@@ -57,13 +63,58 @@ func (d *analysisStore) SaveEvidence(_ context.Context, seq int, fields evidence
 	d.evidenceVersion = version
 	return nil
 }
-func (d *analysisStore) GetPendingEvidenceReports(context.Context, int) ([]database.PendingEvidence, error) {
+func (d *analysisStore) GetPendingEvidenceReports(ctx context.Context, _ int) ([]database.PendingEvidence, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	d.pendingContext = ctx
+	if d.pendingErr != nil {
+		return nil, d.pendingErr
+	}
 	if d.evidenceVersion >= evidence.Version {
 		return nil, nil
 	}
 	return []database.PendingEvidence{{Seq: d.report.Seq}}, nil
+}
+
+func TestEvidenceCandidateDeadlineIsCanceledBeforeIndependentEnrichment(t *testing.T) {
+	sqlDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sqlDB.Close()
+	store := &analysisStore{sqlDB: sqlDB, report: &database.Report{Seq: 74}}
+	client := &analysisClient{}
+	svc := &Service{config: &config.Config{EvidenceWorkerBatchSize: 10}, db: store, llmClient: client}
+	expectNativeOriginal(mock, 74)
+	start := time.Now()
+	svc.processEvidenceBatch()
+	deadline, bounded := store.pendingContext.Deadline()
+	if !bounded || deadline.Sub(start) > 10*time.Second+100*time.Millisecond {
+		t.Fatal("candidate query lacks a short bounded deadline")
+	}
+	if !errors.Is(store.pendingContext.Err(), context.Canceled) {
+		t.Fatal("candidate-query context was not released")
+	}
+	if len(store.evidenceWrites) != 1 || store.evidenceVersion != evidence.Version || client.calls != 1 {
+		t.Fatal("candidate cancellation leaked into original/model/save work")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestEvidenceCandidateTimeoutDoesNotClassifySaveOrRoute(t *testing.T) {
+	store := &analysisStore{report: &database.Report{Seq: 75}, pendingErr: context.DeadlineExceeded}
+	client := &analysisClient{}
+	publisher := &recordingPublisher{}
+	svc := &Service{config: &config.Config{EvidenceWorkerBatchSize: 10}, db: store, llmClient: client, publisher: publisher}
+	svc.processEvidenceBatch()
+	if _, bounded := store.pendingContext.Deadline(); !bounded {
+		t.Fatal("candidate timeout was not bounded")
+	}
+	if len(store.evidenceWrites) != 0 || len(store.analyses) != 0 || client.calls != 0 || len(publisher.events) != 0 {
+		t.Fatal("timed-out candidate lookup changed analysis or routing")
+	}
 }
 func (d *analysisStore) ReportVisibility(int) (string, error) { return "public", nil }
 func (d *analysisStore) MarkAnalysedPublished(int)            { d.publishedMarkers++ }
