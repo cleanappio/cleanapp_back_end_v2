@@ -240,20 +240,15 @@ func (s *Service) AnalyzeReport(report *database.Report) error {
 	// Experience classification reads only retained originals, independently of
 	// the generated image/summary analysis. Failure keeps the report unknown.
 	original, originalErr := evidence.LoadOriginal(context.Background(), s.db.GetDB(), report.Seq)
-	evidenceFields := evidence.Unknown("Stored original could not be resolved.")
-	if originalErr == nil {
-		classifier, _ := s.llmClient.(evidence.Classifier)
-		evidenceFields, err = evidence.Classify(classifier, original, normalizedBrandName)
-		if err != nil {
-			log.Printf("Report %d: evidence classification failed: %v", report.Seq, err)
-		}
-	} else {
-		log.Printf("Report %d: original evidence resolution failed: %v", report.Seq, originalErr)
+	classifier, _ := s.llmClient.(evidence.Classifier)
+	evidenceFields, evidenceVersion, evidenceErr := evidence.ForPersistence(classifier, original, normalizedBrandName, originalErr)
+	if evidenceErr != nil {
+		log.Printf("Report %d: evidence enrichment failed; retaining retryable version0", report.Seq)
 	}
 
 	// Create the English analysis result
 	analysisResult := &database.ReportAnalysis{
-		Fields: evidenceFields, EvidenceVersion: evidence.Version,
+		Fields: evidenceFields, EvidenceVersion: evidenceVersion,
 		Seq:                   report.Seq,
 		Source:                s.llmClient.SourceName(),
 		AnalysisText:          response,
@@ -325,7 +320,7 @@ func (s *Service) AnalyzeReport(report *database.Report) error {
 			// Create the translated analysis result
 			translatedResult := &database.ReportAnalysis{
 				// Evidence labels and literal quotes are copied from the original analysis, never translated.
-				Fields: evidenceFields, EvidenceVersion: evidence.Version,
+				Fields: evidenceFields, EvidenceVersion: evidenceVersion,
 				Seq:                   report.Seq,
 				Source:                s.llmClient.SourceName(),
 				AnalysisText:          translatedText,

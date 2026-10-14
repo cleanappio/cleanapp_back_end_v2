@@ -177,3 +177,6 @@ The shared evidence provider also enforces a process-wide request budget:
 `EVIDENCE_REQUESTS_PER_MINUTE` defaults to 20 and accepts 1–120. The CLI interval
 cannot bypass that provider budget. A backfill process has its own budget, so
 allocate combined quota deliberately if running beside the production worker.
+
+Candidates include every analysis language, and translations are grouped by report
+sequence so one source produces one classifier call and one label count.

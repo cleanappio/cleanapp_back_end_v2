@@ -1,6 +1,7 @@
 package evidence
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -100,5 +101,39 @@ func TestRetainedOriginalDoesNotReadGeneratedWireDescriptions(t *testing.T) {
 	}
 	if got := RetainedOriginal([]byte(`{"digital_context":{"metadata":{"original_text":"Real source text"}}}`)); got != "Real source text" {
 		t.Fatal(got)
+	}
+}
+
+type transientClassifier struct{ fail bool }
+
+func (c transientClassifier) AnalyzeEvidence(original, entity string) (Fields, error) {
+	if c.fail {
+		return Fields{}, errors.New("transient provider failure")
+	}
+	return Fields{ReportKind: "firsthand", EvidenceExcerpt: "I hit an error", EntityRelationship: "affected"}, nil
+}
+
+func TestTransientEvidenceFailuresRemainRetryableWhileUnknownCompletes(t *testing.T) {
+	original := Original{Text: "I hit an error"}
+	for _, tt := range []struct {
+		name          string
+		source        Original
+		resolutionErr error
+		client        Classifier
+		wantKind      string
+		wantVersion   int
+		wantErr       bool
+	}{
+		{"provider failed", original, nil, transientClassifier{fail: true}, "unknown", 0, true},
+		{"original resolution failed", Original{}, errors.New("temporary database failure"), transientClassifier{}, "unknown", 0, true},
+		{"successful retry", original, nil, transientClassifier{}, "firsthand", Version, false},
+		{"successful insufficient evidence", Original{Reason: "Missing original"}, nil, transientClassifier{}, "unknown", Version, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			fields, version, err := ForPersistence(tt.client, tt.source, "Grok", tt.resolutionErr)
+			if fields.ReportKind != tt.wantKind || version != tt.wantVersion || (err != nil) != tt.wantErr {
+				t.Fatalf("fields=%#v version=%d err=%v", fields, version, err)
+			}
+		})
 	}
 }

@@ -30,3 +30,16 @@ func Classify(client Classifier, original Original, entity string) (Fields, erro
 	_, supportsImage := client.(ImageClassifier)
 	return fields.NormalizeWithMedia(original.Text, supportsImage && ValidOriginalImage(original.Image)), nil
 }
+
+// ForPersistence leaves transient failures retryable. A successful unknown
+// classification (insufficient evidence) is a completed versioned enrichment.
+func ForPersistence(client Classifier, original Original, entity string, resolutionErr error) (Fields, int, error) {
+	if resolutionErr != nil {
+		return Unknown("Stored original could not be resolved."), 0, resolutionErr
+	}
+	fields, err := Classify(client, original, entity)
+	if err != nil {
+		return fields, 0, err
+	}
+	return fields, Version, nil
+}

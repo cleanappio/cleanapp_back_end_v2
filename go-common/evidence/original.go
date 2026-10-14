@@ -21,7 +21,7 @@ type Original struct {
 func SelectOriginal(source, description, sharedText, upstreamText string) Original {
 	result := Original{SourceType: source}
 	switch source {
-	case "":
+	case "", "human_submission":
 		result.Text = description
 	case "digital_share":
 		result.Text = sharedText
@@ -77,20 +77,53 @@ func LoadOriginal(ctx context.Context, db *sql.DB, seq int) (Original, error) {
 	if source == "" && rawErr == nil {
 		source, id = WireSourceIdentity(rawSourceID.String)
 	}
+
+	// Wire's actor_kind and channel are persisted by the authenticated ingress
+	// adapter. Model output and caller-supplied agent metadata cannot authorize a
+	// description fallback for a machine import.
+	var reportJSON []byte
+	var actorKind, channel string
+	wireErr := db.QueryRowContext(ctx, `SELECT report_json, actor_kind, channel FROM wire_submissions_raw WHERE report_seq = ? ORDER BY created_at DESC LIMIT 1`, seq).Scan(&reportJSON, &actorKind, &channel)
+	if wireErr != nil && wireErr != sql.ErrNoRows && !missingTable(wireErr) {
+		return Original{}, fmt.Errorf("load retained wire original: %w", wireErr)
+	}
+	native := nativeHumanOriginal(actorKind, channel, reportJSON)
+	if native.SourceType != "" {
+		source = native.SourceType
+		id = rawSourceID.String
+	}
+	if source == "" {
+		source = "unknown"
+	}
 	var shared sql.NullString
 	if source == "digital_share" {
 		err = db.QueryRowContext(ctx, `SELECT shared_text FROM digital_share_reports WHERE report_seq = ?`, seq).Scan(&shared)
 		if err != nil && err != sql.ErrNoRows && !missingTable(err) {
 			return Original{}, fmt.Errorf("load shared original: %w", err)
 		}
+		if strings.TrimSpace(shared.String) == "" {
+			shared.String = native.Text
+		}
+		// The dedicated shared_text field is the original; the display description
+		// adds synthetic URL/source-app prefixes and must not become source evidence.
+		result := SelectOriginal(source, "", shared.String, "")
+		result.Image = image
+		result.SourceID = id
+		result.RequiresRedaction = RequiresRedaction(reportJSON)
+		return result, nil
 	}
-	// Prefer the retained intake snapshot over mutable live indexer rows. The
-	// key is supplied deterministically by indexers, never by a classifier.
-	var reportJSON []byte
-	wireErr := db.QueryRowContext(ctx, `SELECT report_json FROM wire_submissions_raw WHERE report_seq = ? ORDER BY created_at DESC LIMIT 1`, seq).Scan(&reportJSON)
-	if wireErr != nil && wireErr != sql.ErrNoRows && !missingTable(wireErr) {
-		return Original{}, fmt.Errorf("load retained wire original: %w", wireErr)
+	if source == "human_submission" {
+		annotation := native.Text
+		if strings.TrimSpace(annotation) == "" {
+			annotation = description.String
+		}
+		result := SelectOriginal(source, annotation, "", "")
+		result.Image = image
+		result.SourceID = id
+		result.RequiresRedaction = RequiresRedaction(reportJSON)
+		return result, nil
 	}
+	// Prefer complete retained intake snapshots over mutable indexer rows.
 	if wireErr == nil {
 		if retained := RetainedOriginal(reportJSON); strings.TrimSpace(retained) != "" {
 			return Original{Text: retained, Image: image, RequiresRedaction: RequiresRedaction(reportJSON), SourceType: source, SourceID: id}, nil
@@ -160,4 +193,31 @@ func RequiresRedaction(reportJSON []byte) bool {
 		return true
 	}
 	return payload.Privacy.ContainsPII || payload.Privacy.RequiresRedaction
+}
+
+// nativeHumanOriginal recognizes only server-authenticated native ingestion
+// paths. An imported/generated report cannot opt in by using a human-looking ID
+// or by claiming agent.operator_type=human in its own payload.
+func nativeHumanOriginal(actorKind, channel string, reportJSON []byte) Original {
+	if actorKind != "human" || (channel != "mobile" && channel != "web" && channel != "legacy_v2") {
+		return Original{}
+	}
+	var payload struct {
+		ProblemType    string `json:"problem_type"`
+		Description    string `json:"description"`
+		DigitalContext struct {
+			SharedText string `json:"shared_text"`
+		} `json:"digital_context"`
+	}
+	if json.Unmarshal(reportJSON, &payload) != nil {
+		return Original{}
+	}
+	switch payload.ProblemType {
+	case "citizen_submission":
+		return Original{Text: payload.Description, SourceType: "human_submission"}
+	case "shared_content_report":
+		return Original{Text: payload.DigitalContext.SharedText, SourceType: "digital_share"}
+	default:
+		return Original{}
+	}
 }

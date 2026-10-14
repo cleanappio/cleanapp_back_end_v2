@@ -283,3 +283,12 @@ range 1–120, invalid settings revert to 20). Provider fallback requests consum
 that same budget. Existing full analysis and translation requests retain their
 queue controls. Account for the added requests when sizing provider quota and
 cost; run a reviewed dry-run cohort before a historical backfill.
+
+Native human mobile/web submissions are resolved from server-authenticated Wire
+actor/channel metadata and their full retained annotation. Native digital shares
+use `digital_share_reports.shared_text` or the original retained
+`digital_context.shared_text`; synthetic display prefixes are excluded. Unknown
+machine imports cannot opt into those paths by choosing a human-looking ID.
+Transient original-resolution/model failures preserve `evidence_version=0` so the
+worker can retry; a successfully classified `unknown` is version1 and can be
+revisited explicitly with `--force` when better originals become available.

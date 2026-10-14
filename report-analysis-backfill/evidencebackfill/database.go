@@ -17,11 +17,11 @@ func (s DatabaseStore) Candidates(ctx context.Context, opts Options) ([]Candidat
 		placeholders[i] = "?"
 		args = append(args, brand)
 	}
-	query := `SELECT DISTINCT ra.seq, ra.brand_name FROM report_analysis ra WHERE ra.seq > ? AND ra.brand_name IN (` + strings.Join(placeholders, ",") + `) AND ra.language = 'en'`
+	query := `SELECT ra.seq, MAX(ra.brand_name) FROM report_analysis ra WHERE ra.seq > ? AND ra.brand_name IN (` + strings.Join(placeholders, ",") + `)`
 	if !opts.Force {
 		query += ` AND COALESCE(ra.evidence_version,0) < 1`
 	}
-	query += ` ORDER BY ra.seq ASC LIMIT ?`
+	query += ` GROUP BY ra.seq ORDER BY ra.seq ASC LIMIT ?`
 	args = append(args, opts.Limit)
 	rows, err := s.DB.QueryContext(ctx, query, args...)
 	if err != nil {

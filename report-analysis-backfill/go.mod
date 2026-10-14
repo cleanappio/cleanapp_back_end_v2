@@ -4,6 +4,7 @@ go 1.24.0
 
 require (
 	cleanapp-common v0.0.0
+	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/gin-gonic/gin v1.10.0
 	github.com/go-sql-driver/mysql v1.7.1
 	github.com/rwcarlsen/goexif v0.0.0-20190401172101-9e8deecbddbd
