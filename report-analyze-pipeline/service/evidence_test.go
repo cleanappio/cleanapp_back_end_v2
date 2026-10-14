@@ -149,7 +149,8 @@ func expectNativeOriginal(mock sqlmock.Sqlmock, seq int) {
 	mock.ExpectQuery(`SELECT description, image FROM reports`).WithArgs(seq).WillReturnRows(sqlmock.NewRows([]string{"description", "image"}).AddRow("I hit an error on submit.", nil))
 	mock.ExpectQuery(`SELECT source, external_id FROM external_ingest_index`).WithArgs(seq).WillReturnRows(sqlmock.NewRows([]string{"source", "external_id"}))
 	mock.ExpectQuery(`SELECT source_id, source_type FROM report_raw`).WithArgs(seq).WillReturnRows(sqlmock.NewRows([]string{"source_id", "source_type"}).AddRow("human_mobile_test", "sensor"))
-	mock.ExpectQuery(`SELECT report_json, actor_kind, channel FROM wire_submissions_raw`).WithArgs(seq).WillReturnRows(sqlmock.NewRows([]string{"report_json", "actor_kind", "channel"}).AddRow(`{"problem_type":"citizen_submission","description":"I hit an error on submit."}`, "human", "mobile"))
+	mock.ExpectQuery(`SELECT submission_id FROM wire_submissions_raw`).WithArgs(seq).WillReturnRows(sqlmock.NewRows([]string{"submission_id"}).AddRow("selected_native_wire"))
+	mock.ExpectQuery(`SELECT report_json, actor_kind, channel FROM wire_submissions_raw WHERE submission_id = \? AND report_seq = \?`).WithArgs("selected_native_wire", seq).WillReturnRows(sqlmock.NewRows([]string{"report_json", "actor_kind", "channel"}).AddRow(`{"problem_type":"citizen_submission","description":"I hit an error on submit."}`, "human", "mobile"))
 }
 
 func TestMainAnalysisPersistsAndRoutesDespiteEvidenceSaveFailure(t *testing.T) {

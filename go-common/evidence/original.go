@@ -88,7 +88,14 @@ func LoadOriginal(ctx context.Context, db *sql.DB, seq int) (Original, error) {
 	// description fallback for a machine import.
 	var reportJSON []byte
 	var actorKind, channel string
-	wireErr := db.QueryRowContext(ctx, `SELECT report_json, actor_kind, channel FROM wire_submissions_raw WHERE report_seq = ? ORDER BY created_at DESC LIMIT 1`, seq).Scan(&reportJSON, &actorKind, &channel)
+	// Sort only the narrow key. Sorting retained JSON (which may include large
+	// original media) can exceed MySQL's sort buffer even for one matching row.
+	// Keep the existing newest-created ordering, then hydrate that exact key.
+	var submissionID string
+	wireErr := db.QueryRowContext(ctx, `SELECT submission_id FROM wire_submissions_raw WHERE report_seq = ? ORDER BY created_at DESC LIMIT 1`, seq).Scan(&submissionID)
+	if wireErr == nil {
+		wireErr = db.QueryRowContext(ctx, `SELECT report_json, actor_kind, channel FROM wire_submissions_raw WHERE submission_id = ? AND report_seq = ?`, submissionID, seq).Scan(&reportJSON, &actorKind, &channel)
+	}
 	if wireErr != nil && wireErr != sql.ErrNoRows && !missingTable(wireErr) {
 		return Original{}, fmt.Errorf("load retained wire original: %w", wireErr)
 	}

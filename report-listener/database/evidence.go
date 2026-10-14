@@ -141,6 +141,9 @@ func evidenceOrderBy(sortBy string) string {
 // Computed source fields use a binary collation: legacy indexed tables and Wire
 // metadata have different collations, and source IDs / URL paths are case-sensitive.
 // Keep the stored index columns untouched so indexed joins remain available.
+// The correlated ownership count avoids a materialized whole-table antijoin.
+// Deduplication carries its winning integer sequence into case mapping, avoiding
+// a quadratic join between two scopes on computed source-key text.
 func evidenceBrandCTE(f EvidenceFilter) (string, []interface{}) {
 	placeholders := make([]string, len(f.Brands))
 	args := []interface{}{f.Language}
@@ -156,18 +159,35 @@ func evidenceBrandCTE(f EvidenceFilter) (string, []interface{}) {
 // proves this path; a source label alone cannot change unrelated report dates.
 const trustedRedditArchiveSQL = "(eii.source = 'reddit_archive' AND LEFT(r.id,7) = 'reddit_' AND CHAR_LENGTH(r.id) > 7 AND eii.external_id = LEFT(SHA1(CONCAT('reddit:',SUBSTRING(r.id,8))),32))"
 
+// Keep inline data/media URIs out of the windowed source-link projection. They
+// already have no canonical HTTP identity and are rejected by the public URL
+// guard, but carrying them into temporary rows can copy an entire image.
+const evidenceSourceURLSQL = `COALESCE(NULLIF(eii.source_url,''), NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.digital_context.metadata.source_url')),'null'), NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.digital_context.source_url')),'null'), NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.digital_context.url')),'null'), JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.evidence_bundle[0].uri')), '')`
+
 func evidenceCTE(f EvidenceFilter, analysisWhere string, args []interface{}) (string, []interface{}) {
 	query := fmt.Sprintf(`WITH preferred AS (
   SELECT ra.seq,ra.language,ra.created_at,ra.brand_name,ra.brand_display_name,ra.classification,ra.title,ra.summary,ra.severity_level,COALESCE(ev.report_kind,'unknown') AS report_kind,COALESCE(ev.evidence_excerpt,'') AS evidence_excerpt,COALESCE(ev.reported_impact,'') AS reported_impact,COALESCE(ev.classification_reason,'') AS classification_reason,COALESCE(ev.entity_relationship,'unknown') AS entity_relationship,COALESCE(ev.evidence_version,0) AS evidence_version, ROW_NUMBER() OVER (PARTITION BY ra.seq ORDER BY (ra.language = ?) DESC, (ra.language = 'en') DESC, ra.language ASC, ra.created_at DESC) AS analysis_rank
   FROM report_analysis ra LEFT JOIN report_evidence ev ON ev.seq = ra.seq WHERE %[1]s AND ra.is_valid = TRUE
+ ), metadata AS (
+  SELECT ra.seq,
+   CASE WHEN m.seq IS NOT NULL THEN m.id ELSE fallback.id END AS id,
+   CASE WHEN m.seq IS NOT NULL THEN m.public_id ELSE fallback.public_id END AS public_id,
+   CASE WHEN m.seq IS NOT NULL THEN m.ts ELSE fallback.ts END AS ts,
+   CASE WHEN m.seq IS NOT NULL THEN m.latitude ELSE fallback.latitude END AS latitude,
+   CASE WHEN m.seq IS NOT NULL THEN m.longitude ELSE fallback.longitude END AS longitude,
+   CASE WHEN m.seq IS NOT NULL THEN m.has_original_media ELSE (LENGTH(fallback.image)>0) END AS has_original_media
+  FROM preferred ra
+  LEFT JOIN report_metadata_projection m ON m.seq=ra.seq
+  LEFT JOIN reports fallback ON fallback.seq=CASE WHEN m.seq IS NULL THEN ra.seq ELSE NULL END
+  WHERE ra.analysis_rank=1
  ), candidates AS (
-  SELECT r.seq, r.public_id, CASE WHEN %[4]s AND eii.created_at IS NOT NULL THEN eii.created_at ELSE r.ts END AS ts, r.latitude, r.longitude, (LENGTH(r.image) > 0) AS has_original_media,
+  SELECT r.seq, r.public_id, CASE WHEN %[4]s AND eii.created_at IS NOT NULL THEN eii.created_at ELSE r.ts END AS ts, r.latitude, r.longitude, r.has_original_media,
    COALESCE((%[4]s AND eii.created_at IS NULL),FALSE) AS ingestion_time_missing,
    ra.title, ra.summary, ra.classification, ra.severity_level, ra.language, ra.brand_name, ra.brand_display_name,
    CASE WHEN ra.evidence_version > 0 AND ra.report_kind IN ('firsthand','coverage') THEN ra.report_kind ELSE 'unknown' END AS report_kind,
    ra.evidence_excerpt, ra.reported_impact, ra.classification_reason, ra.entity_relationship, ra.evidence_version,
    COALESCE(NULLIF(eii.source,''), NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.digital_context.platform')),''), NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.digital_context.legacy_source')),''), rr.source_type, '') COLLATE utf8mb4_bin AS source_platform,
-   COALESCE(NULLIF(eii.source_url,''), NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.digital_context.metadata.source_url')),'null'), NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.digital_context.source_url')),'null'), NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.digital_context.url')),'null'), JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.evidence_bundle[0].uri')), '') COLLATE utf8mb4_bin AS source_url,
+   CASE WHEN LOWER(LEFT(TRIM(%[5]s),8)) REGEXP '^https?://' THEN %[5]s ELSE '' END COLLATE utf8mb4_bin AS source_url,
    COALESCE(eii.source_timestamp, CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.digital_context.metadata.source_published_at')) REGEXP '(Z|[+]00:00)$' THEN STR_TO_DATE(REPLACE(LEFT(JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.digital_context.metadata.source_published_at')),19),'T',' '),'%%Y-%%m-%%d %%H:%%i:%%s') ELSE NULL END, CASE WHEN JSON_EXTRACT(ws.report_json,'$.digital_context.metadata.source_published_at') IS NULL AND JSON_UNQUOTE(JSON_EXTRACT(ws.provenance_json,'$.generation_method')) IN ('twitter_submitter','github_issue_submitter','bluesky_submitter','human_authored_public') THEN ws.observed_at ELSE NULL END, CASE WHEN %[4]s THEN r.ts ELSE NULL END) AS source_timestamp,
    ws.observed_at AS raw_observed_at, ws.submitted_at, (COALESCE(JSON_EXTRACT(ws.extensions_json,'$.observation_time_supplied'),FALSE) = TRUE) AS observation_time_supplied, (JSON_EXTRACT(ws.report_json,'$.digital_context.metadata.source_published_at') IS NOT NULL) AS explicit_source_publication,
    COALESCE(ws.actor_kind, '') AS actor_kind, COALESCE(ws.channel,'') AS intake_channel,
@@ -177,13 +197,13 @@ func evidenceCTE(f EvidenceFilter, analysisWhere string, args []interface{}) (st
    COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.digital_context.metadata.author_did')),'null'), NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.digital_context.metadata.author_username')),'null'), NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.digital_context.metadata.author_handle')),'null'), NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.digital_context.author_handle')),'null')) AS source_author,
    CASE WHEN JSON_EXTRACT(ws.report_json,'$.privacy.contains_pii') = TRUE OR JSON_EXTRACT(ws.report_json,'$.privacy.requires_redaction') = TRUE THEN 1 ELSE 0 END AS privacy_restricted,
    ROW_NUMBER() OVER (PARTITION BY r.seq ORDER BY eii.source ASC, eii.external_id ASC, ws.submitted_at DESC) AS source_rank
-  FROM preferred ra JOIN reports r ON r.seq = ra.seq
+  FROM preferred ra JOIN metadata r ON r.seq = ra.seq
   LEFT JOIN report_raw rr ON rr.report_seq = r.seq
   LEFT JOIN external_ingest_index eii ON eii.seq = r.seq
   LEFT JOIN wire_submissions_raw ws ON ws.report_seq = r.seq
   WHERE ra.analysis_rank = 1 AND r.public_id <> '' AND %[2]s
    AND NOT EXISTS (SELECT 1 FROM report_status rs WHERE rs.seq = r.seq AND rs.status IS NOT NULL AND rs.status <> 'active')
-   AND NOT EXISTS (SELECT 1 FROM reports_owners ro WHERE ro.seq = r.seq AND ro.owner IS NOT NULL AND ro.owner <> '' AND ro.is_public = FALSE)
+   AND (SELECT COUNT(*) FROM reports_owners ro WHERE ro.seq = r.seq AND ro.owner IS NOT NULL AND ro.owner <> '' AND ro.is_public = FALSE) = 0
  ), provenance AS (
   SELECT candidates.*,
    (indexed_source OR source_platform IN ('twitter','x','bluesky','github','github_issue','reddit') OR generation_method = 'legacy_v3_bulk_ingest') AS external_source,
@@ -208,15 +228,16 @@ func evidenceCTE(f EvidenceFilter, analysisWhere string, args []interface{}) (st
   FROM provenance
  ), representatives AS (
   SELECT normalized.*, ROW_NUMBER() OVER (PARTITION BY source_key ORDER BY evidence_version DESC, evidence_strength DESC, entity_relevance DESC, seq DESC) AS duplicate_rank,
+   FIRST_VALUE(seq) OVER (PARTITION BY source_key ORDER BY evidence_version DESC, evidence_strength DESC, entity_relevance DESC, seq DESC) AS representative_seq,
    COUNT(*) OVER (PARTITION BY source_key) AS import_count FROM normalized
  ), entries AS (SELECT * FROM representatives WHERE duplicate_rank = 1),
- case_links AS (SELECT e.seq, MIN(cr.case_id) AS case_id FROM case_reports cr JOIN normalized n ON n.seq = cr.seq JOIN entries e ON e.source_key = n.source_key GROUP BY e.seq),
+ case_links AS (SELECT n.representative_seq AS seq, MIN(cr.case_id) AS case_id FROM case_reports cr JOIN representatives n ON n.seq = cr.seq GROUP BY n.representative_seq),
  tagged AS (SELECT e.*, cl.case_id, CASE WHEN cl.case_id IS NULL THEN source_key ELSE CONCAT('family:',cl.case_id) END AS group_key FROM entries e LEFT JOIN case_links cl ON cl.seq=e.seq),
- filtered AS (SELECT tagged.*, ROW_NUMBER() OVER (PARTITION BY group_key ORDER BY evidence_strength DESC, entity_relevance DESC, severity_level DESC, COALESCE(observed_at,source_timestamp,ts) DESC,seq DESC) AS family_rank FROM tagged WHERE %[3]s),
- family_stats AS (SELECT group_key, COUNT(*) AS supporting_report_count, CASE WHEN COUNT(source_account_key)=COUNT(*) THEN COUNT(DISTINCT source_account_key) ELSE NULL END AS source_account_count, SUM(import_count)-COUNT(*) AS duplicate_import_count, MAX(COALESCE(observed_at,source_timestamp,ts)) AS last_signal_at, MAX(observed_at) AS latest_observed_at, MAX(source_timestamp) AS latest_source_published_at FROM filtered GROUP BY group_key),
- family_samples AS (SELECT group_key, JSON_ARRAYAGG(JSON_OBJECT('title',title,'source_url',source_url,'report_kind',report_kind,'source_published_at',DATE_FORMAT(source_timestamp,'%%Y-%%m-%%dT%%H:%%i:%%sZ'))) AS supporting_sources FROM filtered WHERE family_rank <= 8 AND privacy_restricted = 0 GROUP BY group_key),
- briefing AS (SELECT f.*, fs.supporting_report_count, fs.source_account_count, fs.duplicate_import_count, fs.supporting_report_count AS related_observation_count, fs.last_signal_at, fs.latest_observed_at, fs.latest_source_published_at, COALESCE(samples.supporting_sources,JSON_ARRAY()) AS supporting_sources FROM filtered f JOIN family_stats fs ON fs.group_key=f.group_key LEFT JOIN family_samples samples ON samples.group_key=f.group_key WHERE family_rank=1)
- `, analysisWhere, PublicVisibilityWhereSQL, evidenceKindWhere(f.Kind), trustedRedditArchiveSQL)
+ filtered AS (SELECT tagged.*, ROW_NUMBER() OVER (PARTITION BY group_key ORDER BY evidence_strength DESC, entity_relevance DESC, severity_level DESC, COALESCE(observed_at,source_timestamp,ts) DESC,seq DESC) AS family_rank, FIRST_VALUE(seq) OVER (PARTITION BY group_key ORDER BY evidence_strength DESC, entity_relevance DESC, severity_level DESC, COALESCE(observed_at,source_timestamp,ts) DESC,seq DESC) AS family_representative_seq FROM tagged WHERE %[3]s),
+ family_stats AS (SELECT family_representative_seq, COUNT(*) AS supporting_report_count, CASE WHEN COUNT(source_account_key)=COUNT(*) THEN COUNT(DISTINCT source_account_key) ELSE NULL END AS source_account_count, SUM(import_count)-COUNT(*) AS duplicate_import_count, MAX(COALESCE(observed_at,source_timestamp,ts)) AS last_signal_at, MAX(observed_at) AS latest_observed_at, MAX(source_timestamp) AS latest_source_published_at FROM filtered GROUP BY family_representative_seq),
+ family_samples AS (SELECT family_representative_seq, JSON_ARRAYAGG(JSON_OBJECT('title',title,'source_url',source_url,'report_kind',report_kind,'source_published_at',DATE_FORMAT(source_timestamp,'%%Y-%%m-%%dT%%H:%%i:%%sZ'))) AS supporting_sources FROM filtered WHERE family_rank <= 8 AND privacy_restricted = 0 GROUP BY family_representative_seq),
+ briefing AS (SELECT f.*, fs.supporting_report_count, fs.source_account_count, fs.duplicate_import_count, fs.supporting_report_count AS related_observation_count, fs.last_signal_at, fs.latest_observed_at, fs.latest_source_published_at, COALESCE(samples.supporting_sources,JSON_ARRAY()) AS supporting_sources FROM filtered f JOIN family_stats fs ON fs.family_representative_seq=f.family_representative_seq LEFT JOIN family_samples samples ON samples.family_representative_seq=f.family_representative_seq WHERE family_rank=1)
+ `, analysisWhere, PublicVisibilityWhereSQL, evidenceKindWhere(f.Kind), trustedRedditArchiveSQL, evidenceSourceURLSQL)
 	if f.Kind != "all" {
 		args = append(args, f.Kind)
 	}
@@ -258,6 +279,23 @@ type EvidenceBrandPage struct {
 	HasMore             bool
 }
 
+// A single statement shares the scoped analysis/provenance windows between
+// facets, filtered counts and rows. The left join returns counts even when a
+// filter or offset has no page entries; sequence zero is only that empty marker.
+func evidenceBrandPageQuery(f EvidenceFilter) (string, []interface{}) {
+	cte, args := evidenceBrandCTE(f)
+	order := "p." + strings.ReplaceAll(evidenceOrderBy(f.Sort), ", ", ", p.")
+	query := cte + `, scope_counts AS (SELECT COUNT(DISTINCT group_key) AS all_count, COUNT(DISTINCT CASE WHEN report_kind='firsthand' THEN group_key END) AS firsthand_count, COUNT(DISTINCT CASE WHEN report_kind='coverage' THEN group_key END) AS coverage_count, COUNT(DISTINCT CASE WHEN report_kind='unknown' THEN group_key END) AS unknown_count FROM tagged),
+ page_counts AS (SELECT COUNT(*) AS total_count, COALESCE(SUM(severity_level>=0.7),0) AS high_count, COALESCE(SUM(severity_level>=0.4 AND severity_level<0.7),0) AS medium_count FROM briefing),
+ paged AS (SELECT * FROM briefing ORDER BY ` + evidenceOrderBy(f.Sort) + ` LIMIT ? OFFSET ?)
+ SELECT sc.all_count,sc.firsthand_count,sc.coverage_count,sc.unknown_count,pc.total_count,pc.high_count,pc.medium_count,
+ COALESCE(p.seq,0),COALESCE(p.public_id,''),COALESCE(p.ts,CAST('1970-01-01 00:00:00' AS DATETIME)),COALESCE(p.latitude,0),COALESCE(p.longitude,0),COALESCE(p.title,''),COALESCE(p.summary,''),COALESCE(p.classification,''),COALESCE(p.severity_level,0),COALESCE(p.language,''),COALESCE(p.brand_name,''),COALESCE(p.brand_display_name,''),
+ COALESCE(p.report_kind,'unknown'),COALESCE(p.evidence_excerpt,''),COALESCE(p.reported_impact,''),COALESCE(p.classification_reason,''),COALESCE(p.entity_relationship,'unknown'),COALESCE(p.evidence_version,0),
+ COALESCE(p.source_platform,''),COALESCE(p.source_url,''),p.source_timestamp,p.observed_at,COALESCE(p.actor_kind,''),COALESCE(p.fetcher_id,''),COALESCE(p.privacy_restricted,0),COALESCE(p.source_key,''),COALESCE(p.import_count,0),p.case_id,COALESCE(p.related_observation_count,0),COALESCE(p.has_original_media,0),COALESCE(p.external_source,0),COALESCE(p.intake_channel,''),COALESCE(p.generation_method,''),COALESCE(p.source_account_key,''),COALESCE(p.group_key,''),COALESCE(p.supporting_report_count,0),p.source_account_count,COALESCE(p.duplicate_import_count,0),COALESCE(p.supporting_sources,JSON_ARRAY()),p.latest_observed_at,p.latest_source_published_at,COALESCE(p.ingestion_time_missing,0)
+ FROM scope_counts sc CROSS JOIN page_counts pc LEFT JOIN paged p ON TRUE ORDER BY ` + order
+	return query, append(args, f.Limit, f.Offset)
+}
+
 func (d *Database) GetEvidenceBrandPage(ctx context.Context, f EvidenceFilter) (EvidenceBrandPage, error) {
 	var err error
 	f, err = NormalizeEvidenceFilter(f)
@@ -271,35 +309,23 @@ func (d *Database) GetEvidenceBrandPage(ctx context.Context, f EvidenceFilter) (
 		return EvidenceBrandPage{}, err
 	}
 	defer tx.Rollback()
-	cte, args := evidenceBrandCTE(f)
 	page := EvidenceBrandPage{Reports: []models.ReportWithMinimalAnalysis{}}
-	countsQuery := cte + `SELECT COUNT(DISTINCT group_key), COUNT(DISTINCT CASE WHEN report_kind='firsthand' THEN group_key END), COUNT(DISTINCT CASE WHEN report_kind='coverage' THEN group_key END), COUNT(DISTINCT CASE WHEN report_kind='unknown' THEN group_key END) FROM tagged`
-	if err := tx.QueryRowContext(queryCtx, countsQuery, args...).Scan(&page.KindCounts.All, &page.KindCounts.Firsthand, &page.KindCounts.Coverage, &page.KindCounts.Unknown); err != nil {
-		return page, fmt.Errorf("count evidence brand scope: %w", err)
-	}
-	countArgs := append([]interface{}(nil), args...)
-
-	countsQuery = cte + `SELECT COUNT(*), COALESCE(SUM(severity_level>=0.7),0), COALESCE(SUM(severity_level>=0.4 AND severity_level<0.7),0) FROM briefing`
-	if err := tx.QueryRowContext(queryCtx, countsQuery, countArgs...).Scan(&page.Total, &page.High, &page.Medium); err != nil {
-		return page, fmt.Errorf("count filtered evidence brand scope: %w", err)
-	}
-	listArgs := append([]interface{}(nil), countArgs...)
-	listArgs = append(listArgs, f.Limit, f.Offset)
-	query := cte + `SELECT seq,public_id,ts,latitude,longitude,title,summary,classification,severity_level,language,brand_name,brand_display_name,
- report_kind,COALESCE(evidence_excerpt,''),COALESCE(reported_impact,''),COALESCE(classification_reason,''),COALESCE(entity_relationship,'unknown'),evidence_version,
- source_platform,source_url,source_timestamp,observed_at,actor_kind,fetcher_id,privacy_restricted,source_key,import_count,case_id,related_observation_count,has_original_media,external_source,intake_channel,generation_method,COALESCE(source_account_key,''),group_key,supporting_report_count,source_account_count,duplicate_import_count,supporting_sources,latest_observed_at,latest_source_published_at,ingestion_time_missing
- FROM briefing` + ` ORDER BY ` + evidenceOrderBy(f.Sort) + ` LIMIT ? OFFSET ?`
+	query, args := evidenceBrandPageQuery(f)
 	mediaSeqs := []int{}
-	rows, err := tx.QueryContext(queryCtx, query, listArgs...)
+	rows, err := tx.QueryContext(queryCtx, query, args...)
 	if err != nil {
 		return page, fmt.Errorf("query evidence brand briefing: %w", err)
 	}
 	for rows.Next() {
 		var r evidenceRecord
-		if err := rows.Scan(&r.Seq, &r.PublicID, &r.IngestedAt, &r.Latitude, &r.Longitude, &r.Title, &r.Summary, &r.Classification, &r.Severity, &r.Language, &r.Brand, &r.BrandDisplay,
+		if err := rows.Scan(&page.KindCounts.All, &page.KindCounts.Firsthand, &page.KindCounts.Coverage, &page.KindCounts.Unknown, &page.Total, &page.High, &page.Medium,
+			&r.Seq, &r.PublicID, &r.IngestedAt, &r.Latitude, &r.Longitude, &r.Title, &r.Summary, &r.Classification, &r.Severity, &r.Language, &r.Brand, &r.BrandDisplay,
 			&r.Kind, &r.Excerpt, &r.Impact, &r.Reason, &r.Relationship, &r.Version, &r.SourcePlatform, &r.SourceURL, &r.PublishedAt, &r.ObservedAt, &r.ActorKind, &r.FetcherID, &r.PrivacyRestricted, &r.SourceKey, &r.ImportCount, &r.CaseID, &r.RelatedCount, &r.HasOriginalMedia, &r.ExternalSource, &r.IntakeChannel, &r.GenerationMethod, &r.SourceAccountKey, &r.GroupKey, &r.SupportingCount, &r.SourceAccountCount, &r.FamilyDuplicates, &r.SupportingSourcesJSON, &r.LatestObservedAt, &r.LatestPublishedAt, &r.IngestionTimeMissing); err != nil {
 			rows.Close()
 			return page, err
+		}
+		if r.Seq == 0 {
+			continue
 		}
 		ev := r.publicEvidence()
 		if ev.HasOriginalMedia {
@@ -567,7 +593,7 @@ func loadEvidenceImageValidity(ctx context.Context, reader evidenceQueryer, seqs
 		return valid, nil
 	}
 	placeholders, args := buildIntInClause(seqs)
-	query := fmt.Sprintf(`SELECT r.seq, SUBSTRING(r.image,1,65536) FROM reports r LEFT JOIN report_raw rr ON rr.report_seq=r.seq WHERE r.seq IN (%s) AND %s AND NOT EXISTS (SELECT 1 FROM report_status rs WHERE rs.seq=r.seq AND rs.status IS NOT NULL AND rs.status<>'active') AND NOT EXISTS (SELECT 1 FROM reports_owners ro WHERE ro.seq=r.seq AND ro.owner IS NOT NULL AND ro.owner<>'' AND ro.is_public=FALSE)`, placeholders, PublicVisibilityWhereSQL)
+	query := fmt.Sprintf(`SELECT r.seq, SUBSTRING(r.image,1,65536) FROM reports r LEFT JOIN report_raw rr ON rr.report_seq=r.seq WHERE r.seq IN (%s) AND %s AND NOT EXISTS (SELECT 1 FROM report_status rs WHERE rs.seq=r.seq AND rs.status IS NOT NULL AND rs.status<>'active') AND (SELECT COUNT(*) FROM reports_owners ro WHERE ro.seq=r.seq AND ro.owner IS NOT NULL AND ro.owner<>'' AND ro.is_public=FALSE)=0`, placeholders, PublicVisibilityWhereSQL)
 	rows, err := reader.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err

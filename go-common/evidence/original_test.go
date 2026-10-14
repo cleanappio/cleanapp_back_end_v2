@@ -3,17 +3,24 @@ package evidence
 import (
 	"context"
 	"errors"
+	"fmt"
 	"github.com/DATA-DOG/go-sqlmock"
 	"regexp"
 	"strings"
 	"testing"
 )
 
+func expectLatestWire(mock sqlmock.Sqlmock, seq int, payload, actor, channel string) {
+	submissionID := fmt.Sprintf("retained-wire-%d", seq)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT submission_id FROM wire_submissions_raw WHERE report_seq = ? ORDER BY created_at DESC LIMIT 1`)).WithArgs(seq).WillReturnRows(sqlmock.NewRows([]string{"submission_id"}).AddRow(submissionID))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT report_json, actor_kind, channel FROM wire_submissions_raw WHERE submission_id = ? AND report_seq = ?`)).WithArgs(submissionID, seq).WillReturnRows(sqlmock.NewRows([]string{"report_json", "actor_kind", "channel"}).AddRow(payload, actor, channel))
+}
+
 func expectOriginalIntake(mock sqlmock.Sqlmock, seq int, source, id, payload string) {
 	mock.ExpectQuery(`SELECT description, image FROM reports`).WithArgs(seq).WillReturnRows(sqlmock.NewRows([]string{"description", "image"}).AddRow("generated summary", nil))
 	mock.ExpectQuery(`SELECT source, external_id FROM external_ingest_index`).WithArgs(seq).WillReturnRows(sqlmock.NewRows([]string{"source", "external_id"}).AddRow(source, id))
 	mock.ExpectQuery(`SELECT source_id, source_type FROM report_raw`).WithArgs(seq).WillReturnRows(sqlmock.NewRows([]string{"source_id", "source_type"}))
-	mock.ExpectQuery(`SELECT report_json, actor_kind, channel FROM wire_submissions_raw`).WithArgs(seq).WillReturnRows(sqlmock.NewRows([]string{"report_json", "actor_kind", "channel"}).AddRow(payload, "machine", "wire"))
+	expectLatestWire(mock, seq, payload, "machine", "wire")
 }
 
 func TestRetainedOriginalPreservesSourceContextWithoutIndexerFetch(t *testing.T) {
@@ -106,10 +113,83 @@ func TestLoadOriginalUsesRetainedSnapshotAndPrivacy(t *testing.T) {
 	mock.ExpectQuery(`SELECT description, image FROM reports`).WithArgs(5).WillReturnRows(sqlmock.NewRows([]string{"description", "image"}).AddRow("generated summary", nil))
 	mock.ExpectQuery(`SELECT source, external_id FROM external_ingest_index`).WithArgs(5).WillReturnRows(sqlmock.NewRows([]string{"source", "external_id"}).AddRow("github_issue", "123"))
 	mock.ExpectQuery(`SELECT source_id, source_type FROM report_raw`).WithArgs(5).WillReturnRows(sqlmock.NewRows([]string{"source_id", "source_type"}))
-	mock.ExpectQuery(`SELECT report_json, actor_kind, channel FROM wire_submissions_raw`).WithArgs(5).WillReturnRows(sqlmock.NewRows([]string{"report_json", "actor_kind", "channel"}).AddRow(`{"digital_context":{"metadata":{"original_text":"My original reproduction"}},"privacy":{"requires_redaction":true}}`, "machine", "wire"))
+	expectLatestWire(mock, 5, `{"digital_context":{"metadata":{"original_text":"My original reproduction"}},"privacy":{"requires_redaction":true}}`, "machine", "wire")
 	got, err := LoadOriginal(context.Background(), db, 5)
 	if err != nil || got.Text != "My original reproduction" || !got.RequiresRedaction {
 		t.Fatalf("got %#v err=%v", got, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLargeWireOriginalUsesSelectedSubmissionAndPreservesPrivacy(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectQuery(`SELECT description, image FROM reports`).WithArgs(20).WillReturnRows(sqlmock.NewRows([]string{"description", "image"}).AddRow("Generated display summary", nil))
+	mock.ExpectQuery(`SELECT source, external_id FROM external_ingest_index`).WithArgs(20).WillReturnRows(sqlmock.NewRows([]string{"source", "external_id"}))
+	mock.ExpectQuery(`SELECT source_id, source_type FROM report_raw`).WithArgs(20).WillReturnRows(sqlmock.NewRows([]string{"source_id", "source_type"}).AddRow("human_mobile_fixture", "sensor"))
+	// The selected key is unrelated to the report sequence and must be used to
+	// hydrate the exact submission, retaining its authenticated channel/privacy.
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT submission_id FROM wire_submissions_raw WHERE report_seq = ? ORDER BY created_at DESC LIMIT 1`)).WithArgs(20).WillReturnRows(sqlmock.NewRows([]string{"submission_id"}).AddRow("newest-selected-source"))
+	payload := `{"problem_type":"citizen_submission","description":"After clicking Save, the application closes.","privacy":{"requires_redaction":true},"image_base64":"` + strings.Repeat("A", 512000) + `"}`
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT report_json, actor_kind, channel FROM wire_submissions_raw WHERE submission_id = ? AND report_seq = ?`)).WithArgs("newest-selected-source", 20).WillReturnRows(sqlmock.NewRows([]string{"report_json", "actor_kind", "channel"}).AddRow(payload, "human", "mobile"))
+	got, err := LoadOriginal(context.Background(), db, 20)
+	if err != nil || got.Text != "After clicking Save, the application closes." || got.SourceType != "human_submission" || !got.RequiresRedaction || got.SourceAuthor != "" {
+		t.Fatalf("original source/provenance/privacy changed: source=%s redacted=%t err=%v", got.SourceType, got.RequiresRedaction, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWireLookupErrorsDoNotUseGeneratedDescription(t *testing.T) {
+	for _, stage := range []string{"select key", "hydrate original"} {
+		t.Run(stage, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			mock.ExpectQuery(`SELECT description, image FROM reports`).WithArgs(21).WillReturnRows(sqlmock.NewRows([]string{"description", "image"}).AddRow("I hit a bug (generated)", nil))
+			mock.ExpectQuery(`SELECT source, external_id FROM external_ingest_index`).WithArgs(21).WillReturnRows(sqlmock.NewRows([]string{"source", "external_id"}))
+			mock.ExpectQuery(`SELECT source_id, source_type FROM report_raw`).WithArgs(21).WillReturnRows(sqlmock.NewRows([]string{"source_id", "source_type"}).AddRow("human_mobile_fixture", "sensor"))
+			keyQuery := mock.ExpectQuery(regexp.QuoteMeta(`SELECT submission_id FROM wire_submissions_raw WHERE report_seq = ? ORDER BY created_at DESC LIMIT 1`)).WithArgs(21)
+			if stage == "select key" {
+				keyQuery.WillReturnError(errors.New("temporary source database failure"))
+			} else {
+				keyQuery.WillReturnRows(sqlmock.NewRows([]string{"submission_id"}).AddRow("selected-source"))
+				mock.ExpectQuery(regexp.QuoteMeta(`SELECT report_json, actor_kind, channel FROM wire_submissions_raw WHERE submission_id = ? AND report_seq = ?`)).WithArgs("selected-source", 21).WillReturnError(errors.New("temporary source database failure"))
+			}
+			got, err := LoadOriginal(context.Background(), db, 21)
+			if err == nil || got.Text != "" {
+				t.Fatal("source resolution failure must remain an error, without generated text")
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestWireSubmissionUnlinkedDuringLookupCannotAuthorizeHumanFallback(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectQuery(`SELECT description, image FROM reports`).WithArgs(22).WillReturnRows(sqlmock.NewRows([]string{"description", "image"}).AddRow("I hit a bug (generated)", nil))
+	mock.ExpectQuery(`SELECT source, external_id FROM external_ingest_index`).WithArgs(22).WillReturnRows(sqlmock.NewRows([]string{"source", "external_id"}))
+	mock.ExpectQuery(`SELECT source_id, source_type FROM report_raw`).WithArgs(22).WillReturnRows(sqlmock.NewRows([]string{"source_id", "source_type"}).AddRow("human_mobile_fixture", "sensor"))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT submission_id FROM wire_submissions_raw WHERE report_seq = ? ORDER BY created_at DESC LIMIT 1`)).WithArgs(22).WillReturnRows(sqlmock.NewRows([]string{"submission_id"}).AddRow("unlinked-source"))
+	// The original key no longer belongs to this report when it is hydrated.
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT report_json, actor_kind, channel FROM wire_submissions_raw WHERE submission_id = ? AND report_seq = ?`)).WithArgs("unlinked-source", 22).WillReturnRows(sqlmock.NewRows([]string{"report_json", "actor_kind", "channel"}))
+	got, err := LoadOriginal(context.Background(), db, 22)
+	if err != nil || got.Text != "" || got.SourceType != "unknown" {
+		t.Fatal("unlinked Wire source authorized generated human content")
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
@@ -131,7 +211,7 @@ func TestLoadOriginalTruncatedSnapshotFallsBackToActualIndexerSchema(t *testing.
 			mock.ExpectQuery(`SELECT description, image FROM reports`).WithArgs(6).WillReturnRows(sqlmock.NewRows([]string{"description", "image"}).AddRow("generated summary", nil))
 			mock.ExpectQuery(`SELECT source, external_id FROM external_ingest_index`).WithArgs(6).WillReturnRows(sqlmock.NewRows([]string{"source", "external_id"}).AddRow(tt.source, tt.id))
 			mock.ExpectQuery(`SELECT source_id, source_type FROM report_raw`).WithArgs(6).WillReturnRows(sqlmock.NewRows([]string{"source_id", "source_type"}))
-			mock.ExpectQuery(`SELECT report_json, actor_kind, channel FROM wire_submissions_raw`).WithArgs(6).WillReturnRows(sqlmock.NewRows([]string{"report_json", "actor_kind", "channel"}).AddRow(`{"digital_context":{"metadata":{"original_text":"Partial","original_text_truncated":true}}}`, "machine", "wire"))
+			expectLatestWire(mock, 6, `{"digital_context":{"metadata":{"original_text":"Partial","original_text_truncated":true}}}`, "machine", "wire")
 			result := sqlmock.NewRows([]string{"original"}).AddRow(tt.original)
 			if tt.source == "twitter" {
 				result = sqlmock.NewRows([]string{"text", "username", "relation"}).AddRow(tt.original, tt.author, tt.relation)
@@ -160,7 +240,7 @@ func TestMissingIntakeTablesNeverTreatGeneratedDescriptionAsDirect(t *testing.T)
 	mock.ExpectQuery(`SELECT description, image FROM reports`).WithArgs(7).WillReturnRows(sqlmock.NewRows([]string{"description", "image"}).AddRow("I hit a bug (generated)", nil))
 	mock.ExpectQuery(`SELECT source, external_id FROM external_ingest_index`).WillReturnError(errors.New("Table doesn't exist"))
 	mock.ExpectQuery(`SELECT source_id, source_type FROM report_raw`).WillReturnError(errors.New("Table doesn't exist"))
-	mock.ExpectQuery(`SELECT report_json, actor_kind, channel FROM wire_submissions_raw`).WillReturnError(errors.New("Table doesn't exist"))
+	mock.ExpectQuery(`SELECT submission_id FROM wire_submissions_raw`).WillReturnError(errors.New("Table doesn't exist"))
 	got, err := LoadOriginal(context.Background(), db, 7)
 	if err != nil || got.Text != "" || got.SourceType != "unknown" {
 		t.Fatalf("got %#v err=%v", got, err)
@@ -188,7 +268,7 @@ func TestNativeHumanAndSharedIngestionUsesActualOriginalBodies(t *testing.T) {
 			mock.ExpectQuery(`SELECT description, image FROM reports`).WithArgs(9).WillReturnRows(sqlmock.NewRows([]string{"description", "image"}).AddRow("Truncated/synthetic display text", nil))
 			mock.ExpectQuery(`SELECT source, external_id FROM external_ingest_index`).WithArgs(9).WillReturnRows(sqlmock.NewRows([]string{"source", "external_id"}))
 			mock.ExpectQuery(`SELECT source_id, source_type FROM report_raw`).WithArgs(9).WillReturnRows(sqlmock.NewRows([]string{"source_id", "source_type"}).AddRow(tt.sourceID, tt.sourceType))
-			mock.ExpectQuery(`SELECT report_json, actor_kind, channel FROM wire_submissions_raw`).WithArgs(9).WillReturnRows(sqlmock.NewRows([]string{"report_json", "actor_kind", "channel"}).AddRow(tt.wire, tt.actor, tt.channel))
+			expectLatestWire(mock, 9, tt.wire, tt.actor, tt.channel)
 			if tt.kind == "digital_share" {
 				rows := sqlmock.NewRows([]string{"shared_text"})
 				if tt.shared != "" {
