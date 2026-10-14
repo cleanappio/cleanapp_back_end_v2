@@ -530,7 +530,6 @@ func buildDigitalShareWireSubmission(payload normalizedDigitalSharePayload, sour
 		SchemaVersion: cleanAppWireSchemaV1,
 		SourceID:      sourceID,
 		SubmittedAt:   submittedAt,
-		ObservedAt:    payload.ClientCreatedAt,
 		Extensions: map[string]any{
 			"share_source_app":           payload.SourceApp,
 			"share_capture_mode":         payload.CaptureMode,

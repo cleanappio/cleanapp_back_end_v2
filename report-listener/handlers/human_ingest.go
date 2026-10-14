@@ -152,8 +152,8 @@ func buildHumanWireSubmission(req humanReportSubmissionRequest, sourcePrefix str
 	channel := normalizeHumanChannel(req.Channel)
 	submittedAt := time.Now().UTC().Format(time.RFC3339)
 	observedAt := strings.TrimSpace(req.ObservedAt)
-	if observedAt == "" || parseRFC3339(observedAt) == nil {
-		observedAt = submittedAt
+	if parseRFC3339(observedAt) == nil {
+		observedAt = ""
 	}
 
 	title := humanReportTitle(req.Annotation)
@@ -169,11 +169,12 @@ func buildHumanWireSubmission(req humanReportSubmissionRequest, sourcePrefix str
 		SubmittedAt:   submittedAt,
 		ObservedAt:    observedAt,
 		Extensions: map[string]any{
-			"action_id":  req.ActionID,
-			"x":          req.X,
-			"y":          req.Y,
-			"device_id":  strings.TrimSpace(req.DeviceID),
-			"session_id": strings.TrimSpace(req.SessionID),
+			"observation_time_supplied": observedAt != "",
+			"action_id":                 req.ActionID,
+			"x":                         req.X,
+			"y":                         req.Y,
+			"device_id":                 strings.TrimSpace(req.DeviceID),
+			"session_id":                strings.TrimSpace(req.SessionID),
 		},
 	}
 	sub.Agent.AgentID = humanAgentID(req)

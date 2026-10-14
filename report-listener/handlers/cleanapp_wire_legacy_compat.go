@@ -52,7 +52,6 @@ func (h *Handlers) mirrorLegacyBulkIngestToWire(ctx context.Context, fetcherID, 
 			SchemaVersion: cleanAppWireSchemaV1,
 			SourceID:      it.ext,
 			SubmittedAt:   time.Now().UTC().Format(time.RFC3339),
-			ObservedAt:    it.createdAt,
 		}
 		sub.Agent.AgentID = "legacy-bulk-ingest-" + normalizeWireSlug(source)
 		sub.Agent.AgentName = "Legacy Bulk Ingest"
@@ -89,6 +88,7 @@ func (h *Handlers) mirrorLegacyBulkIngestToWire(ctx context.Context, fetcherID, 
 			"url":           it.url,
 			"summary":       it.summary,
 			"brand_name":    it.brandName,
+			"metadata":      legacySourceMetadata(it),
 		}
 		if strings.EqualFold(sub.Report.Domain, "physical") || it.lat != 0 || it.lon != 0 {
 			sub.Report.Location = &struct {
@@ -104,7 +104,6 @@ func (h *Handlers) mirrorLegacyBulkIngestToWire(ctx context.Context, fetcherID, 
 				Lng:             it.lon,
 				PlaceConfidence: 0.7,
 			}
-			sub.Report.DigitalContext = nil
 		}
 		if strings.TrimSpace(it.url) != "" {
 			sub.Report.EvidenceBundle = append(sub.Report.EvidenceBundle, struct {
@@ -118,7 +117,6 @@ func (h *Handlers) mirrorLegacyBulkIngestToWire(ctx context.Context, fetcherID, 
 				EvidenceID: "legacy_url_" + strings.ReplaceAll(it.ext, ":", "_"),
 				Type:       "url",
 				URI:        it.url,
-				CapturedAt: it.createdAt,
 			})
 		}
 		sub.Delivery.RequestedLane = "auto"
@@ -175,4 +173,20 @@ func (h *Handlers) mirrorLegacyBulkIngestToWire(ctx context.Context, fetcherID, 
 	}
 
 	return metadata, nil
+}
+
+// Legacy created_at describes source publication, not a witnessed incident.
+// Retain the author snapshot separately from generated report descriptions.
+func legacySourceMetadata(it preparedBulkIngestItem) map[string]interface{} {
+	metadata := make(map[string]interface{}, len(it.metadata)+2)
+	for key, value := range it.metadata {
+		metadata[key] = value
+	}
+	if _, ok := metadata["source_published_at"]; !ok && it.createdAt != "" {
+		metadata["source_published_at"] = it.createdAt
+	}
+	if _, ok := metadata["source_url"]; !ok && it.url != "" {
+		metadata["source_url"] = it.url
+	}
+	return metadata
 }
