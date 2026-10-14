@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 HOST="${HOST:-deployer@34.122.15.16}"
 REMOTE_STAGE_DIR="${REMOTE_STAGE_DIR:-/home/deployer/build_src/go_migrations_stage}"
@@ -54,6 +55,7 @@ fi
 
 ssh "${HOST}" "bash -s -- '${REMOTE_STAGE_DIR}' '${GO_IMAGE}' ${services[*]}" <<'REMOTE'
 set -euo pipefail
+umask 077
 REMOTE_STAGE_DIR="${1}"
 GO_IMAGE="${2}"
 shift 2

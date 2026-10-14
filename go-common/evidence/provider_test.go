@@ -48,6 +48,71 @@ func TestProvidersUseSameSourceOnlySchemaAndValidateQuotes(t *testing.T) {
 	}
 }
 
+func TestProvidersRetainAuthorAndQuoteContextWithOriginalMedia(t *testing.T) {
+	var photo bytes.Buffer
+	if err := png.Encode(&photo, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []string{"openai", "gemini"} {
+		t.Run(kind, func(t *testing.T) {
+			client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				var body map[string]any
+				if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+					t.Fatal(err)
+				}
+				var input string
+				if kind == "openai" {
+					if body["temperature"] != float64(0) {
+						t.Fatal("classification must use deterministic generation")
+					}
+					messages := body["messages"].([]any)
+					parts := messages[1].(map[string]any)["content"].([]any)
+					input = parts[0].(map[string]any)["text"].(string)
+					if len(parts) != 2 || parts[1].(map[string]any)["type"] != "image_url" {
+						t.Fatal("source context must not replace original media")
+					}
+				} else {
+					if body["generationConfig"].(map[string]any)["temperature"] != float64(0) {
+						t.Fatal("classification must use deterministic generation")
+					}
+					contents := body["contents"].([]any)
+					parts := contents[0].(map[string]any)["parts"].([]any)
+					input = parts[1].(map[string]any)["text"].(string)
+					if len(parts) != 3 || parts[2].(map[string]any)["inline_data"] == nil {
+						t.Fatal("source context must not replace original media")
+					}
+				}
+				var source map[string]any
+				if err := json.Unmarshal([]byte(input), &source); err != nil {
+					t.Fatal(err)
+				}
+				context := source["SOURCE_CONTEXT"].(map[string]any)
+				if source["ORIGINAL_TEXT"] != "Our platform collects useful reports." || context["author_handle"] != "CleanApp" || context["post_relation"] != "quote" {
+					t.Fatal("quoted author context lost or mixed into original wording")
+				}
+				if strings.Contains(input, "internal-source-id") {
+					t.Fatal("internal identifiers must not become source-author context")
+				}
+				fields := `{"report_kind":"coverage","evidence_excerpt":"Our platform collects useful reports."}`
+				payload := map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": fields}}}}
+				if kind == "gemini" {
+					payload = map[string]any{"candidates": []any{map[string]any{"content": map[string]any{"parts": []any{map[string]any{"text": fields}}}}}}
+				}
+				encoded, _ := json.Marshal(payload)
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(encoded)), Header: make(http.Header)}, nil
+			})}
+			provider := NewOpenAIClassifier("test-secret", "model", client)
+			if kind == "gemini" {
+				provider = NewGeminiClassifier("test-secret", "model", client)
+			}
+			result, err := Classify(provider, Original{Text: "Our platform collects useful reports.", Image: photo.Bytes(), SourceAuthor: "CleanApp", SourceRelation: "quote", SourceID: "internal-source-id"}, "OpenAI")
+			if err != nil || result.ReportKind != "coverage" {
+				t.Fatalf("got %#v %v", result, err)
+			}
+		})
+	}
+}
+
 func TestProviderErrorsNeverEchoOriginalOrCredentials(t *testing.T) {
 	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: 400, Body: io.NopCloser(strings.NewReader(`{"error":"private-source test-secret"}`)), Header: make(http.Header)}, nil

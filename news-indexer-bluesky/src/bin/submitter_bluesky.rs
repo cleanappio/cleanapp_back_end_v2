@@ -11,6 +11,8 @@ use tokio::time::sleep;
 
 #[path = "../indexer_bluesky_schema.rs"]
 mod indexer_bluesky_schema;
+#[path = "../selection.rs"]
+mod selection;
 
 #[derive(Deserialize, Clone, Debug)]
 struct Config {
@@ -87,11 +89,14 @@ struct BlueskyPreparedItem {
     text: String,
     original_text: String,
     original_text_truncated: bool,
+    source_relation: String,
     severity: f64,
     relevance: f64,
     classification: String,
     created_iso: String,
     image_base64: Option<String>,
+    image_url: Option<String>,
+    image_mime: String,
     summary: String,
     report_title: String,
     report_description: String,
@@ -208,7 +213,11 @@ async fn run_once(
     // Legacy mode uses external_ingest_index exclusion.
     // Wire mode adds a local receipt ledger keyed by Bluesky URI so retries are idempotent
     // even though Wire itself does not populate external_ingest_index.
-    let rows: Vec<Row> = conn.exec(
+    // Reserve capacity for each domain rather than letting one busy feed
+    // consume the entire batch. Unused capacity is filled on later polls.
+    let mut rows: Vec<Row> = Vec::new();
+    for domain in ["digital", "physical"] {
+        let domain_rows: Vec<Row> = conn.exec(
         r#"SELECT p.uri, COALESCE(p.author_handle,''), COALESCE(p.text,''),
                   COALESCE(a.severity_level, 0.0), COALESCE(a.relevance, 0.0),
                   COALESCE(a.classification, 'digital'),
@@ -218,7 +227,10 @@ async fn run_once(
                   COALESCE(a.summary, ''), COALESCE(a.report_title, ''),
                   COALESCE(a.report_description, ''), COALESCE(a.brand_display_name, ''),
                   COALESCE(a.brand_name, ''), COALESCE(a.inferred_contact_emails, '[]'),
-                  CAST(p.raw AS CHAR)
+                  CAST(p.raw AS CHAR),
+                  (SELECT m.url FROM indexer_bluesky_media m WHERE m.post_uri=p.uri ORDER BY position ASC LIMIT 1),
+                  (SELECT b.mime FROM indexer_media_blob b WHERE b.sha256 =
+                   (SELECT m.sha256 FROM indexer_bluesky_media m WHERE m.post_uri=p.uri ORDER BY position ASC LIMIT 1) LIMIT 1)
            FROM (
              SELECT p.uri
              FROM indexer_bluesky_post p FORCE INDEX (idx_created_at)
@@ -226,7 +238,12 @@ async fn run_once(
              LEFT JOIN external_ingest_index ei
                ON ei.source = 'bluesky' AND ei.external_id COLLATE utf8mb4_unicode_ci = p.uri
              LEFT JOIN indexer_bluesky_wire_submission ws ON ws.uri = p.uri
-             WHERE a.is_relevant = TRUE AND ei.seq IS NULL
+             WHERE a.is_relevant = TRUE AND a.error IS NULL AND ei.seq IS NULL
+               AND a.classification = ?
+               AND p.created_at >= UTC_TIMESTAMP() - INTERVAL 48 HOUR
+               AND p.created_at <= UTC_TIMESTAMP() + INTERVAL 5 MINUTE
+               AND (a.classification = 'digital' OR EXISTS (
+                   SELECT 1 FROM indexer_bluesky_media m WHERE m.post_uri=p.uri AND m.sha256 IS NOT NULL))
                AND (? = 'legacy' OR ws.uri IS NULL)
              ORDER BY p.created_at DESC
              LIMIT ?
@@ -234,9 +251,11 @@ async fn run_once(
            JOIN indexer_bluesky_post p ON p.uri = candidates.uri
            JOIN indexer_bluesky_analysis a ON a.uri = p.uri
            ORDER BY p.created_at DESC, p.uri ASC"#,
-        (protocol_name(protocol), batch_size as u64),
+        (domain, protocol_name(protocol), batch_size.div_ceil(2) as u64),
     )
     .await?;
+        rows.extend(domain_rows);
+    }
 
     if rows.is_empty() {
         info!("submitter: no posts to submit");
@@ -302,9 +321,15 @@ async fn run_once(
                 .to_string()
         };
         let url = format!("https://bsky.app/profile/{}/post/{}", profile_id, post_id);
-        let raw: String = row.get::<Option<String>, _>(14).unwrap_or(None).unwrap_or_default();
+        let raw: String = row
+            .get::<Option<String>, _>(14)
+            .unwrap_or(None)
+            .unwrap_or_default();
         let location = source_map_location(&raw);
-        let source_complete = text.replace("\\n", "\n").lines()
+        let source_relation = source_record_relation(&raw).to_string();
+        let source_complete = text
+            .replace("\\n", "\n")
+            .lines()
             .any(|line| line.trim().eq_ignore_ascii_case("Status: Complete"));
 
         let title = if !report_title.is_empty() {
@@ -320,6 +345,27 @@ async fn run_once(
         };
         content = format!("{} : {}", content, url);
 
+        let image_url: Option<String> = row.get::<Option<String>, _>(15).unwrap_or(None);
+        let image_mime = row
+            .get::<Option<String>, _>(16)
+            .unwrap_or(None)
+            .filter(|mime| mime.starts_with("image/"))
+            .unwrap_or_else(|| "image/jpeg".into());
+        // Apply the same policy to the pre-existing analyzed backlog as to
+        // newly discovered posts. It must not bypass collector filtering.
+        if !selection::fresh(Some(&created_iso), chrono::Utc::now())
+            || selection::kind(&text, img_opt.is_some()).is_none()
+            || source_complete
+        {
+            // Retain evidence, but remove policy-rejected backlog items from
+            // eligibility so they cannot starve later rows or trigger restarts.
+            conn.exec_drop(
+                "UPDATE indexer_bluesky_analysis SET is_relevant=FALSE WHERE uri=?",
+                (&uri,),
+            )
+            .await?;
+            continue;
+        }
         let image_base64 = img_opt.as_ref().map(|b| STANDARD.encode(b));
 
         items.push(BlueskyPreparedItem {
@@ -328,11 +374,14 @@ async fn run_once(
             text: truncate_chars(&content, 4000),
             original_text: truncate_chars(&text, 4000),
             original_text_truncated: text.chars().count() > 4000,
+            source_relation,
             severity,
             relevance,
             classification,
             created_iso,
             image_base64,
+            image_url,
+            image_mime,
             summary,
             report_title: title,
             report_description: truncate_chars(&content, 4000),
@@ -361,13 +410,8 @@ async fn run_once(
     Ok(())
 }
 
-async fn submit_legacy(
-    client: &reqwest::Client,
-    endpoint_url: &str,
-    token: &str,
-    items: &[BlueskyPreparedItem],
-) -> Result<()> {
-    let payload = json!({
+fn bluesky_legacy_payload(items: &[BlueskyPreparedItem]) -> serde_json::Value {
+    json!({
         "source": "bluesky",
         "items": items.iter().map(|it| {
             json!({
@@ -383,6 +427,8 @@ async fn submit_legacy(
                     "original_text_truncated": it.original_text_truncated,
                     "source_url": it.url,
                     "source_published_at": it.created_iso,
+                    "source_author": it.author_handle,
+                    "source_relation": it.source_relation,
                     "author_handle": it.author_handle,
                     "classification": it.classification,
                     "relevance": it.relevance,
@@ -397,7 +443,16 @@ async fn submit_legacy(
                 "image_base64": it.image_base64
             })
         }).collect::<Vec<_>>(),
-    });
+    })
+}
+
+async fn submit_legacy(
+    client: &reqwest::Client,
+    endpoint_url: &str,
+    token: &str,
+    items: &[BlueskyPreparedItem],
+) -> Result<()> {
+    let payload = bluesky_legacy_payload(items);
 
     let resp = client
         .post(format!(
@@ -577,11 +632,24 @@ fn bluesky_item_to_wire_submission(it: &BlueskyPreparedItem) -> serde_json::Valu
         evidence.push(json!({
             "evidence_id": format!("ev_img_{}", stable_slug(&it.uri)),
             "type": "image",
-            "mime_type": "image/jpeg",
-            "uri": format!("data:image/jpeg;base64,{}", image_base64),
+            "mime_type": it.image_mime,
+            "uri": format!("data:{};base64,{}", it.image_mime, image_base64),
         }));
     }
 
+    // Oversized photos still retain their original attached image as evidence.
+    if it
+        .image_base64
+        .as_ref()
+        .is_some_and(|data| data.len() > 1_500_000)
+    {
+        if let Some(url) = &it.image_url {
+            evidence.push(
+                json!({"evidence_id":format!("ev_img_{}", stable_slug(&it.uri)),
+                "type":"image","mime_type":it.image_mime,"uri":url}),
+            );
+        }
+    }
     let mut submission = json!({
         "schema_version": "cleanapp-wire.v1",
         "source_id": it.uri,
@@ -623,7 +691,9 @@ fn bluesky_item_to_wire_submission(it: &BlueskyPreparedItem) -> serde_json::Valu
                     "original_text": it.original_text,
                     "original_text_truncated": it.original_text_truncated,
                     "source_url": it.url,
-                    "source_published_at": it.created_iso
+                    "source_published_at": it.created_iso,
+                    "source_author": it.author_handle,
+                    "source_relation": it.source_relation
                 },
                 "author_handle": it.author_handle,
                 "classification": it.classification,
@@ -653,17 +723,42 @@ fn source_map_location(raw: &str) -> Option<serde_json::Value> {
     let record: serde_json::Value = serde_json::from_str(raw).ok()?;
     let record = record.get("record").unwrap_or(&record);
     for facet in record.get("facets")?.as_array()? {
-        for feature in facet.get("features").and_then(|v| v.as_array()).into_iter().flatten() {
-            let Some(uri) = feature.get("uri").and_then(|v| v.as_str()) else { continue };
-            let Ok(url) = reqwest::Url::parse(uri) else { continue };
-            if !matches!(url.host_str(), Some("www.google.com" | "google.com" | "maps.google.com"))
-                || !url.path().starts_with("/maps") { continue; }
-            for (key,value) in url.query_pairs() {
-                if key != "query" && key != "q" { continue; }
-                let Some((lat,lon)) = value.split_once(',') else { continue };
-                let (Ok(lat),Ok(lon)) = (lat.trim().parse::<f64>(),lon.trim().parse::<f64>()) else { continue };
-                if lat.is_finite() && lon.is_finite() && (-90.0..=90.0).contains(&lat)
-                    && (-180.0..=180.0).contains(&lon) && (lat != 0.0 || lon != 0.0) {
+        for feature in facet
+            .get("features")
+            .and_then(|v| v.as_array())
+            .into_iter()
+            .flatten()
+        {
+            let Some(uri) = feature.get("uri").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            let Ok(url) = reqwest::Url::parse(uri) else {
+                continue;
+            };
+            if !matches!(
+                url.host_str(),
+                Some("www.google.com" | "google.com" | "maps.google.com")
+            ) || !url.path().starts_with("/maps")
+            {
+                continue;
+            }
+            for (key, value) in url.query_pairs() {
+                if key != "query" && key != "q" {
+                    continue;
+                }
+                let Some((lat, lon)) = value.split_once(',') else {
+                    continue;
+                };
+                let (Ok(lat), Ok(lon)) = (lat.trim().parse::<f64>(), lon.trim().parse::<f64>())
+                else {
+                    continue;
+                };
+                if lat.is_finite()
+                    && lon.is_finite()
+                    && (-90.0..=90.0).contains(&lat)
+                    && (-180.0..=180.0).contains(&lon)
+                    && (lat != 0.0 || lon != 0.0)
+                {
                     return Some(json!({"kind":"source_map", "lat":lat,"lng":lon,
                         "place_confidence":1.0,"address_text":uri}));
                 }
@@ -671,6 +766,40 @@ fn source_map_location(raw: &str) -> Option<serde_json::Value> {
         }
     }
     None
+}
+
+// Attribution follows the retained AT Protocol record, not model descriptions
+// or the fetcher's intake actor. Older projections lacking record fields remain unknown.
+fn source_record_relation(raw: &str) -> &'static str {
+    let Ok(payload) = serde_json::from_str::<serde_json::Value>(raw) else {
+        return "unknown";
+    };
+    let record = payload.get("record").unwrap_or(&payload);
+    if record.get("$type").and_then(|v| v.as_str()) != Some("app.bsky.feed.post")
+        || record.get("text").and_then(|v| v.as_str()).is_none()
+        || record
+            .get("createdAt")
+            .and_then(|v| v.as_str())
+            .and_then(|date| chrono::DateTime::parse_from_rfc3339(date).ok())
+            .is_none()
+    {
+        return "unknown";
+    }
+    if let Some(embed) = record.get("embed") {
+        match embed.get("$type").and_then(|v| v.as_str()) {
+            Some("app.bsky.embed.record" | "app.bsky.embed.recordWithMedia") => return "quote",
+            Some("app.bsky.embed.images" | "app.bsky.embed.external" | "app.bsky.embed.video") => {}
+            _ => return "unknown",
+        }
+    }
+    if let Some(reply) = record.get("reply") {
+        return if reply.is_object() {
+            "reply"
+        } else {
+            "unknown"
+        };
+    }
+    "original"
 }
 
 fn protocol_name(protocol: SubmitProtocol) -> &'static str {
@@ -722,25 +851,165 @@ fn truncate_chars(s: &str, max_chars: usize) -> String {
 mod body_limit_tests {
     use super::*;
     #[test]
+    fn physical_payload_preserves_photo_and_location_evidence() {
+        let mut item = BlueskyPreparedItem {
+            uri: "at://did:plc:fixture/app.bsky.feed.post/photo".into(),
+            author_handle: "fixture.test".into(),
+            text: "Pothole on Main St".into(),
+            original_text: "Pothole on Main St".into(),
+            original_text_truncated: false,
+            source_relation: "original".into(),
+            severity: 0.5,
+            relevance: 0.9,
+            classification: "physical".into(),
+            created_iso: chrono::Utc::now().to_rfc3339(),
+            image_base64: Some("cGhvdG8=".into()),
+            image_url: Some("https://cdn.bsky.app/photo".into()),
+            image_mime: "image/png".into(),
+            summary: "Pothole".into(),
+            report_title: "Pothole".into(),
+            report_description: "Pothole on Main St".into(),
+            brand_display_name: String::new(),
+            brand_name: String::new(),
+            inferred_contact_emails: json!([]),
+            url: "https://bsky.app/profile/fixture.test/post/photo".into(),
+            location: Some(json!({"kind":"source_map","lat":50.0,"lng":4.0})),
+            source_complete: false,
+        };
+        let payload = bluesky_item_to_wire_submission(&item);
+        assert_eq!(payload["report"]["domain"], "physical");
+        assert_eq!(payload["report"]["location"]["lat"], 50.0);
+        assert_eq!(
+            payload["report"]["evidence_bundle"][2]["mime_type"],
+            "image/png"
+        );
+        assert_eq!(
+            payload["report"]["evidence_bundle"][2]["uri"],
+            "data:image/png;base64,cGhvdG8="
+        );
+        item.image_base64 = Some("x".repeat(1_500_001));
+        let payload = bluesky_item_to_wire_submission(&item);
+        assert_eq!(
+            payload["report"]["evidence_bundle"][2]["uri"],
+            "https://cdn.bsky.app/photo"
+        );
+        assert_eq!(
+            payload["report"]["evidence_bundle"][2]["mime_type"],
+            "image/png"
+        );
+        assert!(payload.get("observed_at").is_none());
+        assert!(payload["report"]["evidence_bundle"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|evidence| evidence.get("captured_at").is_none()));
+    }
+    #[test]
     fn original_account_and_publication_are_separate_from_generated_summary() {
-        let item = BlueskyPreparedItem {
+        let mut item = BlueskyPreparedItem {
             uri: "at://did:plc:example/app.bsky.feed.post/42".into(),
-            author_handle: "example.test".into(), text: "Generated summary".into(),
-            original_text: "I found a blocked ramp.".into(), original_text_truncated: false,
-            severity: 0.5, relevance: 0.8, classification: "physical".into(),
-            created_iso: "2025-12-14T22:10:21Z".into(), image_base64: None,
-            summary: "Generated summary".into(), report_title: "Blocked ramp".into(),
-            report_description: "Generated summary".into(), brand_display_name: String::new(),
-            brand_name: String::new(), inferred_contact_emails: json!([]),
-            url: "https://bsky.app/profile/example.test/post/42".into(), location: None,
+            author_handle: "example.test".into(),
+            text: "Generated summary".into(),
+            original_text: "I found a blocked ramp.".into(),
+            original_text_truncated: false,
+            source_relation: "original".into(),
+            severity: 0.5,
+            relevance: 0.8,
+            classification: "physical".into(),
+            created_iso: "2025-12-14T22:10:21Z".into(),
+            image_base64: None,
+            image_url: Some("https://cdn.bsky.app/photo".into()),
+            image_mime: "image/png".into(),
+            summary: "Generated summary".into(),
+            report_title: "Blocked ramp".into(),
+            report_description: "Generated summary".into(),
+            brand_display_name: String::new(),
+            brand_name: String::new(),
+            inferred_contact_emails: json!([]),
+            url: "https://bsky.app/profile/example.test/post/42".into(),
+            location: None,
             source_complete: false,
         };
         let submission = bluesky_item_to_wire_submission(&item);
         assert!(submission.get("observed_at").is_none());
         assert_eq!(submission["report"]["description"], "Generated summary");
-        assert_eq!(submission["report"]["digital_context"]["metadata"]["original_text"],
-            "I found a blocked ramp.");
-        assert_eq!(submission["report"]["digital_context"]["metadata"]["source_published_at"], item.created_iso);
+        let metadata = &submission["report"]["digital_context"]["metadata"];
+        assert_eq!(metadata["original_text"], "I found a blocked ramp.");
+        assert_eq!(metadata["original_text_truncated"], false);
+        assert_eq!(metadata["source_published_at"], item.created_iso);
+        assert_eq!(metadata["source_url"], item.url);
+        assert_eq!(metadata["source_author"], item.author_handle);
+        assert_eq!(metadata["source_relation"], "original");
+        assert_eq!(submission["agent"]["agent_type"], "fetcher");
+        let legacy = bluesky_legacy_payload(&[item.clone()]);
+        let legacy_metadata = &legacy["items"][0]["metadata"];
+        assert_eq!(legacy_metadata["original_text"], item.original_text);
+        assert_eq!(legacy_metadata["source_published_at"], item.created_iso);
+        assert_eq!(legacy_metadata["source_author"], item.author_handle);
+        assert_eq!(legacy_metadata["source_relation"], "original");
+        item.source_relation = "quote".into();
+        assert_eq!(
+            bluesky_legacy_payload(&[item.clone()])["items"][0]["metadata"]["source_relation"],
+            "quote"
+        );
+        assert_eq!(
+            bluesky_item_to_wire_submission(&item)["report"]["digital_context"]["metadata"]
+                ["source_relation"],
+            "quote"
+        );
+        assert!(submission["report"]["evidence_bundle"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|evidence| evidence.get("captured_at").is_none()));
+        // The immutable prefix is explicitly marked when the source is longer,
+        // so the original resolver can fall back to its retained indexed text.
+        item.original_text = truncate_chars(&"é".repeat(4001), 4000);
+        item.original_text_truncated = true;
+        let truncated = bluesky_item_to_wire_submission(&item);
+        let metadata = &truncated["report"]["digital_context"]["metadata"];
+        assert_eq!(
+            metadata["original_text"].as_str().unwrap().chars().count(),
+            4000
+        );
+        assert_eq!(metadata["original_text_truncated"], true);
+    }
+    #[test]
+    fn source_relation_requires_actual_valid_post_structure() {
+        let post = || json!({"$type":"app.bsky.feed.post", "text":"My app failed", "createdAt":"2026-10-14T07:00:00Z"});
+        assert_eq!(source_record_relation(&post().to_string()), "original");
+        let mut quote = post();
+        quote["embed"] = json!({"$type":"app.bsky.embed.record", "record":{"uri":"at://did:plc:quoted/app.bsky.feed.post/example","cid":"fixture"}});
+        assert_eq!(
+            source_record_relation(&json!({"record":quote.clone()}).to_string()),
+            "quote"
+        );
+        quote["reply"] = json!({"root":{},"parent":{}});
+        assert_eq!(source_record_relation(&quote.to_string()), "quote");
+        quote["embed"]["$type"] = json!("app.bsky.embed.recordWithMedia");
+        assert_eq!(source_record_relation(&quote.to_string()), "quote");
+        let mut reply = post();
+        reply["reply"] = json!({"root":{"uri":"at://did:plc:root/app.bsky.feed.post/example","cid":"root"},"parent":{"uri":"at://did:plc:parent/app.bsky.feed.post/example","cid":"parent"}});
+        assert_eq!(source_record_relation(&reply.to_string()), "reply");
+        reply["reply"] = serde_json::Value::Null;
+        assert_eq!(source_record_relation(&reply.to_string()), "unknown");
+        let mut invalid = post();
+        invalid["$type"] = json!("app.bsky.actor.profile");
+        assert_eq!(source_record_relation(&invalid.to_string()), "unknown");
+        invalid = post();
+        invalid["createdAt"] = json!("not a date");
+        assert_eq!(source_record_relation(&invalid.to_string()), "unknown");
+        invalid = post();
+        invalid["embed"] = json!({"$type":"unrecognized.embed"});
+        assert_eq!(source_record_relation(&invalid.to_string()), "unknown");
+        for raw in [
+            "not JSON",
+            "null",
+            "{}",
+            r#"{"record":{"text":"My app failed","createdAt":"2026-10-14T07:00:00Z"}}"#,
+        ] {
+            assert_eq!(source_record_relation(raw), "unknown");
+        }
     }
     #[test]
     fn extracts_source_map_coordinates_without_guessing() {
@@ -748,7 +1017,12 @@ mod body_limit_tests {
         let point = source_map_location(&raw("https://www.google.com/maps/search/?api=1&query=-38.159428644010646,145.19705131346674")).unwrap();
         assert_eq!(point["lat"], -38.159428644010646);
         assert_eq!(point["lng"], 145.19705131346674);
-        for url in ["https://www.google.com/maps/search/?query=Langwarrin", "https://www.google.com/maps/search/?query=0,0", "https://www.google.com/maps/search/?query=91,12", "https://example.com/maps?query=10,20"] {
+        for url in [
+            "https://www.google.com/maps/search/?query=Langwarrin",
+            "https://www.google.com/maps/search/?query=0,0",
+            "https://www.google.com/maps/search/?query=91,12",
+            "https://example.com/maps?query=10,20",
+        ] {
             assert!(source_map_location(&raw(url)).is_none());
         }
     }
