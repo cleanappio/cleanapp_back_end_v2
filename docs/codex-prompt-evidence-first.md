@@ -51,6 +51,7 @@ Keep ingesting coverage. Do not change relevance thresholds or remove submission
 For X, Bluesky, and GitHub submitters, preserve actual original body/text alongside the generated summary in existing normalized intake metadata. Use these common metadata keys:
 
 - `original_text`
+- `original_text_truncated` when the retained snapshot is bounded; resolve full text from the source table instead of classifying a cut-off snapshot.
 - `source_url`
 - `source_published_at`
 - `source_updated_at`, where actually known
@@ -68,6 +69,7 @@ Add optional `evidence` and `recurrence` objects to full/lite reports, public di
 - `report_kind`, `intake_method`, `intake_label`, `source_platform`, safe original `source_url`.
 - Separate nullable `source_published_at`, `observed_at`, and actual `ingested_at`.
 - Original `excerpt`, `reported_impact`, `classification_reason`, `entity_relationship`, and `evidence_version`.
+- `has_original_media` only for valid retained original images; placeholder media is not evidence. Image-only observations must not receive fabricated quotations.
 - Explicit `validation_status`; default `not_independently_reproduced`.
 - Separate `upstream_status` and `resolution_status`; missing evidence is unknown. A source marked closed is not a demonstrated fix. Status snapshots must not imply current validation.
 - `why_surfaced`: short, inspectable reasons such as original evidence available, specific reported impact, or supported additional observations. Do not claim novelty or additional corroboration merely because an existing upstream issue was imported.
@@ -91,7 +93,7 @@ Provide a shared brand briefing selection implementation with:
 - `kind_counts`, `counts_exact`, and scope metadata for company/product filters. Include all selection dimensions in cache keys.
 - Evidence/recurrence enrichment in a bounded number of queries per page; no per-report query loop.
 
-Signal ordering should use inspectable evidence completeness, concrete impact, entity relevance, corroboration where supported, and genuine observation/source recency. It must allow a strong singleton to rank above a large weak cluster. Avoid a new opaque percentage that substitutes for evidence.
+Signal ordering should use inspectable evidence completeness and concrete reported impact, entity relevance, reported severity, deduplicated related-source counts as a tie-break, and genuine observation/source recency. Related sources are not proven independent corroboration. A strong singleton must rank above a large weak cluster. Avoid a new opaque percentage that substitutes for evidence.
 
 Add explicit company/product mappings for Anthropic/Claude/Claude Code and OpenAI's relevant products/SDKs, with scoped product filters and deduplication across aliases. Use exact supported relationships, not keyword substring joins. Preserve separate labels for integration dependencies. Physical/property pages should use the same evidence principles while retaining useful location context.
 

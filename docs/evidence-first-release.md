@@ -1,6 +1,6 @@
 # Evidence first: implementation and release
 
-The production frontend now leads with original observations and their supporting
+The implemented frontend leads with original observations and their supporting
 evidence. The public backend separates experience kind, acquisition provenance,
 entity relevance, source/publication/observation/ingestion dates, and independent
 validation. Related cases are labeled issue families; source reports/accounts are
@@ -72,7 +72,7 @@ never presented as affected-user totals.
   explicit bounded backfill. Transient resolver/provider errors keep version zero
   for retry; successfully assessed unknown records can be revisited explicitly.
 - Evidence adds a source-only provider request where originals exist. The
-  process-wide `EVIDENCE_REQUESTS_PER_MINUTE` budget defaults to20 and covers both
+  process-wide `EVIDENCE_REQUESTS_PER_MINUTE` budget defaults to 20 and covers both
   normal analysis evidence and the recent-import worker. Separate backfill
   processes have their own budget; allocate combined provider quota deliberately.
 - Case association does not prove an identical defect, independent corroboration,
@@ -93,7 +93,7 @@ submitter tests and the seven Rust briefing proxy tests passed. Seven frontend
 evidence tests, TypeScript checking, and the production build passed with loopback
 API environment configuration. Unrelated existing lint warnings remain.
 
-Local CUA checks covered desktop1280px and mobile320px, evidence before chat,
+Local CUA checks covered desktop 1280px and mobile 320px, evidence before chat,
 source disclosures, kind/sort selection, token navigation, and empty/error states.
 Screenshot records use a read-only local fixture with a historical public GitHub
 example and explicitly synthetic coverage/unknown fixtures. Their counts are not
