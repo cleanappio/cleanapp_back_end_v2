@@ -26,6 +26,24 @@ const legacyPendingEvidenceQuery = `SELECT /*+ MAX_EXECUTION_TIME(8000) */ r.seq
    OR EXISTS (SELECT 1 FROM external_ingest_index ei WHERE ei.seq = r.seq AND ei.created_at >= UTC_TIMESTAMP() - INTERVAL 1 DAY))
  ORDER BY r.seq DESC LIMIT ?`
 
+// The first gated worker excluded completed evidence before source lookups, but
+// still checked RA presence during the materialized primary-key scan.
+const preRAGatePendingEvidenceQuery = `WITH pending_candidates AS (
+ SELECT candidate.seq
+ FROM reports candidate LEFT JOIN report_evidence ev ON ev.seq = candidate.seq
+ WHERE candidate.seq > GREATEST(0, CAST((SELECT COALESCE(MAX(seq), 0) FROM reports) AS SIGNED) - 50000)
+ AND COALESCE(ev.evidence_version, 0) = 0
+ AND (SELECT 1 FROM report_analysis ra WHERE ra.seq = candidate.seq LIMIT 1) IS NOT NULL
+ ORDER BY candidate.seq DESC LIMIT 50000
+)
+ SELECT /*+ MAX_EXECUTION_TIME(8000) */ r.seq,
+ (SELECT COALESCE(MAX(brand_name), '') FROM report_analysis WHERE seq = r.seq)
+ FROM pending_candidates c STRAIGHT_JOIN reports r ON r.seq = c.seq
+ WHERE (r.ts >= UTC_TIMESTAMP() - INTERVAL 1 DAY
+   OR EXISTS (SELECT 1 FROM wire_submissions_raw ws WHERE ws.report_seq = r.seq AND ws.created_at >= UTC_TIMESTAMP() - INTERVAL 1 DAY)
+   OR EXISTS (SELECT 1 FROM external_ingest_index ei WHERE ei.seq = r.seq AND ei.created_at >= UTC_TIMESTAMP() - INTERVAL 1 DAY))
+ ORDER BY r.seq DESC LIMIT ?`
+
 // Only a dedicated local fixture database is allowed. This checks actual MySQL
 // candidate semantics without changing any production tables or model calls.
 func TestPendingEvidenceMySQLBoundedRecentImports(t *testing.T) {
@@ -203,7 +221,7 @@ func TestPendingEvidenceMySQLCompletedRowsAvoidSourceLookups(t *testing.T) {
 	}
 	fetches := func() map[string]uint64 {
 		t.Helper()
-		rows, err := db.Query(`SELECT OBJECT_NAME,COUNT_FETCH FROM performance_schema.table_io_waits_summary_by_table WHERE OBJECT_SCHEMA=DATABASE() AND OBJECT_NAME IN ('wire_submissions_raw','external_ingest_index')`)
+		rows, err := db.Query(`SELECT OBJECT_NAME,COUNT_FETCH FROM performance_schema.table_io_waits_summary_by_table WHERE OBJECT_SCHEMA=DATABASE() AND OBJECT_NAME IN ('wire_submissions_raw','external_ingest_index','report_analysis')`)
 		if err != nil {
 			t.Fatal("fixture cannot read source lookup counters")
 		}
@@ -227,18 +245,28 @@ func TestPendingEvidenceMySQLCompletedRowsAvoidSourceLookups(t *testing.T) {
 		t.Fatal("completed fixture unexpectedly eligible in original query")
 	}
 	afterOld := fetches()
+	if rows := pendingEvidenceFixtureQuery(t, db, preRAGatePendingEvidenceQuery, 50); len(rows) != 0 {
+		t.Fatal("completed fixture unexpectedly eligible in first gated query")
+	}
+	afterFirstGate := fetches()
 	if rows := pendingEvidenceFixtureQuery(t, db, pendingEvidenceQuery, 50); len(rows) != 0 {
 		t.Fatal("completed fixture unexpectedly eligible in gated query")
 	}
 	afterNew := fetches()
 	for _, name := range []string{"wire_submissions_raw", "external_ingest_index"} {
 		oldReads := afterOld[name] - before[name]
-		newReads := afterNew[name] - afterOld[name]
+		newReads := afterNew[name] - afterFirstGate[name]
 		if oldReads == 0 || newReads != 0 {
 			t.Fatalf("completed-source lookup proof failed for %s: legacy=%d gated=%d", name, oldReads, newReads)
 		}
 		t.Logf("%s completed-row fetches legacy=%d gated=%d", name, oldReads, newReads)
 	}
+	priorRAReads := afterFirstGate["report_analysis"] - afterOld["report_analysis"]
+	newRAReads := afterNew["report_analysis"] - afterFirstGate["report_analysis"]
+	if priorRAReads == 0 || newRAReads != 0 {
+		t.Fatalf("completed-RA lookup proof failed: first_gate=%d outer_gate=%d", priorRAReads, newRAReads)
+	}
+	t.Logf("report_analysis completed-row fetches first_gate=%d outer_gate=%d", priorRAReads, newRAReads)
 	var encoded string
 	if err := db.QueryRow(`EXPLAIN FORMAT=JSON `+pendingEvidenceQuery, 50).Scan(&encoded); err != nil {
 		t.Fatal(err)
@@ -288,8 +316,9 @@ func TestPendingEvidenceMySQLCompletedRowsAvoidSourceLookups(t *testing.T) {
 	}
 	newRows := pendingEvidenceFixtureQuery(t, db, pendingEvidenceQuery, 50)
 	oldRows := pendingEvidenceFixtureQuery(t, db, legacyPendingEvidenceQuery, 50)
+	firstGateRows := pendingEvidenceFixtureQuery(t, db, preRAGatePendingEvidenceQuery, 50)
 	want := []PendingEvidence{{Seq: 60201, Brand: "openai"}, {Seq: 60200, Brand: "claude"}}
-	if !reflect.DeepEqual(newRows, oldRows) || !reflect.DeepEqual(newRows, want) {
+	if !reflect.DeepEqual(newRows, oldRows) || !reflect.DeepEqual(newRows, firstGateRows) || !reflect.DeepEqual(newRows, want) {
 		t.Fatal("missing/version0 ingestion parity changed")
 	}
 	if rows := pendingEvidenceFixtureQuery(t, db, pendingEvidenceQuery, 1); !reflect.DeepEqual(rows, want[:1]) {
