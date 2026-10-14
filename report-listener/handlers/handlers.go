@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"cleanapp-common/edge"
-	"context"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
@@ -183,6 +182,7 @@ type BulkIngestRequest struct {
 }
 
 type preparedBulkIngestItem struct {
+	metadata       map[string]interface{}
 	idx            int
 	seq            int
 	ext            string
@@ -434,6 +434,7 @@ func (h *Handlers) BulkIngest(c *gin.Context) {
 		}
 
 		newItems = append(newItems, preparedBulkIngestItem{
+			metadata:       it.Metadata,
 			idx:            i,
 			ext:            it.ExternalID,
 			team:           team,
@@ -954,6 +955,9 @@ func (h *Handlers) GetReportBySeq(c *gin.Context) {
 		return
 	}
 
+	if err := h.db.AttachPublicEvidence(c.Request.Context(), []*models.ReportWithAnalysis{reportWithAnalysis}); err != nil {
+		log.Printf("Public detail evidence unavailable: %v", err)
+	}
 	c.JSON(http.StatusOK, reportWithAnalysis)
 }
 
@@ -979,6 +983,9 @@ func (h *Handlers) GetReportByPublicID(c *gin.Context) {
 		return
 	}
 
+	if err := h.db.AttachPublicEvidence(c.Request.Context(), []*models.ReportWithAnalysis{reportWithAnalysis}); err != nil {
+		log.Printf("Public detail evidence unavailable: %v", err)
+	}
 	c.JSON(http.StatusOK, reportWithAnalysis)
 }
 
@@ -1211,130 +1218,7 @@ func (h *Handlers) GetReportsByLatLngLite(c *gin.Context) {
 }
 
 func (h *Handlers) GetReportsByBrand(c *gin.Context) {
-	// Get the brand name parameter from query string
-	brandName := c.Query("brand_name")
-	if brandName == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing 'brand_name' parameter"})
-		return
-	}
-
-	// Get the limit parameter from query string, default to 10 if not provided
-	limitStr := c.DefaultQuery("n", "10")
-
-	limit, err := strconv.Atoi(limitStr)
-	if err != nil || limit <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'n' parameter. Must be a positive integer."})
-		return
-	}
-
-	// Limit the maximum number of reports to prevent abuse
-	if limit > MaxReportsLimit {
-		limit = MaxReportsLimit
-	}
-
-	fullDataStr := c.DefaultQuery("full_data", "false")
-	fullData, err := strconv.ParseBool(fullDataStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'full_data' parameter. Must be 'true' or 'false'."})
-		return
-	}
-
-	var (
-		reportsFull []models.ReportWithAnalysis
-		reportsLite []models.ReportWithMinimalAnalysis
-	)
-	if fullData {
-		reportsFull, err = h.db.GetReportsByBrandName(c.Request.Context(), brandName, limit)
-	} else {
-		reportsLite, err = h.db.GetReportsByBrandNameLite(c.Request.Context(), brandName, limit)
-	}
-	if err != nil {
-		log.Printf("Failed to get reports by brand '%s': %v", brandName, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve reports"})
-		return
-	}
-
-	// Get counts with a bounded timeout to avoid slow/full-table scans blocking UI.
-	totalCount := len(reportsFull)
-	if !fullData {
-		totalCount = len(reportsLite)
-	}
-	highPriorityCount := 0
-	mediumPriorityCount := 0
-
-	if cached, ok, fresh := h.getBrandCountsCached(brandName); ok && fresh {
-		totalCount = cached.Total
-		highPriorityCount = cached.High
-		mediumPriorityCount = cached.Medium
-	} else {
-		countTimeout := 15 * time.Second
-		if limit <= 1 {
-			// Keep search dropdown (n=1) snappy while still attempting accurate totals.
-			countTimeout = 900 * time.Millisecond
-		}
-
-		countCtx, cancelCounts := context.WithTimeout(c.Request.Context(), countTimeout)
-		t, hpc, mpc, err := h.db.GetBrandPriorityCountsByBrandName(countCtx, brandName)
-		cancelCounts()
-		if err != nil {
-			log.Printf("Failed to get aggregated counts for brand '%s' (fallbacking to cache/partial): %v", brandName, err)
-			if cached, ok, _ := h.getBrandCountsCached(brandName); ok {
-				totalCount = cached.Total
-				highPriorityCount = cached.High
-				mediumPriorityCount = cached.Medium
-			} else {
-				// Total-only fallback so UI can still show the real corpus size.
-				totalOnlyCtx, cancelTotalOnly := context.WithTimeout(c.Request.Context(), 12*time.Second)
-				tOnly, totalErr := h.db.GetReportsCountByBrandName(totalOnlyCtx, brandName)
-				cancelTotalOnly()
-				if totalErr != nil {
-					log.Printf("Failed to get total count by brand '%s': %v", brandName, totalErr)
-				} else if tOnly > 0 {
-					totalCount = tOnly
-				}
-			}
-		} else {
-			totalCount = t
-			highPriorityCount = hpc
-			mediumPriorityCount = mpc
-			h.setBrandCountsCached(brandName, t, hpc, mpc)
-		}
-	}
-
-	// Create the response in the same format as other endpoints
-	if fullData {
-		response := models.ReportBatch{
-			Reports:             reportsFull,
-			Count:               len(reportsFull),
-			TotalCount:          totalCount,
-			HighPriorityCount:   highPriorityCount,
-			MediumPriorityCount: mediumPriorityCount,
-			FromSeq:             0,
-			ToSeq:               0,
-		}
-		if len(reportsFull) > 0 {
-			response.FromSeq = reportsFull[0].Report.Seq
-			response.ToSeq = reportsFull[len(reportsFull)-1].Report.Seq
-		}
-		c.JSON(http.StatusOK, response)
-		return
-	}
-
-	response := gin.H{
-		"reports":               reportsLite,
-		"count":                 len(reportsLite),
-		"total_count":           totalCount,
-		"high_priority_count":   highPriorityCount,
-		"medium_priority_count": mediumPriorityCount,
-		"from_seq":              0,
-		"to_seq":                0,
-	}
-	if len(reportsLite) > 0 {
-		response["from_seq"] = reportsLite[0].Report.Seq
-		response["to_seq"] = reportsLite[len(reportsLite)-1].Report.Seq
-	}
-
-	c.JSON(http.StatusOK, response)
+	h.serveEvidenceBrand(c, false)
 }
 
 // GetImageBySeq returns a base64 encoded image for a specific report by sequence number

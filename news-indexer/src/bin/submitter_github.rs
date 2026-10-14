@@ -203,6 +203,11 @@ async fn main() -> Result<()> {
                 "updated_at": updated_iso,
                 "score": sev,
                 "metadata": {
+                    "original_text": truncate_chars(body, 4000),
+                    "original_text_truncated": body.chars().count() > 4000,
+                    "source_url": url,
+                    "source_published_at": created_iso,
+                    "source_updated_at": updated_iso,
                     "repo_full_name": repo_full_name,
                     "plus_one": plus1,
                 },
@@ -349,7 +354,6 @@ fn github_item_to_wire_submission(item: &serde_json::Value) -> serde_json::Value
     let external_id = item.get("external_id").and_then(|v| v.as_str()).unwrap_or_default();
     let title = item.get("title").and_then(|v| v.as_str()).unwrap_or_default();
     let description = item.get("content").and_then(|v| v.as_str()).unwrap_or_default();
-    let observed_at = item.get("created_at").and_then(|v| v.as_str()).unwrap_or_default();
     let score = item.get("score").and_then(|v| v.as_f64()).unwrap_or(0.7);
     let url = item.get("url").and_then(|v| v.as_str()).unwrap_or_default();
     let metadata = item.get("metadata").cloned().unwrap_or_else(|| json!({}));
@@ -361,8 +365,7 @@ fn github_item_to_wire_submission(item: &serde_json::Value) -> serde_json::Value
     json!({
         "schema_version": "cleanapp-wire.v1",
         "source_id": format!("github_issue:{}", external_id),
-        "submitted_at": observed_at,
-        "observed_at": observed_at,
+        "submitted_at": chrono::Utc::now().to_rfc3339(),
         "agent": {
             "agent_id": "news_submitter_github",
             "agent_name": "CleanApp GitHub Submitter",
@@ -397,7 +400,6 @@ fn github_item_to_wire_submission(item: &serde_json::Value) -> serde_json::Value
                 "type": "media_link",
                 "uri": url,
                 "mime_type": "text/html",
-                "captured_at": observed_at,
             }],
             "tags": ["github", "issue"],
         },
@@ -411,6 +413,28 @@ fn wire_severity(score: f64) -> &'static str {
         "medium"
     } else {
         "low"
+    }
+}
+
+#[cfg(test)]
+mod source_evidence_tests {
+    use super::*;
+
+    #[test]
+    fn importing_an_old_issue_does_not_claim_a_new_occurrence() {
+        let published = "2025-04-21T19:56:11Z";
+        let item = json!({
+            "external_id": "1477", "title": "Retry headers missing",
+            "content": "Issue body", "created_at": published,
+            "url": "https://github.com/example/sdk/issues/1477",
+            "metadata": {"repo_full_name": "example/sdk", "original_text": "Issue body",
+                "source_published_at": published}
+        });
+        let submission = github_item_to_wire_submission(&item);
+        assert!(submission.get("observed_at").is_none());
+        assert_ne!(submission["submitted_at"], published);
+        assert_eq!(submission["report"]["digital_context"]["metadata"]["original_text"], "Issue body");
+        assert_eq!(submission["report"]["digital_context"]["metadata"]["source_published_at"], published);
     }
 }
 

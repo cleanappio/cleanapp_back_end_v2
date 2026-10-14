@@ -22,6 +22,12 @@ type ReportAnalysedReport struct {
 }
 
 type ReportAnalysedAnalysis struct {
+	ReportKind            string    `json:"report_kind,omitempty"`
+	EvidenceExcerpt       string    `json:"evidence_excerpt,omitempty"`
+	ReportedImpact        string    `json:"reported_impact,omitempty"`
+	ClassificationReason  string    `json:"classification_reason,omitempty"`
+	EntityRelationship    string    `json:"entity_relationship,omitempty"`
+	EvidenceVersion       int       `json:"evidence_version,omitempty"`
 	Seq                   int       `json:"seq"`
 	Source                string    `json:"source"`
 	AnalysisText          string    `json:"analysis_text"`

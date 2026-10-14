@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"cleanapp-common/evidence"
 )
 
 const openAIEndpoint = "https://api.openai.com/v1/chat/completions"
@@ -274,10 +276,7 @@ func (c *Client) AnalyzeImage(imageData []byte, description string) (string, err
 		systemPrompt = promptSystemTextOnly
 	}
 
-	textPrompt := TextContent{
-		Type: "text",
-		Text: systemPrompt,
-	}
+	textPrompt := TextContent{Type: "text", Text: systemPrompt}
 
 	descriptionPrompt := TextContent{
 		Type: "text",
@@ -337,7 +336,7 @@ func (c *Client) AnalyzeImage(imageData []byte, description string) (string, err
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
+		return "", fmt.Errorf("API error (status %d)", resp.StatusCode)
 	}
 
 	var chatResp ChatResponse
@@ -362,6 +361,13 @@ func (c *Client) AnalyzeImage(imageData []byte, description string) (string, err
 	}
 
 	return string(contentJSON), nil
+}
+
+func (c *Client) AnalyzeEvidence(original, entity string) (evidence.Fields, error) {
+	return c.AnalyzeEvidenceImage(nil, original, entity)
+}
+func (c *Client) AnalyzeEvidenceImage(image []byte, original, entity string) (evidence.Fields, error) {
+	return evidence.NewOpenAIClassifier(c.apiKey, c.model, c.client).AnalyzeEvidenceImage(image, original, entity)
 }
 
 func (c *Client) TranslateAnalysis(jsonText, targetLanguage string) (string, error) {
@@ -401,7 +407,7 @@ func (c *Client) TranslateAnalysis(jsonText, targetLanguage string) (string, err
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
+		return "", fmt.Errorf("API error (status %d)", resp.StatusCode)
 	}
 
 	var chatResp ChatResponse

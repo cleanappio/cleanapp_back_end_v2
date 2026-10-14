@@ -60,12 +60,16 @@ type MinimalAnalysis struct {
 
 // ReportWithMinimalAnalysis represents a report with minimal analysis data
 type ReportWithMinimalAnalysis struct {
-	Report   Report            `json:"report"`
-	Analysis []MinimalAnalysis `json:"analysis"` // Array of minimal analysis objects
+	Evidence   *PublicEvidence   `json:"evidence,omitempty"`
+	Recurrence *PublicRecurrence `json:"recurrence,omitempty"`
+	Report     Report            `json:"report"`
+	Analysis   []MinimalAnalysis `json:"analysis"` // Array of minimal analysis objects
 }
 
 // ReportWithAnalysis represents a report with its corresponding analysis
 type ReportWithAnalysis struct {
+	Evidence             *PublicEvidence          `json:"evidence,omitempty"`
+	Recurrence           *PublicRecurrence        `json:"recurrence,omitempty"`
 	Report               Report                   `json:"report"`
 	Analysis             []ReportAnalysis         `json:"analysis"`
 	EscalationTargets    []CaseEscalationTarget   `json:"escalation_targets,omitempty"`

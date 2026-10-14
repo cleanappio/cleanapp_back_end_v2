@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"cleanapp-common/evidence"
+
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
@@ -347,6 +349,13 @@ func shouldSkipImageAttachment(imageData []byte, mimeType string) bool {
 		// Small, uncommon image type. Assume it's intentional and let Gemini decide.
 		return false
 	}
+}
+
+func (c *Client) AnalyzeEvidence(original, entity string) (evidence.Fields, error) {
+	return c.AnalyzeEvidenceImage(nil, original, entity)
+}
+func (c *Client) AnalyzeEvidenceImage(image []byte, original, entity string) (evidence.Fields, error) {
+	return evidence.NewGeminiClassifier(c.apiKey, c.model, c.http).AnalyzeEvidenceImage(image, original, entity)
 }
 
 func (c *Client) TranslateAnalysis(jsonText, targetLanguage string) (string, error) {

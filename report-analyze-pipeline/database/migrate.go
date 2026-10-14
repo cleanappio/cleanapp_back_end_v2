@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 
+	"cleanapp-common/evidence"
 	"cleanapp-common/migrator"
 	"report-analyze-pipeline/contacts"
 )
@@ -15,6 +16,7 @@ func RunMigrations(ctx context.Context, db *sql.DB) error {
 		{ID: "0003_osm_cache_table", Description: "create osm cache table", Up: createOSMCacheTable},
 		{ID: "0004_brand_contacts_table", Description: "create brand contacts table", Up: createBrandContactsTable},
 		{ID: "0005_seed_known_contacts", Description: "seed known brand contacts", Up: seedKnownContacts},
+		{ID: "0006_report_evidence", Description: "add original-evidence classification fields", Up: evidence.Migrate},
 	})
 }
 

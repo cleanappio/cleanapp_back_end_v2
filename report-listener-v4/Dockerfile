@@ -1,4 +1,4 @@
-FROM rust:1.82-bullseye AS builder
+FROM rust:1.82-bookworm AS builder
 
 WORKDIR /app
 
@@ -9,7 +9,7 @@ RUN set -a; \
     set +a; \
     cargo build --release --bins
 
-FROM debian:bullseye-slim
+FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /srv
 COPY --from=builder /app/target/release/report-listener-v4 /usr/local/bin/report-listener-v4

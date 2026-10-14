@@ -345,6 +345,10 @@ async fn main() -> Result<()> {
                 "updated_at": created_iso,
                 "score": score,
                 "metadata": {
+                    "original_text": truncate_chars(&text, 4000),
+                    "original_text_truncated": text.chars().count() > 4000,
+                    "source_url": url,
+                    "source_published_at": created_iso,
                     "author_username": username,
                     "lang": lang,
                     "classification": classification,
@@ -553,10 +557,6 @@ fn twitter_item_to_wire_submission(item: &serde_json::Value) -> serde_json::Valu
         .get("content")
         .and_then(|v| v.as_str())
         .unwrap_or_default();
-    let observed_at = item
-        .get("created_at")
-        .and_then(|v| v.as_str())
-        .unwrap_or_default();
     let score = item.get("score").and_then(|v| v.as_f64()).unwrap_or(0.7);
     let tags = item
         .get("tags")
@@ -577,7 +577,6 @@ fn twitter_item_to_wire_submission(item: &serde_json::Value) -> serde_json::Valu
             "type": "media_link",
             "uri": url,
             "mime_type": "text/html",
-            "captured_at": observed_at,
         }));
     }
     if !image_base64.is_empty() {
@@ -585,7 +584,6 @@ fn twitter_item_to_wire_submission(item: &serde_json::Value) -> serde_json::Valu
             "evidence_id": "inline-image",
             "type": "inline_image",
             "mime_type": "application/octet-stream",
-            "captured_at": observed_at,
         }));
     }
 
@@ -602,8 +600,7 @@ fn twitter_item_to_wire_submission(item: &serde_json::Value) -> serde_json::Valu
     let mut submission = json!({
         "schema_version": "cleanapp-wire.v1",
         "source_id": format!("twitter:{}", external_id),
-        "submitted_at": observed_at,
-        "observed_at": observed_at,
+        "submitted_at": chrono::Utc::now().to_rfc3339(),
         "agent": {
             "agent_id": "news_submitter_twitter",
             "agent_name": "CleanApp Twitter Submitter",
@@ -655,6 +652,30 @@ fn wire_severity(score: f64) -> &'static str {
         "medium"
     } else {
         "low"
+    }
+}
+
+#[cfg(test)]
+mod source_evidence_tests {
+    use super::*;
+
+    #[test]
+    fn publication_is_preserved_without_becoming_an_incident_time() {
+        let published = "2025-07-20T10:44:43Z";
+        let item = json!({
+            "external_id": "42", "title": "Login failure",
+            "content": "Generated summary of a login complaint",
+            "created_at": published, "url": "https://x.com/example/status/42",
+            "metadata": {"original_text": "I tried signing in and got an error.",
+                "source_published_at": published, "source_url": "https://x.com/example/status/42"}
+        });
+        let submission = twitter_item_to_wire_submission(&item);
+        assert!(submission.get("observed_at").is_none());
+        assert_ne!(submission["submitted_at"], published);
+        assert_eq!(submission["report"]["digital_context"]["metadata"]["original_text"],
+            "I tried signing in and got an error.");
+        assert_eq!(submission["report"]["description"], "Generated summary of a login complaint");
+        assert_eq!(submission["report"]["digital_context"]["metadata"]["source_published_at"], published);
     }
 }
 

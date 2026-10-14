@@ -135,3 +135,67 @@ The status endpoint returns:
 - `batch_size`: Current batch size
 - `last_processed_seq`: Last processed sequence number
 - `seq_end_to`: Configured upper sequence bound
+
+## Evidence-only backfill
+
+The standalone command reuses the production stored-original resolver and narrow
+Gemini/OpenAI classifier. Run the explicit report-analyze-pipeline or
+report-listener migrations before using it. Configure the existing `DB_*`
+environment variables plus `ANALYZER_LLM_PROVIDER` and the corresponding API key
+and model. It does not contact the full analysis service or publish routing events.
+
+A bounded dry run is the default and must be reviewed before applying a broader
+cohort:
+
+```bash
+go run ./cmd/evidence-backfill --dry-run --brand grok --limit 50
+go run ./cmd/evidence-backfill --dry-run --brands claude,claudecode,anthropic,grok,openai,chatgpt --limit 200
+```
+
+Each JSON output line identifies the report (`seq`, `brand`, and its existing
+`title`), proposed evidence fields, `source_type`, `original_text_available`, and
+`original_media_available`. The title comes deterministically from an existing
+English analysis when available, otherwise an existing translated title; each
+report appears once. Media availability requires a valid original image and
+rejects placeholder blobs. Full raw original bodies, media bytes, source IDs, and
+contact metadata are not printed. When intake privacy flags require redaction,
+the review output withholds titles and extracted text while preserving source
+availability flags. The
+final line contains `examined`, `written`, `failed`, `last_seq`, and `label_counts`.
+These are label counts, **not classifier precision**. Evaluate precision against
+manually reviewed originals, including journalism quoting first-person accounts,
+third-party integration issues, incomplete originals, and original photo reports.
+Dry runs call the configured model but perform no database writes.
+
+Writing requires explicit `--apply`; raw input and existing analysis content
+remain unchanged. All language rows receive the same original evidence fields:
+
+```bash
+go run ./cmd/evidence-backfill --apply --brands claude,anthropic,grok,openai --limit 200
+```
+
+`--after-seq` resumes after the returned sequence; `--force` reclassifies a reviewed
+cohort with existing evidence labels. `--limit` is required to remain between 1
+and 10,000 (default 50). `--interval` defaults to three seconds and cannot be less
+than 250 milliseconds. Missing stored originals stay `unknown`; they never use a
+generated summary as an original. Classification failures are reported and not
+written. The container also includes `/root/evidence-backfill` for this command.
+
+The shared evidence provider also enforces a process-wide request budget:
+`EVIDENCE_REQUESTS_PER_MINUTE` defaults to 20 and accepts 1–120. The CLI interval
+cannot bypass that provider budget. A backfill process has its own budget, so
+allocate combined quota deliberately if running beside the production worker.
+
+For a complete historical cohort, record its maximum sequence and use
+`--through-seq` as an inclusive fixed boundary. Up to eight independent processes
+can use the same brands/boundary with `--shard-count` and distinct zero-based
+`--shard-index` values. Partitions use report sequence modulo the shard count;
+all translations of one report stay together, and partitions do not overlap.
+Each process retains its own provider budget, so the combined allocation is the
+sum of their budgets. New reports beyond the snapshot remain with normal intake.
+Advance `--after-seq` only after a batch reports zero failures. Retry failed
+batches with their original bounds; successful versioned rows are skipped and
+failed rows remain eligible without `--force`.
+
+Candidates include every analysis language, and translations are grouped by report
+sequence so one source produces one classifier call and one label count.

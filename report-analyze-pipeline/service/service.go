@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"cleanapp-common/events"
+	"cleanapp-common/evidence"
 	"report-analyze-pipeline/config"
 	"report-analyze-pipeline/contacts"
 	"report-analyze-pipeline/database"
@@ -90,6 +91,9 @@ func NewService(cfg *config.Config, db *database.Database) *Service {
 // Start starts the analysis service
 func (s *Service) Start() {
 	log.Println("Starting report analysis service...")
+	if s.config.EvidenceWorkerEnabled {
+		go s.processPendingEvidence()
+	}
 
 }
 
@@ -131,6 +135,7 @@ func (s *Service) publishAnalyzedReport(report *database.Report, analyses []*dat
 
 	for _, analysis := range analyses {
 		event.Analysis = append(event.Analysis, events.ReportAnalysedAnalysis{
+			ReportKind: analysis.ReportKind, EvidenceExcerpt: analysis.EvidenceExcerpt, ReportedImpact: analysis.ReportedImpact, ClassificationReason: analysis.ClassificationReason, EntityRelationship: analysis.EntityRelationship, EvidenceVersion: analysis.EvidenceVersion,
 			Seq:                   analysis.Seq,
 			Source:                analysis.Source,
 			AnalysisText:          analysis.AnalysisText,
@@ -232,8 +237,18 @@ func (s *Service) AnalyzeReport(report *database.Report) error {
 	// Convert inferred contact emails to comma-separated string
 	inferredContactEmails := strings.Join(analysis.InferredContactEmails, ", ")
 
+	// Experience classification reads only retained originals, independently of
+	// the generated image/summary analysis. Failure keeps the report unknown.
+	original, originalErr := evidence.LoadOriginal(context.Background(), s.db.GetDB(), report.Seq)
+	classifier, _ := s.llmClient.(evidence.Classifier)
+	evidenceFields, evidenceVersion, evidenceErr := evidence.ForPersistence(classifier, original, normalizedBrandName, originalErr)
+	if evidenceErr != nil {
+		log.Printf("Report %d: evidence enrichment failed; retaining retryable version0", report.Seq)
+	}
+
 	// Create the English analysis result
 	analysisResult := &database.ReportAnalysis{
+		Fields: evidenceFields, EvidenceVersion: evidenceVersion,
 		Seq:                   report.Seq,
 		Source:                s.llmClient.SourceName(),
 		AnalysisText:          response,
@@ -304,6 +319,8 @@ func (s *Service) AnalyzeReport(report *database.Report) error {
 
 			// Create the translated analysis result
 			translatedResult := &database.ReportAnalysis{
+				// Evidence labels and literal quotes are copied from the original analysis, never translated.
+				Fields: evidenceFields, EvidenceVersion: evidenceVersion,
 				Seq:                   report.Seq,
 				Source:                s.llmClient.SourceName(),
 				AnalysisText:          translatedText,

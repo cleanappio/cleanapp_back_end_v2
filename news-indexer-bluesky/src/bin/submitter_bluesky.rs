@@ -85,6 +85,8 @@ struct BlueskyPreparedItem {
     uri: String,
     author_handle: String,
     text: String,
+    original_text: String,
+    original_text_truncated: bool,
     severity: f64,
     relevance: f64,
     classification: String,
@@ -324,6 +326,8 @@ async fn run_once(
             uri,
             author_handle,
             text: truncate_chars(&content, 4000),
+            original_text: truncate_chars(&text, 4000),
+            original_text_truncated: text.chars().count() > 4000,
             severity,
             relevance,
             classification,
@@ -375,6 +379,10 @@ async fn submit_legacy(
                 "updated_at": it.created_iso,
                 "score": normalize_score(it.severity, it.relevance),
                 "metadata": {
+                    "original_text": it.original_text,
+                    "original_text_truncated": it.original_text_truncated,
+                    "source_url": it.url,
+                    "source_published_at": it.created_iso,
                     "author_handle": it.author_handle,
                     "classification": it.classification,
                     "relevance": it.relevance,
@@ -552,13 +560,11 @@ fn bluesky_item_to_wire_submission(it: &BlueskyPreparedItem) -> serde_json::Valu
             "evidence_id": format!("ev_{}", stable_slug(&it.uri)),
             "type": "url",
             "uri": it.url,
-            "captured_at": it.created_iso,
         }),
         json!({
             "evidence_id": format!("ev_source_{}", stable_slug(&it.uri)),
             "type": "url",
             "uri": it.uri,
-            "captured_at": it.created_iso,
         }),
     ];
     // Leave enough room for report metadata and batch framing under the
@@ -572,7 +578,6 @@ fn bluesky_item_to_wire_submission(it: &BlueskyPreparedItem) -> serde_json::Valu
             "evidence_id": format!("ev_img_{}", stable_slug(&it.uri)),
             "type": "image",
             "mime_type": "image/jpeg",
-            "captured_at": it.created_iso,
             "uri": format!("data:image/jpeg;base64,{}", image_base64),
         }));
     }
@@ -581,7 +586,6 @@ fn bluesky_item_to_wire_submission(it: &BlueskyPreparedItem) -> serde_json::Valu
         "schema_version": "cleanapp-wire.v1",
         "source_id": it.uri,
         "submitted_at": utc_now_iso(),
-        "observed_at": it.created_iso,
         "agent": {
             "agent_id": "news-indexer-bluesky",
             "agent_name": "CleanApp Bluesky Submitter",
@@ -615,6 +619,12 @@ fn bluesky_item_to_wire_submission(it: &BlueskyPreparedItem) -> serde_json::Valu
             "digital_context": {
                 "platform": "bluesky",
                 "url": it.url,
+                "metadata": {
+                    "original_text": it.original_text,
+                    "original_text_truncated": it.original_text_truncated,
+                    "source_url": it.url,
+                    "source_published_at": it.created_iso
+                },
                 "author_handle": it.author_handle,
                 "classification": it.classification,
                 "summary": it.summary,
@@ -711,6 +721,27 @@ fn truncate_chars(s: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod body_limit_tests {
     use super::*;
+    #[test]
+    fn original_account_and_publication_are_separate_from_generated_summary() {
+        let item = BlueskyPreparedItem {
+            uri: "at://did:plc:example/app.bsky.feed.post/42".into(),
+            author_handle: "example.test".into(), text: "Generated summary".into(),
+            original_text: "I found a blocked ramp.".into(), original_text_truncated: false,
+            severity: 0.5, relevance: 0.8, classification: "physical".into(),
+            created_iso: "2025-12-14T22:10:21Z".into(), image_base64: None,
+            summary: "Generated summary".into(), report_title: "Blocked ramp".into(),
+            report_description: "Generated summary".into(), brand_display_name: String::new(),
+            brand_name: String::new(), inferred_contact_emails: json!([]),
+            url: "https://bsky.app/profile/example.test/post/42".into(), location: None,
+            source_complete: false,
+        };
+        let submission = bluesky_item_to_wire_submission(&item);
+        assert!(submission.get("observed_at").is_none());
+        assert_eq!(submission["report"]["description"], "Generated summary");
+        assert_eq!(submission["report"]["digital_context"]["metadata"]["original_text"],
+            "I found a blocked ramp.");
+        assert_eq!(submission["report"]["digital_context"]["metadata"]["source_published_at"], item.created_iso);
+    }
     #[test]
     fn extracts_source_map_coordinates_without_guessing() {
         let raw = |url: &str| json!({"facets":[{"features":[{"uri":url}]}]}).to_string();
