@@ -221,23 +221,23 @@ type evidenceWireHeader struct {
 }
 
 func loadEvidenceWireSources(ctx context.Context, tx *sql.Tx, ids []int, sources map[int]evidenceSourceNormalizationRow) error {
-	// Sort only IDs/timestamps. Historical payloads can exceed MySQL's sort buffer.
-	rows, err := tx.QueryContext(ctx, `SELECT ws.submission_id,ws.report_seq FROM `+evidenceIDsTable+` JOIN wire_submissions_raw ws ON ws.report_seq=ids.seq ORDER BY ws.report_seq,ws.submitted_at DESC`, evidenceIDsJSON(ids))
+	// The report-sequence secondary index includes the submission primary key.
+	// Keep timestamp/parent reads for duplicate groups only, and let SQL preserve
+	// the submission ID's actual collation order for subsequent primary reads.
+	rows, err := tx.QueryContext(ctx, `SELECT ws.submission_id,ws.report_seq FROM `+evidenceIDsTable+` STRAIGHT_JOIN wire_submissions_raw ws ON ws.report_seq=ids.seq ORDER BY ws.submission_id`, evidenceIDsJSON(ids))
 	if err != nil {
 		return fmt.Errorf("read evidence Wire IDs: %w", err)
 	}
 	headers := []evidenceWireHeader{}
-	seen := map[int]bool{}
+	counts := map[int]int{}
 	for rows.Next() {
 		var h evidenceWireHeader
 		if err := rows.Scan(&h.ID, &h.Seq); err != nil {
 			rows.Close()
 			return err
 		}
-		if !seen[h.Seq] {
-			seen[h.Seq] = true
-			headers = append(headers, h)
-		}
+		counts[h.Seq]++
+		headers = append(headers, h)
 	}
 	err = rows.Err()
 	rows.Close()
@@ -247,6 +247,44 @@ func loadEvidenceWireSources(ctx context.Context, tx *sql.Tx, ids []int, sources
 	if len(headers) == 0 {
 		return nil
 	}
+	duplicates := []int{}
+	for seq, count := range counts {
+		if count > 1 {
+			duplicates = append(duplicates, seq)
+		}
+	}
+	selected := map[int]string{}
+	if len(duplicates) > 0 {
+		sort.Ints(duplicates)
+		// Retain the previous latest/tied selection exactly for the reports
+		// whose timestamps are necessary to choose a submission.
+		rows, err = tx.QueryContext(ctx, `SELECT ws.submission_id,ws.report_seq FROM `+evidenceIDsTable+` JOIN wire_submissions_raw ws ON ws.report_seq=ids.seq ORDER BY ws.report_seq,ws.submitted_at DESC`, evidenceIDsJSON(duplicates))
+		if err != nil {
+			return fmt.Errorf("read duplicate evidence Wire IDs: %w", err)
+		}
+		for rows.Next() {
+			var h evidenceWireHeader
+			if err := rows.Scan(&h.ID, &h.Seq); err != nil {
+				rows.Close()
+				return err
+			}
+			if _, exists := selected[h.Seq]; !exists {
+				selected[h.Seq] = h.ID
+			}
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return err
+		}
+	}
+	winners := headers[:0]
+	for _, h := range headers {
+		if counts[h.Seq] == 1 || selected[h.Seq] == h.ID {
+			winners = append(winners, h)
+		}
+	}
+	headers = winners
 	wireIDs := make([]string, len(headers))
 	for i, h := range headers {
 		wireIDs[i] = h.ID

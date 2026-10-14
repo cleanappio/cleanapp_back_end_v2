@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"os"
 	"reflect"
 	"strings"
@@ -44,7 +45,7 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 		`CREATE TABLE report_analysis (seq INT,language VARCHAR(2),brand_name VARCHAR(255),brand_display_name VARCHAR(255),is_valid BOOL,classification VARCHAR(32),created_at DATETIME,title VARCHAR(500),summary TEXT,severity_level FLOAT,FULLTEXT KEY fixture_original_fulltext (title,summary)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 		`CREATE TABLE report_raw (report_seq INT PRIMARY KEY,source_type VARCHAR(64),source_id VARCHAR(255),fetcher_id VARCHAR(64),visibility VARCHAR(16)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
 		`CREATE TABLE external_ingest_index (seq INT NOT NULL,source VARCHAR(64) NOT NULL,external_id VARCHAR(255) NOT NULL,source_url VARCHAR(500),source_timestamp DATETIME,created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(source,external_id,seq),KEY idx_seq(seq)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
-		`CREATE TABLE wire_submissions_raw (submission_id VARCHAR(64) NOT NULL DEFAULT (UUID()) PRIMARY KEY,report_seq INT,report_json JSON,provenance_json JSON,observed_at DATETIME,submitted_at DATETIME,actor_kind VARCHAR(32),channel VARCHAR(32),extensions_json JSON) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
+		`CREATE TABLE wire_submissions_raw (submission_id VARCHAR(64) NOT NULL DEFAULT (UUID()) PRIMARY KEY,report_seq INT,report_json JSON,provenance_json JSON,observed_at DATETIME,submitted_at DATETIME,actor_kind VARCHAR(32),channel VARCHAR(32),extensions_json JSON,KEY fixture_wire_report_seq(report_seq)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
 		`CREATE TABLE report_status (seq INT,status VARCHAR(32)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
 		`CREATE TABLE reports_owners (seq INT,owner VARCHAR(64),is_public BOOL) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
 		`CREATE TABLE case_reports (seq INT,case_id VARCHAR(64)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
@@ -624,6 +625,90 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 	var retainedURILength int
 	if err := db.QueryRow(`SELECT CHAR_LENGTH(JSON_UNQUOTE(JSON_EXTRACT(report_json,'$.evidence_bundle[0].uri'))) FROM wire_submissions_raw WHERE report_seq=108`).Scan(&retainedURILength); err != nil || retainedURILength < 8388609 {
 		t.Fatal("read projection changed retained original payload")
+	}
+	for _, statement := range []string{
+		`INSERT INTO reports(seq,public_id,ts,latitude,longitude,image) VALUES(121,'r_121','2026-10-14',0,0,''),(122,'r_122','2026-10-14',0,0,'')`,
+		`INSERT INTO report_analysis VALUES(121,'en','inlineuritest','Wire',TRUE,'digital','2026-10-14','Latest Wire observation','Summary',0.5),(122,'en','inlineuritest','Wire',TRUE,'digital','2026-10-14','Tied Wire observation','Summary',0.5)`,
+		`INSERT INTO wire_submissions_raw(submission_id,report_seq,report_json,provenance_json,submitted_at,actor_kind,channel) VALUES('wire-old',121,'{"digital_context":{"metadata":{"source_url":"https://example.com/older"}}}','{"generation_method":"human_submission"}','2026-10-14 08:00:00','human','web'),('wire-new',121,'{"digital_context":{"metadata":{"source_url":"https://example.com/newer"}}}','{"generation_method":"human_submission"}','2026-10-14 09:00:00','human','web'),('wire-tie-alpha',122,'{"digital_context":{"metadata":{"source_url":"https://example.com/tie","author_username":"tie-alpha"}}}','{"generation_method":"human_submission"}','2026-10-14 09:00:00','human','web'),('wire-tie-zeta',122,'{"digital_context":{"metadata":{"source_url":"https://example.com/tie","author_username":"tie-zeta"}}}','{"generation_method":"shared_submission"}','2026-10-14 09:00:00','human','web')`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The first pass must use only the existing secondary/implicit primary key,
+	// even when the retained original JSON is much larger than the sort buffer.
+	var wirePlan string
+	if err := db.QueryRow(`EXPLAIN FORMAT=JSON SELECT ws.submission_id,ws.report_seq FROM `+evidenceIDsTable+` STRAIGHT_JOIN wire_submissions_raw ws ON ws.report_seq=ids.seq ORDER BY ws.submission_id`, evidenceIDsJSON([]int{108, 121, 122})).Scan(&wirePlan); err != nil {
+		t.Fatal(err)
+	}
+	var wirePlanValue interface{}
+	if err := json.Unmarshal([]byte(wirePlan), &wirePlanValue); err != nil {
+		t.Fatal(err)
+	}
+	var coveredWirePlan func(interface{}) bool
+	coveredWirePlan = func(value interface{}) bool {
+		switch value := value.(type) {
+		case map[string]interface{}:
+			if value["table_name"] == "ws" && value["using_index"] == true && value["access_type"] == "ref" {
+				return true
+			}
+			for _, child := range value {
+				if coveredWirePlan(child) {
+					return true
+				}
+			}
+		case []interface{}:
+			for _, child := range value {
+				if coveredWirePlan(child) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	if !coveredWirePlan(wirePlanValue) {
+		t.Fatal("Wire singleton pass is not a covered secondary lookup")
+	}
+	tx, err := db.BeginTx(context.Background(), &sql.TxOptions{ReadOnly: true, Isolation: sql.LevelRepeatableRead})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wireSources := map[int]evidenceSourceNormalizationRow{108: {Seq: 108}, 121: {Seq: 121}, 122: {Seq: 122}}
+	if err := loadEvidenceWireSources(context.Background(), tx, []int{108, 121, 122}, wireSources); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	var newest struct {
+		DigitalContext struct {
+			Metadata struct {
+				SourceURL string `json:"source_url"`
+			} `json:"metadata"`
+		} `json:"digital_context"`
+	}
+	if err := json.Unmarshal(wireSources[121].WireReport, &newest); err != nil || newest.DigitalContext.Metadata.SourceURL != "https://example.com/newer" {
+		t.Fatal("multiple Wire rows did not select latest submission")
+	}
+	var tiedSource struct {
+		DigitalContext struct {
+			Metadata struct {
+				Author string `json:"author_username"`
+			} `json:"metadata"`
+		} `json:"digital_context"`
+	}
+	var tiedProvenance struct {
+		Method string `json:"generation_method"`
+	}
+	if json.Unmarshal(wireSources[122].WireReport, &tiedSource) != nil || json.Unmarshal(wireSources[122].WireProvenance, &tiedProvenance) != nil {
+		t.Fatal("invalid tied Wire metadata")
+	}
+	if !((tiedSource.DigitalContext.Metadata.Author == "tie-alpha" && tiedProvenance.Method == "human_submission") || (tiedSource.DigitalContext.Metadata.Author == "tie-zeta" && tiedProvenance.Method == "shared_submission")) {
+		t.Fatal("tied Wire metadata mixed different original submissions")
+	}
+	if len(wireSources[108].WireReport) > 4096 {
+		t.Fatal("singleton oversized media entered compact metadata")
 	}
 	for _, statement := range []string{
 		`INSERT INTO reports(seq,public_id,ts,latitude,longitude,image) VALUES(112,'r_112','2026-01-01',0,0,''),(113,'r_113','2026-02-01',0,0,''),(114,'r_114','2026-01-01',0,0,''),(115,'r_115','2026-02-01',0,0,''),(116,'r_116','2026-01-01',0,0,''),(117,'r_117','2026-02-01',0,0,''),(118,'r_118','2026-01-01',0,0,'')`,
