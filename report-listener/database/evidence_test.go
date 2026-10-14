@@ -89,7 +89,7 @@ func TestEvidenceSafeSourcesAndOriginalDates(t *testing.T) {
 }
 
 func TestEvidenceDoesNotRepublishCredentialsOrPersonalContacts(t *testing.T) {
-	for _, quote := range []string{"Logs: api_key=sk-abcdefgh123456", "Contact me at person@example.com", "Authorization: Bearer abcdefghijklmnop", "I fail\x1b[123"} {
+	for _, quote := range []string{"Logs: api_key=" + "sk-" + strings.Repeat("x", 16), "Contact me at person@example.com", "Authorization: Bearer abcdefghijklmnop", "I fail\x1b[123"} {
 		row := evidenceRecord{Version: 1, Kind: "firsthand", Excerpt: quote}
 		if row.publicEvidence().Excerpt != nil {
 			t.Fatalf("sensitive literal source excerpt exposed: %q", quote)
