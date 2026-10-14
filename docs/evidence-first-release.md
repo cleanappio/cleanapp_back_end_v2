@@ -10,7 +10,7 @@ never presented as affected-user totals.
 
 - Shared original resolver and source-only Gemini/OpenAI classifier, literal
   excerpt checks, genuine original-image support, and privacy-aware presentation.
-- Explicit additive migrations for evidence columns and relevant indexes.
+- Explicit additive migrations create only the per-sequence `report_evidence` table. The legacy FULLTEXT analysis table and its indexes/history remain intact. Evidence is shared across translations; version-zero retries cannot overwrite completed enrichment.
 - Normal analysis, translated rows, recent pre-analyzed imports, native human
   submissions, digital shares, and bounded historical evidence backfill.
 - Strict `kind=firsthand|coverage|unknown|all`, signal/recent/recurrence sorting,
@@ -57,8 +57,9 @@ never presented as affected-user totals.
 
    These commands are read-only against the database but call the configured
    model. Output `label_counts` are not classifier precision. Apply only the
-   reviewed cohort with `--apply`; use returned `last_seq` with `--after-seq` to
-   resume. `--force` revisits successfully enriched rows when better evidence
+   reviewed cohort with `--apply`; record `--through-seq` and disjoint shard bounds.
+   Advance `--after-seq` only after a batch has zero failures; retry failed batches
+   using their original bounds so transient failures remain eligible. `--force` revisits successfully enriched rows when better evidence
    becomes available. Raw sources and existing summaries/routing stay intact.
 
 6. Release the frontend after backend/schema readiness and the initial reviewed
@@ -68,7 +69,7 @@ never presented as affected-user totals.
 
 ## Operational semantics
 
-- The automatic worker covers the last day of ingestion. Older reports require
+- The automatic worker covers recent ingestion within the newest 50,000 sequences through the existing primary key, with batches capped at 50. Wire/index ingestion time also qualifies old publication timestamps. Older reports require
   explicit bounded backfill. Transient resolver/provider errors keep version zero
   for retry; successfully assessed unknown records can be revisited explicitly.
 - Evidence adds a source-only provider request where originals exist. The
@@ -77,7 +78,7 @@ never presented as affected-user totals.
   processes have their own budget; allocate combined provider quota deliberately.
 - Case association does not prove an identical defect, independent corroboration,
   or affected-user prevalence. Missing account information is null rather than
-  zero. Source samples are bounded; dates on the representative source remain
+  zero. Source samples are bounded and individually privacy-filtered; families remain visible when every sample is withheld. Dates on the representative source remain
   distinct from family activity dates.
 - Upstream/resolution states remain unknown when the stored evidence does not
   establish them. Nothing infers a fix from source closure.
@@ -89,8 +90,8 @@ never presented as affected-user totals.
 
 Affected Go modules (`go-common`, `report-analyze-pipeline`, `report-listener`,
 `report-analysis-backfill`) passed `go test ./...` and `go vet ./...`. Changed Rust
-submitter tests and the seven Rust briefing proxy tests passed. Seven frontend
-evidence tests, TypeScript checking, and the production build passed with loopback
+submitter tests and the seven Rust briefing proxy tests passed. Twelve frontend
+evidence/inventory tests, TypeScript checking, and the production build passed with loopback
 API environment configuration. Unrelated existing lint warnings remain.
 
 Local CUA checks covered desktop 1280px and mobile 320px, evidence before chat,
@@ -99,9 +100,7 @@ Screenshot records use a read-only local fixture with a historical public GitHub
 example and explicitly synthetic coverage/unknown fixtures. Their counts are not
 production statistics.
 
-No local MySQL server was available; real CTE/window/JSON execution is validated by
-the new dedicated CI job before release. No production migration, backfill write,
-model call, merge, or deployment was performed during implementation.
+The subsequent release checks used exact MySQL 8.0.44 fixtures for CTE/window/JSON behavior, source privacy, migration idempotence without legacy schema changes, monotonic evidence writes, and bounded recent-worker eligibility. Production-shaped provider samples were reviewed before backfill writes. Final production outcomes are recorded in the release artifact after deployment.
 
 ## Retained older paths
 

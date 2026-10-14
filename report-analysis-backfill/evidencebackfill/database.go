@@ -13,7 +13,7 @@ type DatabaseStore struct{ DB *sql.DB }
 func (s DatabaseStore) Candidates(ctx context.Context, opts Options) ([]Candidate, error) {
 	placeholders := make([]string, len(opts.Brands))
 	args := []any{opts.AfterSeq}
-	query := `SELECT ra.seq, MAX(ra.brand_name), COALESCE(MAX(CASE WHEN ra.language = 'en' THEN NULLIF(ra.title, '') END), MAX(NULLIF(ra.title, '')), '') FROM report_analysis ra WHERE ra.seq > ?`
+	query := `SELECT ra.seq, MAX(ra.brand_name), COALESCE(MAX(CASE WHEN ra.language = 'en' THEN NULLIF(ra.title, '') END), MAX(NULLIF(ra.title, '')), '') FROM report_analysis ra LEFT JOIN report_evidence ev ON ev.seq = ra.seq WHERE ra.seq > ?`
 	if opts.ThroughSeq > 0 {
 		query += ` AND ra.seq <= ?`
 		args = append(args, opts.ThroughSeq)
@@ -28,7 +28,7 @@ func (s DatabaseStore) Candidates(ctx context.Context, opts Options) ([]Candidat
 	}
 	query += ` AND ra.brand_name IN (` + strings.Join(placeholders, ",") + `)`
 	if !opts.Force {
-		query += ` AND COALESCE(ra.evidence_version,0) < 1`
+		query += ` AND COALESCE(ev.evidence_version,0) < 1`
 	}
 	query += ` GROUP BY ra.seq ORDER BY ra.seq ASC LIMIT ?`
 	args = append(args, opts.Limit)
@@ -51,6 +51,5 @@ func (s DatabaseStore) Original(ctx context.Context, seq int) (evidence.Original
 	return evidence.LoadOriginal(ctx, s.DB, seq)
 }
 func (s DatabaseStore) Save(ctx context.Context, seq int, fields evidence.Fields) error {
-	_, err := s.DB.ExecContext(ctx, `UPDATE report_analysis SET report_kind = ?, evidence_excerpt = ?, reported_impact = ?, classification_reason = ?, entity_relationship = ?, evidence_version = ? WHERE seq = ?`, fields.ReportKind, fields.EvidenceExcerpt, fields.ReportedImpact, fields.ClassificationReason, fields.EntityRelationship, evidence.Version, seq)
-	return err
+	return evidence.Save(ctx, s.DB, seq, fields, evidence.Version)
 }

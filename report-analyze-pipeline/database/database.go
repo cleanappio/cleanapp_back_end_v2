@@ -292,10 +292,9 @@ func (d *Database) SaveAnalysis(analysis *ReportAnalysis) error {
 		title, description, brand_name, brand_display_name,
 		litter_probability, hazard_probability, digital_bug_probability,
 		severity_level, summary, language, is_valid, classification, 
-		inferred_contact_emails, legal_risk_estimate,
- report_kind, evidence_excerpt, reported_impact, classification_reason, entity_relationship, evidence_version
+		inferred_contact_emails, legal_risk_estimate
 	)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err = tx.Exec(query,
 		analysis.Seq,
@@ -316,7 +315,6 @@ func (d *Database) SaveAnalysis(analysis *ReportAnalysis) error {
 		analysis.Classification,
 		analysis.InferredContactEmails,
 		analysis.LegalRiskEstimate,
-		analysis.ReportKind, analysis.EvidenceExcerpt, analysis.ReportedImpact, analysis.ClassificationReason, analysis.EntityRelationship, analysis.EvidenceVersion,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to save analysis: %w", err)

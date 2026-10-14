@@ -11,14 +11,28 @@ type PendingEvidence struct {
 	Brand string
 }
 
+const pendingEvidenceQuery = `SELECT r.seq,
+ (SELECT COALESCE(MAX(brand_name), '') FROM report_analysis WHERE seq = r.seq)
+ FROM reports r LEFT JOIN report_evidence ev ON ev.seq = r.seq
+ WHERE r.seq > GREATEST(0, CAST((SELECT COALESCE(MAX(seq), 0) FROM reports) AS SIGNED) - 50000)
+ AND COALESCE(ev.evidence_version, 0) = 0
+ AND EXISTS (SELECT 1 FROM report_analysis ra WHERE ra.seq = r.seq)
+ AND (r.ts >= UTC_TIMESTAMP() - INTERVAL 1 DAY
+   OR EXISTS (SELECT 1 FROM wire_submissions_raw ws WHERE ws.report_seq = r.seq AND ws.created_at >= UTC_TIMESTAMP() - INTERVAL 1 DAY)
+   OR EXISTS (SELECT 1 FROM external_ingest_index ei WHERE ei.seq = r.seq AND ei.created_at >= UTC_TIMESTAMP() - INTERVAL 1 DAY))
+ ORDER BY r.seq ASC LIMIT ?`
+
 // GetPendingEvidenceReports covers new imports whose existing analysis bypasses
 // the main analyzer (for example skip_ai GitHub/X imports). Historic work is an
-// explicit bounded backfill; this worker covers the last day of ingestion only.
+// explicit bounded backfill. Only the newest 50,000 sequence values are scanned,
+// using the existing reports primary key without a timestamp index or blob scan.
+// Recent server-side Wire/index creation also qualifies imports whose source
+// publication timestamp is old. Older sequence values require explicit backfill.
 func (d *Database) GetPendingEvidenceReports(ctx context.Context, limit int) ([]PendingEvidence, error) {
 	if limit < 1 || limit > 50 {
 		return nil, fmt.Errorf("evidence batch limit must be between 1 and 50")
 	}
-	rows, err := d.db.QueryContext(ctx, `SELECT r.seq, (SELECT COALESCE(MAX(brand_name), '') FROM report_analysis WHERE seq = r.seq) FROM reports r FORCE INDEX (idx_reports_evidence_ingested) WHERE r.ts >= UTC_TIMESTAMP() - INTERVAL 1 DAY AND EXISTS (SELECT 1 FROM report_analysis ra WHERE ra.seq = r.seq AND ra.evidence_version = 0) ORDER BY r.ts ASC, r.seq ASC LIMIT ?`, limit)
+	rows, err := d.db.QueryContext(ctx, pendingEvidenceQuery, limit)
 	if err != nil {
 		return nil, fmt.Errorf("query pending evidence (explicit migrations required): %w", err)
 	}
@@ -34,9 +48,9 @@ func (d *Database) GetPendingEvidenceReports(ctx context.Context, limit int) ([]
 	return pending, rows.Err()
 }
 
-// SaveEvidence fills additive columns only; existing summaries, translations,
-// ingestion records, and routing state are preserved.
-func (d *Database) SaveEvidence(ctx context.Context, seq int, fields evidence.Fields) error {
-	_, err := d.db.ExecContext(ctx, `UPDATE report_analysis SET report_kind = ?, evidence_excerpt = ?, reported_impact = ?, classification_reason = ?, entity_relationship = ?, evidence_version = ? WHERE seq = ? AND COALESCE(evidence_version,0) < 1`, fields.ReportKind, fields.EvidenceExcerpt, fields.ReportedImpact, fields.ClassificationReason, fields.EntityRelationship, evidence.Version, seq)
-	return err
+// SaveEvidence writes once per report to separate storage; existing summaries,
+// translations, ingestion records, and routing state are preserved. A failed
+// enrichment uses version0 and remains eligible for the recent worker.
+func (d *Database) SaveEvidence(ctx context.Context, seq int, fields evidence.Fields, version int) error {
+	return evidence.Save(ctx, d.db, seq, fields, version)
 }

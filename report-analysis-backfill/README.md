@@ -168,7 +168,10 @@ third-party integration issues, incomplete originals, and original photo reports
 Dry runs call the configured model but perform no database writes.
 
 Writing requires explicit `--apply`; raw input and existing analysis content
-remain unchanged. All language rows receive the same original evidence fields:
+remain unchanged. Extraction is stored once per report sequence in the separate
+`report_evidence` table, shared by all language analyses. The explicit evidence
+migration creates only this table; it does not alter `report_analysis`, `reports`,
+or existing migration history:
 
 ```bash
 go run ./cmd/evidence-backfill --apply --brands claude,anthropic,grok,openai --limit 200
@@ -195,7 +198,12 @@ Each process retains its own provider budget, so the combined allocation is the
 sum of their budgets. New reports beyond the snapshot remain with normal intake.
 Advance `--after-seq` only after a batch reports zero failures. Retry failed
 batches with their original bounds; successful versioned rows are skipped and
-failed rows remain eligible without `--force`.
+failed rows remain eligible without `--force`. Candidates left-join
+`report_evidence` and select missing rows or `evidence_version < 1`; a successful
+`unknown` classification is finalized at version 1. Version 0 failure writes
+cannot overwrite completed version 1 evidence under concurrent analysis/backfill.
+Evidence-only backfill saves through the shared per-report UPSERT, never updates
+raw/analysis rows or publishes routing events.
 
 Candidates include every analysis language, and translations are grouped by report
 sequence so one source produces one classifier call and one label count.

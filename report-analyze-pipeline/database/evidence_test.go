@@ -5,18 +5,17 @@ import (
 	"context"
 	"errors"
 	"github.com/DATA-DOG/go-sqlmock"
-	"regexp"
 	"testing"
 )
 
-func TestPendingEvidenceIncludesExistingAnalysisAndUsesBoundedIngestionIndex(t *testing.T) {
+func TestPendingEvidenceIncludesExistingAnalysisAndBoundsSequenceAndIngestionTime(t *testing.T) {
 	sqlDB, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer sqlDB.Close()
 	db := &Database{db: sqlDB}
-	mock.ExpectQuery(`SELECT r.seq, .*FROM reports r FORCE INDEX \(idx_reports_evidence_ingested\).*EXISTS \(SELECT 1 FROM report_analysis ra WHERE ra.seq = r.seq AND ra.evidence_version = 0\).*LIMIT`).WithArgs(10).WillReturnRows(sqlmock.NewRows([]string{"seq", "brand"}).AddRow(99, "grok"))
+	mock.ExpectQuery(`SELECT r.seq, .*FROM reports r LEFT JOIN report_evidence ev ON ev.seq = r.seq.*r.seq > GREATEST\(0, CAST\(\(SELECT COALESCE\(MAX\(seq\), 0\) FROM reports\) AS SIGNED\) - 50000\).*COALESCE\(ev.evidence_version, 0\) = 0.*EXISTS \(SELECT 1 FROM report_analysis ra WHERE ra.seq = r.seq\).*r.ts >= UTC_TIMESTAMP\(\) - INTERVAL 1 DAY.*wire_submissions_raw ws.*ws.created_at >= UTC_TIMESTAMP\(\) - INTERVAL 1 DAY.*external_ingest_index ei.*ei.created_at >= UTC_TIMESTAMP\(\) - INTERVAL 1 DAY.*ORDER BY r.seq ASC LIMIT`).WithArgs(10).WillReturnRows(sqlmock.NewRows([]string{"seq", "brand"}).AddRow(99, "grok"))
 	got, err := db.GetPendingEvidenceReports(context.Background(), 10)
 	if err != nil || len(got) != 1 || got[0].Seq != 99 {
 		t.Fatalf("got %#v err=%v", got, err)
@@ -37,9 +36,8 @@ func TestEvidenceOnlyWritePreservesExistingAnalysesAndRoutingState(t *testing.T)
 	defer sqlDB.Close()
 	db := &Database{db: sqlDB}
 	fields := evidence.Fields{ReportKind: "firsthand", EvidenceExcerpt: "I hit an error", ReportedImpact: "Workflow blocked", ClassificationReason: "Original author describes own observed failure", EntityRelationship: "affected"}
-	query := `UPDATE report_analysis SET report_kind = ?, evidence_excerpt = ?, reported_impact = ?, classification_reason = ?, entity_relationship = ?, evidence_version = ? WHERE seq = ? AND COALESCE(evidence_version,0) < 1`
-	mock.ExpectExec(regexp.QuoteMeta(query)).WithArgs(fields.ReportKind, fields.EvidenceExcerpt, fields.ReportedImpact, fields.ClassificationReason, fields.EntityRelationship, evidence.Version, 99).WillReturnResult(sqlmock.NewResult(0, 3))
-	if err := db.SaveEvidence(context.Background(), 99, fields); err != nil {
+	mock.ExpectExec(`INSERT INTO report_evidence`).WithArgs(99, fields.ReportKind, fields.EvidenceExcerpt, fields.ReportedImpact, fields.ClassificationReason, fields.EntityRelationship, evidence.Version).WillReturnResult(sqlmock.NewResult(0, 1))
+	if err := db.SaveEvidence(context.Background(), 99, fields, evidence.Version); err != nil {
 		t.Fatal(err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -67,17 +65,51 @@ func TestMainAnalysisEvidenceFailureIsPersistedAsRetryableVersionZero(t *testing
 	analysis := &ReportAnalysis{Seq: 44, Language: "en", Source: "Gemini", BrandName: "grok", BrandDisplayName: "Grok", IsValid: true, Classification: "digital", Fields: fields, EvidenceVersion: version}
 	mock.ExpectBegin()
 	mock.ExpectExec(`DELETE FROM report_analysis WHERE seq = \? AND language = \?`).WithArgs(44, "en").WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectExec(`INSERT INTO report_analysis`).WithArgs(44, "Gemini", "", []byte(nil), "", "", "grok", "Grok", float64(0), float64(0), float64(0), float64(0), "", "en", true, "digital", "", "", fields.ReportKind, fields.EvidenceExcerpt, fields.ReportedImpact, fields.ClassificationReason, fields.EntityRelationship, 0).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO report_analysis \(.*inferred_contact_emails, legal_risk_estimate\s*\)`).WithArgs(44, "Gemini", "", []byte(nil), "", "", "grok", "Grok", float64(0), float64(0), float64(0), float64(0), "", "en", true, "digital", "", "").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 	if err := db.SaveAnalysis(analysis); err != nil {
 		t.Fatal(err)
 	}
+	mock.ExpectExec(`INSERT INTO report_evidence`).WithArgs(44, fields.ReportKind, fields.EvidenceExcerpt, fields.ReportedImpact, fields.ClassificationReason, fields.EntityRelationship, 0).WillReturnResult(sqlmock.NewResult(0, 1))
+	if err := db.SaveEvidence(context.Background(), analysis.Seq, fields, version); err != nil {
+		t.Fatal(err)
+	}
 	// The production worker selects existing analysis whose failed evidence is
 	// still version0, rather than requiring the entire report to be unanalyzed.
-	mock.ExpectQuery(`SELECT r.seq, .*ra.evidence_version = 0.*LIMIT`).WithArgs(10).WillReturnRows(sqlmock.NewRows([]string{"seq", "brand"}).AddRow(44, "grok"))
+	mock.ExpectQuery(`SELECT r.seq, .*COALESCE\(ev.evidence_version, 0\) = 0.*LIMIT`).WithArgs(10).WillReturnRows(sqlmock.NewRows([]string{"seq", "brand"}).AddRow(44, "grok"))
 	pending, err := db.GetPendingEvidenceReports(context.Background(), 10)
 	if err != nil || len(pending) != 1 || pending[0].Seq != 44 {
 		t.Fatalf("not retryable: %#v err=%v", pending, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestEvidenceWriteFailureDoesNotRollbackCommittedNormalAnalysis(t *testing.T) {
+	sqlDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sqlDB.Close()
+	db := &Database{db: sqlDB}
+	analysis := &ReportAnalysis{Seq: 45, Language: "en", Source: "Gemini", IsValid: true, Classification: "digital", Fields: evidence.Unknown("Unavailable")}
+	mock.ExpectBegin()
+	mock.ExpectExec(`DELETE FROM report_analysis WHERE seq = \? AND language = \?`).WithArgs(45, "en").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(`INSERT INTO report_analysis \(.*inferred_contact_emails, legal_risk_estimate\s*\)`).WithArgs(45, "Gemini", "", []byte(nil), "", "", "", "", float64(0), float64(0), float64(0), float64(0), "", "en", true, "digital", "", "").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	if err := db.SaveAnalysis(analysis); err != nil {
+		t.Fatal(err)
+	}
+	mock.ExpectExec(`INSERT INTO report_evidence`).WithArgs(45, "unknown", "", "", "Unavailable", "unknown", 0).WillReturnError(errors.New("storage unavailable"))
+	if err := db.SaveEvidence(context.Background(), 45, analysis.Fields, 0); err == nil {
+		t.Fatal("expected independent evidence failure")
+	}
+	// A missing evidence record is also eligible. No rollback or normal-analysis
+	// update is expected after the separate evidence write fails.
+	mock.ExpectQuery(`SELECT r.seq, .*LEFT JOIN report_evidence ev.*COALESCE\(ev.evidence_version, 0\) = 0.*LIMIT`).WithArgs(10).WillReturnRows(sqlmock.NewRows([]string{"seq", "brand"}).AddRow(45, ""))
+	if pending, err := db.GetPendingEvidenceReports(context.Background(), 10); err != nil || len(pending) != 1 {
+		t.Fatalf("missing evidence was not retryable: %#v err=%v", pending, err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

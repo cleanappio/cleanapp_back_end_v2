@@ -136,6 +136,8 @@ func evidenceOrderBy(sortBy string) string {
 
 // Count and page queries share the exact same universe. Translations and imports
 // are collapsed before filtering; case links describe related observations only.
+// Evidence is one source record per report, independent of analysis language.
+// A missing evidence row remains unknown until explicitly enriched.
 // Computed source fields use a binary collation: legacy indexed tables and Wire
 // metadata have different collations, and source IDs / URL paths are case-sensitive.
 // Keep the stored index columns untouched so indexed joins remain available.
@@ -156,8 +158,8 @@ const trustedRedditArchiveSQL = "(eii.source = 'reddit_archive' AND LEFT(r.id,7)
 
 func evidenceCTE(f EvidenceFilter, analysisWhere string, args []interface{}) (string, []interface{}) {
 	query := fmt.Sprintf(`WITH preferred AS (
-  SELECT ra.seq,ra.language,ra.created_at,ra.brand_name,ra.brand_display_name,ra.classification,ra.title,ra.summary,ra.severity_level,ra.report_kind,ra.evidence_excerpt,ra.reported_impact,ra.classification_reason,ra.entity_relationship,ra.evidence_version, ROW_NUMBER() OVER (PARTITION BY ra.seq ORDER BY (ra.language = ?) DESC, (ra.language = 'en') DESC, ra.language ASC, ra.created_at DESC) AS analysis_rank
-  FROM report_analysis ra WHERE %[1]s AND ra.is_valid = TRUE
+  SELECT ra.seq,ra.language,ra.created_at,ra.brand_name,ra.brand_display_name,ra.classification,ra.title,ra.summary,ra.severity_level,COALESCE(ev.report_kind,'unknown') AS report_kind,COALESCE(ev.evidence_excerpt,'') AS evidence_excerpt,COALESCE(ev.reported_impact,'') AS reported_impact,COALESCE(ev.classification_reason,'') AS classification_reason,COALESCE(ev.entity_relationship,'unknown') AS entity_relationship,COALESCE(ev.evidence_version,0) AS evidence_version, ROW_NUMBER() OVER (PARTITION BY ra.seq ORDER BY (ra.language = ?) DESC, (ra.language = 'en') DESC, ra.language ASC, ra.created_at DESC) AS analysis_rank
+  FROM report_analysis ra LEFT JOIN report_evidence ev ON ev.seq = ra.seq WHERE %[1]s AND ra.is_valid = TRUE
  ), candidates AS (
   SELECT r.seq, r.public_id, CASE WHEN %[4]s AND eii.created_at IS NOT NULL THEN eii.created_at ELSE r.ts END AS ts, r.latitude, r.longitude, (LENGTH(r.image) > 0) AS has_original_media,
    COALESCE((%[4]s AND eii.created_at IS NULL),FALSE) AS ingestion_time_missing,
@@ -212,8 +214,8 @@ func evidenceCTE(f EvidenceFilter, analysisWhere string, args []interface{}) (st
  tagged AS (SELECT e.*, cl.case_id, CASE WHEN cl.case_id IS NULL THEN source_key ELSE CONCAT('family:',cl.case_id) END AS group_key FROM entries e LEFT JOIN case_links cl ON cl.seq=e.seq),
  filtered AS (SELECT tagged.*, ROW_NUMBER() OVER (PARTITION BY group_key ORDER BY evidence_strength DESC, entity_relevance DESC, severity_level DESC, COALESCE(observed_at,source_timestamp,ts) DESC,seq DESC) AS family_rank FROM tagged WHERE %[3]s),
  family_stats AS (SELECT group_key, COUNT(*) AS supporting_report_count, CASE WHEN COUNT(source_account_key)=COUNT(*) THEN COUNT(DISTINCT source_account_key) ELSE NULL END AS source_account_count, SUM(import_count)-COUNT(*) AS duplicate_import_count, MAX(COALESCE(observed_at,source_timestamp,ts)) AS last_signal_at, MAX(observed_at) AS latest_observed_at, MAX(source_timestamp) AS latest_source_published_at FROM filtered GROUP BY group_key),
- family_samples AS (SELECT group_key, JSON_ARRAYAGG(JSON_OBJECT('title',title,'source_url',source_url,'report_kind',report_kind,'source_published_at',DATE_FORMAT(source_timestamp,'%%Y-%%m-%%dT%%H:%%i:%%sZ'))) AS supporting_sources FROM filtered WHERE family_rank <= 8 GROUP BY group_key),
- briefing AS (SELECT f.*, fs.supporting_report_count, fs.source_account_count, fs.duplicate_import_count, fs.supporting_report_count AS related_observation_count, fs.last_signal_at, fs.latest_observed_at, fs.latest_source_published_at, samples.supporting_sources FROM filtered f JOIN family_stats fs ON fs.group_key=f.group_key JOIN family_samples samples ON samples.group_key=f.group_key WHERE family_rank=1)
+ family_samples AS (SELECT group_key, JSON_ARRAYAGG(JSON_OBJECT('title',title,'source_url',source_url,'report_kind',report_kind,'source_published_at',DATE_FORMAT(source_timestamp,'%%Y-%%m-%%dT%%H:%%i:%%sZ'))) AS supporting_sources FROM filtered WHERE family_rank <= 8 AND privacy_restricted = 0 GROUP BY group_key),
+ briefing AS (SELECT f.*, fs.supporting_report_count, fs.source_account_count, fs.duplicate_import_count, fs.supporting_report_count AS related_observation_count, fs.last_signal_at, fs.latest_observed_at, fs.latest_source_published_at, COALESCE(samples.supporting_sources,JSON_ARRAY()) AS supporting_sources FROM filtered f JOIN family_stats fs ON fs.group_key=f.group_key LEFT JOIN family_samples samples ON samples.group_key=f.group_key WHERE family_rank=1)
  `, analysisWhere, PublicVisibilityWhereSQL, evidenceKindWhere(f.Kind), trustedRedditArchiveSQL)
 	if f.Kind != "all" {
 		args = append(args, f.Kind)

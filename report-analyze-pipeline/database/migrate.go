@@ -16,7 +16,10 @@ func RunMigrations(ctx context.Context, db *sql.DB) error {
 		{ID: "0003_osm_cache_table", Description: "create osm cache table", Up: createOSMCacheTable},
 		{ID: "0004_brand_contacts_table", Description: "create brand contacts table", Up: createBrandContactsTable},
 		{ID: "0005_seed_known_contacts", Description: "seed known brand contacts", Up: seedKnownContacts},
-		{ID: "0006_report_evidence", Description: "add original-evidence classification fields", Up: evidence.Migrate},
+		{ID: "0006_report_evidence", Description: "create per-report original-evidence storage", Up: evidence.Migrate},
+		// Environments that applied the former column-based 0006 still need the
+		// separate table. The shared create-only migration is safe to repeat.
+		{ID: "0007_report_evidence_store", Description: "ensure separate per-report evidence storage", Up: evidence.Migrate},
 	})
 }
 
