@@ -58,26 +58,64 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 		}
 		created = append(created, strings.Fields(statement)[2])
 	}
-	// Exercise the real additive migration on a FULLTEXT table, as production
-	// has one. Re-running it must preserve field order and skip existing schema.
-	if err := evidence.Migrate(context.Background(), db); err != nil {
-		t.Fatalf("FULLTEXT evidence migration: %v", err)
+	// Evidence migration may create its own table, but must never rebuild the
+	// legacy FULLTEXT analysis table or rewrite existing multilingual history.
+	if _, err := db.Exec(`INSERT INTO report_analysis VALUES (900,'en','historytest','History',TRUE,'digital','2025-09-01','Legacy original analysis','Retained legacy summary',0.4)`); err != nil {
+		t.Fatal(err)
 	}
-	if err := evidence.Migrate(context.Background(), db); err != nil {
-		t.Fatalf("idempotent evidence migration: %v", err)
+	showCreate := func(table string) string {
+		t.Helper()
+		var name, definition string
+		if err := db.QueryRow("SHOW CREATE TABLE "+table).Scan(&name, &definition); err != nil {
+			t.Fatal(err)
+		}
+		return definition
+	}
+	legacyAnalysisSchema, legacyReportSchema := showCreate("report_analysis"), showCreate("reports")
+	var existingEvidenceTables int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='report_evidence'`).Scan(&existingEvidenceTables); err != nil {
+		t.Fatal(err)
+	}
+	if existingEvidenceTables != 0 {
+		t.Fatal("fixture refuses a pre-existing report_evidence table")
+	}
+	created = append(created, "report_evidence")
+	for attempt := 0; attempt < 2; attempt++ {
+		if err := evidence.Migrate(context.Background(), db); err != nil {
+			t.Fatalf("separate evidence migration attempt%d: %v", attempt+1, err)
+		}
+		if showCreate("report_analysis") != legacyAnalysisSchema || showCreate("reports") != legacyReportSchema {
+			t.Fatal("evidence migration altered a legacy table or its FULLTEXT/index definitions")
+		}
+		var title, summary string
+		var historyRows int
+		if err := db.QueryRow(`SELECT COUNT(*),MAX(title),MAX(summary) FROM report_analysis WHERE seq=900`).Scan(&historyRows, &title, &summary); err != nil {
+			t.Fatal(err)
+		}
+		if historyRows != 1 || title != "Legacy original analysis" || summary != "Retained legacy summary" {
+			t.Fatal("evidence migration rewrote legacy analysis history")
+		}
 	}
 	fixtures := []string{
 		`INSERT INTO reports (seq,public_id,ts,latitude,longitude,image) VALUES (1,'r_1','2026-10-14',0,0,''),(2,'r_2','2026-10-14',0,0,''),(3,'r_3','2026-10-14',0,0,''),(4,'r_4','2026-10-14',0,0,''),(5,'r_5','2026-10-14',0,0,''),(6,'r_6','2026-10-14',0,0,''),(7,'r_7','2026-10-14',0,0,''),(8,'r_8','2026-10-14',0,0,'')`,
 		`INSERT INTO report_analysis VALUES
-  (1,'en','claude','Claude',TRUE,'digital','2026-10-14','Failure one','AI summary',0.7,'firsthand','I see failure one','Workflow blocked','Original describes own issue','affected',1),
-  (1,'fr','claude','Claude',TRUE,'digital','2026-10-14','Echec','Resume',0.7,'firsthand','I see failure one','Workflow blocked','Original describes own issue','affected',1),
-  (2,'en','claudecode','Claude Code',TRUE,'digital','2026-10-14','Failure two','AI summary',0.8,'firsthand','I see failure two','Workflow blocked','Original describes own issue','affected',1),
-  (3,'en','claude','Claude',TRUE,'digital','2026-10-14','Coverage','AI summary',0.9,'coverage','A news report','', 'Journalism','mentioned',1),
-  (4,'en','claude','Claude',TRUE,'digital','2026-10-14','Unclassified','AI summary',0.9,'firsthand','', '', '', 'unknown',0),
-  (5,'en','claude','Claude',TRUE,'digital','2026-10-14','Duplicate one','AI summary',0.7,'firsthand','I see failure one','Workflow blocked','Original describes own issue','affected',1),
-  (6,'en','claude','Claude',TRUE,'digital','2026-10-14','Quarantined','AI summary',0.9,'firsthand','I see failure six','','Own issue','affected',1),
-  (7,'en','claude','Claude',TRUE,'digital','2026-10-14','Private','AI summary',0.9,'firsthand','I see failure seven','','Own issue','affected',1),
- (8,'en','claude','Claude',TRUE,'digital','2026-10-14','Inactive','AI summary',0.9,'firsthand','I see failure eight','','Own issue','affected',1)`,
+  (1,'en','claude','Claude',TRUE,'digital','2026-10-14','Failure one','AI summary',0.7),
+  (1,'fr','claude','Claude',TRUE,'digital','2026-10-14','Echec','Resume',0.7),
+  (2,'en','claudecode','Claude Code',TRUE,'digital','2026-10-14','Failure two','AI summary',0.8),
+  (3,'en','claude','Claude',TRUE,'digital','2026-10-14','Coverage','AI summary',0.9),
+  (4,'en','claude','Claude',TRUE,'digital','2026-10-14','Unclassified','AI summary',0.9),
+  (5,'en','claude','Claude',TRUE,'digital','2026-10-14','Duplicate one','AI summary',0.7),
+  (6,'en','claude','Claude',TRUE,'digital','2026-10-14','Quarantined','AI summary',0.9),
+  (7,'en','claude','Claude',TRUE,'digital','2026-10-14','Private','AI summary',0.9),
+  (8,'en','claude','Claude',TRUE,'digital','2026-10-14','Inactive','AI summary',0.9)`,
+		`INSERT INTO report_evidence (seq,report_kind,evidence_excerpt,reported_impact,classification_reason,entity_relationship,evidence_version) VALUES
+  (1,'firsthand','I see failure one','Workflow blocked','Original describes own issue','affected',1),
+  (2,'firsthand','I see failure two','Workflow blocked','Original describes own issue','affected',1),
+  (3,'coverage','A news report','','Journalism','mentioned',1),
+  (5,'firsthand','I see failure one','Workflow blocked','Original describes own issue','affected',1),
+  (6,'firsthand','I see failure six','','Own issue','affected',1),
+  (7,'firsthand','I see failure seven','','Own issue','affected',1),
+  (8,'firsthand','I see failure eight','','Own issue','affected',1)`,
 		`INSERT INTO external_ingest_index (seq,source,external_id,source_url,source_timestamp) VALUES (1,'twitter','10','https://twitter.com/person/status/10?utm_source=share','2026-02-01'),(5,'twitter','10','https://x.com/person/status/10/','2026-02-01'),(2,'github_issue','20','https://github.com/org/repo/issues/20','2026-03-01')`,
 		`INSERT INTO report_raw VALUES (6,'twitter','60','fetcher','quarantine')`,
 		`INSERT INTO report_status VALUES (8,'resolved')`,
@@ -132,16 +170,103 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 		t.Fatal("product filter counts included another product")
 	}
 
+	unenriched, err := d.GetEvidenceBrandPage(context.Background(), EvidenceFilter{BrandName: "anthropic", Kind: "unknown"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(unenriched.Reports) != 1 || unenriched.Reports[0].Report.Seq != 4 || unenriched.Reports[0].Evidence.EvidenceVersion != 0 || unenriched.Reports[0].Evidence.Excerpt != nil {
+		t.Fatal("missing evidence row did not remain unknown/version0")
+	}
+	// English and French summaries remain independent history, while their one
+	// source evidence record changes consistently for both list and detail reads.
+	translationFixtures := []string{
+		`INSERT INTO reports (seq,public_id,ts,latitude,longitude,image) VALUES (27,'r_27','2026-10-14',0,0,'')`,
+		`INSERT INTO report_analysis VALUES (27,'en','translationtest','Translation test',TRUE,'digital','2026-10-14','English issue title','English generated summary',0.5),(27,'fr','translationtest','Translation test',TRUE,'digital','2026-10-14','Titre de probleme','Resume francais',0.5)`,
+		`INSERT INTO report_evidence (seq,report_kind,evidence_excerpt,reported_impact,classification_reason,entity_relationship,evidence_version) VALUES (27,'firsthand','I observed the app failure','Workflow blocked','Own observation','affected',1)`,
+	}
+	for _, statement := range translationFixtures {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for language, title := range map[string]string{"en": "English issue title", "fr": "Titre de probleme"} {
+		translated, err := d.GetEvidenceBrandPage(context.Background(), EvidenceFilter{BrandName: "translationtest", Language: language, Kind: "firsthand"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if translated.Total != 1 || len(translated.Reports) != 1 || translated.Reports[0].Analysis[0].Title != title || translated.Reports[0].Evidence.Excerpt == nil || *translated.Reports[0].Evidence.Excerpt != "I observed the app failure" {
+			t.Fatalf("analysis language changed immutable source evidence for%s", language)
+		}
+	}
+	coverageFields := evidence.Fields{ReportKind: "coverage", EvidenceExcerpt: "A published service outage account", ClassificationReason: "Secondhand account", EntityRelationship: "mentioned"}
+	if err := evidence.Save(context.Background(), db, 27, coverageFields, evidence.Version); err != nil {
+		t.Fatal(err)
+	}
+	// MySQL evaluates duplicate-key assignments in order. A stale failed retry
+	// must preserve every completed field, not only its version number.
+	if err := evidence.Save(context.Background(), db, 27, evidence.Unknown("Stale failed retry"), 0); err != nil {
+		t.Fatal(err)
+	}
+	var stored evidence.Fields
+	var storedVersion int
+	if err := db.QueryRow(`SELECT report_kind,COALESCE(evidence_excerpt,''),COALESCE(reported_impact,''),COALESCE(classification_reason,''),entity_relationship,evidence_version FROM report_evidence WHERE seq=27`).Scan(&stored.ReportKind, &stored.EvidenceExcerpt, &stored.ReportedImpact, &stored.ClassificationReason, &stored.EntityRelationship, &storedVersion); err != nil {
+		t.Fatal(err)
+	}
+	if stored != coverageFields || storedVersion != evidence.Version {
+		t.Fatalf("stale version0 retry overwrote completed per-report evidence: fields=%+v version=%d", stored, storedVersion)
+	}
+	// A completed unknown is versioned evidence, distinct from an absent row.
+	if err := evidence.Save(context.Background(), db, 4, evidence.Unknown("Original is unavailable"), evidence.Version); err != nil {
+		t.Fatal(err)
+	}
+	finalUnknown, err := d.GetEvidenceBrandPage(context.Background(), EvidenceFilter{BrandName: "anthropic", Kind: "unknown"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(finalUnknown.Reports) != 1 || finalUnknown.Reports[0].Report.Seq != 4 || finalUnknown.Reports[0].Evidence.EvidenceVersion != evidence.Version || finalUnknown.Reports[0].Evidence.ReportKind != "unknown" {
+		t.Fatal("successful unknown enrichment was treated as missing/version0")
+	}
+	translatedCoverage, err := d.GetEvidenceBrandPage(context.Background(), EvidenceFilter{BrandName: "translationtest", Language: "fr", Kind: "coverage"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if translatedCoverage.Total != 1 || translatedCoverage.KindCounts.Firsthand != 0 || translatedCoverage.KindCounts.Coverage != 1 || translatedCoverage.Reports[0].Analysis[0].Title != "Titre de probleme" {
+		t.Fatal("source-only evidence update did not consistently change filtered counts/translations")
+	}
+	var evidenceRows, analysisRows int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM report_evidence WHERE seq=27`).Scan(&evidenceRows); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM report_analysis WHERE seq=27`).Scan(&analysisRows); err != nil {
+		t.Fatal(err)
+	}
+	if evidenceRows != 1 || analysisRows != 2 {
+		t.Fatal("source evidence was duplicated across translated analysis rows")
+	}
+	translatedDetails := []*models.ReportWithAnalysis{{Report: models.Report{Seq: 27}}}
+	if err := d.AttachPublicEvidence(context.Background(), translatedDetails); err != nil {
+		t.Fatal(err)
+	}
+	if translatedDetails[0].Evidence == nil || translatedDetails[0].Evidence.ReportKind != "coverage" || translatedDetails[0].Evidence.ReportedImpact != nil {
+		t.Fatal("detail evidence disagreed with updated per-report source evidence")
+	}
+
 	// Only the archive importer's stable ID hash proves that its reports.ts
 	// means original publication, while index.created_at records acquisition.
 	archiveFixtures := []string{
 		`INSERT INTO reports (seq,public_id,ts,latitude,longitude,image,id) VALUES (22,'r_22','2025-09-05',0,0,'','reddit_t1_original'),(23,'r_23','2026-10-16',0,0,'','reddit_unmatched'),(24,'r_24','2026-10-17',0,0,'','reddit_t1_other_source'),(25,'r_25','2025-09-03',0,0,'','reddit_t3_explicit'),(26,'r_26','2025-09-01',0,0,'','reddit_t1_missing_ingest')`,
 		`INSERT INTO report_analysis VALUES
-  (22,'en','archivetimetest','Archive time test',TRUE,'digital','2026-10-14','Retained summary','AI summary',0.5,'unknown','','','Original missing','unknown',1),
-  (23,'en','archivetimetest','Archive time test',TRUE,'digital','2026-10-14','Unmatched ID','AI summary',0.5,'unknown','','','Original missing','unknown',1),
-  (24,'en','archivetimetest','Archive time test',TRUE,'digital','2026-10-14','Other source','AI summary',0.5,'unknown','','','Original missing','unknown',1),
-  (25,'en','archivetimetest','Archive time test',TRUE,'digital','2026-10-14','Explicit publication','AI summary',0.5,'unknown','','','Original missing','unknown',1),
-  (26,'en','archivetimetest','Archive time test',TRUE,'digital','2026-10-14','Missing indexing time','AI summary',0.5,'unknown','','','Original missing','unknown',1)`,
+  (22,'en','archivetimetest','Archive time test',TRUE,'digital','2026-10-14','Retained summary','AI summary',0.5),
+  (23,'en','archivetimetest','Archive time test',TRUE,'digital','2026-10-14','Unmatched ID','AI summary',0.5),
+  (24,'en','archivetimetest','Archive time test',TRUE,'digital','2026-10-14','Other source','AI summary',0.5),
+  (25,'en','archivetimetest','Archive time test',TRUE,'digital','2026-10-14','Explicit publication','AI summary',0.5),
+  (26,'en','archivetimetest','Archive time test',TRUE,'digital','2026-10-14','Missing indexing time','AI summary',0.5)`,
+		`INSERT INTO report_evidence (seq,report_kind,evidence_excerpt,reported_impact,classification_reason,entity_relationship,evidence_version) VALUES
+  (22,'unknown','','','Original missing','unknown',1),
+  (23,'unknown','','','Original missing','unknown',1),
+  (24,'unknown','','','Original missing','unknown',1),
+  (25,'unknown','','','Original missing','unknown',1),
+  (26,'unknown','','','Original missing','unknown',1)`,
 		`INSERT INTO external_ingest_index VALUES (22,'reddit_archive',LEFT(SHA1('reddit:t1_original'),32),'',NULL,'2026-10-15'),(23,'reddit_archive','unmatched','',NULL,'2026-10-15'),(24,'twitter',LEFT(SHA1('reddit:t1_other_source'),32),'',NULL,'2026-10-15'),(25,'reddit_archive',LEFT(SHA1('reddit:t3_explicit'),32),'','2025-08-07','2026-10-18'),(26,'reddit_archive',LEFT(SHA1('reddit:t1_missing_ingest'),32),'',NULL,NULL)`,
 	}
 	for _, statement := range archiveFixtures {
@@ -191,11 +316,17 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 	identityFixtures := []string{
 		`INSERT INTO reports (seq,public_id,ts,latitude,longitude,image) VALUES (17,'r_17','2026-10-14',0,0,''),(18,'r_18','2026-10-14',0,0,''),(19,'r_19','2026-10-14',0,0,''),(20,'r_20','2026-10-14',0,0,''),(21,'r_21','2026-10-14',0,0,'')`,
 		`INSERT INTO report_analysis VALUES
-  (17,'en','identitytest','Identity test',TRUE,'digital','2026-10-14','Upper path','AI summary',0.5,'firsthand','Original upper path','','Own observation','affected',1),
-  (18,'en','identitytest','Identity test',TRUE,'digital','2026-10-14','Lower path','AI summary',0.5,'firsthand','Original lower path','','Own observation','affected',1),
-  (19,'en','identitytest','Identity test',TRUE,'digital','2026-10-14','Upper ID','AI summary',0.5,'firsthand','Original upper ID','','Own observation','affected',1),
-  (20,'en','identitytest','Identity test',TRUE,'digital','2026-10-14','Lower ID','AI summary',0.5,'firsthand','Original lower ID','','Own observation','affected',1),
-  (21,'en','identitytest','Identity test',TRUE,'digital','2026-10-14','Duplicate upper path','AI summary',0.5,'firsthand','Original upper path','','Own observation','affected',1)`,
+  (17,'en','identitytest','Identity test',TRUE,'digital','2026-10-14','Upper path','AI summary',0.5),
+  (18,'en','identitytest','Identity test',TRUE,'digital','2026-10-14','Lower path','AI summary',0.5),
+  (19,'en','identitytest','Identity test',TRUE,'digital','2026-10-14','Upper ID','AI summary',0.5),
+  (20,'en','identitytest','Identity test',TRUE,'digital','2026-10-14','Lower ID','AI summary',0.5),
+  (21,'en','identitytest','Identity test',TRUE,'digital','2026-10-14','Duplicate upper path','AI summary',0.5)`,
+		`INSERT INTO report_evidence (seq,report_kind,evidence_excerpt,reported_impact,classification_reason,entity_relationship,evidence_version) VALUES
+  (17,'firsthand','Original upper path','','Own observation','affected',1),
+  (18,'firsthand','Original lower path','','Own observation','affected',1),
+  (19,'firsthand','Original upper ID','','Own observation','affected',1),
+  (20,'firsthand','Original lower ID','','Own observation','affected',1),
+  (21,'firsthand','Original upper path','','Own observation','affected',1)`,
 		`INSERT INTO external_ingest_index (seq,source,external_id,source_url,source_timestamp) VALUES (17,'archive','url-upper','https://example.com/Path',NULL),(18,'archive','url-lower','https://example.com/path',NULL),(19,'reddit','ABC','',NULL),(20,'reddit','abc','',NULL),(21,'archive','url-upper','https://example.com/Path',NULL)`,
 		`INSERT INTO report_raw VALUES (19,'reddit','ABC','fetcher','public'),(20,'reddit','abc','fetcher','public')`,
 	}
@@ -224,14 +355,23 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 	rankingFixtures := []string{
 		`INSERT INTO reports (seq,public_id,ts,latitude,longitude,image) VALUES (9,'r_9','2026-10-14',0,0,''),(10,'r_10','2026-10-14',0,0,''),(11,'r_11','2026-10-14',0,0,''),(12,'r_12','2026-10-14',0,0,''),(13,'r_13','2026-10-14',0,0,''),(14,'r_14','2026-10-14',0,0,''),(15,'r_15','2026-10-14',0,0,''),(16,'r_16','2026-10-14',0,0,'')`,
 		`INSERT INTO report_analysis VALUES
-   (9,'en','ranktest','Rank test',TRUE,'digital','2026-10-14','Strong singleton','AI summary',0.5,'firsthand','I observed a failure','Work blocked','Own observation','affected',1),
-   (10,'en','ranktest','Rank test',TRUE,'digital','2026-10-14','Weak family one','AI summary',0.9,'firsthand','I observed a failure','','Own observation','affected',1),
-   (11,'en','ranktest','Rank test',TRUE,'digital','2026-10-14','Weak family two','AI summary',0.9,'firsthand','I observed a failure','','Own observation','affected',1),
-   (12,'en','ranktest','Rank test',TRUE,'digital','2026-10-14','Weak family three','AI summary',0.9,'firsthand','I observed a failure','','Own observation','affected',1),
-   (13,'en','ranktest','Rank test',TRUE,'digital','2026-10-14','Dependency','AI summary',1.0,'firsthand','I observed a failure','Work blocked','Own observation','dependency',1),
-   (14,'en','ranktest','Rank test',TRUE,'digital','2026-10-14','Mentioned','AI summary',1.0,'firsthand','I observed a failure','Work blocked','Own observation','mentioned',1),
-   (15,'en','ranktest','Rank test',TRUE,'digital','2026-10-14','Strong family dependency','AI summary',0.99,'firsthand','I observed a failure','Work blocked','Own observation','dependency',1),
-   (16,'en','ranktest','Rank test',TRUE,'digital','2026-10-14','Strong family affected','AI summary',0.1,'firsthand','I observed a failure','Work blocked','Own observation','affected',1)`,
+  (9,'en','ranktest','Rank test',TRUE,'digital','2026-10-14','Strong singleton','AI summary',0.5),
+  (10,'en','ranktest','Rank test',TRUE,'digital','2026-10-14','Weak family one','AI summary',0.9),
+  (11,'en','ranktest','Rank test',TRUE,'digital','2026-10-14','Weak family two','AI summary',0.9),
+  (12,'en','ranktest','Rank test',TRUE,'digital','2026-10-14','Weak family three','AI summary',0.9),
+  (13,'en','ranktest','Rank test',TRUE,'digital','2026-10-14','Dependency','AI summary',1.0),
+  (14,'en','ranktest','Rank test',TRUE,'digital','2026-10-14','Mentioned','AI summary',1.0),
+  (15,'en','ranktest','Rank test',TRUE,'digital','2026-10-14','Strong family dependency','AI summary',0.99),
+  (16,'en','ranktest','Rank test',TRUE,'digital','2026-10-14','Strong family affected','AI summary',0.1)`,
+		`INSERT INTO report_evidence (seq,report_kind,evidence_excerpt,reported_impact,classification_reason,entity_relationship,evidence_version) VALUES
+  (9,'firsthand','I observed a failure','Work blocked','Own observation','affected',1),
+  (10,'firsthand','I observed a failure','','Own observation','affected',1),
+  (11,'firsthand','I observed a failure','','Own observation','affected',1),
+  (12,'firsthand','I observed a failure','','Own observation','affected',1),
+  (13,'firsthand','I observed a failure','Work blocked','Own observation','dependency',1),
+  (14,'firsthand','I observed a failure','Work blocked','Own observation','mentioned',1),
+  (15,'firsthand','I observed a failure','Work blocked','Own observation','dependency',1),
+  (16,'firsthand','I observed a failure','Work blocked','Own observation','affected',1)`,
 		`INSERT INTO case_reports VALUES (10,'rank_weak'),(11,'rank_weak'),(12,'rank_weak'),(15,'rank_strong'),(16,'rank_strong')`,
 	}
 	for _, statement := range rankingFixtures {
@@ -256,4 +396,53 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 		t.Fatal("family representative/relevance/source-count semantics changed")
 	}
 
+	// Redaction flags apply to each source sample, not only to the selected
+	// representative. Families and their source counts survive even when every
+	// source is restricted and no public supporting sample can be returned.
+	privacyFixtures := []string{
+		`INSERT INTO reports (seq,public_id,ts,latitude,longitude,image) VALUES (28,'r_28','2026-10-14',0,0,''),(29,'r_29','2026-10-14',0,0,''),(30,'r_30','2026-10-14',0,0,''),(31,'r_31','2026-10-14',0,0,'')`,
+		`INSERT INTO report_analysis VALUES
+  (28,'en','privacytest','Privacy test',TRUE,'digital','2026-10-14','Public source title','AI summary',0.5),
+  (29,'en','privacytest','Privacy test',TRUE,'digital','2026-10-14','Restricted sibling title','AI summary',0.9),
+  (30,'en','privacytest','Privacy test',TRUE,'digital','2026-10-14','Restricted family title one','AI summary',0.5),
+  (31,'en','privacytest','Privacy test',TRUE,'digital','2026-10-14','Restricted family title two','AI summary',0.5)`,
+		`INSERT INTO report_evidence (seq,report_kind,evidence_excerpt,reported_impact,classification_reason,entity_relationship,evidence_version) VALUES
+  (28,'firsthand','Public original source','Workflow blocked','Own observation','affected',1),
+  (29,'firsthand','Restricted original source','Workflow blocked','Own observation','affected',1),
+  (30,'firsthand','Restricted original source one','Workflow blocked','Own observation','affected',1),
+  (31,'firsthand','Restricted original source two','Workflow blocked','Own observation','affected',1)`,
+		`INSERT INTO external_ingest_index (seq,source,external_id,source_url,source_timestamp) VALUES (28,'archive','public','https://example.com/public-source',NULL),(29,'archive','restricted-sibling','https://example.com/restricted-sibling',NULL),(30,'archive','restricted-family-one','https://example.com/restricted-family-one',NULL),(31,'archive','restricted-family-two','https://example.com/restricted-family-two',NULL)`,
+		`INSERT INTO wire_submissions_raw (report_seq,report_json,provenance_json,submitted_at,actor_kind,channel) VALUES (29,'{"privacy":{"contains_pii":true}}','{}','2026-10-14','machine','wire'),(30,'{"privacy":{"requires_redaction":true}}','{}','2026-10-14','machine','wire'),(31,'{"privacy":{"contains_pii":true}}','{}','2026-10-14','machine','wire')`,
+		`INSERT INTO case_reports VALUES (28,'privacy_mixed'),(29,'privacy_mixed'),(30,'privacy_all'),(31,'privacy_all')`,
+	}
+	for _, statement := range privacyFixtures {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	privacyPage, err := d.GetEvidenceBrandPage(context.Background(), EvidenceFilter{BrandName: "privacytest", Kind: "firsthand"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if privacyPage.Total != 2 || privacyPage.KindCounts.Firsthand != 2 || privacyPage.KindCounts.All != 2 || len(privacyPage.Reports) != 2 {
+		t.Fatalf("redacted supporting sources removed families/counts: total=%d counts=%+v reports=%d", privacyPage.Total, privacyPage.KindCounts, len(privacyPage.Reports))
+	}
+	for _, report := range privacyPage.Reports {
+		recurrence := report.Recurrence
+		if recurrence.CaseID == nil || recurrence.SupportingReportCount != 2 || !recurrence.CountsExact {
+			t.Fatalf("redacted source sample changed exact family counts: %+v", recurrence)
+		}
+		switch *recurrence.CaseID {
+		case "privacy_mixed":
+			if report.Report.Seq != 28 || len(recurrence.SupportingSources) != 1 || recurrence.SupportingSources[0].Title != "Public source title" || stringValue(recurrence.SupportingSources[0].SourceURL) != "https://example.com/public-source" {
+				t.Fatalf("restricted sibling title or URL leaked into public recurrence: %+v", recurrence.SupportingSources)
+			}
+		case "privacy_all":
+			if recurrence.SupportingSources == nil || len(recurrence.SupportingSources) != 0 {
+				t.Fatalf("all-restricted family must retain empty public source samples: %+v", recurrence.SupportingSources)
+			}
+		default:
+			t.Fatalf("unexpected privacy fixture family: %s", *recurrence.CaseID)
+		}
+	}
 }

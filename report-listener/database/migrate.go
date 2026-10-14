@@ -34,7 +34,9 @@ func RunMigrations(ctx context.Context, db *sql.DB) error {
 		{ID: "0021_digital_share_reports", Description: "create digital share report metadata table", Up: func(ctx context.Context, db *sql.DB) error { return ensureDigitalShareReportsTable(ctx, db) }},
 		{ID: "0022_digital_share_attachments", Description: "create digital share attachment table", Up: func(ctx context.Context, db *sql.DB) error { return ensureDigitalShareAttachmentsTable(ctx, db) }},
 		{ID: "0023_report_sort_tables", Description: "create report sort event and aggregate tables", Up: func(ctx context.Context, db *sql.DB) error { return ensureReportSortTables(ctx, db) }},
-		{ID: "0024_report_evidence", Description: "add original-source evidence classification fields", Up: evidence.Migrate},
+		{ID: "0024_report_evidence", Description: "create per-report evidence storage", Up: evidence.Migrate},
+		// Covers environments that recorded the earlier column-based step.
+		{ID: "0025_report_evidence_store", Description: "ensure evidence storage without rebuilding analysis history", Up: evidence.Migrate},
 	})
 }
 

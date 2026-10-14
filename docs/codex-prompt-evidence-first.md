@@ -23,7 +23,7 @@ This prompt replaces `codex_prompt_firsthand_vs_coverage.md`. Implement the back
 
 ## Backend: canonical evidence enrichment
 
-Add additive evidence fields to `report_analysis` through explicit service migrations, with shared definitions and defensive normalization:
+Create a separate `report_evidence` table keyed by report sequence through explicit service migrations, with shared definitions and defensive normalization. Keep the existing analysis table, full-text indexes, summaries, translations, and history unchanged; adding columns to the large FULLTEXT table can require a lengthy copy. One metadata row is shared by every analysis language:
 
 - `report_kind`: `firsthand`, `coverage`, or `unknown`; default unknown.
 - `evidence_excerpt`: short literal excerpt from retained original text. Validate that it is an exact substring; reject fabricated, paraphrased, or oversized quotations.
@@ -32,7 +32,7 @@ Add additive evidence fields to `report_analysis` through explicit service migra
 - `entity_relationship`: `affected`, `dependency`, `mentioned`, or `unknown`.
 - `evidence_version`: version of this enrichment contract; legacy rows default to zero.
 
-Use consistent fields in pipeline models, inserts, updates, API models, and any translation copies. Keep Gemini/OpenAI evidence instructions and response schemas synchronized, preferably through a shared definition rather than duplicated prose.
+Use consistent evidence fields in pipeline and API models. Persist evidence once after the normal English analysis commits; translations retain their established inserts. Use a shared version-aware upsert so a retryable version-zero failure cannot replace a completed classification. Metadata write failures must preserve normal analysis, translations, and the single routing event. Keep Gemini/OpenAI evidence instructions and response schemas synchronized, preferably through a shared definition rather than duplicated prose.
 
 Classification definitions:
 
@@ -46,7 +46,7 @@ Pass retained public source-author and quote/reply context alongside the origina
 
 Treat model output as untrusted extraction. Invalid enums become unknown. Unsafe/private excerpts are withheld from public presentation. Do not allow a client or model to assign independent verification, source-account independence, or direct human submission status.
 
-Build a reusable original-evidence resolver. Inspect `external_ingest_index`, raw intake provenance, retained Wire submission JSON, `digital_share_reports`, and source indexer tables. Resolve GitHub issue bodies, X post text, and Bluesky post text using deterministic source identifiers. An imported summary in `reports.description` is not an acceptable fallback. Reuse the resolver for normal analysis, backfill, and grounded public metadata; keep read query cost bounded.
+Build a reusable original-evidence resolver. Inspect `external_ingest_index`, raw intake provenance, retained Wire submission JSON, `digital_share_reports`, and source indexer tables. Resolve GitHub issue bodies, X post text, and Bluesky post text using deterministic source identifiers. An imported summary in `reports.description` is not an acceptable fallback. Reuse the resolver for normal analysis, backfill, and grounded public metadata; keep read query cost bounded. The automatic retry worker scans at most the newest 50,000 report sequences through the existing primary key, in batches of at most 50. Recent server-side Wire/index ingestion qualifies old published posts; older sequences require explicit backfill. Avoid adding timestamp indexes to large legacy tables during this release.
 
 ## Backend: retain source provenance at intake
 
@@ -60,7 +60,7 @@ For X, Bluesky, and GitHub submitters, preserve actual original body/text alongs
 - `source_published_at`
 - `source_updated_at`, where actually known
 
-Preserve deterministic source IDs and platform/account metadata internally. Do not expose reporter identifiers unnecessarily. Retain provenance through both Wire and supported legacy ingestion paths. Use the canonical enrichment service as the authority for experience classification; avoid a competing unsynchronized intake classifier.
+Preserve deterministic source IDs and platform/account metadata internally. Do not expose reporter identifiers unnecessarily. Apply privacy restrictions to each supporting source sample, including private siblings of a public representative; keep restricted families and honest counts visible without leaking their source material. Retain provenance through both Wire and supported legacy ingestion paths. Use the canonical enrichment service as the authority for experience classification; avoid a competing unsynchronized intake classifier.
 
 Set submission time to actual submission time. A post's publication time is not automatically the time its incident occurred. Set `observed_at` only when supplied as an actual observation time; leave it absent when unknown. Never manufacture incident recency from ingestion timestamps. Existing source-capture timestamps may be retained with their actual meaning.
 

@@ -26,7 +26,8 @@ func (s *Service) processPendingEvidence() {
 
 func (s *Service) processEvidenceBatch() {
 	// Bounded, sequential work avoids duplicate bursts of provider calls. The
-	// primary analyzer already persists version1, so only bypassed imports enter.
+	// primary analyzer persists once per seq, so missing/failed evidence and
+	// bypassed imports enter without redoing their existing normal analyses.
 	ctx := context.Background()
 	batchSize := s.config.EvidenceWorkerBatchSize
 	if batchSize < 1 {
@@ -37,7 +38,7 @@ func (s *Service) processEvidenceBatch() {
 	}
 	pending, err := s.db.GetPendingEvidenceReports(ctx, batchSize)
 	if err != nil {
-		log.Printf("Evidence worker: %v", err)
+		log.Print("Evidence worker: pending query failed")
 		return
 	}
 	classifier, _ := s.llmClient.(evidence.Classifier)
@@ -56,8 +57,8 @@ func (s *Service) processEvidenceBatch() {
 			log.Printf("Evidence worker seq=%d: resolution/classification failed", item.Seq)
 			continue
 		}
-		if err := s.db.SaveEvidence(ctx, item.Seq, fields); err != nil {
-			log.Printf("Evidence worker seq=%d: save failed: %v", item.Seq, err)
+		if err := s.db.SaveEvidence(ctx, item.Seq, fields, evidence.Version); err != nil {
+			log.Printf("Evidence worker seq=%d: save failed; retaining retry eligibility", item.Seq)
 		}
 	}
 }

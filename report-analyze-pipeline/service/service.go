@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log"
 	"strings"
@@ -23,15 +24,36 @@ import (
 	"report-analyze-pipeline/stubllm"
 )
 
+// These boundaries keep optional evidence storage independent of normal
+// analysis/routing and allow failure paths to be exercised without live services.
+type analysisDatabase interface {
+	GetDB() *sql.DB
+	LockReportAnalysis(context.Context, int) (*database.ReportAnalysisLock, bool, error)
+	GetReportBySeq(int) (*database.Report, error)
+	GetReportImage(int) ([]byte, error)
+	SaveAnalysis(*database.ReportAnalysis) error
+	SaveEvidence(context.Context, int, evidence.Fields, int) error
+	GetPendingEvidenceReports(context.Context, int) ([]database.PendingEvidence, error)
+	ReportVisibility(int) (string, error)
+	MarkAnalysedPublished(int)
+	UpdateInferredContactEmails(int, string) error
+	GetDigitalReportsNeedingEnrichment(int) ([]database.DigitalReportForEnrichment, error)
+}
+
+type analysisPublisher interface {
+	Publish(any) error
+	Close() error
+}
+
 // Service represents the report analysis service
 type Service struct {
 	config         *config.Config
-	db             *database.Database
+	db             analysisDatabase
 	llmClient      llm.Client
 	brandService   *services.BrandService
 	osmService     *osm.CachedLocationService
 	contactService *contacts.ContactService
-	publisher      *rabbitmq.Publisher
+	publisher      analysisPublisher
 	stopChan       chan bool
 }
 
@@ -59,7 +81,8 @@ func NewService(cfg *config.Config, db *database.Database) *Service {
 	log.Printf("Analyzer LLM provider=%s model=%s", client.SourceName(), selectedModel)
 
 	// Initialize RabbitMQ publisher
-	publisher, err := rabbitmq.NewPublisher(
+	var publisher analysisPublisher
+	connectedPublisher, err := rabbitmq.NewPublisher(
 		cfg.RabbitMQ.GetAMQPURL(),
 		cfg.RabbitMQ.Exchange,
 		cfg.RabbitMQ.AnalysedReportRoutingKey,
@@ -67,7 +90,8 @@ func NewService(cfg *config.Config, db *database.Database) *Service {
 	if err != nil {
 		log.Printf("Failed to initialize RabbitMQ publisher: %v", err)
 		// Continue without publisher - analysis will still work
-		publisher = nil
+	} else {
+		publisher = connectedPublisher
 	}
 
 	// Initialize OSM location service for physical report email inference
@@ -283,6 +307,12 @@ func (s *Service) AnalyzeReport(report *database.Report) error {
 		return fmt.Errorf("failed to save English analysis for report %d: %w", report.Seq, err)
 	}
 	log.Printf("Successfully saved English analysis for report %d", report.Seq)
+	// Evidence is a single per-seq row, independent of normal analysis and its
+	// translations. Storage failure must not requeue analysis or delay routing;
+	// the recent evidence worker retries missing/version0 rows separately.
+	if err := s.db.SaveEvidence(context.Background(), report.Seq, evidenceFields, evidenceVersion); err != nil {
+		log.Printf("Report %d: evidence save failed; normal analysis and routing continue, worker will retry", report.Seq)
+	}
 
 	// Add English analysis to collection
 	allAnalyses = append(allAnalyses, analysisResult)
