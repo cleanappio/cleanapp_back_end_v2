@@ -143,3 +143,27 @@ func TestNativeSharePreservesActualCleanAppIntakeAndWireCannotSpoofIt(t *testing
 		t.Fatal("Wire generation_method spoofed authenticated native intake")
 	}
 }
+
+func TestSignalRankKeepsEvidenceAndRelevanceAheadOfFamilySize(t *testing.T) {
+	order := evidenceOrderBy("signal")
+	expected := []string{"evidence_strength DESC", "entity_relevance DESC", "supporting_report_count DESC", "severity_level DESC", "last_signal_at DESC", "seq DESC"}
+	previous := -1
+	for _, criterion := range expected {
+		position := strings.Index(order, criterion)
+		if position <= previous {
+			t.Fatalf("signal order must preserve evidence/relevance before family size: %s", order)
+		}
+		previous = position
+	}
+	filter, _ := NormalizeEvidenceFilter(EvidenceFilter{BrandName: "claude"})
+	query, _ := evidenceBrandCTE(filter)
+	if !strings.Contains(query, "WHEN entity_relationship='affected' THEN 2 WHEN entity_relationship='dependency' THEN 1 ELSE 0 END AS entity_relevance") {
+		t.Fatal("entity relevance must favor affected, then dependency, with mentioned/unknown tied")
+	}
+	if !strings.Contains(query, "PARTITION BY group_key ORDER BY evidence_strength DESC, entity_relevance DESC, severity_level DESC") {
+		t.Fatal("family representative selection does not share relevance precedence")
+	}
+	if strings.Contains(order, "independent") {
+		t.Fatal("related source observations cannot become independent corroboration")
+	}
+}

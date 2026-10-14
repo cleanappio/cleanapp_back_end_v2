@@ -120,6 +120,9 @@ func evidenceKindWhere(kind string) string {
 	}
 	return "report_kind = ?"
 }
+
+// Signal ranking keeps original evidence/impact and scoped entity relevance
+// ahead of related-source recurrence. Case membership remains unassessed.
 func evidenceOrderBy(sortBy string) string {
 	switch sortBy {
 	case "recent":
@@ -127,7 +130,7 @@ func evidenceOrderBy(sortBy string) string {
 	case "recurrence":
 		return "related_observation_count DESC, evidence_strength DESC, last_signal_at DESC, seq DESC"
 	default:
-		return "evidence_strength DESC, severity_level DESC, last_signal_at DESC, seq DESC"
+		return "evidence_strength DESC, entity_relevance DESC, supporting_report_count DESC, severity_level DESC, last_signal_at DESC, seq DESC"
 	}
 }
 
@@ -189,15 +192,16 @@ func evidenceCTE(f EvidenceFilter, analysisWhere string, args []interface{}) (st
    CASE WHEN generation_method = 'legacy_v3_bulk_ingest' OR (generation_method='human_submission' AND raw_observed_at=submitted_at AND NOT observation_time_supplied) OR (generation_method='shared_submission' AND NOT observation_time_supplied) OR (generation_method IN ('twitter_submitter','github_issue_submitter','bluesky_submitter','human_authored_public') AND NOT explicit_source_publication) THEN NULL ELSE raw_observed_at END AS observed_at,
    CASE WHEN COALESCE(source_author,'') <> '' THEN CONCAT(CASE WHEN source_platform='github_issue' THEN 'github' WHEN source_platform='x' THEN 'twitter' ELSE source_platform END,':',LOWER(source_author)) ELSE NULL END AS source_account_key,
    CASE WHEN evidence_version > 0 AND (COALESCE(evidence_excerpt,'') <> '' OR has_original_media) AND privacy_restricted = 0 THEN 2 ELSE 0 END +
-   CASE WHEN evidence_version > 0 AND COALESCE(reported_impact,'') <> '' AND privacy_restricted = 0 THEN 1 ELSE 0 END AS evidence_strength
+   CASE WHEN evidence_version > 0 AND COALESCE(reported_impact,'') <> '' AND privacy_restricted = 0 THEN 1 ELSE 0 END AS evidence_strength,
+   CASE WHEN evidence_version < 1 THEN 0 WHEN entity_relationship='affected' THEN 2 WHEN entity_relationship='dependency' THEN 1 ELSE 0 END AS entity_relevance
   FROM provenance
  ), representatives AS (
-  SELECT normalized.*, ROW_NUMBER() OVER (PARTITION BY source_key ORDER BY evidence_version DESC, evidence_strength DESC, seq DESC) AS duplicate_rank,
+  SELECT normalized.*, ROW_NUMBER() OVER (PARTITION BY source_key ORDER BY evidence_version DESC, evidence_strength DESC, entity_relevance DESC, seq DESC) AS duplicate_rank,
    COUNT(*) OVER (PARTITION BY source_key) AS import_count FROM normalized
  ), entries AS (SELECT * FROM representatives WHERE duplicate_rank = 1),
  case_links AS (SELECT e.seq, MIN(cr.case_id) AS case_id FROM case_reports cr JOIN normalized n ON n.seq = cr.seq JOIN entries e ON e.source_key = n.source_key GROUP BY e.seq),
  tagged AS (SELECT e.*, cl.case_id, CASE WHEN cl.case_id IS NULL THEN source_key ELSE CONCAT('family:',cl.case_id) END AS group_key FROM entries e LEFT JOIN case_links cl ON cl.seq=e.seq),
- filtered AS (SELECT tagged.*, ROW_NUMBER() OVER (PARTITION BY group_key ORDER BY evidence_strength DESC, severity_level DESC, COALESCE(observed_at,source_timestamp,ts) DESC,seq DESC) AS family_rank FROM tagged WHERE %s),
+ filtered AS (SELECT tagged.*, ROW_NUMBER() OVER (PARTITION BY group_key ORDER BY evidence_strength DESC, entity_relevance DESC, severity_level DESC, COALESCE(observed_at,source_timestamp,ts) DESC,seq DESC) AS family_rank FROM tagged WHERE %s),
  family_stats AS (SELECT group_key, COUNT(*) AS supporting_report_count, CASE WHEN COUNT(source_account_key)=COUNT(*) THEN COUNT(DISTINCT source_account_key) ELSE NULL END AS source_account_count, SUM(import_count)-COUNT(*) AS duplicate_import_count, MAX(COALESCE(observed_at,source_timestamp,ts)) AS last_signal_at, MAX(observed_at) AS latest_observed_at, MAX(source_timestamp) AS latest_source_published_at FROM filtered GROUP BY group_key),
  family_samples AS (SELECT group_key, JSON_ARRAYAGG(JSON_OBJECT('title',title,'source_url',source_url,'report_kind',report_kind,'source_published_at',DATE_FORMAT(source_timestamp,'%%Y-%%m-%%dT%%H:%%i:%%sZ'))) AS supporting_sources FROM filtered WHERE family_rank <= 8 GROUP BY group_key),
  briefing AS (SELECT f.*, fs.supporting_report_count, fs.source_account_count, fs.duplicate_import_count, fs.supporting_report_count AS related_observation_count, fs.last_signal_at, fs.latest_observed_at, fs.latest_source_published_at, samples.supporting_sources FROM filtered f JOIN family_stats fs ON fs.group_key=f.group_key JOIN family_samples samples ON samples.group_key=f.group_key WHERE family_rank=1)

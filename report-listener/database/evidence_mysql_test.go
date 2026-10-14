@@ -119,4 +119,41 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 	if product.Total != 1 || product.Reports[0].Recurrence.SupportingReportCount != 1 {
 		t.Fatal("product filter counts included another product")
 	}
+	// Equal evidence completeness favors entity relevance. A strong singleton
+	// must outrank a larger family whose reported impact is undocumented.
+	rankingFixtures := []string{
+		`INSERT INTO reports VALUES (9,'r_9','2026-10-14',0,0,''),(10,'r_10','2026-10-14',0,0,''),(11,'r_11','2026-10-14',0,0,''),(12,'r_12','2026-10-14',0,0,''),(13,'r_13','2026-10-14',0,0,''),(14,'r_14','2026-10-14',0,0,''),(15,'r_15','2026-10-14',0,0,''),(16,'r_16','2026-10-14',0,0,'')`,
+		`INSERT INTO report_analysis VALUES
+   (9,'en','ranktest','Rank test',TRUE,'digital','2026-10-14','Strong singleton','AI summary',0.5,'firsthand','I observed a failure','Work blocked','Own observation','affected',1),
+   (10,'en','ranktest','Rank test',TRUE,'digital','2026-10-14','Weak family one','AI summary',0.9,'firsthand','I observed a failure','','Own observation','affected',1),
+   (11,'en','ranktest','Rank test',TRUE,'digital','2026-10-14','Weak family two','AI summary',0.9,'firsthand','I observed a failure','','Own observation','affected',1),
+   (12,'en','ranktest','Rank test',TRUE,'digital','2026-10-14','Weak family three','AI summary',0.9,'firsthand','I observed a failure','','Own observation','affected',1),
+   (13,'en','ranktest','Rank test',TRUE,'digital','2026-10-14','Dependency','AI summary',1.0,'firsthand','I observed a failure','Work blocked','Own observation','dependency',1),
+   (14,'en','ranktest','Rank test',TRUE,'digital','2026-10-14','Mentioned','AI summary',1.0,'firsthand','I observed a failure','Work blocked','Own observation','mentioned',1),
+   (15,'en','ranktest','Rank test',TRUE,'digital','2026-10-14','Strong family dependency','AI summary',0.99,'firsthand','I observed a failure','Work blocked','Own observation','dependency',1),
+   (16,'en','ranktest','Rank test',TRUE,'digital','2026-10-14','Strong family affected','AI summary',0.1,'firsthand','I observed a failure','Work blocked','Own observation','affected',1)`,
+		`INSERT INTO case_reports VALUES (10,'rank_weak'),(11,'rank_weak'),(12,'rank_weak'),(15,'rank_strong'),(16,'rank_strong')`,
+	}
+	for _, statement := range rankingFixtures {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ranked, err := d.GetEvidenceBrandPage(context.Background(), EvidenceFilter{BrandName: "ranktest", Kind: "firsthand", Sort: "signal"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wanted := []int{16, 9, 13, 14, 12}
+	if len(ranked.Reports) != len(wanted) {
+		t.Fatalf("ranked entries=%d want%d", len(ranked.Reports), len(wanted))
+	}
+	for i, seq := range wanted {
+		if ranked.Reports[i].Report.Seq != seq {
+			t.Fatalf("signal rank[%d]=%d want%d", i, ranked.Reports[i].Report.Seq, seq)
+		}
+	}
+	if ranked.Reports[0].Evidence.EntityRelationship != "affected" || ranked.Reports[0].Recurrence.SupportingReportCount != 2 || ranked.Reports[len(wanted)-1].Recurrence.SupportingReportCount != 3 {
+		t.Fatal("family representative/relevance/source-count semantics changed")
+	}
+
 }
