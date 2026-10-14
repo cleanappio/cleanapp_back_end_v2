@@ -11,6 +11,8 @@ pub struct Config {
     pub db_name: String,
     pub http_port: u16,
     pub allowed_origins: Vec<String>,
+    pub brand_briefing_api_url: String,
+    pub brand_briefing_timeout_seconds: u64,
     pub public_detail_rate_limit_rps: f64,
     pub public_detail_rate_limit_burst: usize,
     pub public_detail_abuse_window_seconds: u64,
@@ -31,6 +33,12 @@ impl Config {
             "ALLOWED_ORIGINS",
             "https://cleanapp.io,https://www.cleanapp.io,https://api.cleanapp.io,https://live.cleanapp.io,http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173",
         );
+        let brand_briefing_api_url = envx::string(
+            "BRAND_BRIEFING_API_URL",
+            "http://cleanapp_report_listener:8080",
+        );
+        let brand_briefing_timeout_seconds =
+            envx::parse::<u64>("BRAND_BRIEFING_TIMEOUT_SECONDS", "8").clamp(1, 30);
         let public_detail_rate_limit_rps = envx::parse("PUBLIC_DETAIL_RATE_LIMIT_RPS", "1.5");
         let public_detail_rate_limit_burst = envx::parse("PUBLIC_DETAIL_RATE_LIMIT_BURST", "8");
         let public_detail_abuse_window_seconds =
@@ -45,6 +53,8 @@ impl Config {
             db_name,
             http_port,
             allowed_origins,
+            brand_briefing_api_url,
+            brand_briefing_timeout_seconds,
             public_detail_rate_limit_rps,
             public_detail_rate_limit_burst,
             public_detail_abuse_window_seconds,

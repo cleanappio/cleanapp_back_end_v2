@@ -1877,6 +1877,7 @@ dependencies = [
  "cleanapp-rust-common",
  "dotenvy",
  "mysql",
+ "reqwest",
  "serde",
  "serde_json",
  "time",

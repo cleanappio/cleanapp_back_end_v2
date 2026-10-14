@@ -4,7 +4,7 @@ use std::time::Duration;
 use anyhow::Result;
 use axum::{
     extract::{ConnectInfo, Query, State},
-    http::{header, HeaderValue, Method, StatusCode},
+    http::{header, HeaderMap, HeaderValue, Method, StatusCode},
     response::IntoResponse,
     routing::get,
     Json, Router,
@@ -18,19 +18,22 @@ use tower_http::{
 };
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+mod brand_briefing;
 mod cfg;
 mod db;
 mod models;
 mod openapi;
 mod security;
 
+use brand_briefing::{BrandBriefingClient, ReportsByBrandParams};
 use cfg::Config;
-use models::{BrandSummaryItem, ReportBatch, ReportPoint, ReportWithAnalysis};
+use models::{BrandSummaryItem, ReportPoint, ReportWithAnalysis};
 use security::{client_key, DetailAbuseMonitor, TokenBucketLimiter};
 
 #[derive(Clone)]
 struct AppState {
     pool: my::Pool,
+    brand_briefing: BrandBriefingClient,
     detail_limiter: TokenBucketLimiter,
     detail_abuse_monitor: DetailAbuseMonitor,
 }
@@ -70,6 +73,10 @@ async fn run() -> Result<()> {
 
     tracing::info!("starting report-listener-v4");
     let cfg = Config::from_env()?;
+    let brand_briefing = BrandBriefingClient::new(
+        &cfg.brand_briefing_api_url,
+        Duration::from_secs(cfg.brand_briefing_timeout_seconds),
+    )?;
     let pool = db::connect_pool(&cfg)?;
     let allowed_origins: Vec<HeaderValue> = cfg
         .allowed_origins
@@ -79,6 +86,7 @@ async fn run() -> Result<()> {
 
     let state = AppState {
         pool: pool.clone(),
+        brand_briefing,
         detail_limiter: TokenBucketLimiter::new(
             cfg.public_detail_rate_limit_rps,
             cfg.public_detail_rate_limit_burst,
@@ -176,28 +184,27 @@ async fn get_brands_summary(
     Ok(Json(items))
 }
 
-#[derive(Deserialize, utoipa::IntoParams)]
-#[into_params(parameter_in = Query)]
-struct ReportsByBrandParams {
-    brand_name: String,
-    n: Option<u64>,
-}
-
-/// GET /api/v4/reports/by-brand
+/// GET /api/v4/reports/by-brand: canonical evidence policy, shared with v3.
 #[utoipa::path(
     get,
     path = "/api/v4/reports/by-brand",
     params(ReportsByBrandParams),
-    responses((status = 200, description = "Reports by brand", body = ReportBatch))
+    responses(
+        (status = 200, description = "Canonical evidence briefing with full or lightweight reports, evidence, recurrence, scoped counts and pagination", body = Object),
+        (status = 400, description = "Invalid briefing filters", body = Object),
+        (status = 503, description = "Canonical evidence briefing unavailable", body = Object)
+    )
 )]
 async fn get_reports_by_brand(
     State(state): State<AppState>,
     Query(params): Query<ReportsByBrandParams>,
-) -> Result<Json<ReportBatch>, (StatusCode, String)> {
-    let limit = params.n.unwrap_or(25).min(100) as usize;
-    let batch = db::fetch_reports_by_brand(&state.pool, &params.brand_name, limit)
-        .map_err(internal_error)?;
-    Ok(Json(batch))
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    state
+        .brand_briefing
+        .fetch(&params, headers.get(header::AUTHORIZATION).cloned())
+        .await
+        .map(Json)
 }
 
 #[derive(Deserialize, utoipa::IntoParams)]
