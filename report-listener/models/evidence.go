@@ -7,6 +7,7 @@ import "time"
 type PublicEvidence struct {
 	ReportKind           string     `json:"report_kind"`
 	IntakeMethod         string     `json:"intake_method"`
+	IntakeChannel        *string    `json:"intake_channel"`
 	IntakeLabel          string     `json:"intake_label"`
 	SourcePlatform       *string    `json:"source_platform"`
 	SourceURL            *string    `json:"source_url"`

@@ -441,9 +441,14 @@ func (r evidenceRecord) publicEvidence() models.PublicEvidence {
 	sourceURL := safeEvidenceURL(r.SourceURL)
 	platform := strings.TrimSpace(r.SourcePlatform)
 	intake, label := "unknown", "Submission provenance unavailable"
+	var intakeChannel *string
 	nativeChannel := r.IntakeChannel == "mobile" || r.IntakeChannel == "web" || r.IntakeChannel == "share" || r.IntakeChannel == "legacy_v2"
 	if r.ActorKind == "human" && nativeChannel && (r.GenerationMethod == "human_submission" || r.GenerationMethod == "shared_submission") {
 		intake, label = "cleanapp_submission", "Submitted through CleanApp"
+		// Expose only the recorded native channel already verified by this
+		// actor/generation branch, never a platform guess or arbitrary metadata.
+		channel := r.IntakeChannel
+		intakeChannel = &channel
 	} else if r.ExternalSource {
 		intake, label = "imported", "Imported public report"
 	} else if platform != "" || r.FetcherID != "" || r.ActorKind == "machine" {
@@ -466,7 +471,7 @@ func (r evidenceRecord) publicEvidence() models.PublicEvidence {
 	if !r.IngestionTimeMissing && !r.IngestedAtNull && !r.IngestedAt.IsZero() {
 		ingestedAt = &r.IngestedAt
 	}
-	ev := models.PublicEvidence{ReportKind: kind, IntakeMethod: intake, IntakeLabel: label, SourcePlatform: evidenceText(platform, 64), SourceURL: evidenceText(sourceURL, 2048), SourcePublishedAt: publicEvidenceDate(r.PublishedAt), ObservedAt: publicEvidenceDate(r.ObservedAt), IngestedAt: ingestedAt, EntityRelationship: relationship, ValidationStatus: "not_independently_reproduced", UpstreamStatus: "unknown", ResolutionStatus: "unknown", WhySurfaced: []string{}, EvidenceVersion: r.Version, HasOriginalMedia: r.HasOriginalMedia && !r.PrivacyRestricted}
+	ev := models.PublicEvidence{ReportKind: kind, IntakeMethod: intake, IntakeChannel: intakeChannel, IntakeLabel: label, SourcePlatform: evidenceText(platform, 64), SourceURL: evidenceText(sourceURL, 2048), SourcePublishedAt: publicEvidenceDate(r.PublishedAt), ObservedAt: publicEvidenceDate(r.ObservedAt), IngestedAt: ingestedAt, EntityRelationship: relationship, ValidationStatus: "not_independently_reproduced", UpstreamStatus: "unknown", ResolutionStatus: "unknown", WhySurfaced: []string{}, EvidenceVersion: r.Version, HasOriginalMedia: r.HasOriginalMedia && !r.PrivacyRestricted}
 	if r.Version > 0 && !r.PrivacyRestricted {
 		if !sensitiveEvidence.MatchString(r.Excerpt) && !hasUnsafeEvidenceControls(r.Excerpt) {
 			ev.Excerpt = evidenceText(r.Excerpt, 500)
