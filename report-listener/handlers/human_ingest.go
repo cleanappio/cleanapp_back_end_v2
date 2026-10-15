@@ -77,7 +77,13 @@ func normalizeHumanChannel(raw string) string {
 }
 
 func syntheticHumanFetcherID(channel string) string {
-	return "human-" + normalizeHumanChannel(channel)
+	channel = normalizeHumanChannel(channel)
+	// Shares keep the established profile and idempotency namespace. Only
+	// their recorded intake channel changes; no new fetcher is provisioned.
+	if channel == humanChannelShare {
+		channel = humanChannelMobile
+	}
+	return "human-" + channel
 }
 
 func syntheticHumanSourceID(prefix string, req humanReportSubmissionRequest) string {

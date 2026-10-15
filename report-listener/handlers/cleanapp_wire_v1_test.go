@@ -82,7 +82,7 @@ func TestSharedURLSubmissionQualityPublishesURLOnlyShares(t *testing.T) {
 
 	cfg := &config.Config{CleanAppWirePublishLaneMinTier: 2}
 	auth := (&Handlers{cfg: cfg}).humanReportAuthContext("share")
-	if auth.ActorKind != "human" || auth.Channel != "share" || auth.FetcherID != "human-share" {
+	if auth.ActorKind != "human" || auth.Channel != "share" || auth.FetcherID != "human-mobile" {
 		t.Fatalf("share endpoint lost its server-owned intake channel: %+v", auth)
 	}
 	payload, err := normalizeDigitalSharePayload(
@@ -98,6 +98,15 @@ func TestSharedURLSubmissionQualityPublishesURLOnlyShares(t *testing.T) {
 	}
 
 	sub := buildDigitalShareWireSubmission(payload, "human")
+	if sub.SourceID != "human:share:"+payload.NormalizedSourceHash {
+		t.Fatalf("share source identity changed: %s", sub.SourceID)
+	}
+	replay := buildDigitalShareWireSubmission(payload, "human")
+	firstHash, firstErr := cleanAppWireMaterialHash(sub)
+	replayHash, replayErr := cleanAppWireMaterialHash(replay)
+	if firstErr != nil || replayErr != nil || replay.SourceID != sub.SourceID || firstHash != replayHash {
+		t.Fatal("share replay changed its source or material identity")
+	}
 	if sub.Provenance.GenerationMethod != "shared_submission" {
 		t.Fatal("native share provenance was lost")
 	}
