@@ -159,9 +159,6 @@ func toPublicDiscoveryCards(
 		if classification == "" {
 			classification = "physical"
 		}
-		if classification == "physical" && !hasMapLocation(report.Report.Latitude, report.Report.Longitude) {
-			continue
-		}
 		token, err := tokenForReport(classification, report.Report.PublicID)
 		if err != nil {
 			return nil, err
@@ -183,7 +180,9 @@ func toPublicDiscoveryCards(
 		if count, known := notificationCounts[report.Report.Seq]; known {
 			item.NotificationCount = count
 		}
-		if classification == "physical" {
+		// Discovery is a report feed, not a map: retain unlocated reports while
+		// omitting coordinates that cannot identify a real physical location.
+		if classification == "physical" && hasMapLocation(report.Report.Latitude, report.Report.Longitude) {
 			lat := report.Report.Latitude
 			lon := report.Report.Longitude
 			item.Latitude = &lat
@@ -316,7 +315,7 @@ func (h *Handlers) GetPublicDiscoveryLast(c *gin.Context) {
 	classification := c.DefaultQuery("classification", "physical")
 	language := c.DefaultQuery("lang", "en")
 
-	reportsInterface, err := h.db.GetLastNAnalyzedReports(c.Request.Context(), limit, classification, false)
+	reportsInterface, err := h.db.GetRecentPublicDiscoveryReports(c.Request.Context(), limit, classification)
 	if err != nil {
 		log.Printf("Failed to get public discovery last reports: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve reports"})
