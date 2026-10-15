@@ -11,3 +11,6 @@ options:
 substitutions:
   _TAG: 'override-this'
   _GIT_COMMIT: 'unknown'
+
+images:
+  - '${_TAG}'
