@@ -194,6 +194,8 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 		)
 		{
 			detailRoutes.GET("/by-public-id", h.GetReportByPublicID)
+			detailRoutes.GET("/notifications/by-public-id", h.GetReportNotificationSummary)
+			detailRoutes.GET("/notifications/full/by-public-id", h.GetReportNotificationHistory)
 			detailRoutes.GET("/by-seq", h.GetReportBySeq)
 			detailRoutes.GET("/contact-strategy/by-public-id", h.GetReportContactStrategyByPublicID)
 			detailRoutes.GET("/contact-strategy/by-seq", h.GetReportContactStrategyBySeq)
@@ -380,6 +382,8 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 		)
 		{
 			detailRoutesV4.GET("/by-public-id", h.GetReportByPublicID)
+			detailRoutesV4.GET("/notifications/by-public-id", h.GetReportNotificationSummary)
+			detailRoutesV4.GET("/notifications/full/by-public-id", h.GetReportNotificationHistory)
 			detailRoutesV4.GET("/by-seq", h.GetReportBySeq)
 		}
 

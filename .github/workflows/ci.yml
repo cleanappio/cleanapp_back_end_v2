@@ -95,6 +95,22 @@ jobs:
           go test ./database -run '^TestWire(MetaProjection|ProjectionBootstrap)MySQLFixture$' -count=1 -v
           go test ./cmd/backfill-wire-evidence -run '^TestWireAuditMySQLFixture$' -count=1 -v
 
+      - name: Check notification receipts, privacy and subscriber access on MySQL
+        working-directory: report-listener
+        env:
+          NOTIFICATION_TEST_DSN: "root:local-evidence-fixture@tcp(127.0.0.1:33306)/report_notification_test?parseTime=true&charset=utf8mb4"
+        run: |
+          docker exec -e MYSQL_PWD=local-evidence-fixture ${{ job.services.mysql.id }} mysql -uroot -e 'CREATE DATABASE report_notification_test;'
+          go test ./database -run '^TestReportNotificationsMySQLFixture$' -count=1 -v
+
+      - name: Check accepted email events and public evidence selection on MySQL
+        working-directory: email-service
+        env:
+          EMAIL_NOTIFICATION_TEST_DSN: "root:local-evidence-fixture@tcp(127.0.0.1:33306)/email_notification_test?parseTime=true&charset=utf8mb4"
+        run: |
+          docker exec -e MYSQL_PWD=local-evidence-fixture ${{ job.services.mysql.id }} mysql -uroot -e 'CREATE DATABASE email_notification_test;'
+          go test ./service -run '^TestNotificationMySQL$' -count=1 -v
+
   evidence_original_mysql:
     name: Original lookup and online index (MySQL 8.0.44)
     runs-on: ubuntu-latest
@@ -169,6 +185,22 @@ jobs:
         run: |
           docker exec -e MYSQL_PWD=local-evidence-fixture ${{ job.services.mysql.id }} mysql -uroot -e 'CREATE DATABASE worker_gate_evidence_test;'
           go test ./database -run '^(TestPendingEvidenceMySQL|TestEvidenceCursorMySQL)' -count=1 -v
+
+      - name: Check notification receipts, privacy and subscriber access on MySQL 8.0
+        working-directory: report-listener
+        env:
+          NOTIFICATION_TEST_DSN: "root:local-evidence-fixture@tcp(127.0.0.1:33306)/report_notification_test?parseTime=true&charset=utf8mb4"
+        run: |
+          docker exec -e MYSQL_PWD=local-evidence-fixture ${{ job.services.mysql.id }} mysql -uroot -e 'CREATE DATABASE report_notification_test;'
+          go test ./database -run '^TestReportNotificationsMySQLFixture$' -count=1 -v
+
+      - name: Check accepted email events and public evidence selection on MySQL 8.0
+        working-directory: email-service
+        env:
+          EMAIL_NOTIFICATION_TEST_DSN: "root:local-evidence-fixture@tcp(127.0.0.1:33306)/email_notification_test?parseTime=true&charset=utf8mb4"
+        run: |
+          docker exec -e MYSQL_PWD=local-evidence-fixture ${{ job.services.mysql.id }} mysql -uroot -e 'CREATE DATABASE email_notification_test;'
+          go test ./service -run '^TestNotificationMySQL$' -count=1 -v
 
   golangci:
     name: Go Lint (golangci-lint)

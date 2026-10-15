@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -27,7 +26,14 @@ import (
 type EmailService struct {
 	db     *sql.DB
 	config *config.Config
-	email  *email.EmailSender
+	email  notificationSender
+}
+
+type notificationSender interface {
+	Provider() string
+	SendAggregateEmailsWithResults([]string, *models.BrandReportSummary, string) []email.CustomEmailSendResult
+	SendEmailsWithAnalysis([]string, []byte, []byte, *models.ReportAnalysis) error
+	SendCustomEmails([]string, string, string, string) []email.CustomEmailSendResult
 }
 
 const (
@@ -37,6 +43,7 @@ const (
 	retryReasonAggregateFailure      = "aggregate_send_failed"
 	retryReasonThrottleError         = "throttle_check_error"
 	retryReasonAwaitContactDiscovery = "await_contact_discovery"
+	retryReasonReceiptPending        = "notification_receipt_pending"
 )
 
 var genericPlaceholderDomainTokens = map[string]struct{}{
@@ -286,35 +293,6 @@ func (s *EmailService) recordBrandEmailSent(ctx context.Context, brandName, emai
 	return nil
 }
 
-// recordReportEmailDelivery records that a specific report notification was sent to a specific recipient.
-func (s *EmailService) recordReportEmailDelivery(ctx context.Context, seq int64, email, deliverySource string) error {
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO report_email_deliveries (
-			seq, recipient_email, delivery_status, delivery_source, provider, sent_at
-		) VALUES (?, ?, 'sent', ?, ?, NOW())
-		ON DUPLICATE KEY UPDATE
-			delivery_status = VALUES(delivery_status),
-			delivery_source = VALUES(delivery_source),
-			provider = VALUES(provider),
-			sent_at = VALUES(sent_at),
-			updated_at = NOW()
-	`, seq, strings.TrimSpace(email), deliverySource, s.email.Provider())
-	if err != nil {
-		return fmt.Errorf("failed to record report email delivery for seq %d to %s: %w", seq, email, err)
-	}
-	return nil
-}
-
-func (s *EmailService) recordReportEmailDeliveries(ctx context.Context, seqs []int64, emails []string, deliverySource string) {
-	for _, seq := range seqs {
-		for _, emailAddr := range emails {
-			if err := s.recordReportEmailDelivery(ctx, seq, emailAddr, deliverySource); err != nil {
-				log.Warnf("Failed to record report email delivery for seq %d to %s: %v", seq, emailAddr, err)
-			}
-		}
-	}
-}
-
 // getDailyEmailCount returns the number of emails sent today for a specific brand
 func (s *EmailService) getDailyEmailCount(ctx context.Context, brandName string) (int, error) {
 	var count int
@@ -408,6 +386,7 @@ func (s *EmailService) getUnprocessedReports(ctx context.Context) ([]models.Repo
         AND ra.language = 'en'
 		AND (rr.visibility IS NULL OR rr.visibility = 'public')
 		AND (erry.seq IS NULL OR erry.next_attempt_at <= NOW())
+		AND (erry.reason IS NULL OR erry.reason <> 'notification_receipt_pending')
         ORDER BY r.seq DESC
         LIMIT 500
     `
@@ -475,6 +454,7 @@ func (s *EmailService) getUnprocessedBrandlessPhysicalReports(ctx context.Contex
 		  AND (rr.visibility IS NULL OR rr.visibility = 'public')
 		  AND (ra.brand_name IS NULL OR ra.brand_name = '')
 		  AND (erry.seq IS NULL OR erry.next_attempt_at <= NOW())
+		AND (erry.reason IS NULL OR erry.reason <> 'notification_receipt_pending')
 		ORDER BY ra.seq DESC
 		LIMIT ?
 	`, limit)
@@ -598,10 +578,11 @@ func (s *EmailService) getUnprocessedReportsByBrand(ctx context.Context) ([]mode
 			COUNT(*) as new_count,
 			(SELECT COUNT(*) FROM report_analysis ra2
 			  LEFT JOIN report_raw rr2 ON ra2.seq = rr2.report_seq
-			  WHERE ra2.brand_name = ra.brand_name AND ra2.language = 'en'
+			  WHERE ra2.brand_name = ra.brand_name AND ra2.language = 'en' AND ra2.is_valid = TRUE
 			    AND (rr2.visibility IS NULL OR rr2.visibility = 'public')
+			    AND ` + notificationPublicStateSQL("ra2") + `
 			) as total_count,
-			GROUP_CONCAT(r.seq ORDER BY r.seq DESC) as seqs,
+			GROUP_CONCAT(CONCAT(r.seq, ':') ORDER BY r.seq DESC) as seqs,
 			MAX(r.seq) as latest_seq,
 			MAX(ra.classification) as classification,
 			MAX(ra.inferred_contact_emails) as inferred_contact_emails
@@ -612,9 +593,12 @@ func (s *EmailService) getUnprocessedReportsByBrand(ctx context.Context) ([]mode
 		LEFT JOIN email_report_retry erry ON r.seq = erry.seq
 		WHERE sre.seq IS NULL
 		  AND ra.brand_name != ''
+		  AND ra.is_valid = TRUE
 		  AND ra.language = 'en'
 		  AND (rr.visibility IS NULL OR rr.visibility = 'public')
+		  AND ` + notificationPublicStateSQL("r") + `
 		  AND (erry.seq IS NULL OR erry.next_attempt_at <= NOW())
+		AND (erry.reason IS NULL OR erry.reason <> 'notification_receipt_pending')
 		GROUP BY ra.brand_name, ra.brand_display_name
 		ORDER BY new_count DESC
 		LIMIT 100
@@ -646,15 +630,9 @@ func (s *EmailService) getUnprocessedReportsByBrand(ctx context.Context) ([]mode
 			return nil, err
 		}
 
-		// Parse the comma-separated seqs
-		if seqsStr != "" {
-			seqParts := strings.Split(seqsStr, ",")
-			for _, seqPart := range seqParts {
-				if seq, err := strconv.ParseInt(strings.TrimSpace(seqPart), 10, 64); err == nil {
-					summary.ReportSeqs = append(summary.ReportSeqs, seq)
-				}
-			}
-		}
+		// GROUP_CONCAT may truncate under the server's configured limit. The
+		// terminal marker distinguishes a complete ID from a partial number.
+		summary.ReportSeqs = parseCompleteReportSeqs(seqsStr)
 
 		summary.InferredContactEmails = inferredEmails.String
 		summaries = append(summaries, summary)
@@ -685,6 +663,7 @@ func (s *EmailService) ProcessBrandNotifications() error {
 	log.Infof("Found %d brands with new reports (in %s)", len(brandSummaries), time.Since(start))
 
 	var processedBrands, skippedBrands, emailsSent, dailyLimitHits, scheduledRetries int
+	receiptPreflighted := false
 
 	for _, summary := range brandSummaries {
 		// SAFETY CHECK: Daily email limit per brand
@@ -701,17 +680,37 @@ func (s *EmailService) ProcessBrandNotifications() error {
 			continue
 		}
 
+		if !s.config.DryRun && !receiptPreflighted {
+			if err := s.preflightNotificationReceipts(ctx); err != nil {
+				return fmt.Errorf("notification receipt preflight failed; no emails sent: %w", err)
+			}
+			receiptPreflighted = true
+		}
+
 		// Get contact emails for this brand
 		emails := strings.Split(strings.TrimSpace(summary.InferredContactEmails), ",")
 		var cleanEmails []string
 		throttledCount := 0
 		throttleCheckErrors := 0
+		alreadyNotifiedCount := 0
+		seenRecipients := make(map[string]bool)
 		earliestRetry := time.Time{}
 		hasRetryTime := false
 
 		for _, email := range emails {
-			cleanEmail := strings.TrimSpace(email)
-			if cleanEmail == "" || !s.isHighQualityInferredEmail(cleanEmail, summary.Classification) {
+			cleanEmail := strings.ToLower(strings.TrimSpace(email))
+			if cleanEmail == "" || seenRecipients[cleanEmail] || !s.isHighQualityInferredEmail(cleanEmail, summary.Classification) {
+				continue
+			}
+			seenRecipients[cleanEmail] = true
+			alreadyNotified, err := s.alreadyNotifiedAllReports(ctx, summary.ReportSeqs, cleanEmail)
+			if err != nil {
+				log.Warnf("Failed to check prior notifications for brand %s: %v", summary.BrandName, err)
+				throttleCheckErrors++
+				continue
+			}
+			if alreadyNotified {
+				alreadyNotifiedCount++
 				continue
 			}
 
@@ -747,6 +746,15 @@ func (s *EmailService) ProcessBrandNotifications() error {
 		}
 
 		if len(cleanEmails) == 0 {
+			if alreadyNotifiedCount > 0 && throttledCount == 0 && throttleCheckErrors == 0 {
+				for _, seq := range summary.ReportSeqs {
+					if err := s.markReportAsProcessed(ctx, seq); err != nil {
+						log.Warnf("Failed to finish already notified report %d: %v", seq, err)
+					}
+				}
+				processedBrands++
+				continue
+			}
 			reason := retryReasonNoValidEmails
 			nextAttempt := time.Now().Add(6 * time.Hour)
 			if throttledCount > 0 {
@@ -785,23 +793,56 @@ func (s *EmailService) ProcessBrandNotifications() error {
 		log.Infof("Brand %s: sending aggregate notification (%d new, %d total) to %d recipients",
 			summary.BrandName, summary.NewReportCount, summary.TotalReportCount, len(cleanEmails))
 
-		if err := s.sendAggregateNotification(ctx, &summary, cleanEmails); err != nil {
-			log.Errorf("Failed to send aggregate notification for brand %s: %v", summary.BrandName, err)
-			nextAttempt := time.Now().Add(30 * time.Minute)
-			scheduledRetries += s.scheduleReportsRetry(ctx, summary.ReportSeqs, retryReasonAggregateFailure, nextAttempt)
+		findings, err := s.getAggregateFindings(ctx, &summary)
+		if err != nil || len(findings) == 0 {
+			log.Errorf("Brand %s: no report findings ready for notification (error=%v)", summary.BrandName, err)
+			scheduledRetries += s.scheduleReportsRetry(ctx, summary.ReportSeqs, retryReasonAggregateFailure, time.Now().Add(30*time.Minute))
 			continue
 		}
-
-		// Record brand+email throttle entries (AFTER successful send)
-		for _, emailAddr := range cleanEmails {
-			if err := s.recordBrandEmailSent(ctx, summary.BrandName, emailAddr); err != nil {
-				log.Warnf("Failed to record brand email sent for %s to %s: %v", summary.BrandName, emailAddr, err)
+		summary.Reports = findings
+		failedRecipients := 0
+		var receiptFailure error
+		for _, recipient := range cleanEmails {
+			result := s.email.SendAggregateEmailsWithResults([]string{recipient}, &summary, s.config.OptOutURL)[0]
+			if result.Status != "sent" {
+				failedRecipients++
+				log.Warnf("Aggregate notification rejected for brand %s: %s", summary.BrandName, result.Error)
+				continue
 			}
-			if err := s.recordEmailSent(ctx, emailAddr); err != nil {
-				log.Warnf("Failed to record email sent to %s: %v", emailAddr, err)
+			// Record each accepted recipient immediately. A failure elsewhere in
+			// this batch must neither hide this send nor cause it to be repeated.
+			if err := s.recordBrandEmailSent(ctx, summary.BrandName, result.Email); err != nil {
+				log.Warnf("Failed to record brand throttle: %v", err)
+			}
+			if err := s.recordEmailSent(ctx, result.Email); err != nil {
+				log.Warnf("Failed to record recipient history: %v", err)
+			}
+			for _, seq := range summary.ReportSeqs {
+				source := aggregateDeliverySource(seq, findings)
+				if receiptFailure == nil {
+					receiptFailure = s.recordReportEmailDeliveryResult(ctx, seq, result.Email, source, result)
+				}
+				if receiptFailure != nil {
+					recovery, _ := json.Marshal(map[string]any{"seq": seq, "recipient": result.Email, "source": source, "provider": result.Provider, "provider_message_id": result.ProviderMessageID, "sent_at": result.SentAt, "error": receiptFailure.Error()})
+					log.Errorf("notification_receipt_recovery %s", recovery)
+				}
+			}
+			emailsSent++
+			if receiptFailure != nil {
+				break
 			}
 		}
-		s.recordReportEmailDeliveries(ctx, summary.ReportSeqs, cleanEmails, "aggregate_brand")
+		if receiptFailure != nil {
+			// Quarantine this accepted batch for operator receipt recovery. The
+			// explicit reason is excluded from every automatic send candidate
+			// query, so repairing logs cannot accidentally resend the email.
+			s.scheduleReportsRetry(ctx, summary.ReportSeqs, retryReasonReceiptPending, time.Now().Add(24*time.Hour))
+			return fmt.Errorf("accepted notification receipt persistence failed; batch quarantined: %w", receiptFailure)
+		}
+		if failedRecipients > 0 {
+			scheduledRetries += s.scheduleReportsRetry(ctx, summary.ReportSeqs, retryReasonAggregateFailure, time.Now().Add(30*time.Minute))
+			continue
+		}
 
 		for _, seq := range summary.ReportSeqs {
 			if err := s.markReportAsProcessed(ctx, seq); err != nil {
@@ -810,18 +851,11 @@ func (s *EmailService) ProcessBrandNotifications() error {
 		}
 
 		processedBrands++
-		emailsSent += len(cleanEmails)
 	}
 
 	log.Infof("Aggregate notification cycle complete: %d brands processed, %d skipped (%d daily limit hits), %d emails sent, %d reports scheduled for retry (took %s)",
 		processedBrands, skippedBrands, dailyLimitHits, emailsSent, scheduledRetries, time.Since(start))
 	return nil
-}
-
-// sendAggregateNotification sends one aggregate email for a brand
-func (s *EmailService) sendAggregateNotification(ctx context.Context, summary *models.BrandReportSummary, emails []string) error {
-	// Build aggregate notification and send via email sender
-	return s.email.SendAggregateEmail(emails, summary, s.config.OptOutURL)
 }
 
 // processReport processes a single report and sends emails if needed

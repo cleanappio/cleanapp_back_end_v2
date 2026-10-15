@@ -34,12 +34,28 @@ type ReportAnalysis struct {
 
 // BrandReportSummary represents aggregated report data for a brand
 type BrandReportSummary struct {
-	BrandName             string  `json:"brand_name"`
-	BrandDisplayName      string  `json:"brand_display_name"`
-	NewReportCount        int     `json:"new_report_count"`        // New reports since last notification
-	TotalReportCount      int     `json:"total_report_count"`      // Total reports for this brand
-	Classification        string  `json:"classification"`          // digital or physical
-	InferredContactEmails string  `json:"inferred_contact_emails"` // Comma-separated emails
-	ReportSeqs            []int64 `json:"report_seqs"`             // Seqs of reports to mark as processed
-	LatestReportSeq       int64   `json:"latest_report_seq"`       // Most recent report seq
+	BrandName             string               `json:"brand_name"`
+	BrandDisplayName      string               `json:"brand_display_name"`
+	NewReportCount        int                  `json:"new_report_count"`        // New reports since last notification
+	TotalReportCount      int                  `json:"total_report_count"`      // Total reports for this brand
+	Classification        string               `json:"classification"`          // digital or physical
+	InferredContactEmails string               `json:"inferred_contact_emails"` // Comma-separated emails
+	ReportSeqs            []int64              `json:"report_seqs"`             // Seqs of reports to mark as processed
+	LatestReportSeq       int64                `json:"latest_report_seq"`       // Most recent report seq
+	Reports               []BrandReportFinding `json:"reports,omitempty"`
+}
+
+// BrandReportFinding keeps original evidence separate from the generated summary.
+// Image is a bounded preview, loaded only for the first three featured reports.
+type BrandReportFinding struct {
+	Seq             int64     `json:"seq"`
+	PublicID        string    `json:"public_id"`
+	Title           string    `json:"title"`
+	Summary         string    `json:"summary"`
+	OriginalExcerpt string    `json:"original_excerpt,omitempty"`
+	ReportedImpact  string    `json:"reported_impact,omitempty"`
+	ReportKind      string    `json:"report_kind"`
+	Classification  string    `json:"classification"`
+	ReceivedAt      time.Time `json:"received_at"`
+	Image           []byte    `json:"-"`
 }
