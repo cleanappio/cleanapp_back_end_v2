@@ -59,9 +59,6 @@ func (h *Handlers) BuildPublicLiveBatch(reports []models.ReportWithAnalysis) (mo
 		}
 
 		classification := publicLiveClassification(report.Analysis)
-		if classification == "physical" && !hasMapLocation(report.Report.Latitude, report.Report.Longitude) {
-			continue
-		}
 		token, err := h.sealDiscoveryReportToken(classification, publicID)
 		if err != nil {
 			return models.PublicLiveReportBatch{}, err
@@ -72,7 +69,9 @@ func (h *Handlers) BuildPublicLiveBatch(reports []models.ReportWithAnalysis) (mo
 			Timestamp:      report.Report.Timestamp.UTC().Format(time.RFC3339),
 			Analysis:       toPublicLiveAnalyses(report.Analysis),
 		}
-		if classification == "physical" {
+		// The live stream also feeds Latest Reports. Missing coordinates must
+		// not hide an observation; only real physical locations reach the map.
+		if classification == "physical" && hasMapLocation(report.Report.Latitude, report.Report.Longitude) {
 			lat := report.Report.Latitude
 			lon := report.Report.Longitude
 			item.Latitude = &lat
