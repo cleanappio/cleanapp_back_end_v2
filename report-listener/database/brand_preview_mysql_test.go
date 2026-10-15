@@ -28,7 +28,7 @@ func testPublicBrandPreviewMySQL(t *testing.T, db *sql.DB) {
 	}
 	seed := func(seq int, brand, kind string) {
 		t.Helper()
-		exec(`INSERT INTO reports(seq,public_id,ts,image) VALUES(?,?,'2026-10-16','')`, seq, fmt.Sprintf("rpt_%022d", seq))
+		exec(`INSERT INTO reports(seq,public_id,ts,latitude,longitude,image) VALUES(?,?,'2026-10-16',0,0,'')`, seq, fmt.Sprintf("rpt_%022d", seq))
 		exec(`INSERT INTO report_analysis VALUES(?,'en',?, 'Preview Fixture',TRUE,'digital','2026-10-16','English issue','AI summary',0.5)`, seq, brand)
 		if kind != "unknown" {
 			exec(`INSERT INTO report_evidence(seq,report_kind,evidence_excerpt,evidence_version) VALUES(?,?,'Original observation',1)`, seq, kind)
