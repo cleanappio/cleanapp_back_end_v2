@@ -54,7 +54,8 @@ func (s *EmailService) recordReportEmailDeliveryAttempt(ctx context.Context, seq
 		SELECT old.seq,old.recipient_email,old.delivery_status,old.delivery_source,old.provider,old.sent_at,old.id,TRUE
 		FROM report_email_deliveries old WHERE old.seq=? AND old.recipient_email=?
 		AND NOT EXISTS (SELECT 1 FROM report_email_delivery_events e WHERE e.seq=old.seq
-		AND e.recipient_email=old.recipient_email AND e.delivery_source=old.delivery_source AND e.sent_at<=>old.sent_at)`, seq, recipient)
+		AND e.recipient_email COLLATE utf8mb4_unicode_ci=old.recipient_email COLLATE utf8mb4_unicode_ci
+		AND e.delivery_source COLLATE utf8mb4_unicode_ci=old.delivery_source COLLATE utf8mb4_unicode_ci AND e.sent_at<=>old.sent_at)`, seq, recipient)
 	if err != nil {
 		return fmt.Errorf("preserve prior notification event: %w", err)
 	}

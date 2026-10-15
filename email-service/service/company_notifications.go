@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -47,6 +48,12 @@ type PlannedCompanyReport struct {
 	PublicID   string    `json:"public_id"`
 	Title      string    `json:"title"`
 	EvidenceAt time.Time `json:"evidence_at"`
+
+	// Current canonical public projection, never the raw stored evidence. These
+	// fields stay out of operator-plan JSON and are refreshed before sending.
+	excerpt          string
+	impact           string
+	hasOriginalMedia bool
 }
 type companyReaderReport struct {
 	Report struct {
@@ -59,12 +66,15 @@ type companyReaderReport struct {
 		Classification string `json:"classification"`
 	} `json:"analysis"`
 	Evidence struct {
-		Kind         string     `json:"report_kind"`
-		Intake       string     `json:"intake_method"`
-		Relationship string     `json:"entity_relationship"`
-		Observed     *time.Time `json:"observed_at"`
-		Published    *time.Time `json:"source_published_at"`
-		Ingested     *time.Time `json:"ingested_at"`
+		Kind             string     `json:"report_kind"`
+		Intake           string     `json:"intake_method"`
+		Relationship     string     `json:"entity_relationship"`
+		Observed         *time.Time `json:"observed_at"`
+		Published        *time.Time `json:"source_published_at"`
+		Ingested         *time.Time `json:"ingested_at"`
+		Excerpt          *string    `json:"excerpt"`
+		Impact           *string    `json:"reported_impact"`
+		HasOriginalMedia bool       `json:"has_original_media"`
 	} `json:"evidence"`
 }
 
@@ -98,7 +108,14 @@ func freshCompanyReport(row companyReaderReport, route CompanyRoute, now time.Ti
 	if date == nil || date.IsZero() || date.Before(now.Add(-companyFreshWindow)) || date.After(now) {
 		return PlannedCompanyReport{}, false
 	}
-	return PlannedCompanyReport{Seq: row.Report.Seq, PublicID: row.Report.PublicID, Title: a.Title, EvidenceAt: date.UTC()}, true
+	planned := PlannedCompanyReport{Seq: row.Report.Seq, PublicID: row.Report.PublicID, Title: a.Title, EvidenceAt: date.UTC(), hasOriginalMedia: row.Evidence.HasOriginalMedia}
+	if row.Evidence.Excerpt != nil {
+		planned.excerpt = *row.Evidence.Excerpt
+	}
+	if row.Evidence.Impact != nil {
+		planned.impact = *row.Evidence.Impact
+	}
+	return planned, true
 }
 
 func (s *EmailService) freshCompanyCandidates(ctx context.Context, route CompanyRoute, now time.Time) ([]PlannedCompanyReport, int, error) {
@@ -166,7 +183,8 @@ func (s *EmailService) freshCompanyCandidates(ctx context.Context, route Company
 	return candidates, page.Overview.Total, nil
 }
 
-// The verified route resolves only no_valid_emails. Every other future hold,
+// Verified routing resolves no_valid_emails, and the current short cadence
+// replaces obsolete all_throttled holds. Every other future hold,
 // accepted receipt, processed marker and current publication restriction wins.
 func (s *EmailService) pendingCompanyReports(ctx context.Context, candidates []PlannedCompanyReport) ([]PlannedCompanyReport, error) {
 	if len(candidates) == 0 {
@@ -189,7 +207,7 @@ func (s *EmailService) pendingCompanyReports(ctx context.Context, candidates []P
 		LEFT JOIN email_report_retry retry ON retry.seq=r.seq
 		WHERE r.seq IN (`+strings.Join(marks, ",")+`) AND sent.seq IS NULL AND ra.is_valid=TRUE AND ra.classification='digital'
 		AND (rr.visibility IS NULL OR rr.visibility='public') AND `+notificationPublicStateSQL("r")+`
-		AND (retry.seq IS NULL OR retry.next_attempt_at<=NOW() OR retry.reason='no_valid_emails')
+		AND (retry.seq IS NULL OR retry.next_attempt_at<=NOW() OR retry.reason IN ('no_valid_emails','all_throttled'))
 		AND (retry.reason IS NULL OR retry.reason<>'notification_receipt_pending')
 		AND NOT EXISTS(SELECT 1 FROM report_email_deliveries d WHERE d.seq=r.seq AND d.delivery_status='sent')
 		AND NOT EXISTS(SELECT 1 FROM report_email_delivery_events e WHERE e.seq=r.seq AND e.delivery_status='sent')`, args...)
@@ -248,11 +266,7 @@ func (s *EmailService) companyThrottle(ctx context.Context, route CompanyRoute, 
 	if err := s.db.QueryRowContext(ctx, `SELECT MAX(last_sent_at) FROM brand_email_throttle WHERE LOWER(TRIM(email))=? AND LOWER(TRIM(brand_name)) IN (`+strings.Join(marks, ",")+`)`, args...).Scan(&last); err != nil {
 		return nil, err
 	}
-	days := s.config.ThrottleDays
-	if days <= 0 {
-		days = 7
-	}
-	period := time.Duration(days) * 24 * time.Hour
+	period := s.config.GetCompanyNotificationInterval()
 	// The append-only acceptance ledger is the durable backstop if the mutable
 	// throttle cache failed after SMTP acceptance. Start with indexed brand rows,
 	// then join each receipt by seq; never scan the global delivery population.
@@ -285,17 +299,61 @@ func (s *EmailService) companyThrottle(ctx context.Context, route CompanyRoute, 
 	return nil, nil
 }
 
-func (s *EmailService) companyDailyCount(ctx context.Context, route CompanyRoute) (int, error) {
+// Count actual accepted recipient messages, not one throttle row per mailbox or
+// one receipt per linked report. ID-less historical batches use their recorded
+// recipient/source/provider/time; unknown legacy identity remains conservative.
+// A cache timestamp within five seconds of the same recipient's receipt is the
+// secondary write for that acceptance. Unmatched cache snapshots still count.
+// The five-minute sender cadence keeps distinct future messages well apart.
+func (s *EmailService) companyDailyCount(ctx context.Context, route CompanyRoute, now time.Time) (int, error) {
+	start, end := companyDailyWindow(now)
 	aliases := routeAliases(route)
 	marks := make([]string, len(aliases))
-	args := make([]any, len(aliases))
+	branchArgs := []any{}
 	for i, alias := range aliases {
 		marks[i] = "?"
-		args[i] = alias
+		branchArgs = append(branchArgs, alias)
 	}
+	branchArgs = append(branchArgs, start, end)
+	args := append([]any(nil), branchArgs...)
+	args = append(args, branchArgs...)
+	args = append(args, branchArgs...)
+	in := strings.Join(marks, ",")
+	query := `WITH company_acceptances AS (
+ SELECT LOWER(TRIM(d.recipient_email)) COLLATE utf8mb4_bin AS recipient_email,d.sent_at,
+ CASE WHEN NULLIF(TRIM(d.provider_message_id),'') IS NOT NULL THEN
+ CONCAT('message:',SHA2(CONCAT_WS(CHAR(0),LOWER(COALESCE(d.provider,'')),LOWER(TRIM(d.recipient_email)),d.provider_message_id),256))
+ ELSE CONCAT('legacy:',SHA2(CONCAT_WS(CHAR(0),LOWER(COALESCE(d.provider,'')),LOWER(TRIM(d.recipient_email)),COALESCE(d.delivery_source,''),DATE_FORMAT(d.sent_at,'%Y-%m-%d %H:%i:%s.%f')),256)) END AS message_key
+ FROM report_analysis ra STRAIGHT_JOIN report_email_delivery_events d FORCE INDEX (idx_report_delivery_event_seq) ON d.seq=ra.seq
+ WHERE ra.language='en' AND ra.brand_name IN (` + in + `) AND d.delivery_status='sent'
+ AND REGEXP_LIKE(d.recipient_email,'[^[:space:]]') AND d.sent_at>=? AND d.sent_at<?
+ UNION ALL
+ SELECT LOWER(TRIM(d.recipient_email)) COLLATE utf8mb4_bin,d.sent_at,
+ CONCAT('legacy:',SHA2(CONCAT_WS(CHAR(0),LOWER(COALESCE(d.provider,'')),LOWER(TRIM(d.recipient_email)),COALESCE(d.delivery_source,''),DATE_FORMAT(d.sent_at,'%Y-%m-%d %H:%i:%s.%f')),256))
+ FROM report_analysis ra STRAIGHT_JOIN report_email_deliveries d FORCE INDEX (uq_report_email_delivery) ON d.seq=ra.seq
+ WHERE ra.language='en' AND ra.brand_name IN (` + in + `) AND d.delivery_status='sent'
+ AND REGEXP_LIKE(d.recipient_email,'[^[:space:]]') AND d.sent_at>=? AND d.sent_at<?
+ AND NOT EXISTS(SELECT 1 FROM report_email_delivery_events e FORCE INDEX (idx_report_delivery_event_seq)
+ WHERE e.seq=d.seq AND LOWER(TRIM(e.recipient_email)) COLLATE utf8mb4_bin=LOWER(TRIM(d.recipient_email)) COLLATE utf8mb4_bin AND e.delivery_source COLLATE utf8mb4_bin=d.delivery_source COLLATE utf8mb4_bin AND e.sent_at<=>d.sent_at AND e.delivery_status='sent')
+ )
+ SELECT COUNT(DISTINCT message_key) FROM (
+ SELECT message_key FROM company_acceptances
+ UNION ALL
+ SELECT CONCAT('cache:',SHA2(CONCAT_WS(CHAR(0),LOWER(TRIM(c.email)),DATE_FORMAT(c.last_sent_at,'%Y-%m-%d %H:%i:%s.%f')),256))
+ FROM brand_email_throttle c
+ WHERE LOWER(TRIM(c.brand_name)) IN (` + in + `) AND REGEXP_LIKE(c.email,'[^[:space:]]') AND c.last_sent_at>=? AND c.last_sent_at<?
+ AND NOT EXISTS(SELECT 1 FROM company_acceptances a WHERE a.recipient_email=LOWER(TRIM(c.email)) COLLATE utf8mb4_bin
+ AND a.sent_at BETWEEN DATE_SUB(c.last_sent_at,INTERVAL 5 SECOND) AND DATE_ADD(c.last_sent_at,INTERVAL 5 SECOND))
+ ) accepted_messages`
 	var count int
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM brand_email_throttle WHERE LOWER(TRIM(brand_name)) IN (`+strings.Join(marks, ",")+`) AND last_sent_at>=CURRENT_DATE()`, args...).Scan(&count)
+	err := s.db.QueryRowContext(ctx, query, args...).Scan(&count)
 	return count, err
+}
+
+func companyDailyWindow(now time.Time) (time.Time, time.Time) {
+	now = now.UTC()
+	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	return start, start.AddDate(0, 0, 1)
 }
 
 func (s *EmailService) buildCompanyPlan(ctx context.Context, route CompanyRoute, now time.Time) (CompanyNotificationPlan, error) {
@@ -327,7 +385,7 @@ func (s *EmailService) buildCompanyPlan(ctx context.Context, route CompanyRoute,
 		plan.RetryAt = next
 		return plan, nil
 	}
-	daily, err := s.companyDailyCount(policyCtx, route)
+	daily, err := s.companyDailyCount(policyCtx, route, now)
 	if err != nil {
 		return plan, err
 	}
@@ -337,7 +395,7 @@ func (s *EmailService) buildCompanyPlan(ctx context.Context, route CompanyRoute,
 	}
 	if daily >= max {
 		plan.State = "daily_limit"
-		retry := nextDailyRetryWindow(now)
+		_, retry := companyDailyWindow(now)
 		plan.RetryAt = &retry
 		return plan, nil
 	}
@@ -374,6 +432,7 @@ func NewNotificationPlanService(ctx context.Context, cfg *config.Config) (*Email
 	dbc.Addr = net.JoinHostPort(cfg.DBHost, cfg.DBPort)
 	dbc.DBName = cfg.DBName
 	dbc.ParseTime = true
+	dbc.Params = map[string]string{"time_zone": "'+00:00'"}
 	dbc.Timeout = 5 * time.Second
 	dbc.ReadTimeout = 5 * time.Second
 	dbc.WriteTimeout = 5 * time.Second
@@ -409,17 +468,34 @@ func (s *EmailService) BuildCompanyNotificationPlans(ctx context.Context, now ti
 // selector; known AI aliases are explicitly excluded from that legacy path.
 func (s *EmailService) ProcessCompanyNotifications() error {
 	ctx := context.Background()
-	for _, route := range VerifiedCompanyRoutes() {
+	work := func(route CompanyRoute) error {
 		plan, err := s.buildCompanyPlan(ctx, route, time.Now().UTC())
 		if err != nil {
-			log.Warnf("Company notification plan unavailable: company=%s error=%v", route.CompanyKey, err)
-			continue
-		}
-		if err := s.processCompanyPlan(ctx, plan); err != nil {
 			return err
 		}
+		return s.processCompanyPlan(ctx, plan)
 	}
-	return nil
+	if s.config.DryRun {
+		return processCompanyRoutes(VerifiedCompanyRoutes(), work)
+	}
+	return processCompanyRoutes(VerifiedCompanyRoutes(), func(route CompanyRoute) error {
+		ran, err := s.withCompanyNotificationLock(ctx, route.CompanyKey, func() error { return work(route) })
+		if err == nil && !ran {
+			log.Infof("Company notification worker already active: company=%s", route.CompanyKey)
+		}
+		return err
+	})
+}
+
+func processCompanyRoutes(routes []CompanyRoute, work func(CompanyRoute) error) error {
+	failures := []error{}
+	for _, route := range routes {
+		if err := work(route); err != nil {
+			log.Warnf("Company notification cycle failed: company=%s error=%v", route.CompanyKey, err)
+			failures = append(failures, fmt.Errorf("company %s: %w", route.CompanyKey, err))
+		}
+	}
+	return errors.Join(failures...)
 }
 
 func (s *EmailService) processCompanyPlan(ctx context.Context, plan CompanyNotificationPlan) error {
@@ -484,6 +560,15 @@ func (s *EmailService) processCompanyPlan(ctx context.Context, plan CompanyNotif
 	for _, r := range current {
 		if planned[r.Seq] {
 			if finding, ok := bySeq[r.Seq]; ok && finding.PublicID == r.PublicID {
+				// The canonical reader applies Wire privacy flags and sensitive
+				// text filtering. Missing projected text must clear raw values;
+				// image eligibility must also come from this current response.
+				finding.OriginalExcerpt = r.excerpt
+				finding.ReportedImpact = r.impact
+				if !r.hasOriginalMedia {
+					finding.Image = nil
+				}
+				bySeq[r.Seq] = finding
 				fresh = append(fresh, r)
 			}
 		}
@@ -503,6 +588,7 @@ func (s *EmailService) processCompanyPlan(ctx context.Context, plan CompanyNotif
 	}
 	summary.NewReportCount = len(summary.Reports)
 	recipient := plan.route.Recipients[0].Email
+	now = time.Now().UTC()
 	policyCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	optedOut, err := s.isEmailOptedOut(policyCtx, recipient)
@@ -519,7 +605,7 @@ func (s *EmailService) processCompanyPlan(ctx context.Context, plan CompanyNotif
 	if next != nil {
 		return nil
 	}
-	daily, err := s.companyDailyCount(policyCtx, plan.route)
+	daily, err := s.companyDailyCount(policyCtx, plan.route, now)
 	if err != nil {
 		return err
 	}

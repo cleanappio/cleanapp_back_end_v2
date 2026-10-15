@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestEmailProviderConfig(t *testing.T) {
 	t.Setenv("DB_PASSWORD", "test-only")
@@ -45,5 +48,31 @@ func TestEmailProviderRejectsUnknownProvider(t *testing.T) {
 	t.Setenv("EMAIL_PROVIDER", "unsupported")
 	if _, err := Load(); err == nil {
 		t.Fatal("unsupported email provider accepted")
+	}
+}
+
+func TestCompanyNotificationIntervalIsIndependentOfLegacyDayThrottle(t *testing.T) {
+	t.Setenv("DB_PASSWORD", "test-only")
+	t.Setenv("EMAIL_PROVIDER", "sendgrid")
+	t.Setenv("EMAIL_THROTTLE_DAYS", "17")
+	for _, tc := range []struct {
+		value string
+		want  time.Duration
+	}{
+		{"", 5 * time.Minute}, {"invalid", 5 * time.Minute}, {"0", 5 * time.Minute}, {"-1m", 5 * time.Minute}, {"90s", 90 * time.Second}, {"7m", 7 * time.Minute},
+	} {
+		t.Run(tc.value, func(t *testing.T) {
+			t.Setenv("COMPANY_NOTIFICATION_INTERVAL", tc.value)
+			cfg, err := Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.GetCompanyNotificationInterval() != tc.want || cfg.ThrottleDays != 17 {
+				t.Fatalf("company cadence leaked into legacy throttle: interval=%v days=%d", cfg.GetCompanyNotificationInterval(), cfg.ThrottleDays)
+			}
+		})
+	}
+	if (&Config{}).GetCompanyNotificationInterval() != 5*time.Minute {
+		t.Fatal("programmatic configurations lost the safe default")
 	}
 }

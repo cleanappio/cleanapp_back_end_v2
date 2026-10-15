@@ -30,6 +30,7 @@ type Config struct {
 	HTTPPort     string
 
 	ThrottleDays                  int
+	CompanyNotificationInterval   time.Duration
 	DryRun                        bool
 	MaxDailyEmailsPerBrand        int
 	UseInferredEmailsForPhysical  bool
@@ -90,6 +91,11 @@ func Load() (*Config, error) {
 		throttleDays = 7
 	}
 	cfg.ThrottleDays = throttleDays
+	companyInterval, err := time.ParseDuration(appenv.String("COMPANY_NOTIFICATION_INTERVAL", "5m"))
+	if err != nil || companyInterval <= 0 {
+		companyInterval = 5 * time.Minute
+	}
+	cfg.CompanyNotificationInterval = companyInterval
 	cfg.DryRun = appenv.Bool("EMAIL_DRY_RUN", false)
 	maxDaily, err := strconv.Atoi(appenv.String("MAX_DAILY_EMAILS_PER_BRAND", "10"))
 	if err != nil || maxDaily <= 0 {
@@ -170,4 +176,12 @@ func (c *Config) GetHTTPPort() int {
 		return 8080
 	}
 	return port
+}
+
+// GetCompanyNotificationInterval is independent of legacy per-brand day throttles.
+func (c *Config) GetCompanyNotificationInterval() time.Duration {
+	if c.CompanyNotificationInterval <= 0 {
+		return 5 * time.Minute
+	}
+	return c.CompanyNotificationInterval
 }
