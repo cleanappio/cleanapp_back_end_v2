@@ -299,10 +299,51 @@ func (s *EmailService) companyDailyCount(ctx context.Context, route CompanyRoute
 }
 
 func (s *EmailService) buildCompanyPlan(ctx context.Context, route CompanyRoute, now time.Time) (CompanyNotificationPlan, error) {
-	plan := CompanyNotificationPlan{Company: route.CompanyKey, State: "no_recent_reports", Reports: []PlannedCompanyReport{}, ContactSources: []string{}, route: route}
+	plan := CompanyNotificationPlan{Company: route.CompanyKey, State: "unavailable", Reports: []PlannedCompanyReport{}, ContactSources: []string{}, route: route}
 	for _, r := range route.Recipients {
 		plan.ContactSources = append(plan.ContactSources, r.SourceURL)
 	}
+	if len(route.Recipients) == 0 {
+		return plan, fmt.Errorf("verified company route has no recipient")
+	}
+	recipient := route.Recipients[0].Email
+	plan.RecipientCount = 1
+	policyCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	optedOut, err := s.isEmailOptedOut(policyCtx, recipient)
+	if err != nil {
+		return plan, err
+	}
+	if optedOut {
+		plan.State = "opted_out"
+		return plan, nil
+	}
+	next, err := s.companyThrottle(policyCtx, route, recipient, now)
+	if err != nil {
+		return plan, err
+	}
+	if next != nil {
+		plan.State = "throttled"
+		plan.RetryAt = next
+		return plan, nil
+	}
+	daily, err := s.companyDailyCount(policyCtx, route)
+	if err != nil {
+		return plan, err
+	}
+	max := s.config.MaxDailyEmailsPerBrand
+	if max <= 0 {
+		max = 10
+	}
+	if daily >= max {
+		plan.State = "daily_limit"
+		retry := nextDailyRetryWindow(now)
+		plan.RetryAt = &retry
+		return plan, nil
+	}
+	// A recipient hold is authoritative without discovering reports. Once it
+	// clears, use the original context so the reader retains its own deadline.
+	plan.State = "no_recent_reports"
 	candidates, total, err := s.freshCompanyCandidates(ctx, route, now)
 	if err != nil {
 		return plan, err
@@ -317,44 +358,6 @@ func (s *EmailService) buildCompanyPlan(ctx context.Context, route CompanyRoute,
 	}
 	if len(plan.Reports) == 0 {
 		plan.State = "no_pending_reports"
-		return plan, nil
-	}
-	if len(route.Recipients) == 0 {
-		return plan, fmt.Errorf("verified company route has no recipient")
-	}
-	recipient := route.Recipients[0].Email
-	plan.RecipientCount = 1
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	optedOut, err := s.isEmailOptedOut(ctx, recipient)
-	if err != nil {
-		return plan, err
-	}
-	if optedOut {
-		plan.State = "opted_out"
-		return plan, nil
-	}
-	next, err := s.companyThrottle(ctx, route, recipient, now)
-	if err != nil {
-		return plan, err
-	}
-	if next != nil {
-		plan.State = "throttled"
-		plan.RetryAt = next
-		return plan, nil
-	}
-	daily, err := s.companyDailyCount(ctx, route)
-	if err != nil {
-		return plan, err
-	}
-	max := s.config.MaxDailyEmailsPerBrand
-	if max <= 0 {
-		max = 10
-	}
-	if daily >= max {
-		plan.State = "daily_limit"
-		retry := nextDailyRetryWindow(now)
-		plan.RetryAt = &retry
 		return plan, nil
 	}
 	plan.State = "ready"
@@ -425,6 +428,11 @@ func (s *EmailService) processCompanyPlan(ctx context.Context, plan CompanyNotif
 		return nil
 	}
 	if plan.RetryAt != nil {
+		// Policy-first held plans deliberately contain no discovered report
+		// IDs. Do not write retry rows for a batch that was never selected.
+		if len(plan.Reports) == 0 {
+			return nil
+		}
 		seqs := make([]int64, len(plan.Reports))
 		for i, r := range plan.Reports {
 			seqs[i] = r.Seq

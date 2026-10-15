@@ -4,10 +4,12 @@ import (
 	"context"
 	"database/sql/driver"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -106,6 +108,121 @@ func companySQLArgs(route CompanyRoute, prefix ...driver.Value) []driver.Value {
 		args = append(args, alias)
 	}
 	return args
+}
+
+func expectCompanyPolicyAllowed(mock sqlmock.Sqlmock, route CompanyRoute) {
+	recipient := route.Recipients[0].Email
+	mock.ExpectQuery(`SELECT COUNT\(\*\).*FROM opted_out_emails`).WithArgs(recipient).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectQuery(`SELECT MAX\(last_sent_at\) FROM brand_email_throttle`).WithArgs(companySQLArgs(route, recipient)...).WillReturnRows(sqlmock.NewRows([]string{"last"}).AddRow(nil))
+	mock.ExpectQuery(`(?s)SELECT MAX\(sent_at\).*UNION ALL`).WillReturnRows(sqlmock.NewRows([]string{"accepted"}).AddRow(nil))
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM brand_email_throttle WHERE LOWER`).WithArgs(companySQLArgs(route)...).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+}
+
+func TestCompanyPlanChecksRecipientPolicyBeforeReaderAndMakesNoHeldBatchWrites(t *testing.T) {
+	for _, scenario := range []string{"opted_out", "throttled", "daily_limit", "optout_error", "cache_error", "ledger_error", "daily_error"} {
+		t.Run(scenario, func(t *testing.T) {
+			db, mock, _ := sqlmock.New()
+			defer db.Close()
+			route, _ := ResolveCompanyRoute("grok")
+			recipient := route.Recipients[0].Email
+			now := time.Now().UTC().Truncate(time.Second)
+			last := now.Add(-time.Hour)
+			var calls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				calls.Add(1)
+				http.Error(w, "reader must not be called", http.StatusServiceUnavailable)
+			}))
+			defer server.Close()
+			optout := mock.ExpectQuery(`SELECT COUNT\(\*\).*FROM opted_out_emails`).WithArgs(recipient)
+			if scenario == "optout_error" {
+				optout.WillReturnError(errors.New("policy unavailable"))
+			} else if scenario == "opted_out" {
+				optout.WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+			} else {
+				optout.WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+				cache := mock.ExpectQuery(`SELECT MAX\(last_sent_at\) FROM brand_email_throttle`).WithArgs(companySQLArgs(route, recipient)...)
+				if scenario == "cache_error" {
+					cache.WillReturnError(errors.New("cache unavailable"))
+				} else {
+					if scenario == "throttled" {
+						cache.WillReturnRows(sqlmock.NewRows([]string{"last"}).AddRow(last))
+					} else {
+						cache.WillReturnRows(sqlmock.NewRows([]string{"last"}).AddRow(nil))
+					}
+					ledger := mock.ExpectQuery(`(?s)SELECT MAX\(sent_at\).*UNION ALL`)
+					if scenario == "ledger_error" {
+						ledger.WillReturnError(errors.New("ledger unavailable"))
+					} else {
+						ledger.WillReturnRows(sqlmock.NewRows([]string{"accepted"}).AddRow(nil))
+						if scenario != "throttled" {
+							daily := mock.ExpectQuery(`SELECT COUNT\(\*\) FROM brand_email_throttle WHERE LOWER`).WithArgs(companySQLArgs(route)...)
+							if scenario == "daily_error" {
+								daily.WillReturnError(errors.New("budget unavailable"))
+							} else {
+								daily.WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(10))
+							}
+						}
+					}
+				}
+			}
+			sender := &aggregateTestSender{}
+			s := &EmailService{db: db, email: sender, config: &config.Config{ReportListenerURL: server.URL, MaxDailyEmailsPerBrand: 10}}
+			plan, err := s.buildCompanyPlan(context.Background(), route, now)
+			if strings.HasSuffix(scenario, "_error") {
+				if err == nil || plan.State != "unavailable" {
+					t.Fatalf("policy failure was not closed: %#v %v", plan, err)
+				}
+			} else {
+				if err != nil || plan.State != scenario {
+					t.Fatalf("wrong policy state: %#v %v", plan, err)
+				}
+				if scenario == "throttled" && (plan.RetryAt == nil || !plan.RetryAt.Equal(last.Add(7*24*time.Hour))) {
+					t.Fatalf("cooldown lost: %#v", plan)
+				}
+				if scenario == "daily_limit" && plan.RetryAt == nil {
+					t.Fatal("daily retry time lost")
+				}
+				if err := s.processCompanyPlan(context.Background(), plan); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if calls.Load() != 0 || len(sender.recipients) != 0 || len(plan.Reports) != 0 || plan.RecipientCount != 1 || len(plan.ContactSources) != 1 {
+				t.Fatalf("held plan fetched/sent/invented reports: %#v calls=%d", plan, calls.Load())
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestEligibleCompanyPlanStillLoadsOnlyFreshCurrentPendingReports(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	defer db.Close()
+	route, _ := ResolveCompanyRoute("grok")
+	now := time.Now().UTC()
+	expectCompanyPolicyAllowed(mock, route)
+	var calls atomic.Int32
+	server := companyFixtureServer(t, "xai", func() []companyReaderReport {
+		calls.Add(1)
+		// All policy reads must finish before the first reader request.
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Errorf("reader called before policy completed: %v", err)
+		}
+		expectCompanyPending(mock, []int64{10}, []int64{10})
+		coverage := companyFixture(12, now.Add(-time.Hour))
+		coverage.Evidence.Kind = "coverage"
+		return []companyReaderReport{companyFixture(10, now.Add(-time.Hour)), companyFixture(11, now.Add(-31*24*time.Hour)), coverage}
+	})
+	defer server.Close()
+	s := &EmailService{db: db, config: &config.Config{ReportListenerURL: server.URL, MaxDailyEmailsPerBrand: 10}}
+	plan, err := s.buildCompanyPlan(context.Background(), route, now)
+	if err != nil || plan.State != "ready" || calls.Load() != 1 || len(plan.Reports) != 1 || plan.Reports[0].Seq != 10 || plan.total != 301 {
+		t.Fatalf("eligible fresh report planning regressed: %#v calls=%d err=%v", plan, calls.Load(), err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestCompanyThrottleRetainsOfficialRecipientAndAllAliasHistory(t *testing.T) {
@@ -372,12 +489,17 @@ func TestPriorReceiptCheckReadsBothLedgers(t *testing.T) {
 }
 
 func TestCompanyPlanPreviewContainsNoAddressesAndCannotMutate(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	defer db.Close()
 	now := time.Now().UTC()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"reports": []any{}, "kind": "firsthand", "counts_exact": true, "scope": map[string]any{"brand_name": r.URL.Query().Get("brand_name")}})
 	}))
 	defer server.Close()
-	plans := (&EmailService{config: &config.Config{ReportListenerURL: server.URL}}).BuildCompanyNotificationPlans(context.Background(), now)
+	for _, route := range VerifiedCompanyRoutes() {
+		expectCompanyPolicyAllowed(mock, route)
+	}
+	plans := (&EmailService{db: db, config: &config.Config{ReportListenerURL: server.URL}}).BuildCompanyNotificationPlans(context.Background(), now)
 	if len(plans) != 3 {
 		t.Fatal("company plan scope changed")
 	}
@@ -389,5 +511,8 @@ func TestCompanyPlanPreviewContainsNoAddressesAndCannotMutate(t *testing.T) {
 	data, _ := json.Marshal(plans)
 	if strings.Contains(string(data), "support@") || strings.Contains(string(data), "recipient_email") || !reflect.DeepEqual(plans[0].Reports, []PlannedCompanyReport{}) {
 		t.Fatal("preview disclosed recipient data or invented reports")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }
