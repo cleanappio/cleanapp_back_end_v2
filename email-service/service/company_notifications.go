@@ -264,9 +264,9 @@ func (s *EmailService) companyThrottle(ctx context.Context, route CompanyRoute, 
 	receiptArgs = append(receiptArgs, receiptArgs...)
 	var accepted sql.NullTime
 	query := `SELECT MAX(sent_at) FROM (
- SELECT d.sent_at FROM report_analysis ra STRAIGHT_JOIN report_email_deliveries d ON d.seq=ra.seq
+ SELECT d.sent_at FROM report_analysis ra STRAIGHT_JOIN report_email_deliveries d FORCE INDEX (uq_report_email_delivery) ON d.seq=ra.seq
  WHERE ra.language='en' AND ra.brand_name IN (` + strings.Join(marks, ",") + `) AND LOWER(TRIM(d.recipient_email))=? AND d.delivery_status='sent' AND d.sent_at>=?
- UNION ALL SELECT d.sent_at FROM report_analysis ra STRAIGHT_JOIN report_email_delivery_events d ON d.seq=ra.seq
+ UNION ALL SELECT d.sent_at FROM report_analysis ra STRAIGHT_JOIN report_email_delivery_events d FORCE INDEX (idx_report_delivery_event_seq) ON d.seq=ra.seq
  WHERE ra.language='en' AND ra.brand_name IN (` + strings.Join(marks, ",") + `) AND LOWER(TRIM(d.recipient_email))=? AND d.delivery_status='sent' AND d.sent_at>=?
  ) accepted`
 	if err := s.db.QueryRowContext(ctx, query, receiptArgs...).Scan(&accepted); err != nil {

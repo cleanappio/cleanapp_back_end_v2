@@ -49,8 +49,8 @@ func notificationMySQLFixture(t *testing.T) *sql.DB {
 		`CREATE TABLE sent_reports_emails(seq INT PRIMARY KEY)`,
 		`CREATE TABLE email_report_retry(seq INT PRIMARY KEY,next_attempt_at DATETIME,reason VARCHAR(64))`,
 		`CREATE TABLE brand_email_throttle(brand_name VARCHAR(255),email VARCHAR(255),last_sent_at DATETIME,PRIMARY KEY(brand_name,email))`,
-		`CREATE TABLE report_email_deliveries(id BIGINT AUTO_INCREMENT PRIMARY KEY,seq INT,recipient_email VARCHAR(255),delivery_status VARCHAR(32),delivery_source VARCHAR(64),provider VARCHAR(32),sent_at TIMESTAMP NULL,updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,UNIQUE KEY(seq,recipient_email))`,
-		`CREATE TABLE report_email_delivery_events(id BIGINT AUTO_INCREMENT PRIMARY KEY,seq INT,recipient_email VARCHAR(320),delivery_status VARCHAR(32),delivery_source VARCHAR(64),provider VARCHAR(64),provider_message_id VARCHAR(255),sent_at TIMESTAMP NULL,legacy_delivery_id BIGINT NULL,is_legacy BOOLEAN DEFAULT FALSE,receipt_key CHAR(64) NULL,UNIQUE KEY(receipt_key),UNIQUE KEY(legacy_delivery_id,sent_at,delivery_source),KEY(seq,sent_at,id))`,
+		`CREATE TABLE report_email_deliveries(id BIGINT AUTO_INCREMENT PRIMARY KEY,seq INT,recipient_email VARCHAR(255),delivery_status VARCHAR(32),delivery_source VARCHAR(64),provider VARCHAR(32),sent_at TIMESTAMP NULL,updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,UNIQUE KEY uq_report_email_delivery(seq,recipient_email))`,
+		`CREATE TABLE report_email_delivery_events(id BIGINT AUTO_INCREMENT PRIMARY KEY,seq INT,recipient_email VARCHAR(320),delivery_status VARCHAR(32),delivery_source VARCHAR(64),provider VARCHAR(64),provider_message_id VARCHAR(255),sent_at TIMESTAMP NULL,legacy_delivery_id BIGINT NULL,is_legacy BOOLEAN DEFAULT FALSE,receipt_key CHAR(64) NULL,UNIQUE KEY(receipt_key),UNIQUE KEY(legacy_delivery_id,sent_at,delivery_source),KEY idx_report_delivery_event_seq(seq,sent_at,id))`,
 	}
 	var existing int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE()`).Scan(&existing); err != nil {
