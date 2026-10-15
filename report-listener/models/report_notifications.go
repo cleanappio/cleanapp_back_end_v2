@@ -2,6 +2,13 @@ package models
 
 import "time"
 
+// A feed row counts recorded sent emails for its canonical report only. It
+// never contains recipient/contact/provider metadata; unknown is not zero.
+type PublicNotificationCount struct {
+	State      string `json:"state"`
+	EmailCount *int   `json:"email_count,omitempty"`
+}
+
 // Notification summaries deliberately contain no transport/provider metadata.
 // Sent means accepted for sending, not delivered, read, or acknowledged.
 type ReportNotificationEvent struct {

@@ -50,7 +50,7 @@ func (h *Handlers) serveEvidenceBrand(c *gin.Context, discovery bool) {
 	}
 	scope := filter.Scope()
 	if discovery {
-		items, err := toPublicDiscoveryCards(page.Reports, filter.Language, h.sealDiscoveryReportToken)
+		items, err := h.publicDiscoveryCards(c.Request.Context(), page.Reports, filter.Language)
 		if err != nil {
 			log.Printf("Evidence discovery cards failed: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve evidence briefing"})

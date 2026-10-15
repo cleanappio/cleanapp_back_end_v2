@@ -147,6 +147,7 @@ func toPublicDiscoveryCards(
 	reports []models.ReportWithMinimalAnalysis,
 	language string,
 	tokenForReport func(classification, publicID string) (string, error),
+	notificationCounts map[int]models.PublicNotificationCount,
 ) ([]models.PublicDiscoveryCard, error) {
 	items := make([]models.PublicDiscoveryCard, 0, len(reports))
 	for _, report := range reports {
@@ -167,16 +168,20 @@ func toPublicDiscoveryCards(
 		}
 
 		item := models.PublicDiscoveryCard{
-			DiscoveryToken: token,
-			Evidence:       report.Evidence,
-			Recurrence:     report.Recurrence,
-			Title:          analysis.Title,
-			Summary:        analysis.Summary,
-			Classification: classification,
-			SeverityLevel:  analysis.SeverityLevel,
-			Timestamp:      report.Report.Timestamp.Format("2006-01-02 15:04:05"),
-			BrandName:      analysis.BrandName,
-			BrandDisplay:   analysis.BrandDisplayName,
+			NotificationCount: models.PublicNotificationCount{State: "unavailable"},
+			DiscoveryToken:    token,
+			Evidence:          report.Evidence,
+			Recurrence:        report.Recurrence,
+			Title:             analysis.Title,
+			Summary:           analysis.Summary,
+			Classification:    classification,
+			SeverityLevel:     analysis.SeverityLevel,
+			Timestamp:         report.Report.Timestamp.Format("2006-01-02 15:04:05"),
+			BrandName:         analysis.BrandName,
+			BrandDisplay:      analysis.BrandDisplayName,
+		}
+		if count, known := notificationCounts[report.Report.Seq]; known {
+			item.NotificationCount = count
 		}
 		if classification == "physical" {
 			lat := report.Report.Latitude
@@ -189,7 +194,35 @@ func toPublicDiscoveryCards(
 	return items, nil
 }
 
+func discoveryCardsWithNotificationCounts(
+	ctx context.Context,
+	reports []models.ReportWithMinimalAnalysis,
+	language string,
+	tokenForReport func(string, string) (string, error),
+	loadCounts func(context.Context, []int) (map[int]models.PublicNotificationCount, error),
+) ([]models.PublicDiscoveryCard, error) {
+	seqs := make([]int, 0, len(reports))
+	for _, report := range reports {
+		seqs = append(seqs, report.Report.Seq)
+	}
+	countCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	counts, err := loadCounts(countCtx, seqs)
+	if err != nil {
+		// Counter availability cannot turn a valid report page into an error.
+		// A missing count remains unknown, never a fabricated zero.
+		log.Printf("Public discovery notification counts unavailable: %v", err)
+		counts = nil
+	}
+	return toPublicDiscoveryCards(reports, language, tokenForReport, counts)
+}
+
+func (h *Handlers) publicDiscoveryCards(ctx context.Context, reports []models.ReportWithMinimalAnalysis, language string) ([]models.PublicDiscoveryCard, error) {
+	return discoveryCardsWithNotificationCounts(ctx, reports, language, h.sealDiscoveryReportToken, h.db.ReportNotificationCounts)
+}
+
 func (h *Handlers) publicDiscoveryBatchFromInterface(
+	ctx context.Context,
 	reportsInterface interface{},
 	language string,
 ) (models.PublicDiscoveryBatch, error) {
@@ -200,7 +233,7 @@ func (h *Handlers) publicDiscoveryBatchFromInterface(
 		}
 		return models.PublicDiscoveryBatch{}, fmt.Errorf("invalid public discovery payload")
 	}
-	items, err := toPublicDiscoveryCards(reports, language, h.sealDiscoveryReportToken)
+	items, err := h.publicDiscoveryCards(ctx, reports, language)
 	if err != nil {
 		return models.PublicDiscoveryBatch{}, err
 	}
@@ -290,7 +323,7 @@ func (h *Handlers) GetPublicDiscoveryLast(c *gin.Context) {
 		return
 	}
 
-	batch, err := h.publicDiscoveryBatchFromInterface(reportsInterface, language)
+	batch, err := h.publicDiscoveryBatchFromInterface(c.Request.Context(), reportsInterface, language)
 	if err != nil {
 		log.Printf("Failed to build public discovery last batch: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve reports"})
@@ -335,7 +368,7 @@ func (h *Handlers) GetPublicDiscoverySearch(c *gin.Context) {
 		return
 	}
 
-	batch, err := h.publicDiscoveryBatchFromInterface(reportsInterface, language)
+	batch, err := h.publicDiscoveryBatchFromInterface(c.Request.Context(), reportsInterface, language)
 	if err != nil {
 		log.Printf("Failed to build public discovery search batch: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve reports"})
@@ -379,7 +412,7 @@ func (h *Handlers) GetPublicDiscoveryByLatLng(c *gin.Context) {
 		return
 	}
 
-	items, err := toPublicDiscoveryCards(reportsLite, language, h.sealDiscoveryReportToken)
+	items, err := h.publicDiscoveryCards(c.Request.Context(), reportsLite, language)
 	if err != nil {
 		log.Printf("Failed to build public discovery by-latlng batch: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve reports"})

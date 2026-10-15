@@ -93,6 +93,51 @@ func TestReportNotificationsMySQLFixture(t *testing.T) {
 	if err != nil || history.EmailCount != 1 || !history.HistoryComplete || len(history.PreviewRecipients) != 1 {
 		t.Fatalf("failed legacy row must not count: %+v error=%v", history, err)
 	}
+	// Feed counts must equal detail counts, including repeated sends to one
+	// recipient, blank Unicode contacts, NULL dates and failed legacy rows.
+	selected := []int{1, 2, 30, 32, 33, 200}
+	unicodeBlanks := []string{"\t", "\n", "\v", "\f", "\r", " ", "\u0085", "\u00a0", "\u1680", "\u2000", "\u2001", "\u2002", "\u2003", "\u2004", "\u2005", "\u2006", "\u2007", "\u2008", "\u2009", "\u200a", "\u2028", "\u2029", "\u202f", "\u205f", "\u3000"}
+	for index, blank := range unicodeBlanks {
+		seq := 100 + index
+		if strings.TrimSpace(blank) != "" {
+			t.Fatalf("blank fixture diverged from detail normalization: %q", blank)
+		}
+		selected = append(selected, seq)
+		if _, err := db.Exec(`INSERT INTO report_email_delivery_events (seq,recipient_email,delivery_status,delivery_source,sent_at) VALUES (?,?,'sent','aggregate_brand',NULL)`, seq, blank); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`INSERT INTO report_email_deliveries (seq,recipient_email,delivery_status,delivery_source,sent_at) VALUES (?,?,'sent','aggregate_brand',NULL)`, seq, blank); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, query := range []string{
+		`INSERT INTO report_email_delivery_events (seq,recipient_email,delivery_status,delivery_source,sent_at) VALUES (32,'same@x.ai','sent','aggregate_report','2026-10-17 00:00:00'),(32,'same@x.ai','sent','aggregate_report','2026-10-18 00:00:00'),(32,'same@x.ai','sent','aggregate_report','2026-10-19 00:00:00'),(32,'failed@x.ai','failed','aggregate_report',NULL),(999,'unselected@x.ai','sent','aggregate_report',NULL)`,
+		`INSERT INTO report_email_deliveries (seq,recipient_email,delivery_status,delivery_source,sent_at) VALUES (32,'same@x.ai','sent','aggregate_report','2026-10-19 00:00:00'),(32,'other@x.ai','sent','aggregate_brand',NULL),(33,'null-date@x.ai','sent','aggregate_brand',NULL)`,
+	} {
+		if _, err := db.Exec(query); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A zero-width space is not blank according to Go; ICU must retain it too.
+	if _, err := db.Exec(`INSERT INTO report_email_delivery_events (seq,recipient_email,delivery_status,delivery_source,sent_at) VALUES (200,?,'sent','aggregate_report',NULL)`, "\u200b"); err != nil {
+		t.Fatal(err)
+	}
+	counts, err := database.ReportNotificationCounts(ctx, selected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(counts) != len(selected) || *counts[1].EmailCount != 4 || *counts[32].EmailCount != 4 || *counts[33].EmailCount != 1 || *counts[200].EmailCount != 1 {
+		t.Fatalf("feed counts lost legacy/repeat/null-date scope: %+v", counts)
+	}
+	for _, seq := range selected {
+		detail, err := database.ReportNotificationHistory(ctx, seq)
+		if err != nil || counts[seq].EmailCount == nil || *counts[seq].EmailCount != detail.EmailCount {
+			t.Fatalf("feed/detail count mismatch seq=%d feed=%+v detail=%+v error=%v", seq, counts[seq], detail, err)
+		}
+		if seq >= 100 && seq < 200 && (counts[seq].State != "none_recorded" || *counts[seq].EmailCount != 0) {
+			t.Fatalf("blank contact manufactured a sent email seq=%d count=%+v", seq, counts[seq])
+		}
+	}
 	for _, publicID := range []string{"rpt_private", "rpt_shadow", "rpt_resolved", "rpt_missing"} {
 		if _, err := database.PublicReportSequence(ctx, publicID); err != sql.ErrNoRows {
 			t.Fatalf("nonpublic report %s disclosed notification existence: %v", publicID, err)
