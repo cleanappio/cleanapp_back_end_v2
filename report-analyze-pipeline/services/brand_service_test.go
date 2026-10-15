@@ -159,7 +159,7 @@ func TestBrandService_GetBrandDisplayName(t *testing.T) {
 	}
 }
 
-func TestBrandService_ResolveBrandPrefersProductWhenContextIsClear(t *testing.T) {
+func TestBrandService_ResolveBrandPreservesSubjectAndCanonicalizesExactAliases(t *testing.T) {
 	brandService := NewBrandService()
 
 	tests := []struct {
@@ -170,25 +170,25 @@ func TestBrandService_ResolveBrandPrefersProductWhenContextIsClear(t *testing.T)
 		expectedDisplay    string
 	}{
 		{
-			name:               "anthropic resolves to claude when context references claude",
+			name:               "selected vendor survives product mentions",
 			rawBrand:           "Anthropic",
 			context:            []string{"Major Claude outage and credit bug in Claude web app"},
-			expectedNormalized: "claude",
-			expectedDisplay:    "Claude",
+			expectedNormalized: "anthropic",
+			expectedDisplay:    "Anthropic",
 		},
 		{
-			name:               "google resolves to notebooklm when context references notebooklm",
+			name:               "selected Google survives NotebookLM mention",
 			rawBrand:           "Google",
 			context:            []string{"NotebookLM captions are failing and narrations are blank"},
-			expectedNormalized: "googlenotebooklm",
-			expectedDisplay:    "Google NotebookLM",
+			expectedNormalized: "google",
+			expectedDisplay:    "Google",
 		},
 		{
-			name:               "meta resolves to instagram when context references instagram",
+			name:               "selected Meta survives Instagram mention",
 			rawBrand:           "Meta",
 			context:            []string{"Instagram share button does not work on iOS"},
-			expectedNormalized: "instagram",
-			expectedDisplay:    "Instagram",
+			expectedNormalized: "meta",
+			expectedDisplay:    "Meta",
 		},
 		{
 			name:               "plain vendor remains vendor without product context",
@@ -196,6 +196,76 @@ func TestBrandService_ResolveBrandPrefersProductWhenContextIsClear(t *testing.T)
 			context:            []string{"General vendor outage"},
 			expectedNormalized: "anthropic",
 			expectedDisplay:    "Anthropic",
+		},
+		{
+			name:               "explicit complaint subject survives vendor and product examples",
+			rawBrand:           "CleanApp",
+			context:            []string{"On CleanApp itself, I can't easily cluster multiple properties or sites into one brand cluster, eg clustering Grok and Grokipedia and XAI and X and SpaceX"},
+			expectedNormalized: "cleanapp",
+			expectedDisplay:    "CleanApp",
+		},
+		{
+			name:               "attached screenshot context cannot replace selected subject",
+			rawBrand:           "CleanApp",
+			context:            []string{"problem with CleanApp brand attribution logic", "Screenshot: Grok report; examples Grok and XAI"},
+			expectedNormalized: "cleanapp",
+			expectedDisplay:    "CleanApp",
+		},
+		{
+			name:               "unknown subject is not filled from examples",
+			rawBrand:           "",
+			context:            []string{"Can't easily cluster multiple properties into one brand cluster, eg Grok and Grokipedia and XAI and X and SpaceX"},
+			expectedNormalized: "",
+			expectedDisplay:    "",
+		},
+		{
+			name:               "literal null subject remains unknown",
+			rawBrand:           "null",
+			context:            []string{"Grok and xAI were examples"},
+			expectedNormalized: "",
+			expectedDisplay:    "",
+		},
+		{
+			name:               "another explicit product is not replaced by a prominent AI product",
+			rawBrand:           "Stripe",
+			context:            []string{"Stripe fails to bill our OpenAI ChatGPT integration"},
+			expectedNormalized: "stripe",
+			expectedDisplay:    "Stripe",
+		},
+		{
+			name:               "explicit product does not depend on alias rule order",
+			rawBrand:           "ChatGPT",
+			context:            []string{"ChatGPT fails but Anthropic Claude works"},
+			expectedNormalized: "chatgpt",
+			expectedDisplay:    "ChatGPT",
+		},
+		{
+			name:               "multiple products cannot narrow a vendor by table order",
+			rawBrand:           "Google",
+			context:            []string{"Google billing issue for Gemini and NotebookLM"},
+			expectedNormalized: "google",
+			expectedDisplay:    "Google",
+		},
+		{
+			name:               "a product name inside another brand is not a match",
+			rawBrand:           "xAI",
+			context:            []string{"Grokipedia has an incorrect citation"},
+			expectedNormalized: "xai",
+			expectedDisplay:    "Xai",
+		},
+		{
+			name:               "a selected distinct product is not a substring alias",
+			rawBrand:           "Grokipedia",
+			context:            []string{"Grokipedia has an incorrect citation"},
+			expectedNormalized: "grokipedia",
+			expectedDisplay:    "Grokipedia",
+		},
+		{
+			name:               "vendor names are matched exactly",
+			rawBrand:           "Google Workspace",
+			context:            []string{"Google Workspace cannot open a Gemini export"},
+			expectedNormalized: "googleworkspace",
+			expectedDisplay:    "Google Workspace",
 		},
 	}
 
