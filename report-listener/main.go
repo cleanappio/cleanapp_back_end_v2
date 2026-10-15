@@ -161,6 +161,9 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 
 		// Get reports by brand name endpoint
 		api.GET("/reports/by-brand", h.GetReportsByBrand)
+		mediaRoutes := api.Group("/public")
+		mediaRoutes.Use(edge.RateLimitMiddleware(edge.RateLimitConfig{RPS: cfg.PublicMediaRateLimitRPS, Burst: cfg.PublicMediaRateLimitBurst}))
+		mediaRoutes.GET("/report-media", h.GetPublicReportMedia)
 
 		// Search reports endpoint
 		api.GET("/reports/search", h.GetSearchReports)
@@ -321,6 +324,9 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 	// API v4 routes (alias for v3 - for backwards compatibility with frontend)
 	apiV4 := router.Group("/api/v4")
 	{
+		mediaRoutesV4 := apiV4.Group("/public")
+		mediaRoutesV4.Use(edge.RateLimitMiddleware(edge.RateLimitConfig{RPS: cfg.PublicMediaRateLimitRPS, Burst: cfg.PublicMediaRateLimitBurst}))
+		mediaRoutesV4.GET("/report-media", h.GetPublicReportMedia)
 		apiV4.GET("/version", versionHandler)
 		apiV4.POST("/clusters/analyze", h.AnalyzeCluster)
 		apiV4.POST("/clusters/from-report", h.AnalyzeClusterFromReport)

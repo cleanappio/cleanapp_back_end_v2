@@ -23,3 +23,15 @@ func (d *Database) GetImageByPublicID(ctx context.Context, publicID string) ([]b
 	}
 	return image, nil
 }
+
+// Public media previews never transfer unbounded image blobs to the proxy.
+func (d *Database) GetPublicReportMediaByPublicID(ctx context.Context, publicID string, maxBytes int) ([]byte, error) {
+	var image []byte
+	err := d.db.QueryRowContext(ctx, `
+		SELECT CASE WHEN OCTET_LENGTH(r.image) <= ? THEN r.image ELSE NULL END
+		FROM reports r WHERE r.public_id = ? AND `+publicReportCurrentVisibilitySQL, maxBytes, publicID).Scan(&image)
+	if err != nil {
+		return nil, err
+	}
+	return image, nil
+}

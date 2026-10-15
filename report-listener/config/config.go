@@ -27,6 +27,8 @@ type Config struct {
 	PublicDiscoveryRateLimitBurst     int
 	PublicResolveRateLimitRPS         float64
 	PublicResolveRateLimitBurst       int
+	PublicMediaRateLimitRPS           float64
+	PublicMediaRateLimitBurst         int
 	PublicDetailRateLimitRPS          float64
 	PublicDetailRateLimitBurst        int
 	PublicWebSocketRateLimitRPS       float64
@@ -132,6 +134,8 @@ func Load() (*Config, error) {
 		PublicDiscoveryRateLimitBurst:     appenv.Int("PUBLIC_DISCOVERY_RATE_LIMIT_BURST", 16),
 		PublicResolveRateLimitRPS:         appenv.Float64("PUBLIC_RESOLVE_RATE_LIMIT_RPS", 2),
 		PublicResolveRateLimitBurst:       appenv.Int("PUBLIC_RESOLVE_RATE_LIMIT_BURST", 8),
+		PublicMediaRateLimitRPS:           appenv.Float64("PUBLIC_MEDIA_RATE_LIMIT_RPS", 10),
+		PublicMediaRateLimitBurst:         appenv.Int("PUBLIC_MEDIA_RATE_LIMIT_BURST", 24),
 		PublicDetailRateLimitRPS:          appenv.Float64("PUBLIC_DETAIL_RATE_LIMIT_RPS", 1.5),
 		PublicDetailRateLimitBurst:        appenv.Int("PUBLIC_DETAIL_RATE_LIMIT_BURST", 8),
 		PublicWebSocketRateLimitRPS:       appenv.Float64("PUBLIC_WEBSOCKET_RATE_LIMIT_RPS", 1),

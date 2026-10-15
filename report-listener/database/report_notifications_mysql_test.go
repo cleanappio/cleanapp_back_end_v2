@@ -107,12 +107,21 @@ func TestReportNotificationsMySQLFixture(t *testing.T) {
 	if image, err := database.GetImageByPublicID(ctx, "rpt_public"); err != nil || string(image) != "public-image" {
 		t.Fatalf("public image: %q %v", image, err)
 	}
+	if image, err := database.GetPublicReportMediaByPublicID(ctx, "rpt_public", 100); err != nil || string(image) != "public-image" {
+		t.Fatalf("bounded public media: %q %v", image, err)
+	}
+	if image, err := database.GetPublicReportMediaByPublicID(ctx, "rpt_public", 4); err != nil || len(image) != 0 {
+		t.Fatalf("oversized media must not transfer its blob: %q %v", image, err)
+	}
 	// A token can outlive publication. Every later image read must apply current policy.
 	if _, err := db.Exec(`INSERT INTO reports_owners VALUES (1,'new-private-owner',FALSE)`); err != nil {
 		t.Fatal(err)
 	}
 	if image, err := database.GetImageByPublicID(ctx, "rpt_public"); err == nil || len(image) != 0 {
 		t.Fatalf("previously public image remained available after privatization: %q %v", image, err)
+	}
+	if image, err := database.GetPublicReportMediaByPublicID(ctx, "rpt_public", 100); err == nil || len(image) != 0 {
+		t.Fatalf("previously public preview remained available after privatization: %q %v", image, err)
 	}
 	for _, userID := range []string{"active-base", "expired", "free", "future", "missing"} {
 		got, err := database.HasActiveNotificationSubscription(ctx, userID)
