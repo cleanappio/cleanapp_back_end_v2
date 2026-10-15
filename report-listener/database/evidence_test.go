@@ -1,10 +1,49 @@
 package database
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestPublicIntakeChannelOnlyProjectsRecordedNativeChannels(t *testing.T) {
+	for _, channel := range []string{"mobile", "web", "share", "legacy_v2"} {
+		for _, method := range []string{"human_submission", "shared_submission"} {
+			r := evidenceRecord{Version: 1, Kind: "firsthand", ActorKind: "human", IntakeChannel: channel, GenerationMethod: method, SourcePlatform: "sensor"}
+			evidence := r.publicEvidence()
+			if evidence.IntakeMethod != "cleanapp_submission" || evidence.IntakeChannel == nil || *evidence.IntakeChannel != channel {
+				t.Fatalf("native channel %s/%s was lost: %+v", channel, method, evidence)
+			}
+			encoded, err := json.Marshal(evidence)
+			if err != nil || !strings.Contains(string(encoded), `"intake_channel":"`+channel+`"`) {
+				t.Fatalf("native channel JSON: %s error=%v", encoded, err)
+			}
+			for _, internal := range []string{"actor_kind", "generation_method", "fetcher_id", "device_id", "session_id"} {
+				if strings.Contains(string(encoded), internal) {
+					t.Fatalf("public channel projection exposed %s: %s", internal, encoded)
+				}
+			}
+		}
+	}
+	for _, r := range []evidenceRecord{
+		{SourcePlatform: "sensor"}, // sensor describes submitted domain, not client
+		{ActorKind: "machine", IntakeChannel: "mobile", GenerationMethod: "human_submission", SourcePlatform: "sensor"},
+		{ActorKind: "human", IntakeChannel: "mobile", GenerationMethod: "human_authored", SourcePlatform: "sensor", ExternalSource: true},
+		{ActorKind: "human", IntakeChannel: "wire", GenerationMethod: "human_submission", SourcePlatform: "sensor"},
+		{ActorKind: "human", IntakeChannel: "private-device-secret", GenerationMethod: "human_submission", SourcePlatform: "sensor"},
+		{ActorKind: "human", IntakeChannel: "mobile"}, // missing provenance
+	} {
+		evidence := r.publicEvidence()
+		if evidence.IntakeMethod == "cleanapp_submission" || evidence.IntakeChannel != nil {
+			t.Fatalf("import/unknown metadata claimed native channel: %+v", evidence)
+		}
+		encoded, _ := json.Marshal(evidence)
+		if !strings.Contains(string(encoded), `"intake_channel":null`) || strings.Contains(string(encoded), "private-device-secret") {
+			t.Fatalf("unproven channel was disclosed: %s", encoded)
+		}
+	}
+}
 
 func TestEvidenceFiltersAreStrictAndScopeIsExplicit(t *testing.T) {
 	for _, kind := range []string{"firsthand", "coverage", "unknown", "all"} {
