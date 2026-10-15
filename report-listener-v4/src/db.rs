@@ -243,8 +243,10 @@ pub fn fetch_reports_by_brand(
 }
 
 fn has_map_location(latitude: f64, longitude: f64) -> bool {
-    latitude.is_finite() && longitude.is_finite()
-        && (-90.0..=90.0).contains(&latitude) && (-180.0..=180.0).contains(&longitude)
+    latitude.is_finite()
+        && longitude.is_finite()
+        && (-90.0..=90.0).contains(&latitude)
+        && (-180.0..=180.0).contains(&longitude)
         && (latitude != 0.0 || longitude != 0.0)
 }
 
@@ -288,7 +290,9 @@ pub fn fetch_report_points(pool: &my::Pool, classification: &str) -> Result<Vec<
         let severity_level: f64 = row.take::<Option<f64>, _>(0).unwrap_or(None).unwrap_or(0.0);
         let latitude: f64 = row.take::<Option<f64>, _>(1).unwrap_or(None).unwrap_or(0.0);
         let longitude: f64 = row.take::<Option<f64>, _>(2).unwrap_or(None).unwrap_or(0.0);
-        if !has_map_location(latitude, longitude) { continue; }
+        if !has_map_location(latitude, longitude) {
+            continue;
+        }
         out.push(ReportPoint {
             severity_level,
             latitude,
