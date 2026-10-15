@@ -9,6 +9,18 @@ permissions:
   contents: read
 
 jobs:
+  self_repair:
+    name: Self-repair coordinator (Python stdlib)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Durable ledger, fencing, intake and completion evidence
+        run: python3 -m unittest discover -s scripts/self_repair -p 'test_*.py' -v
+
   secrets:
     name: Secret Scan (gitleaks)
     runs-on: ubuntu-latest

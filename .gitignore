@@ -88,3 +88,6 @@ cli/cleanapp/dist/
 # npm pack artifacts
 cli/cleanapp/*.tgz
 .ci-build/
+
+# Self-repair runtime state belongs outside this checkout.
+scripts/self_repair/__pycache__/
