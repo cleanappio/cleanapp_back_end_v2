@@ -20,6 +20,10 @@ func testEvidenceMetadataBlockerParityMySQL(t *testing.T, db *sql.DB) {
 			t.Fatal(err)
 		}
 	}
+	// Fresh parent columns and the legacy projection can have different
+	// collations. Bulk visibility must compare within the selected source column
+	// rather than aggregate them in a character-valued CASE before comparison.
+	exec(`ALTER TABLE reports MODIFY COLUMN id VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL DEFAULT '', MODIFY COLUMN public_id VARCHAR(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci`)
 	ids := []int{}
 	for seq := 6200; seq < 6220; seq++ {
 		ids = append(ids, seq)
@@ -102,6 +106,46 @@ func testEvidenceMetadataBlockerParityMySQL(t *testing.T, db *sql.DB) {
 			}
 		})
 	}
+	t.Run("MixedCollationPublicIDBranchAuthority", func(t *testing.T) {
+		exec(`INSERT INTO reports(seq,id,public_id,ts,latitude,longitude,image) VALUES(6230,'original_6230','guard_6230','2026-10-15',47.5,8.5,'')`)
+		check := func(want bool, publicID string) {
+			t.Helper()
+			tx, err := db.BeginTx(context.Background(), &sql.TxOptions{ReadOnly: true, Isolation: sql.LevelRepeatableRead})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback()
+			records, _, visible, err := loadEvidenceMetadataCore(context.Background(), tx, []int{6230})
+			if closeErr := tx.Rollback(); closeErr != nil {
+				t.Fatal(closeErr)
+			}
+			if err != nil || (len(visible) == 1) != want || len(visible) > 1 {
+				t.Fatalf("mixed collation public-ID visibility: want=%v rows=%d err=%v", want, len(visible), err)
+			}
+			if want && records[6230].PublicID != publicID {
+				t.Fatal("mixed collation lookup rewrote the public ID")
+			}
+		}
+		check(true, "guard_6230")
+		exec(`UPDATE report_metadata_projection SET public_id=NULL WHERE seq=6230`)
+		check(false, "") // An authoritative NULL must not resurrect the parent ID.
+		exec(`DELETE FROM report_metadata_projection WHERE seq=6230`)
+		check(true, "guard_6230")
+		for _, value := range []any{"", nil} {
+			exec(`UPDATE reports SET public_id=? WHERE seq=6230`, value)
+			check(false, "")
+			exec(`DELETE FROM report_metadata_projection WHERE seq=6230`)
+			check(false, "")
+		}
+		exec(`UPDATE reports SET public_id=' ' WHERE seq=6230`)
+		var projectedVisible, parentVisible bool
+		if err := db.QueryRow(`SELECT m.public_id<>'',r.public_id<>'' FROM report_metadata_projection m JOIN reports r ON r.seq=m.seq WHERE r.seq=6230`).Scan(&projectedVisible, &parentVisible); err != nil {
+			t.Fatal(err)
+		}
+		check(projectedVisible, " ")
+		exec(`DELETE FROM report_metadata_projection WHERE seq=6230`)
+		check(parentVisible, " ") // Retain each source's actual PAD/NO PAD rules.
+	})
 }
 
 func testEvidenceIndexWinnerParityMySQL(t *testing.T, db *sql.DB) {

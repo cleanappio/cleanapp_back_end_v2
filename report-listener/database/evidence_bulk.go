@@ -118,7 +118,7 @@ func loadEvidenceMetadataCore(ctx context.Context, tx *sql.Tx, ids []int) (map[i
  LEFT JOIN report_raw rr ON rr.report_seq=ids.seq LEFT JOIN report_evidence ev ON ev.seq=ids.seq
  LEFT JOIN report_status rs ON rs.seq=ids.seq AND rs.status IS NOT NULL AND rs.status<>'active'
  LEFT JOIN reports_owners ro ON ro.seq=ids.seq AND ro.owner IS NOT NULL AND ro.owner<>'' AND ro.is_public=FALSE
- WHERE CASE WHEN m.seq IS NOT NULL THEN m.public_id ELSE r.public_id END<>'' AND ` + PublicVisibilityWhereSQL + `
+ WHERE CASE WHEN m.seq IS NOT NULL THEN m.public_id<>'' ELSE r.public_id<>'' END AND ` + PublicVisibilityWhereSQL + `
  AND rs.seq IS NULL AND ro.seq IS NULL`
 	rows, err := tx.QueryContext(ctx, query, evidenceIDsJSON(ids))
 	if err != nil {
