@@ -150,7 +150,11 @@ func TestEvidenceGroupingMySQLParityFixture(t *testing.T) {
 				} else if sortBy == "recurrence" {
 					order = "supporting_report_count DESC,evidence_strength DESC,last_signal_at DESC,seq DESC"
 				}
-				query := fmt.Sprintf(groupingSQLReference, predicate, order, "p."+strings.ReplaceAll(order, ",", ",p."))
+				familyOrder := "evidence_strength DESC,entity_relevance DESC,severity DESC,COALESCE(observed_at,published_at,ingested_at) DESC,seq DESC"
+				if sortBy == "recent" {
+					familyOrder = "COALESCE(observed_at,published_at,ingested_at) DESC," + familyOrder
+				}
+				query := fmt.Sprintf(groupingSQLReference, familyOrder, familyOrder, predicate, order, "p."+strings.ReplaceAll(order, ",", ",p."))
 				args = append(args, f.Limit, f.Offset)
 				rows, err := db.QueryContext(ctx, query, args...)
 				if err != nil {
@@ -234,8 +238,8 @@ const groupingSQLReference = `WITH normalized AS (
 ), tagged AS (
  SELECT e.*,c.case_id,CASE WHEN c.case_id IS NULL THEN source_key ELSE CONCAT('family:',c.case_id) END COLLATE utf8mb4_bin AS group_key FROM entries e LEFT JOIN case_links c ON c.seq=e.seq
 ), filtered AS (
- SELECT t.*,ROW_NUMBER() OVER(PARTITION BY group_key ORDER BY evidence_strength DESC,entity_relevance DESC,severity DESC,COALESCE(observed_at,published_at,ingested_at) DESC,seq DESC) AS family_rank,
- FIRST_VALUE(seq) OVER(PARTITION BY group_key ORDER BY evidence_strength DESC,entity_relevance DESC,severity DESC,COALESCE(observed_at,published_at,ingested_at) DESC,seq DESC) AS family_representative_seq FROM tagged t WHERE %s
+ SELECT t.*,ROW_NUMBER() OVER(PARTITION BY group_key ORDER BY %s) AS family_rank,
+ FIRST_VALUE(seq) OVER(PARTITION BY group_key ORDER BY %s) AS family_representative_seq FROM tagged t WHERE %s
 ), stats AS (
  SELECT family_representative_seq,COUNT(*) AS supporting_report_count,CASE WHEN COUNT(account_key)=COUNT(*) THEN COUNT(DISTINCT account_key) ELSE NULL END AS source_account_count,
  SUM(import_count)-COUNT(*) AS duplicates,MAX(COALESCE(observed_at,published_at,ingested_at)) AS last_signal_at,MAX(observed_at) AS latest_observed,MAX(published_at) AS latest_published FROM filtered GROUP BY family_representative_seq

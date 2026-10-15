@@ -91,7 +91,9 @@ func groupEvidenceRecords(records []evidenceRecord, caseIDs map[int]evidenceCase
 	page.KindCounts = models.EvidenceKindCounts{All: len(facets["all"]), Firsthand: len(facets["firsthand"]), Coverage: len(facets["coverage"]), Unknown: len(facets["unknown"])}
 	grouped := make([]evidenceFamilyGroup, 0, len(families))
 	for _, members := range families {
-		sort.Slice(members, func(i, j int) bool { return evidenceFamilyBefore(entries[members[i]], entries[members[j]]) })
+		sort.Slice(members, func(i, j int) bool {
+			return evidenceFamilyBeforeForSort(entries[members[i]], entries[members[j]], f.Sort)
+		})
 		r := entries[members[0]]
 		r.SupportingCount, r.RelatedCount = len(members), len(members)
 		r.FamilyDuplicates = 0
@@ -230,6 +232,20 @@ func evidenceLatestDate(a, b *time.Time) *time.Time {
 		return b
 	}
 	return a
+}
+
+// A recent page must show the recent member, not an older strong exemplar.
+// Other sort modes retain their evidence-first representative selection.
+func evidenceFamilyBeforeForSort(a, b evidenceRecord, sortBy string) bool {
+	if sortBy == "recent" {
+		if evidenceIndividualSignalKnown(a) != evidenceIndividualSignalKnown(b) {
+			return evidenceIndividualSignalKnown(a)
+		}
+		if left, right := evidenceIndividualSignalDate(a), evidenceIndividualSignalDate(b); !left.Equal(right) {
+			return left.After(right)
+		}
+	}
+	return evidenceFamilyBefore(a, b)
 }
 
 func evidenceFamilyBefore(a, b evidenceRecord) bool {

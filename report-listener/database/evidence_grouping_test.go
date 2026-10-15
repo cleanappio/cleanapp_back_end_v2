@@ -260,10 +260,10 @@ func TestEvidenceGroupingNullableSeverityPreservesSQLRankingAndNumericFallback(t
 			t.Fatalf("sort %s changed SQL NULL severity ordering/counts: %v", sortBy, got)
 		}
 	}
-	// Family representative selection always orders severity before its date,
-	// including for recent/recurrence pages. SQL NULL follows known negatives.
+	// Signal/recurrence keep severity before date. Recent chooses its newest
+	// family member, even when that member has no assessed severity.
 	refs := groupingCases(map[int]string{1: "case_nullable", 2: "case_nullable", 3: "case_nullable"})
-	for _, sortBy := range []string{"signal", "recent", "recurrence"} {
+	for _, sortBy := range []string{"signal", "recurrence"} {
 		page := groupEvidenceRecords(inputs, refs, EvidenceFilter{Kind: "all", Sort: sortBy, Limit: 12})
 		if got := groupingSeqs(page); !reflect.DeepEqual(got, []int{1}) {
 			t.Fatalf("sort %s chose NULL severity ahead of known zero: %v", sortBy, got)
@@ -272,6 +272,10 @@ func TestEvidenceGroupingNullableSeverityPreservesSQLRankingAndNumericFallback(t
 		if got := groupingSeqs(page); !reflect.DeepEqual(got, []int{2}) {
 			t.Fatalf("sort %s chose NULL severity ahead of a known negative: %v", sortBy, got)
 		}
+	}
+	recent := groupEvidenceRecords(inputs, refs, EvidenceFilter{Kind: "all", Sort: "recent", Limit: 12})
+	if got := groupingSeqs(recent); !reflect.DeepEqual(got, []int{3}) {
+		t.Fatalf("recent family did not choose newest member: %v", got)
 	}
 	page := groupEvidenceRecords([]evidenceRecord{missing}, nil, EvidenceFilter{Kind: "all", Limit: 12})
 	if !page.Records[0].SeverityNull || page.Records[0].Severity != 0 {

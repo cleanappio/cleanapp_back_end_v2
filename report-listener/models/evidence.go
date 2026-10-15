@@ -62,3 +62,16 @@ type EvidenceScope struct {
 	IncludesProducts bool     `json:"includes_products"`
 	Products         []string `json:"products"`
 }
+
+// EvidenceOverview counts visible report records before source/case grouping.
+// Time windows describe additions to CleanApp, not when an incident happened.
+type EvidenceOverview struct {
+	TotalReports         int        `json:"total_reports"`
+	ReportsLast30Days    int        `json:"reports_last_30_days"`
+	ReportsLast7Days     int        `json:"reports_last_7_days"`
+	ReportsPrevious7Days int        `json:"reports_previous_7_days"`
+	LatestReportAt       *time.Time `json:"latest_report_at"`
+	AsOf                 time.Time  `json:"as_of"`
+	Classification       string     `json:"classification"`
+	DateBasis            string     `json:"date_basis"`
+}

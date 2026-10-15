@@ -21,6 +21,7 @@ type EvidenceFilter struct {
 	BrandName, Product, Kind, Sort, Language string
 	Limit, Offset                            int
 	Brands                                   []string
+	asOf                                     time.Time
 }
 
 // Identity aliases are exact matches. Parent pages include their known products.
@@ -46,6 +47,9 @@ var evidenceScopeProducts = map[string][]string{
 }
 
 func NormalizeEvidenceFilter(f EvidenceFilter) (EvidenceFilter, error) {
+	if f.asOf.IsZero() {
+		f.asOf = time.Now().UTC().Truncate(time.Microsecond)
+	}
 	f.BrandName = strings.ToLower(strings.TrimSpace(f.BrandName))
 	f.Product = strings.ToLower(strings.TrimSpace(f.Product))
 	if f.BrandName == "" || len(f.BrandName) > 255 {
@@ -164,6 +168,14 @@ const trustedRedditArchiveSQL = "(eii.source = 'reddit_archive' AND LEFT(r.id,7)
 // guard, but carrying them into temporary rows can copy an entire image.
 const evidenceSourceURLSQL = `COALESCE(NULLIF(eii.source_url,''), NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.digital_context.metadata.source_url')),'null'), NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.digital_context.source_url')),'null'), NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.digital_context.url')),'null'), JSON_UNQUOTE(JSON_EXTRACT(ws.report_json,'$.evidence_bundle[0].uri')), '')`
 
+func evidenceFamilyOrderSQL(sortBy string) string {
+	order := "evidence_strength DESC, entity_relevance DESC, severity_level DESC, COALESCE(observed_at,source_timestamp,ts) DESC,seq DESC"
+	if sortBy == "recent" {
+		return "COALESCE(observed_at,source_timestamp,ts) DESC, " + order
+	}
+	return order
+}
+
 func evidenceCTE(f EvidenceFilter, analysisWhere string, args []interface{}) (string, []interface{}) {
 	query := fmt.Sprintf(`WITH preferred AS (
   SELECT ra.seq,ra.language,ra.created_at,ra.brand_name,ra.brand_display_name,ra.classification,ra.title,ra.summary,CAST(ra.severity_level AS DOUBLE) AS severity_level,COALESCE(ev.report_kind,'unknown') AS report_kind,COALESCE(ev.evidence_excerpt,'') AS evidence_excerpt,COALESCE(ev.reported_impact,'') AS reported_impact,COALESCE(ev.classification_reason,'') AS classification_reason,COALESCE(ev.entity_relationship,'unknown') AS entity_relationship,COALESCE(ev.evidence_version,0) AS evidence_version, ROW_NUMBER() OVER (PARTITION BY ra.seq ORDER BY (ra.language = ?) DESC, (ra.language = 'en') DESC, ra.language ASC, ra.created_at DESC) AS analysis_rank
@@ -233,11 +245,11 @@ func evidenceCTE(f EvidenceFilter, analysisWhere string, args []interface{}) (st
  ), entries AS (SELECT * FROM representatives WHERE duplicate_rank = 1),
  case_links AS (SELECT n.representative_seq AS seq, MIN(cr.case_id) AS case_id FROM case_reports cr JOIN representatives n ON n.seq = cr.seq GROUP BY n.representative_seq),
  tagged AS (SELECT e.*, cl.case_id, CASE WHEN cl.case_id IS NULL THEN source_key ELSE CONCAT('family:',cl.case_id) END AS group_key FROM entries e LEFT JOIN case_links cl ON cl.seq=e.seq),
- filtered AS (SELECT tagged.*, ROW_NUMBER() OVER (PARTITION BY group_key ORDER BY evidence_strength DESC, entity_relevance DESC, severity_level DESC, COALESCE(observed_at,source_timestamp,ts) DESC,seq DESC) AS family_rank, FIRST_VALUE(seq) OVER (PARTITION BY group_key ORDER BY evidence_strength DESC, entity_relevance DESC, severity_level DESC, COALESCE(observed_at,source_timestamp,ts) DESC,seq DESC) AS family_representative_seq FROM tagged WHERE %[3]s),
+ filtered AS (SELECT tagged.*, ROW_NUMBER() OVER (PARTITION BY group_key ORDER BY %[6]s) AS family_rank, FIRST_VALUE(seq) OVER (PARTITION BY group_key ORDER BY %[6]s) AS family_representative_seq FROM tagged WHERE %[3]s),
  family_stats AS (SELECT family_representative_seq, COUNT(*) AS supporting_report_count, CASE WHEN COUNT(source_account_key)=COUNT(*) THEN COUNT(DISTINCT source_account_key) ELSE NULL END AS source_account_count, SUM(import_count)-COUNT(*) AS duplicate_import_count, MAX(COALESCE(observed_at,source_timestamp,ts)) AS last_signal_at, MAX(observed_at) AS latest_observed_at, MAX(source_timestamp) AS latest_source_published_at FROM filtered GROUP BY family_representative_seq),
  family_samples AS (SELECT family_representative_seq, JSON_ARRAYAGG(JSON_OBJECT('title',title,'source_url',source_url,'report_kind',report_kind,'source_published_at',CASE WHEN YEAR(source_timestamp)=0 THEN NULL ELSE DATE_FORMAT(source_timestamp,'%%Y-%%m-%%dT%%H:%%i:%%sZ') END)) AS supporting_sources FROM filtered WHERE family_rank <= 8 AND privacy_restricted = 0 GROUP BY family_representative_seq),
  briefing AS (SELECT f.*, fs.supporting_report_count, fs.source_account_count, fs.duplicate_import_count, fs.supporting_report_count AS related_observation_count, fs.last_signal_at, fs.latest_observed_at, fs.latest_source_published_at, COALESCE(samples.supporting_sources,JSON_ARRAY()) AS supporting_sources FROM filtered f JOIN family_stats fs ON fs.family_representative_seq=f.family_representative_seq LEFT JOIN family_samples samples ON samples.family_representative_seq=f.family_representative_seq WHERE family_rank=1)
- `, analysisWhere, PublicVisibilityWhereSQL, evidenceKindWhere(f.Kind), trustedRedditArchiveSQL, evidenceSourceURLSQL)
+ `, analysisWhere, PublicVisibilityWhereSQL, evidenceKindWhere(f.Kind), trustedRedditArchiveSQL, evidenceSourceURLSQL, evidenceFamilyOrderSQL(f.Sort))
 	if f.Kind != "all" {
 		args = append(args, f.Kind)
 	}
@@ -275,6 +287,7 @@ type evidenceRecord struct {
 	RelatedCount                                                  int
 }
 type EvidenceBrandPage struct {
+	Overview            models.EvidenceOverview
 	Reports             []models.ReportWithMinimalAnalysis
 	Total, High, Medium int
 	KindCounts          models.EvidenceKindCounts
@@ -287,15 +300,20 @@ type EvidenceBrandPage struct {
 func evidenceBrandPageQuery(f EvidenceFilter) (string, []interface{}) {
 	cte, args := evidenceBrandCTE(f)
 	order := "p." + strings.ReplaceAll(evidenceOrderBy(f.Sort), ", ", ", p.")
-	query := cte + `, scope_counts AS (SELECT COUNT(DISTINCT group_key) AS all_count, COUNT(DISTINCT CASE WHEN report_kind='firsthand' THEN group_key END) AS firsthand_count, COUNT(DISTINCT CASE WHEN report_kind='coverage' THEN group_key END) AS coverage_count, COUNT(DISTINCT CASE WHEN report_kind='unknown' THEN group_key END) AS unknown_count FROM tagged),
+	query := cte + `, overview_clock AS (SELECT CAST(? AS DATETIME(6)) AS as_of),
+ overview_counts AS (SELECT COUNT(*) AS total_reports,
+ COALESCE(SUM(n.ts>=DATE_SUB(c.as_of,INTERVAL 30 DAY) AND n.ts<=c.as_of AND NOT n.ingestion_time_missing),0) AS reports_last_30_days,
+ COALESCE(SUM(n.ts>=DATE_SUB(c.as_of,INTERVAL 7 DAY) AND n.ts<=c.as_of AND NOT n.ingestion_time_missing),0) AS reports_last_7_days,
+ COALESCE(SUM(n.ts>=DATE_SUB(c.as_of,INTERVAL 14 DAY) AND n.ts<DATE_SUB(c.as_of,INTERVAL 7 DAY) AND NOT n.ingestion_time_missing),0) AS reports_previous_7_days,
+ MAX(CASE WHEN n.ts<=c.as_of AND YEAR(n.ts)>0 AND NOT n.ingestion_time_missing THEN n.ts END) AS latest_report_at FROM normalized n CROSS JOIN overview_clock c), scope_counts AS (SELECT COUNT(DISTINCT group_key) AS all_count, COUNT(DISTINCT CASE WHEN report_kind='firsthand' THEN group_key END) AS firsthand_count, COUNT(DISTINCT CASE WHEN report_kind='coverage' THEN group_key END) AS coverage_count, COUNT(DISTINCT CASE WHEN report_kind='unknown' THEN group_key END) AS unknown_count FROM tagged),
  page_counts AS (SELECT COUNT(*) AS total_count, COALESCE(SUM(severity_level>=0.7),0) AS high_count, COALESCE(SUM(severity_level>=0.4 AND severity_level<0.7),0) AS medium_count FROM briefing),
  paged AS (SELECT * FROM briefing ORDER BY ` + evidenceOrderBy(f.Sort) + ` LIMIT ? OFFSET ?)
- SELECT sc.all_count,sc.firsthand_count,sc.coverage_count,sc.unknown_count,pc.total_count,pc.high_count,pc.medium_count,
+ SELECT sc.all_count,sc.firsthand_count,sc.coverage_count,sc.unknown_count,pc.total_count,pc.high_count,pc.medium_count,oc.total_reports,oc.reports_last_30_days,oc.reports_last_7_days,oc.reports_previous_7_days,oc.latest_report_at,
  COALESCE(p.seq,0),COALESCE(p.public_id,''),COALESCE(p.ts,CAST('1970-01-01 00:00:00' AS DATETIME)),COALESCE(p.latitude,0),COALESCE(p.longitude,0),COALESCE(p.title,''),COALESCE(p.summary,''),COALESCE(p.classification,''),COALESCE(p.severity_level,0),COALESCE(p.language,''),COALESCE(p.brand_name,''),COALESCE(p.brand_display_name,''),
  COALESCE(p.report_kind,'unknown'),COALESCE(p.evidence_excerpt,''),COALESCE(p.reported_impact,''),COALESCE(p.classification_reason,''),COALESCE(p.entity_relationship,'unknown'),COALESCE(p.evidence_version,0),
  COALESCE(p.source_platform,''),COALESCE(p.source_url,''),p.source_timestamp,p.observed_at,COALESCE(p.actor_kind,''),COALESCE(p.fetcher_id,''),COALESCE(p.privacy_restricted,0),COALESCE(p.source_key,''),COALESCE(p.import_count,0),p.case_id,COALESCE(p.related_observation_count,0),COALESCE(p.has_original_media,0),COALESCE(p.external_source,0),COALESCE(p.intake_channel,''),COALESCE(p.generation_method,''),COALESCE(p.source_account_key,''),COALESCE(p.group_key,''),COALESCE(p.supporting_report_count,0),p.source_account_count,COALESCE(p.duplicate_import_count,0),COALESCE(p.supporting_sources,JSON_ARRAY()),p.latest_observed_at,p.latest_source_published_at,COALESCE(p.ingestion_time_missing,0)
- ,COALESCE(p.ts IS NULL,FALSE) FROM scope_counts sc CROSS JOIN page_counts pc LEFT JOIN paged p ON TRUE ORDER BY ` + order
-	return query, append(args, f.Limit, f.Offset)
+ ,COALESCE(p.ts IS NULL,FALSE) FROM scope_counts sc CROSS JOIN page_counts pc CROSS JOIN overview_counts oc LEFT JOIN paged p ON TRUE ORDER BY ` + order
+	return query, append(args, f.asOf.Format("2006-01-02 15:04:05.999999"), f.Limit, f.Offset)
 }
 
 // Kept as the executable SQL reference for adapter parity fixtures. Public brand
@@ -314,7 +332,7 @@ func (d *Database) getEvidenceBrandPageSQL(ctx context.Context, f EvidenceFilter
 		return EvidenceBrandPage{}, err
 	}
 	defer tx.Rollback()
-	page := EvidenceBrandPage{Reports: []models.ReportWithMinimalAnalysis{}}
+	page := EvidenceBrandPage{Reports: []models.ReportWithMinimalAnalysis{}, Overview: evidenceOverview(nil, f.asOf)}
 	query, args := evidenceBrandPageQuery(f)
 	mediaSeqs := []int{}
 	rows, err := tx.QueryContext(queryCtx, query, args...)
@@ -323,7 +341,7 @@ func (d *Database) getEvidenceBrandPageSQL(ctx context.Context, f EvidenceFilter
 	}
 	for rows.Next() {
 		var r evidenceRecord
-		if err := rows.Scan(&page.KindCounts.All, &page.KindCounts.Firsthand, &page.KindCounts.Coverage, &page.KindCounts.Unknown, &page.Total, &page.High, &page.Medium,
+		if err := rows.Scan(&page.KindCounts.All, &page.KindCounts.Firsthand, &page.KindCounts.Coverage, &page.KindCounts.Unknown, &page.Total, &page.High, &page.Medium, &page.Overview.TotalReports, &page.Overview.ReportsLast30Days, &page.Overview.ReportsLast7Days, &page.Overview.ReportsPrevious7Days, &page.Overview.LatestReportAt,
 			&r.Seq, &r.PublicID, &r.IngestedAt, &r.Latitude, &r.Longitude, &r.Title, &r.Summary, &r.Classification, &r.Severity, &r.Language, &r.Brand, &r.BrandDisplay,
 			&r.Kind, &r.Excerpt, &r.Impact, &r.Reason, &r.Relationship, &r.Version, &r.SourcePlatform, &r.SourceURL, &r.PublishedAt, &r.ObservedAt, &r.ActorKind, &r.FetcherID, &r.PrivacyRestricted, &r.SourceKey, &r.ImportCount, &r.CaseID, &r.RelatedCount, &r.HasOriginalMedia, &r.ExternalSource, &r.IntakeChannel, &r.GenerationMethod, &r.SourceAccountKey, &r.GroupKey, &r.SupportingCount, &r.SourceAccountCount, &r.FamilyDuplicates, &r.SupportingSourcesJSON, &r.LatestObservedAt, &r.LatestPublishedAt, &r.IngestionTimeMissing, &r.IngestedAtNull); err != nil {
 			rows.Close()

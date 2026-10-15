@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"cleanapp-common/eiiheader"
 	"cleanapp-common/evidence"
@@ -221,6 +222,9 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if page.Overview.TotalReports != 5 {
+		t.Fatalf("overview must count visible raw reports, not 3 grouped entries: %+v", page.Overview)
+	}
 	if page.Total != 1 || len(page.Reports) != 1 || page.KindCounts.Firsthand != 1 || page.KindCounts.Coverage != 1 || page.KindCounts.Unknown != 1 || page.KindCounts.All != 3 {
 		t.Fatalf("public family/filter counts wrong: %+v", page)
 	}
@@ -232,7 +236,7 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(page, mixed) {
+	if !evidencePagesEqualIgnoringClock(page, mixed) {
 		t.Fatal("partial metadata projection changed public page, family counts, source dates or privacy")
 	}
 	if _, err := eiiheader.Backfill(context.Background(), db, []int{1}); err != nil {
@@ -242,7 +246,7 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(page, partialHeader) {
+	if !evidencePagesEqualIgnoringClock(page, partialHeader) {
 		t.Fatal("partial source header projection changed source selection, fields, dates or exact counts")
 	}
 	var headerRows int
@@ -258,7 +262,7 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	partialWire, err := d.GetEvidenceBrandPage(context.Background(), EvidenceFilter{BrandName: "anthropic", Kind: "firsthand"})
-	if err != nil || !reflect.DeepEqual(page, partialWire) {
+	if err != nil || !evidencePagesEqualIgnoringClock(page, partialWire) {
 		t.Fatalf("partial Wire projection changed exact public semantics: %v", err)
 	}
 	var wireHeaderRows int
@@ -272,7 +276,7 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	mismatchedWire, err := d.GetEvidenceBrandPage(context.Background(), EvidenceFilter{BrandName: "anthropic", Kind: "firsthand"})
-	if err != nil || !reflect.DeepEqual(page, mismatchedWire) {
+	if err != nil || !evidencePagesEqualIgnoringClock(page, mismatchedWire) {
 		t.Fatalf("stale Wire link bypassed original metadata fallback: %v", err)
 	}
 	if _, err := wiremeta.Backfill(context.Background(), db, []int{1}); err != nil {
@@ -290,12 +294,18 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if beyond.Overview.TotalReports != 5 {
+		t.Fatal("offset changed overview total")
+	}
 	if beyond.Total != 1 || beyond.KindCounts.All != 3 || len(beyond.Reports) != 0 || beyond.HasMore {
 		t.Fatalf("empty offset page lost exact source counts or exposed a synthetic row: %+v", beyond)
 	}
 	empty, err := d.GetEvidenceBrandPage(context.Background(), EvidenceFilter{BrandName: "absentbrand"})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if empty.Overview.TotalReports != 0 || empty.Overview.ReportsLast30Days != 0 || empty.Overview.LatestReportAt != nil || empty.Overview.AsOf.IsZero() {
+		t.Fatal("empty scope overview missing or synthetic")
 	}
 	if empty.Total != 0 || empty.KindCounts.All != 0 || len(empty.Reports) != 0 || empty.HasMore {
 		t.Fatalf("empty scope exposed a synthetic count row: %+v", empty)
@@ -312,6 +322,9 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if filtered.Overview.TotalReports != 5 {
+			t.Fatalf("kind %s changed all-kind overview total", kind)
+		}
 		if filtered.Total == 0 {
 			t.Fatalf("%s lost existing material", kind)
 		}
@@ -322,6 +335,9 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 	product, err := d.GetEvidenceBrandPage(context.Background(), EvidenceFilter{BrandName: "anthropic", Product: "claude-code"})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if product.Overview.TotalReports != 1 {
+		t.Fatal("product overview included another product")
 	}
 	if product.Total != 1 || product.Reports[0].Recurrence.SupportingReportCount != 1 {
 		t.Fatal("product filter counts included another product")
@@ -807,7 +823,7 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 		for _, kind := range []string{"firsthand", "coverage", "unknown", "all"} {
 			for _, sortBy := range []string{"signal", "recent", "recurrence"} {
 				for _, offset := range []int{0, 1, 100} {
-					filter := EvidenceFilter{BrandName: brand, Kind: kind, Sort: sortBy, Offset: offset, Limit: 2, Language: "fr"}
+					filter := EvidenceFilter{BrandName: brand, Kind: kind, Sort: sortBy, Offset: offset, Limit: 2, Language: "fr", asOf: time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)}
 					actual, err := d.GetEvidenceBrandPage(context.Background(), filter)
 					if err != nil {
 						t.Fatalf("bulk %s/%s/%s/%d: %v", brand, kind, sortBy, offset, err)
@@ -823,4 +839,10 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 			}
 		}
 	}
+}
+
+func evidencePagesEqualIgnoringClock(a, b EvidenceBrandPage) bool {
+	a.Overview.AsOf = time.Time{}
+	b.Overview.AsOf = time.Time{}
+	return reflect.DeepEqual(a, b)
 }

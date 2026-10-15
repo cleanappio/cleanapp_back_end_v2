@@ -16,6 +16,7 @@ type PublicDiscoveryCard struct {
 }
 
 type PublicDiscoveryBatch struct {
+	Overview            *EvidenceOverview     `json:"overview,omitempty"`
 	Kind                string                `json:"kind,omitempty"`
 	Sort                string                `json:"sort,omitempty"`
 	Offset              int                   `json:"offset"`
