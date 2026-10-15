@@ -972,7 +972,7 @@ func (d *Database) GetReportBySeq(ctx context.Context, seq int) (*models.ReportW
 	// Include source_timestamp and source_url from external_ingest_index for external sources
 	reportQuery := fmt.Sprintf(`
 		SELECT r.seq, r.public_id, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.image, r.action_id, r.description,
-			   (SELECT MAX(created_at) FROM sent_reports_emails WHERE seq = r.seq) as last_email_sent_at,
+			   (SELECT MAX(sent_at) FROM report_email_deliveries WHERE seq = r.seq AND delivery_status = 'sent') as last_email_sent_at,
 			   eii.source_timestamp, eii.source_url
 		FROM reports r
 		LEFT JOIN report_raw rr ON r.seq = rr.report_seq
@@ -1186,7 +1186,7 @@ func (d *Database) GetReportsBySeqs(ctx context.Context, seqs []int) ([]models.R
 func (d *Database) GetReportByPublicID(ctx context.Context, publicID string) (*models.ReportWithAnalysis, error) {
 	reportQuery := fmt.Sprintf(`
 		SELECT r.seq, r.public_id, r.ts, r.id, r.team, r.latitude, r.longitude, r.x, r.y, r.image, r.action_id, r.description,
-			   (SELECT MAX(created_at) FROM sent_reports_emails WHERE seq = r.seq) as last_email_sent_at,
+			   (SELECT MAX(sent_at) FROM report_email_deliveries WHERE seq = r.seq AND delivery_status = 'sent') as last_email_sent_at,
 			   eii.source_timestamp, eii.source_url
 		FROM reports r
 		LEFT JOIN report_raw rr ON r.seq = rr.report_seq

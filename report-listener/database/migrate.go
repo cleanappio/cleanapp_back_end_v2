@@ -44,6 +44,7 @@ func RunMigrations(ctx context.Context, db *sql.DB) error {
 		{ID: "0027_evidence_brand_core_index", Description: "add online covering index for digital evidence brand scopes", Up: ensureEvidenceBrandCoreIndex},
 		{ID: "0028_external_source_header_projection", Description: "create transactional external source header projection", Up: eiiheader.Migrate},
 		{ID: "0029_wire_evidence_projection", Description: "create transactional Wire evidence metadata projection", Up: wiremeta.Migrate},
+		{ID: "0030_report_email_delivery_events", Description: "create append-only report email notification history", Up: ensureReportEmailDeliveryEvents},
 	})
 }
 

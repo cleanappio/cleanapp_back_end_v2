@@ -25,9 +25,11 @@ type Report struct {
 
 // ReportAnalysis represents an analysis result
 type ReportAnalysis struct {
-	Seq                   int       `json:"seq" db:"seq"`
-	Source                string    `json:"source" db:"source"`
-	AnalysisText          string    `json:"analysis_text" db:"analysis_text"`
+	Seq    int    `json:"seq" db:"seq"`
+	Source string `json:"source" db:"source"`
+	// Raw analysis JSON contains contact suggestions and internal routing data.
+	// Keep it for server-side routing, never serialize it from reader APIs.
+	AnalysisText          string    `json:"-" db:"analysis_text"`
 	AnalysisImage         []byte    `json:"analysis_image,omitempty" db:"analysis_image"`
 	Title                 string    `json:"title"`
 	Description           string    `json:"description"`
@@ -40,7 +42,7 @@ type ReportAnalysis struct {
 	Summary               string    `json:"summary" db:"summary"`
 	Language              string    `json:"language" db:"language"`
 	Classification        string    `json:"classification" db:"classification"`
-	InferredContactEmails string    `json:"inferred_contact_emails" db:"inferred_contact_emails"`
+	InferredContactEmails string    `json:"-" db:"inferred_contact_emails"`
 	IsValid               bool      `json:"is_valid" db:"is_valid"`
 	CreatedAt             time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt             time.Time `json:"updated_at" db:"updated_at"`
@@ -68,17 +70,18 @@ type ReportWithMinimalAnalysis struct {
 
 // ReportWithAnalysis represents a report with its corresponding analysis
 type ReportWithAnalysis struct {
-	Evidence             *PublicEvidence          `json:"evidence,omitempty"`
-	Recurrence           *PublicRecurrence        `json:"recurrence,omitempty"`
-	Report               Report                   `json:"report"`
-	Analysis             []ReportAnalysis         `json:"analysis"`
-	EscalationTargets    []CaseEscalationTarget   `json:"escalation_targets,omitempty"`
-	ContactObservations  []CaseContactObservation `json:"contact_observations,omitempty"`
-	NotifyPlan           *CaseNotifyPlan          `json:"notify_plan,omitempty"`
-	RoutingProfile       *SubjectRoutingProfile   `json:"routing_profile,omitempty"`
-	ExecutionTasks       []NotifyExecutionTask    `json:"execution_tasks,omitempty"`
-	NotifyOutcomes       []NotifyOutcome          `json:"notify_outcomes,omitempty"`
-	ContactStrategyStale bool                     `json:"contact_strategy_stale,omitempty"`
+	NotificationSummary  *ReportNotificationSummary `json:"notification_summary,omitempty"`
+	Evidence             *PublicEvidence            `json:"evidence,omitempty"`
+	Recurrence           *PublicRecurrence          `json:"recurrence,omitempty"`
+	Report               Report                     `json:"report"`
+	Analysis             []ReportAnalysis           `json:"analysis"`
+	EscalationTargets    []CaseEscalationTarget     `json:"escalation_targets,omitempty"`
+	ContactObservations  []CaseContactObservation   `json:"contact_observations,omitempty"`
+	NotifyPlan           *CaseNotifyPlan            `json:"notify_plan,omitempty"`
+	RoutingProfile       *SubjectRoutingProfile     `json:"routing_profile,omitempty"`
+	ExecutionTasks       []NotifyExecutionTask      `json:"execution_tasks,omitempty"`
+	NotifyOutcomes       []NotifyOutcome            `json:"notify_outcomes,omitempty"`
+	ContactStrategyStale bool                       `json:"contact_strategy_stale,omitempty"`
 }
 
 type ReportContactStrategyResponse struct {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -91,7 +92,30 @@ func (h *Handlers) respondReportContactStrategy(c *gin.Context, reportWithAnalys
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to build report contact strategy"})
 		return
 	}
-	c.JSON(http.StatusOK, strategy)
+	// Public routing explains which organizations may be responsible. Contact
+	// addresses and internal execution/provider records are subscriber data.
+	c.Header("Cache-Control", "no-store")
+	targets := make([]gin.H, 0, len(strategy.EscalationTargets))
+	for _, target := range strategy.EscalationTargets {
+		targets = append(targets, gin.H{"organization": publicContactOrganization(target.Organization), "website": publicContactWebsite(target.Website)})
+	}
+	observations := make([]gin.H, 0, len(strategy.ContactObservations))
+	for _, observation := range strategy.ContactObservations {
+		observations = append(observations, gin.H{"organization_name": publicContactOrganization(observation.OrganizationName), "website": publicContactWebsite(observation.Website)})
+	}
+	c.JSON(http.StatusOK, gin.H{"report_seq": strategy.ReportSeq, "public_id": strategy.PublicID, "escalation_targets": targets, "contact_observations": observations})
+}
+
+func publicContactOrganization(value string) string {
+	return strings.TrimSpace(emailRegex.ReplaceAllString(value, ""))
+}
+
+func publicContactWebsite(value string) string {
+	u, err := url.Parse(strings.TrimSpace(value))
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Hostname() == "" || u.User != nil {
+		return ""
+	}
+	return u.Scheme + "://" + u.Hostname()
 }
 
 func (h *Handlers) respondReportContactStrategyError(c *gin.Context, err error) {
