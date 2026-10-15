@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"bytes"
+	"cleanapp-common/edge"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -8,42 +10,56 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"image"
+	_ "image/jpeg"
+	_ "image/png"
 	"log"
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 )
 
 const (
-	humanChannelMobile   = "mobile"
-	humanChannelWeb      = "web"
-	humanChannelLegacyV2 = "legacy_v2"
+	humanChannelMobile         = "mobile"
+	humanChannelWeb            = "web"
+	humanChannelLegacyV2       = "legacy_v2"
+	maxHumanWebAnnotationBytes = 8192
+	maxHumanWebImageBytes      = 1024 * 1024
+	maxHumanWebImageDimension  = 4096
+	maxHumanWebImagePixels     = 16 * 1024 * 1024
 )
 
+// One submit limiter shared by all aliases; a client-supplied session is
+// provenance, never authentication or a way to obtain a fresh rate bucket.
+var humanWebSubmitLimit = edge.RateLimitMiddleware(edge.RateLimitConfig{RPS: 0.05, Burst: 2})
+
 type humanReportSubmissionRequest struct {
-	Version    string  `json:"version"`
-	Channel    string  `json:"channel"`
-	AppVersion string  `json:"app_version,omitempty"`
-	SessionID  string  `json:"session_id,omitempty"`
-	DeviceID   string  `json:"device_id,omitempty"`
-	ReporterID string  `json:"reporter_id,omitempty"`
-	SourceID   string  `json:"source_id,omitempty"`
-	ObservedAt string  `json:"observed_at,omitempty"`
-	Latitude   float64 `json:"latitude"`
-	Longitude  float64 `json:"longitude"`
-	X          float64 `json:"x,omitempty"`
-	Y          float64 `json:"y,omitempty"`
-	Image      []byte  `json:"image,omitempty"`
-	ActionID   string  `json:"action_id,omitempty"`
-	Annotation string  `json:"annotation,omitempty"`
+	Version    string   `json:"version"`
+	Channel    string   `json:"channel"`
+	AppVersion string   `json:"app_version,omitempty"`
+	SessionID  string   `json:"session_id,omitempty"`
+	DeviceID   string   `json:"device_id,omitempty"`
+	ReporterID string   `json:"reporter_id,omitempty"`
+	SourceID   string   `json:"source_id,omitempty"`
+	ObservedAt string   `json:"observed_at,omitempty"`
+	Latitude   *float64 `json:"latitude,omitempty"`
+	Longitude  *float64 `json:"longitude,omitempty"`
+	X          float64  `json:"x,omitempty"`
+	Y          float64  `json:"y,omitempty"`
+	Image      []byte   `json:"image,omitempty"`
+	ActionID   string   `json:"action_id,omitempty"`
+	Annotation string   `json:"annotation,omitempty"`
 }
 
 type humanReportReceiptResponse struct {
 	cleanAppWireReceiptResponse
-	PublicID      string `json:"public_id,omitempty"`
-	CanonicalPath string `json:"canonical_path,omitempty"`
+	PublicID          string `json:"public_id,omitempty"`
+	CanonicalPath     string `json:"canonical_path,omitempty"`
+	ProcessingStatus  string `json:"processing_status,omitempty"`
+	PublicationStatus string `json:"publication_status,omitempty"`
 }
 
 func normalizeHumanChannel(raw string) string {
@@ -66,18 +82,18 @@ func syntheticHumanSourceID(prefix string, req humanReportSubmissionRequest) str
 		return trimmed
 	}
 	fingerprint := struct {
-		Channel    string  `json:"channel"`
-		ReporterID string  `json:"reporter_id,omitempty"`
-		DeviceID   string  `json:"device_id,omitempty"`
-		SessionID  string  `json:"session_id,omitempty"`
-		ObservedAt string  `json:"observed_at,omitempty"`
-		Latitude   float64 `json:"latitude"`
-		Longitude  float64 `json:"longitude"`
-		X          float64 `json:"x,omitempty"`
-		Y          float64 `json:"y,omitempty"`
-		ActionID   string  `json:"action_id,omitempty"`
-		Annotation string  `json:"annotation,omitempty"`
-		ImageHash  string  `json:"image_hash,omitempty"`
+		Channel    string   `json:"channel"`
+		ReporterID string   `json:"reporter_id,omitempty"`
+		DeviceID   string   `json:"device_id,omitempty"`
+		SessionID  string   `json:"session_id,omitempty"`
+		ObservedAt string   `json:"observed_at,omitempty"`
+		Latitude   *float64 `json:"latitude,omitempty"`
+		Longitude  *float64 `json:"longitude,omitempty"`
+		X          float64  `json:"x,omitempty"`
+		Y          float64  `json:"y,omitempty"`
+		ActionID   string   `json:"action_id,omitempty"`
+		Annotation string   `json:"annotation,omitempty"`
+		ImageHash  string   `json:"image_hash,omitempty"`
 	}{
 		Channel:    normalizeHumanChannel(req.Channel),
 		ReporterID: strings.TrimSpace(req.ReporterID),
@@ -101,6 +117,9 @@ func syntheticHumanSourceID(prefix string, req humanReportSubmissionRequest) str
 }
 
 func humanAuthMethod(req humanReportSubmissionRequest) string {
+	if normalizeHumanChannel(req.Channel) == humanChannelWeb {
+		return "anonymous_client"
+	}
 	if strings.TrimSpace(req.ReporterID) != "" {
 		return "wallet_address"
 	}
@@ -111,6 +130,9 @@ func humanAuthMethod(req humanReportSubmissionRequest) string {
 }
 
 func humanAgentID(req humanReportSubmissionRequest) string {
+	if normalizeHumanChannel(req.Channel) == humanChannelWeb {
+		return syntheticHumanFetcherID(req.Channel)
+	}
 	if trimmed := strings.TrimSpace(req.ReporterID); trimmed != "" {
 		return trimmed
 	}
@@ -142,10 +164,34 @@ func humanReportTitle(annotation string) string {
 	if title == "" {
 		return "Human report submission"
 	}
-	if len(title) > 255 {
-		return title[:255]
+	return clampStr(title, 255)
+}
+
+func validateHumanWebSubmission(req humanReportSubmissionRequest) error {
+	if !utf8.ValidString(req.Annotation) || len(req.Annotation) > maxHumanWebAnnotationBytes {
+		return fmt.Errorf("text must be valid UTF-8 and at most 8192 bytes")
 	}
-	return title
+	if strings.TrimSpace(req.Annotation) == "" && len(req.Image) == 0 {
+		return fmt.Errorf("add a description or an image")
+	}
+	if len(req.Image) == 0 {
+		return nil
+	}
+	if len(req.Image) > maxHumanWebImageBytes {
+		return fmt.Errorf("image must be at most 1 MiB")
+	}
+	cfg, format, err := image.DecodeConfig(bytes.NewReader(req.Image))
+	if err != nil || (format != "jpeg" && format != "png") {
+		return fmt.Errorf("image must be a valid JPEG or PNG")
+	}
+	if cfg.Width < 1 || cfg.Height < 1 || cfg.Width > maxHumanWebImageDimension || cfg.Height > maxHumanWebImageDimension || int64(cfg.Width)*int64(cfg.Height) > maxHumanWebImagePixels {
+		return fmt.Errorf("image dimensions exceed 4096 pixels or 16 megapixels")
+	}
+	// A valid header alone does not establish a decodable, complete image.
+	if _, _, err := image.Decode(bytes.NewReader(req.Image)); err != nil {
+		return fmt.Errorf("image must be a complete JPEG or PNG")
+	}
+	return nil
 }
 
 func buildHumanWireSubmission(req humanReportSubmissionRequest, sourcePrefix string) cleanAppWireSubmission {
@@ -191,6 +237,11 @@ func buildHumanWireSubmission(req humanReportSubmissionRequest, sourcePrefix str
 	// policy so image-backed reports are publishable without needing machine-target metadata.
 	sub.Delivery.RequestedLane = "human_auto"
 	sub.Report.Domain = "physical"
+	if channel == humanChannelWeb {
+		sub.Report.Domain = "unknown"
+		sub.Delivery.RequestedLane = wireLaneShadow
+		sub.Extensions["web_intake_pending_analysis"] = true
+	}
 	sub.Report.ProblemType = "citizen_submission"
 	sub.Report.Title = title
 	sub.Report.Description = description
@@ -200,18 +251,27 @@ func buildHumanWireSubmission(req humanReportSubmissionRequest, sourcePrefix str
 	} else {
 		sub.Report.Confidence = 0.7
 	}
-	sub.Report.Location = &struct {
-		Kind            string  `json:"kind,omitempty"`
-		Lat             float64 `json:"lat"`
-		Lng             float64 `json:"lng"`
-		Geohash         string  `json:"geohash,omitempty"`
-		AddressText     string  `json:"address_text,omitempty"`
-		PlaceConfidence float64 `json:"place_confidence,omitempty"`
-	}{
-		Kind:            "coordinate",
-		Lat:             req.Latitude,
-		Lng:             req.Longitude,
-		PlaceConfidence: 1,
+	if channel != humanChannelWeb || (req.Latitude != nil && req.Longitude != nil) {
+		lat, lng := 0.0, 0.0
+		if req.Latitude != nil {
+			lat = *req.Latitude
+		}
+		if req.Longitude != nil {
+			lng = *req.Longitude
+		}
+		sub.Report.Location = &struct {
+			Kind            string  `json:"kind,omitempty"`
+			Lat             float64 `json:"lat"`
+			Lng             float64 `json:"lng"`
+			Geohash         string  `json:"geohash,omitempty"`
+			AddressText     string  `json:"address_text,omitempty"`
+			PlaceConfidence float64 `json:"place_confidence,omitempty"`
+		}{
+			Kind:            "coordinate",
+			Lat:             lat,
+			Lng:             lng,
+			PlaceConfidence: 1,
+		}
 	}
 	if len(req.Image) > 0 {
 		encoded := base64.StdEncoding.EncodeToString(req.Image)
@@ -247,12 +307,43 @@ func (h *Handlers) humanReceiptResponseFromWire(
 	if receipt.ReportID <= 0 {
 		return resp
 	}
-	report, err := h.db.GetReportBySeq(ctx, receipt.ReportID)
-	if err != nil || report == nil {
+	var publicID, visibility, classification, fetcherID string
+	var analyzed bool
+	err := h.db.DB().QueryRowContext(ctx, `SELECT r.public_id, COALESCE(rr.visibility,'shadow'), COALESCE(rr.fetcher_id,''),
+		EXISTS(SELECT 1 FROM report_analysis ra WHERE ra.seq=r.seq AND ra.language='en'
+			AND (rr.visibility='public' OR (COALESCE(ev.evidence_version,0)>0
+			AND (ra.is_valid=FALSE OR ev.report_kind<>'firsthand')))),
+		COALESCE((SELECT ra.classification FROM report_analysis ra WHERE ra.seq=r.seq AND ra.language='en' LIMIT 1),'')
+		FROM reports r LEFT JOIN report_raw rr ON rr.report_seq=r.seq
+		LEFT JOIN report_evidence ev ON ev.seq=r.seq WHERE r.seq=?`, receipt.ReportID).
+		Scan(&publicID, &visibility, &fetcherID, &analyzed, &classification)
+	if err != nil {
 		return resp
 	}
-	resp.PublicID = strings.TrimSpace(report.Report.PublicID)
-	resp.CanonicalPath = canonicalReportPath("physical", resp.PublicID)
+	return humanReceiptWithProcessingState(resp, publicID, visibility, fetcherID, analyzed, classification)
+}
+
+func humanReceiptWithProcessingState(resp humanReportReceiptResponse, publicID, visibility, fetcherID string, analyzed bool, classification string) humanReportReceiptResponse {
+	resp.PublicID = strings.TrimSpace(publicID)
+	if fetcherID != "human-web" {
+		// Preserve the mobile/legacy receipt contract.
+		if visibility == "public" {
+			resp.CanonicalPath = canonicalReportPath("physical", resp.PublicID)
+		}
+		return resp
+	}
+	resp.ProcessingStatus = "pending_analysis"
+	resp.PublicationStatus = "pending_analysis"
+	resp.NextCheckAfter = time.Now().UTC().Add(5 * time.Second).Format(time.RFC3339)
+	if analyzed {
+		resp.NextCheckAfter = ""
+		resp.ProcessingStatus = "analyzed"
+		resp.PublicationStatus = "review_required"
+		if visibility == "public" && (classification == "physical" || classification == "digital") {
+			resp.PublicationStatus = "public"
+			resp.CanonicalPath = canonicalReportPath(classification, resp.PublicID)
+		}
+	}
 	return resp
 }
 
@@ -267,16 +358,31 @@ func (h *Handlers) SubmitHumanReportV1(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})
 		return
 	}
+	// Browser callers always use the web policy, even if they supply a mobile
+	// channel label. Native mobile clients continue to omit Origin as before.
+	if strings.TrimSpace(c.GetHeader("Origin")) != "" {
+		req.Channel = humanChannelWeb
+	}
 	if req.Version != "" && req.Version != "1.0" && req.Version != "2.0" {
 		c.JSON(http.StatusNotAcceptable, gin.H{"error": "unsupported version"})
 		return
 	}
-	if req.Latitude < -90 || req.Latitude > 90 || req.Longitude < -180 || req.Longitude > 180 {
+	if (req.Latitude != nil && (*req.Latitude < -90 || *req.Latitude > 90)) || (req.Longitude != nil && (*req.Longitude < -180 || *req.Longitude > 180)) || ((req.Latitude == nil) != (req.Longitude == nil)) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid coordinates"})
 		return
 	}
 
 	channel := normalizeHumanChannel(req.Channel)
+	if channel == humanChannelWeb {
+		humanWebSubmitLimit(c)
+		if c.IsAborted() {
+			return
+		}
+		if err := validateHumanWebSubmission(req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+	}
 	auth := h.humanReportAuthContext(channel)
 	auth.AuthMethod = humanAuthMethod(req)
 	auth.DisplayName = channel
@@ -305,13 +411,13 @@ func (h *Handlers) SubmitHumanReportV1(c *gin.Context) {
 		c.GetHeader("X-Request-Id"),
 		"/api/v1/human-reports/submit",
 	)
-	if receipt.ReportID > 0 && strings.TrimSpace(req.DeviceID) != "" {
+	if channel != humanChannelWeb && receipt.ReportID > 0 && strings.TrimSpace(req.DeviceID) != "" {
 		if err := h.db.LinkReportToPushInstall(c.Request.Context(), receipt.ReportID, req.DeviceID); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to link report delivery notifications"})
 			return
 		}
 	}
-	if receipt.ReportID > 0 && !receipt.IdempotencyReplay && strings.TrimSpace(req.ReporterID) != "" {
+	if channel != humanChannelWeb && receipt.ReportID > 0 && !receipt.IdempotencyReplay && strings.TrimSpace(req.ReporterID) != "" {
 		if err := h.db.IncrementReporterDailyKITNs(c.Request.Context(), req.ReporterID); err != nil {
 			log.Printf("warn: failed to increment KITNs for human report %d (%s): %v", receipt.ReportID, req.ReporterID, err)
 		}

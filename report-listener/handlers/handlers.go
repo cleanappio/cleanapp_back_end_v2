@@ -51,11 +51,18 @@ var upgrader = gorilla.Upgrader{
 }
 
 // Handlers contains all HTTP handlers
+type reportPublisher interface {
+	IsConnected() bool
+	Close() error
+	Publish(interface{}) error
+	PublishWithRoutingKey(string, interface{}) error
+}
+
 type Handlers struct {
 	hub               *ws.Hub
 	publicHub         *ws.Hub
 	db                *database.Database
-	rabbitmqPublisher *rabbitmq.Publisher
+	rabbitmqPublisher reportPublisher
 	rabbitmqReplier   *rabbitmq.Publisher
 	rabbitmqMu        sync.Mutex
 	cfg               *config.Config
@@ -68,7 +75,7 @@ type Handlers struct {
 	brandCountsCache map[string]brandCountsCacheEntry
 }
 
-func (h *Handlers) ensureRabbitMQPublisher() (*rabbitmq.Publisher, error) {
+func (h *Handlers) ensureRabbitMQPublisher() (reportPublisher, error) {
 	h.rabbitmqMu.Lock()
 	defer h.rabbitmqMu.Unlock()
 
@@ -103,12 +110,16 @@ func NewHandlers(
 		panic(err)
 	}
 	upgrader.CheckOrigin = edge.WebSocketOriginChecker(cfg.WebSocketAllowedOrigins)
+	var publisher reportPublisher
+	if pub != nil {
+		publisher = pub
+	}
 
 	return &Handlers{
 		hub:               hub,
 		publicHub:         publicHub,
 		db:                db,
-		rabbitmqPublisher: pub,
+		rabbitmqPublisher: publisher,
 		rabbitmqReplier:   replyPub,
 		cfg:               cfg,
 		geminiClient:      geminiClient,

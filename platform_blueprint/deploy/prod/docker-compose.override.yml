@@ -8,6 +8,8 @@ services:
   cleanapp_report_listener:
     environment:
       - RABBITMQ_HUMAN_REPORT_ROUTING_KEY=report.raw.human
+      # Exact gateway used by the host nginx through the loopback-published port.
+      - TRUSTED_PROXIES=127.0.0.1/32,::1/128,172.19.0.1/32
 
   cleanapp_report_analyze_human:
     extends:
