@@ -515,7 +515,10 @@ func (h *Handlers) processCleanAppWireSubmissionInternalWithHook(
 	postPersistHook cleanAppWirePostPersistHook,
 ) (cleanAppWireReceiptResponse, int) {
 	sub, generatedSubmissionID := normalizeCleanAppWireSubmission(sub)
-	errors := validateCleanAppWireSubmission(sub, h.cfg.CleanAppWireStrictSignature)
+	// Only the canonical human adapter may preserve genuinely missing context.
+	// Caller-supplied agent/provenance fields cannot waive machine validation.
+	allowMissingContext := auth.ActorKind == "human" && auth.Channel == humanChannelWeb && sub.Report.Domain == "unknown"
+	errors := validateCleanAppWireSubmissionWithContext(sub, h.cfg.CleanAppWireStrictSignature, allowMissingContext)
 	if len(errors) > 0 {
 		return cleanAppWireReceiptResponse{
 			ReceiptID:         newReceiptID(),
@@ -566,6 +569,15 @@ func (h *Handlers) processCleanAppWireSubmissionInternalWithHook(
 		if existing.MaterialHash == materialHash {
 			resp := h.cleanAppWireReceiptRecordToResponse(receipt, existing.SubmissionQuality)
 			resp.IdempotencyReplay = true
+			if auth.ActorKind == "human" && auth.Channel == humanChannelWeb && resp.ReportID > 0 {
+				// A durable receipt may precede a failed queue publish. Retry the
+				// same report, never insert another; completed analysis replays are
+				// harmless under the existing per-report lock/publication marker.
+				if code := h.queueCleanAppWireCoreItem(auth, cleanAppWireIngestCoreItemFromSubmission(sub), resp.ReportID, laneToVisibility(existing.Lane)); code != "" {
+					resp.Errors = []cleanAppWireError{{Code: code, Message: "report retained; retry this same submission to resume processing"}}
+					return resp, http.StatusServiceUnavailable
+				}
+			}
 			return resp, http.StatusOK
 		}
 		return cleanAppWireReceiptResponse{
@@ -654,6 +666,7 @@ func (h *Handlers) processCleanAppWireSubmissionInternalWithHook(
 	}
 
 	receiptRecord := &database.WireReceipt{
+		CreatedAt:         now,
 		ReceiptID:         receiptID,
 		SubmissionID:      sub.SubmissionID,
 		FetcherID:         auth.FetcherID,
@@ -687,6 +700,16 @@ func (h *Handlers) processCleanAppWireSubmissionInternalWithHook(
 	_ = h.db.IncrementWireReputationSample(ctx, auth.FetcherID)
 	if auditEndpoint != "" {
 		_ = h.db.InsertIngestionAuditV1(ctx, auth.FetcherID, auth.KeyID, auditEndpoint, 1, 1, 0, nil, 0, clientIP, userAgent, requestID)
+	}
+	if auth.ActorKind == "human" && auth.Channel == humanChannelWeb {
+		// Retain the full original and receipt before any worker can consume
+		// it, including when the broker is unavailable. The browser retries
+		// this exact source_id/payload to resume enqueueing after a failure.
+		if code := h.queueCleanAppWireCoreItem(auth, coreItem, ingestResp.ReportSeq, visibility); code != "" {
+			resp := h.cleanAppWireReceiptRecordToResponse(receiptRecord, quality)
+			resp.Errors = []cleanAppWireError{{Code: code, Message: "report retained; retry this same submission to resume processing"}}
+			return resp, http.StatusServiceUnavailable
+		}
 	}
 
 	return cleanAppWireReceiptResponse{
@@ -822,6 +845,10 @@ func normalizeCleanAppWireSubmission(sub cleanAppWireSubmission) (cleanAppWireSu
 }
 
 func validateCleanAppWireSubmission(sub cleanAppWireSubmission, strictSignature bool) []cleanAppWireError {
+	return validateCleanAppWireSubmissionWithContext(sub, strictSignature, false)
+}
+
+func validateCleanAppWireSubmissionWithContext(sub cleanAppWireSubmission, strictSignature, allowMissingContext bool) []cleanAppWireError {
 	var errs []cleanAppWireError
 	if sub.SchemaVersion != cleanAppWireSchemaV1 {
 		errs = append(errs, cleanAppWireError{Code: "INVALID_SCHEMA_VERSION", Message: "schema_version must be cleanapp-wire.v1"})
@@ -853,7 +880,7 @@ func validateCleanAppWireSubmission(sub cleanAppWireSubmission, strictSignature 
 	if strings.TrimSpace(sub.Report.Description) == "" && len(sub.Report.EvidenceBundle) == 0 {
 		errs = append(errs, cleanAppWireError{Code: "MISSING_REQUIRED_FIELD", Message: "report.description or report.evidence_bundle is required"})
 	}
-	if sub.Report.Location == nil && sub.Report.DigitalContext == nil {
+	if sub.Report.Location == nil && sub.Report.DigitalContext == nil && !allowMissingContext {
 		errs = append(errs, cleanAppWireError{Code: "MISSING_REQUIRED_FIELD", Message: "report.location or report.digital_context is required"})
 	}
 	if sub.Report.Confidence < 0 || sub.Report.Confidence > 1 {
@@ -1287,9 +1314,11 @@ func (h *Handlers) cleanAppWireIngestCore(
 			}, "POST_PERSIST_HOOK_FAILED", http.StatusInternalServerError
 		}
 	}
+	if auth.ActorKind == "human" && auth.Channel == humanChannelWeb {
+		return cleanAppWireIngestCoreResult{SourceID: item.SourceID, Status: "accepted", ReportSeq: seq, Queued: false, Visibility: visibility, TrustLevel: trustLevel}, "", http.StatusOK
+	}
 
-	pub, err := h.ensureRabbitMQPublisher()
-	if err != nil {
+	if code := h.queueCleanAppWireCoreItem(auth, item, seq, visibility); code != "" {
 		return cleanAppWireIngestCoreResult{
 			SourceID:   item.SourceID,
 			Status:     "accepted",
@@ -1297,18 +1326,44 @@ func (h *Handlers) cleanAppWireIngestCore(
 			Queued:     false,
 			Visibility: visibility,
 			TrustLevel: trustLevel,
-		}, "QUEUE_UNAVAILABLE", http.StatusServiceUnavailable
+		}, code, http.StatusServiceUnavailable
 	}
+	return cleanAppWireIngestCoreResult{
+		SourceID: item.SourceID, Status: "accepted", ReportSeq: seq,
+		Queued: true, Visibility: visibility, TrustLevel: trustLevel,
+	}, "", http.StatusOK
+}
 
+func (h *Handlers) queueCleanAppWireCoreItem(auth cleanAppWireAuthContext, item cleanAppWireIngestCoreItem, seq int, visibility string) string {
+	pub, err := h.ensureRabbitMQPublisher()
+	if err != nil {
+		return "QUEUE_UNAVAILABLE"
+	}
+	description := clampStr(item.Description, 255)
+	if description == "" {
+		description = clampStr(item.Title, 255)
+	}
 	msg := map[string]interface{}{
 		"seq":         seq,
 		"description": description,
-		"latitude":    lat,
-		"longitude":   lng,
 		"fetcher_id":  auth.FetcherID,
 		"source_id":   item.SourceID,
 		"visibility":  visibility,
 		"tags":        item.Tags,
+	}
+	if auth.Channel != humanChannelWeb || item.Lat != nil {
+		lat := 0.0
+		if item.Lat != nil {
+			lat = *item.Lat
+		}
+		msg["latitude"] = lat
+	}
+	if auth.Channel != humanChannelWeb || item.Lng != nil {
+		lng := 0.0
+		if item.Lng != nil {
+			lng = *item.Lng
+		}
+		msg["longitude"] = lng
 	}
 	routingKey := h.cfg.RabbitRawReportRoutingKey
 	if auth.ActorKind == "human" && h.cfg.RabbitHumanReportRoutingKey != "" {
@@ -1316,24 +1371,9 @@ func (h *Handlers) cleanAppWireIngestCore(
 		routingKey = h.cfg.RabbitHumanReportRoutingKey
 	}
 	if err := pub.PublishWithRoutingKey(routingKey, msg); err != nil {
-		return cleanAppWireIngestCoreResult{
-			SourceID:   item.SourceID,
-			Status:     "accepted",
-			ReportSeq:  seq,
-			Queued:     false,
-			Visibility: visibility,
-			TrustLevel: trustLevel,
-		}, "QUEUE_PUBLISH_FAILED", http.StatusServiceUnavailable
+		return "QUEUE_PUBLISH_FAILED"
 	}
-
-	return cleanAppWireIngestCoreResult{
-		SourceID:   item.SourceID,
-		Status:     "accepted",
-		ReportSeq:  seq,
-		Queued:     true,
-		Visibility: visibility,
-		TrustLevel: trustLevel,
-	}, "", http.StatusOK
+	return ""
 }
 
 func cleanAppWireIngestCoreResultToV1ItemResult(res cleanAppWireIngestCoreResult) v1BulkIngestItemResult {

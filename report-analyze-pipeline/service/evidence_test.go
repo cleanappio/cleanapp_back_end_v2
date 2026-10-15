@@ -134,7 +134,11 @@ func TestEmptyEvidenceScanDoesNotClassifySaveOrRoute(t *testing.T) {
 	}
 }
 func (d *analysisStore) ReportVisibility(int) (string, error) { return "public", nil }
-func (d *analysisStore) MarkAnalysedPublished(int)            { d.publishedMarkers++ }
+func (d *analysisStore) HumanWebIntake(context.Context, int) (database.HumanWebIntake, bool, error) {
+	return database.HumanWebIntake{}, false, nil
+}
+func (d *analysisStore) PublishAnalyzedHumanWebIntake(context.Context, int) error { return nil }
+func (d *analysisStore) MarkAnalysedPublished(int)                                { d.publishedMarkers++ }
 
 type recordingPublisher struct{ events []events.ReportAnalysed }
 

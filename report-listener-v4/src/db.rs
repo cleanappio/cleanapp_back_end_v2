@@ -242,6 +242,12 @@ pub fn fetch_reports_by_brand(
     })
 }
 
+fn has_map_location(latitude: f64, longitude: f64) -> bool {
+    latitude.is_finite() && longitude.is_finite()
+        && (-90.0..=90.0).contains(&latitude) && (-180.0..=180.0).contains(&longitude)
+        && (latitude != 0.0 || longitude != 0.0)
+}
+
 pub fn fetch_report_points(pool: &my::Pool, classification: &str) -> Result<Vec<ReportPoint>> {
     let mut conn = pool.get_conn()?;
     let base = r#"
@@ -256,6 +262,8 @@ pub fn fetch_report_points(pool: &my::Pool, classification: &str) -> Result<Vec<
           AND (rs.status IS NULL OR rs.status = 'active')
           AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE)
           AND r.latitude IS NOT NULL AND r.longitude IS NOT NULL
+          AND r.latitude BETWEEN -90 AND 90 AND r.longitude BETWEEN -180 AND 180
+          AND (r.latitude <> 0 OR r.longitude <> 0)
     "#;
     let sql = if classification.eq_ignore_ascii_case("all") {
         format!(
@@ -280,6 +288,7 @@ pub fn fetch_report_points(pool: &my::Pool, classification: &str) -> Result<Vec<
         let severity_level: f64 = row.take::<Option<f64>, _>(0).unwrap_or(None).unwrap_or(0.0);
         let latitude: f64 = row.take::<Option<f64>, _>(1).unwrap_or(None).unwrap_or(0.0);
         let longitude: f64 = row.take::<Option<f64>, _>(2).unwrap_or(None).unwrap_or(0.0);
+        if !has_map_location(latitude, longitude) { continue; }
         out.push(ReportPoint {
             severity_level,
             latitude,
@@ -287,6 +296,21 @@ pub fn fetch_report_points(pool: &my::Pool, classification: &str) -> Result<Vec<
         });
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod map_location_tests {
+    use super::has_map_location;
+    #[test]
+    fn missing_location_sentinel_never_becomes_a_map_point() {
+        assert!(!has_map_location(0.0, 0.0));
+        assert!(!has_map_location(f64::NAN, 1.0));
+        assert!(!has_map_location(91.0, 1.0));
+        assert!(!has_map_location(1.0, 181.0));
+        assert!(has_map_location(0.0, 12.0));
+        assert!(has_map_location(12.0, 0.0));
+        assert!(has_map_location(47.37, 8.55));
+    }
 }
 
 pub fn fetch_report_by_seq(pool: &my::Pool, seq: i64) -> Result<ReportWithAnalysis> {
