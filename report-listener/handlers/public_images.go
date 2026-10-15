@@ -1,17 +1,60 @@
 package handlers
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"log"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
+
+	"report-listener/publicdiscovery"
+	"report-listener/publicid"
 
 	"github.com/gin-gonic/gin"
 )
 
+const publicReportMediaMaxBytes = 6 * 1024 * 1024
+
+func (h *Handlers) publicMediaReportID(token string) (string, bool) {
+	if h.discoveryCodec == nil || len(token) > 2048 {
+		return "", false
+	}
+	payload, err := h.discoveryCodec.Open(token)
+	if err != nil || payload.Kind != publicdiscovery.KindReport ||
+		(payload.Classification != "physical" && payload.Classification != "digital") ||
+		!publicid.IsReportID(payload.PublicID) {
+		return "", false
+	}
+	return payload.PublicID, true
+}
+
+// GetPublicReportMedia opens a sealed report token without spending the token
+// resolver/detail quotas. Every image read rechecks current publication policy.
+func (h *Handlers) GetPublicReportMedia(c *gin.Context) {
+	c.Header("Cache-Control", "private, no-store, max-age=0")
+	c.Header("X-Content-Type-Options", "nosniff")
+	publicID, valid := h.publicMediaReportID(strings.TrimSpace(c.Query("token")))
+	if !valid {
+		c.Status(http.StatusBadRequest)
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+	image, err := h.db.GetPublicReportMediaByPublicID(ctx, publicID, publicReportMediaMaxBytes)
+	if err != nil || len(image) == 0 {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	c.Data(http.StatusOK, detectImageContentType(image), image)
+}
+
 func detectImageContentType(imageData []byte) string {
+	if detected := http.DetectContentType(imageData); strings.HasPrefix(detected, "image/") {
+		return detected
+	}
 	contentType := "image/jpeg"
 	if len(imageData) <= 4 {
 		return contentType
