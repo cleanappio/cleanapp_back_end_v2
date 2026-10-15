@@ -116,9 +116,10 @@ func loadEvidenceMetadataCore(ctx context.Context, tx *sql.Tx, ids []int) (map[i
  LEFT JOIN report_metadata_projection m ON m.seq=ids.seq
  LEFT JOIN reports r ON r.seq=CASE WHEN m.seq IS NULL THEN ids.seq ELSE NULL END
  LEFT JOIN report_raw rr ON rr.report_seq=ids.seq LEFT JOIN report_evidence ev ON ev.seq=ids.seq
+ LEFT JOIN report_status rs ON rs.seq=ids.seq AND rs.status IS NOT NULL AND rs.status<>'active'
+ LEFT JOIN reports_owners ro ON ro.seq=ids.seq AND ro.owner IS NOT NULL AND ro.owner<>'' AND ro.is_public=FALSE
  WHERE CASE WHEN m.seq IS NOT NULL THEN m.public_id ELSE r.public_id END<>'' AND ` + PublicVisibilityWhereSQL + `
- AND (SELECT COUNT(*) FROM report_status rs WHERE rs.seq=ids.seq AND rs.status IS NOT NULL AND rs.status<>'active')=0
- AND (SELECT COUNT(*) FROM reports_owners ro WHERE ro.seq=ids.seq AND ro.owner IS NOT NULL AND ro.owner<>'' AND ro.is_public=FALSE)=0`
+ AND rs.seq IS NULL AND ro.seq IS NULL`
 	rows, err := tx.QueryContext(ctx, query, evidenceIDsJSON(ids))
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("read public evidence metadata: %w", err)
@@ -154,10 +155,10 @@ func loadEvidenceMetadataCore(ctx context.Context, tx *sql.Tx, ids []int) (map[i
 }
 
 func loadEvidenceIndexSources(ctx context.Context, tx *sql.Tx, ids []int, sources map[int]evidenceSourceNormalizationRow) error {
-	// idx_seq carries the primary source/ID key. Read that covered identity first,
-	// using SQL's actual collation; each report's first identity remains its
-	// original source winner. Global primary-key order batches subsequent reads.
-	rows, err := tx.QueryContext(ctx, `SELECT e.seq,e.source,e.external_id FROM `+evidenceIDsTable+` JOIN external_ingest_index e FORCE INDEX(idx_seq) ON e.seq=ids.seq ORDER BY e.source,e.external_id`, evidenceIDsJSON(ids))
+	// idx_seq carries the primary source/ID key. Single-identity reports need no
+	// string sort; preserve SQL's actual collation only for ambiguous winners.
+	covered := `SELECT e.seq,e.source,e.external_id FROM ` + evidenceIDsTable + ` JOIN external_ingest_index e FORCE INDEX(idx_seq) ON e.seq=ids.seq`
+	rows, err := tx.QueryContext(ctx, covered, evidenceIDsJSON(ids))
 	if err != nil {
 		return fmt.Errorf("read covered evidence source identities: %w", err)
 	}
@@ -166,27 +167,71 @@ func loadEvidenceIndexSources(ctx context.Context, tx *sql.Tx, ids []int, source
 		Source string `json:"source"`
 		ID     string `json:"id"`
 	}
-	chosen := []sourceIdentity{}
-	seen := map[int]bool{}
+	identities := []sourceIdentity{}
+	counts := map[int]int{}
 	for rows.Next() {
 		var identity sourceIdentity
 		if err := rows.Scan(&identity.Seq, &identity.Source, &identity.ID); err != nil {
 			rows.Close()
 			return err
 		}
-		if !seen[identity.Seq] {
-			seen[identity.Seq] = true
-			chosen = append(chosen, identity)
-		}
+		identities = append(identities, identity)
+		counts[identity.Seq]++
 	}
 	err = rows.Err()
 	rows.Close()
 	if err != nil {
 		return err
 	}
-	if len(chosen) == 0 {
+	if len(identities) == 0 {
 		return nil
 	}
+	chosen := make([]sourceIdentity, 0, len(counts))
+	duplicates := []int{}
+	for seq, count := range counts {
+		if count > 1 {
+			duplicates = append(duplicates, seq)
+		}
+	}
+	for _, identity := range identities {
+		if counts[identity.Seq] == 1 {
+			chosen = append(chosen, identity)
+		}
+	}
+	if len(duplicates) > 0 {
+		sort.Ints(duplicates)
+		rows, err = tx.QueryContext(ctx, covered+` ORDER BY e.source,e.external_id`, evidenceIDsJSON(duplicates))
+		if err != nil {
+			return fmt.Errorf("read ambiguous evidence source identities: %w", err)
+		}
+		seen := map[int]bool{}
+		for rows.Next() {
+			var identity sourceIdentity
+			if err := rows.Scan(&identity.Seq, &identity.Source, &identity.ID); err != nil {
+				rows.Close()
+				return err
+			}
+			if counts[identity.Seq] < 2 {
+				rows.Close()
+				return fmt.Errorf("ambiguous evidence source has an invalid report identity")
+			}
+			if !seen[identity.Seq] {
+				seen[identity.Seq] = true
+				chosen = append(chosen, identity)
+			}
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return err
+		}
+		if len(seen) != len(duplicates) {
+			return fmt.Errorf("ambiguous evidence source metadata is incomplete")
+		}
+	}
+	// Each report has one SQL-selected identity. Align hydration with the
+	// (seq,source,external_id) projection key without comparing source strings.
+	sort.Slice(chosen, func(i, j int) bool { return chosen[i].Seq < chosen[j].Seq })
 	payload, _ := json.Marshal(chosen)
 	rows, err = tx.QueryContext(ctx, `SELECT ids.seq,ids.source,ids.id,
  CASE WHEN h.seq IS NOT NULL THEN h.source_url ELSE e.source_url END,
@@ -199,12 +244,17 @@ func loadEvidenceIndexSources(ctx context.Context, tx *sql.Tx, ids []int, source
 		return fmt.Errorf("hydrate ordered evidence source metadata: %w", err)
 	}
 	defer rows.Close()
+	loaded := map[int]bool{}
 	for rows.Next() {
 		var seq int
 		var platform, id, url, published, created sql.NullString
 		if err := rows.Scan(&seq, &platform, &id, &url, &published, &created); err != nil {
 			return err
 		}
+		if loaded[seq] || counts[seq] == 0 {
+			return fmt.Errorf("selected evidence source metadata has an invalid report identity")
+		}
+		loaded[seq] = true
 		s := sources[seq]
 		s.EiiSource = nullableEvidenceString(platform)
 		s.EiiID = nullableEvidenceString(id)
@@ -213,7 +263,13 @@ func loadEvidenceIndexSources(ctx context.Context, tx *sql.Tx, ids []int, source
 		s.EiiCreated = nullableEvidenceString(created)
 		sources[seq] = s
 	}
-	return rows.Err()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(loaded) != len(chosen) {
+		return fmt.Errorf("selected evidence source metadata is incomplete")
+	}
+	return nil
 }
 
 type evidenceWireHeader struct {

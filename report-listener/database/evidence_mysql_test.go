@@ -927,6 +927,8 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 	})
 	t.Run("PublicBrandPreview", func(t *testing.T) { testPublicBrandPreviewMySQL(t, db) })
 	t.Run("PublicDetailMixedMetadataCollations", func(t *testing.T) { testPublicDetailMixedMetadataCollationsMySQL(t, db) })
+	t.Run("MetadataBlockerParity", func(t *testing.T) { testEvidenceMetadataBlockerParityMySQL(t, db) })
+	t.Run("IndexWinnerParity", func(t *testing.T) { testEvidenceIndexWinnerParityMySQL(t, db) })
 }
 
 func evidencePagesEqualIgnoringClock(a, b EvidenceBrandPage) bool {
