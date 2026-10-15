@@ -263,16 +263,9 @@ func (s *Service) AnalyzeReport(report *database.Report) error {
 	}
 	normalizedClassification := normalizeClassification(report, analysis)
 
-	// Normalize the brand name before saving, using share/source context when available.
-	normalizedBrandName, brandDisplayName := s.brandService.ResolveBrand(
-		analysis.BrandName,
-		report.Description,
-		report.SharedText,
-		report.SourceURL,
-		report.SourceApp,
-		analysis.Title,
-		analysis.Description,
-	)
+	// Canonicalize the selected complaint subject without promoting incidental
+	// brands from examples, source context or generated summaries.
+	normalizedBrandName, brandDisplayName := s.brandService.ResolveBrand(analysis.BrandName)
 
 	// Convert inferred contact emails to comma-separated string
 	inferredContactEmails := strings.Join(analysis.InferredContactEmails, ", ")
