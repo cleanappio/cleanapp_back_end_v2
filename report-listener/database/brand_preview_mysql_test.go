@@ -105,6 +105,30 @@ func testPublicBrandPreviewMySQL(t *testing.T, db *sql.DB) {
 	if detail.Analysis[0].Title != "Reported issue" || detail.Analysis[0].Summary != "" || detail.Analysis[0].Description != "" || detail.Report.Image != nil || detail.Report.Description != nil || detail.Report.SourceURL != nil {
 		t.Fatal("public detail path did not apply actual Wire privacy flag")
 	}
+	// Public canonical pages may remain available, but neither public image
+	// reader may bypass a retained Wire privacy flag (including an older row).
+	exec(`UPDATE reports SET image='restricted-original-image' WHERE seq=4401`)
+	for _, privacy := range []string{`{"privacy":{"requires_redaction":true}}`, `{"privacy":{"contains_pii":true}}`} {
+		exec(`UPDATE wire_submissions_raw SET report_json=? WHERE report_seq=4401`, privacy)
+		exec(`INSERT INTO wire_submissions_raw(report_seq,report_json,provenance_json,submitted_at,actor_kind,channel) VALUES(4401,'{"privacy":{"contains_pii":false,"requires_redaction":false}}','{}','2026-10-17','human','web')`)
+		publicID := fmt.Sprintf("rpt_%022d", 4401)
+		if image, err := d.GetImageByPublicID(context.Background(), publicID); err == nil || len(image) != 0 {
+			t.Fatal("direct image reader bypassed Wire privacy")
+		}
+		if image, err := d.GetPublicReportMediaByPublicID(context.Background(), publicID, 1024); err == nil || len(image) != 0 {
+			t.Fatal("bounded media reader bypassed Wire privacy")
+		}
+		if seq, err := d.PublicReportSequence(context.Background(), publicID); err != nil || seq != 4401 {
+			t.Fatal("media-only privacy restriction incorrectly hid the public report")
+		}
+	}
+	exec(`UPDATE wire_submissions_raw SET report_json='{"privacy":{"contains_pii":false,"requires_redaction":false}}' WHERE report_seq=4401`)
+	if image, err := d.GetImageByPublicID(context.Background(), fmt.Sprintf("rpt_%022d", 4401)); err != nil || string(image) != "restricted-original-image" {
+		t.Fatal("explicitly unrestricted public Wire image was hidden")
+	}
+	if image, err := d.GetPublicReportMediaByPublicID(context.Background(), fmt.Sprintf("rpt_%022d", 4401), 1024); err != nil || string(image) != "restricted-original-image" {
+		t.Fatal("explicitly unrestricted public Wire preview was hidden")
+	}
 	seed(4402, "preview-boundary", "firsthand")
 	boundary := func(limit int) string { return strings.Repeat("x", limit-14) + " user@example.test" }
 	exec(`UPDATE report_analysis SET title=?,summary=?,brand_display_name=? WHERE seq=4402`, boundary(240), boundary(700), boundary(120))
