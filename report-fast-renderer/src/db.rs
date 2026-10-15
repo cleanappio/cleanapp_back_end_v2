@@ -2,6 +2,7 @@ use anyhow::Result;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use my::prelude::*;
 use mysql as my;
+use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
 use crate::{
@@ -78,14 +79,35 @@ pub fn fetch_brand_summaries(
         "#,
         (lang, classification),
     )?;
-    Ok(rows
-        .into_iter()
-        .map(|(brand_name, brand_display_name, total)| BrandSummaryItem {
-            brand_name,
-            brand_display_name,
-            total,
-        })
-        .collect())
+    Ok(merge_brand_summary_groups(rows))
+}
+
+// The memory map is keyed by brand_name, while SQL also groups display-name
+// variants. Merge those subgroups before insertion so none overwrite a count.
+// Use the largest subgroup's display name, with lexical ties, independently of
+// SQL row order. Keep the original brand keys distinct; this is not aliasing.
+fn merge_brand_summary_groups(rows: Vec<(String, String, u64)>) -> Vec<BrandSummaryItem> {
+    let mut brands: BTreeMap<String, (BrandSummaryItem, u64)> = BTreeMap::new();
+    for (brand_name, brand_display_name, total) in rows {
+        let (summary, largest_subgroup) = brands.entry(brand_name.clone()).or_insert_with(|| {
+            (
+                BrandSummaryItem {
+                    brand_name,
+                    brand_display_name: brand_display_name.clone(),
+                    total: 0,
+                },
+                0,
+            )
+        });
+        summary.total += total;
+        if total > *largest_subgroup
+            || (total == *largest_subgroup && brand_display_name < summary.brand_display_name)
+        {
+            summary.brand_display_name = brand_display_name;
+            *largest_subgroup = total;
+        }
+    }
+    brands.into_values().map(|(summary, _)| summary).collect()
 }
 
 pub fn fetch_report_points(pool: &my::Pool, classification: &str) -> Result<Vec<ReportPoint>> {
@@ -317,5 +339,83 @@ fn parse_mysql_datetime_value(value: my::Value, field: &str, seq: i64) -> Result
             seq,
             other
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::merge_brand_summary_groups;
+
+    fn row(brand: &str, display: &str, total: u64) -> (String, String, u64) {
+        (brand.to_string(), display.to_string(), total)
+    }
+
+    #[test]
+    fn brand_display_variants_sum_without_losing_the_dominant_name() {
+        let rows = vec![
+            row("grok", "Grok", 299),
+            row("grok", "Grok (xAI)", 2),
+            row("grok", "Grok / xAI", 1),
+            row("grok", "Grok / xAI / Tesla", 1),
+        ];
+        for input in [rows.clone(), rows.into_iter().rev().collect()] {
+            let summaries = merge_brand_summary_groups(input);
+            assert_eq!(summaries.len(), 1);
+            assert_eq!(summaries[0].brand_name, "grok");
+            assert_eq!(summaries[0].brand_display_name, "Grok");
+            assert_eq!(summaries[0].total, 303);
+        }
+    }
+
+    #[test]
+    fn multiple_brand_keys_stay_distinct_and_ordered() {
+        let summaries = merge_brand_summary_groups(vec![
+            row("xai", "xAI", 7),
+            row("grok", "Grok / xAI", 1),
+            row("cleanapp", "CleanApp", 165),
+            row("grok", "Grok", 299),
+            row("cleanapp", "Clean App", 3),
+        ]);
+        let got: Vec<_> = summaries
+            .iter()
+            .map(|item| {
+                (
+                    item.brand_name.as_str(),
+                    item.brand_display_name.as_str(),
+                    item.total,
+                )
+            })
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                ("cleanapp", "CleanApp", 168),
+                ("grok", "Grok", 300),
+                ("xai", "xAI", 7),
+            ]
+        );
+    }
+
+    #[test]
+    fn empty_brand_groups_produce_no_summaries() {
+        assert!(merge_brand_summary_groups(vec![]).is_empty());
+    }
+
+    #[test]
+    fn equally_large_display_groups_choose_the_same_name_in_any_order() {
+        let rows = vec![
+            row("example", "Zulu", 4),
+            row("example", "Alpha", 4),
+            row("example", "Smaller subgroup", 3),
+        ];
+        for offset in 0..rows.len() {
+            let mut input = rows.clone();
+            input.rotate_left(offset);
+            for candidate in [input.clone(), input.into_iter().rev().collect()] {
+                let summaries = merge_brand_summary_groups(candidate);
+                assert_eq!(summaries[0].brand_display_name, "Alpha");
+                assert_eq!(summaries[0].total, 11);
+            }
+        }
     }
 }
