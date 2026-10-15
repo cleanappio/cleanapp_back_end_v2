@@ -799,8 +799,8 @@ func (s *Service) enrichDigitalReportEmails(report *database.Report, analysis *d
 	}
 }
 
-// extractAndEnrichDigitalContacts extracts user-provided contacts from report description
-// and returns enriched email string for use BEFORE SaveAnalysis (eliminates race condition)
+// extractAndEnrichDigitalContacts retains report-supplied suggestions separately
+// from routable brand contacts and enriches analysis before SaveAnalysis.
 func (s *Service) extractAndEnrichDigitalContacts(report *database.Report, analysis *database.ReportAnalysis) string {
 	brandName := strings.ToLower(strings.TrimSpace(analysis.BrandName))
 	if brandName == "" {
@@ -812,7 +812,8 @@ func (s *Service) extractAndEnrichDigitalContacts(report *database.Report, analy
 	contactInput := buildAnalysisInput(report)
 	log.Printf("Report %d: User annotation/share context: %q (len=%d)", report.Seq, contactInput, len(contactInput))
 
-	// Process user-provided contacts from report description and save to brand_contacts
+	// Retain report-supplied suggestions with unverified provenance. They are
+	// excluded from the global routing reads below.
 	if err := s.contactService.ProcessReportDescription(brandName, contactInput); err != nil {
 		log.Printf("Report %d: Failed to process description contacts: %v", report.Seq, err)
 	}
@@ -823,7 +824,7 @@ func (s *Service) extractAndEnrichDigitalContacts(report *database.Report, analy
 		existingEmails[i] = strings.TrimSpace(existingEmails[i])
 	}
 
-	// Look up all contacts for this brand (including just-saved user-provided ones)
+	// Look up brand contacts, excluding report-extracted suggestions.
 	brandContacts, err := s.contactService.GetContactsForBrand(brandName)
 	if err != nil {
 		log.Printf("Report %d: Failed to get contacts for brand %q: %v", report.Seq, brandName, err)
@@ -841,8 +842,8 @@ func (s *Service) extractAndEnrichDigitalContacts(report *database.Report, analy
 	var allEmails []string
 	seen := make(map[string]bool)
 
-	// Add emails from brand contacts FIRST (user-provided contacts get priority)
-	// These are already ordered by priority in GetContactsForBrand - user-reported first
+	// Add stored brand contacts first. A quoted address in a report does not
+	// become a shared routing target for unrelated reports.
 	for _, c := range brandContacts {
 		if c.Email != "" && !seen[strings.ToLower(c.Email)] {
 			allEmails = append(allEmails, c.Email)

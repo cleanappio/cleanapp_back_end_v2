@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"reflect"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -32,7 +31,7 @@ func TestAggregateFindingsOnlyLoadPendingPublicValidReportsAndThreeImages(t *tes
 	for i := 4; i >= 1; i-- {
 		rows.AddRow(i, "rpt_safe", "Issue", "Generated summary", "Original wording", "Blocked", "firsthand", "digital", time.Now())
 	}
-	mock.ExpectQuery(`(?s)WHERE r.seq IN \(\?,\?,\?,\?\) AND ra.brand_name=\? AND ra.is_valid=TRUE.*visibility='public'.*NOT EXISTS.*report_status.*NOT EXISTS.*reports_owners.*ORDER BY r.ts DESC,r.seq DESC LIMIT 20`).WithArgs(4, 3, 2, 1, "acme").WillReturnRows(rows)
+	mock.ExpectQuery(`(?s)WHERE r.seq IN \(\?,\?,\?,\?\) AND ra.brand_name IN \(\?\) AND ra.is_valid=TRUE.*visibility='public'.*NOT EXISTS.*report_status.*NOT EXISTS.*reports_owners.*ORDER BY r.ts DESC,r.seq DESC LIMIT 20`).WithArgs(4, 3, 2, 1, "acme").WillReturnRows(rows)
 	for _, seq := range []int64{4, 3, 2} {
 		mock.ExpectQuery(`(?s)SELECT CASE WHEN OCTET_LENGTH\(r.image\)<=\? THEN r.image ELSE NULL END FROM reports r.*WHERE r.seq=\?.*NOT EXISTS.*report_status.*NOT EXISTS.*reports_owners`).WithArgs(email.MaxPreviewInputBytes, seq).WillReturnRows(sqlmock.NewRows([]string{"image"}).AddRow(nil))
 	}
@@ -139,7 +138,7 @@ func expectAggregateBatch(mock sqlmock.Sqlmock, recipients string) {
 	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM brand_email_throttle`).WithArgs("acme").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 }
 func expectSendableRecipient(mock sqlmock.Sqlmock, recipient string) {
-	mock.ExpectQuery(`SELECT COUNT\(DISTINCT seq\) FROM report_email_deliveries`).WithArgs(recipient, 10).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectQuery(`(?s)SELECT COUNT\(DISTINCT seq\) FROM \(.*report_email_deliveries.*UNION ALL.*report_email_delivery_events`).WithArgs(recipient, 10, recipient, 10).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 	mock.ExpectQuery(`SELECT COUNT\(\*\).*FROM opted_out_emails`).WithArgs(recipient).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 	mock.ExpectQuery(`SELECT last_sent_at FROM brand_email_throttle`).WithArgs("acme", recipient).WillReturnError(sql.ErrNoRows)
 }
@@ -187,10 +186,6 @@ func TestAggregateDryRunCreatesNoAcceptanceEvents(t *testing.T) {
 	}
 	defer db.Close()
 	sender := &aggregateTestSender{}
-	expectAggregateBatch(mock, "a@company.com")
-	expectSendableRecipient(mock, "a@company.com")
-	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO sent_reports_emails (seq) VALUES (?)")).WithArgs(10).WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectExec(regexp.QuoteMeta("DELETE FROM email_report_retry WHERE seq = ?")).WithArgs(10).WillReturnResult(sqlmock.NewResult(1, 1))
 	if err := (&EmailService{db: db, email: sender, config: &config.Config{DryRun: true, MaxDailyEmailsPerBrand: 10}}).ProcessBrandNotifications(); err != nil {
 		t.Fatal(err)
 	}

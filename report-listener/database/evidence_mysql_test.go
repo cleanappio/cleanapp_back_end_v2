@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"os"
 	"reflect"
 	"strings"
@@ -839,6 +840,92 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 			}
 		}
 	}
+	// Run after the historical parity matrix so these new identities do not
+	// change existing fixtures' expected totals or family representatives.
+	t.Run("ExpandedCompanyAliases", func(t *testing.T) {
+		seq := 2000
+		expected := map[string]map[int]bool{}
+		aliasSeq := map[string]int{}
+		seed := func(brand string) int {
+			t.Helper()
+			seq++
+			if _, err := db.Exec(`INSERT INTO reports(seq,public_id,ts,latitude,longitude,image) VALUES(?,?,'2026-10-15',0,0,'')`, seq, fmt.Sprintf("alias_%d", seq)); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Exec(`INSERT INTO report_analysis VALUES(?,'en',?, ?,TRUE,'digital','2026-10-15','Alias issue','Summary',0.5)`, seq, brand, brand); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Exec(`INSERT INTO report_evidence(seq,report_kind,evidence_excerpt,reported_impact,classification_reason,entity_relationship,evidence_version) VALUES(?,'firsthand','I observed an issue','Blocked','Own observation','affected',1)`, seq); err != nil {
+				t.Fatal(err)
+			}
+			return seq
+		}
+		for _, company := range []string{"anthropic", "openai", "xai"} {
+			expected[company] = map[int]bool{}
+			for _, alias := range expectedEvidenceCompanyAliases()[company] {
+				id := seed(alias)
+				expected[company][id], aliasSeq[alias] = true, id
+			}
+		}
+		for _, unrelated := range []string{"x", "twitter", "x.com", "notopenai", "grok-news", "anthropic-partner"} {
+			seed(unrelated)
+		}
+		// Alias expansion must still apply all existing publication guards.
+		private, inactive, quarantined, invalid, physical := seed("claude.ai"), seed("openai_api"), seed("grok.com"), seed("claude_code"), seed("x.ai")
+		for _, statement := range []string{
+			fmt.Sprintf(`INSERT INTO reports_owners VALUES(%d,'private-owner',FALSE)`, private),
+			fmt.Sprintf(`INSERT INTO report_status VALUES(%d,'resolved')`, inactive),
+			fmt.Sprintf(`INSERT INTO report_raw VALUES(%d,'sensor','id','fetcher','quarantine')`, quarantined),
+			fmt.Sprintf(`UPDATE report_analysis SET is_valid=FALSE WHERE seq=%d`, invalid),
+			fmt.Sprintf(`UPDATE report_analysis SET classification='physical' WHERE seq=%d`, physical),
+		} {
+			if _, err := db.Exec(statement); err != nil {
+				t.Fatal(err)
+			}
+		}
+		check := func(filter EvidenceFilter, want map[int]bool) {
+			t.Helper()
+			filter.Kind, filter.Sort, filter.Limit = "firsthand", "recent", 50
+			filter.asOf = time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+			page, err := d.GetEvidenceBrandPage(context.Background(), filter)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := map[int]bool{}
+			for _, item := range page.Reports {
+				if item.Report.Seq > 2000 {
+					got[item.Report.Seq] = true
+				}
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("company/product alias query %s/%s: got %v want %v", filter.BrandName, filter.Product, got, want)
+			}
+			reference, err := d.getEvidenceBrandPageSQL(context.Background(), filter)
+			if err != nil || !reflect.DeepEqual(page, reference) {
+				t.Fatalf("alias scope adapter/SQL counts or privacy differ: %v", err)
+			}
+		}
+		for _, company := range []string{"anthropic", "openai", "xai"} {
+			check(EvidenceFilter{BrandName: company}, expected[company])
+		}
+		for _, product := range []struct {
+			company, name string
+			aliases       []string
+		}{
+			{"anthropic", "claude", []string{"claude", "claudeai", "claude.ai", "claude ai", "@claudeai"}},
+			{"anthropic", "claude_code", []string{"claude-code", "claudecode", "claude_code", "claude code"}},
+			{"openai", "openai_api", []string{"openaiapi", "openai-api", "openai_api", "openai api"}},
+			{"openai", "chat gpt", []string{"chatgpt", "chat-gpt", "chat gpt"}},
+			{"xai", "grok", []string{"grok", "grok.com"}},
+		} {
+			want := map[int]bool{}
+			for _, alias := range product.aliases {
+				want[aliasSeq[alias]] = true
+			}
+			check(EvidenceFilter{BrandName: product.company, Product: product.name}, want)
+		}
+	})
+
 }
 
 func evidencePagesEqualIgnoringClock(a, b EvidenceBrandPage) bool {

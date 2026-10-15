@@ -43,14 +43,19 @@ func NewContactService(db *sql.DB) *ContactService {
 	}
 }
 
-// GetContactsForBrand retrieves all contacts for a brand
+// Report-extracted suggestions used this marker historically, including rows
+// incorrectly marked verified. Keep them for review without routing other
+// reports through them or excluding legitimate administrator-managed contacts.
+const routableBrandContactSQL = `NOT (LOWER(TRIM(COALESCE(source,'')))='manual' AND LOWER(TRIM(COALESCE(contact_title,'')))='reported via app')`
+
+// GetContactsForBrand retrieves global routing contacts for a brand.
 func (s *ContactService) GetContactsForBrand(brandName string) ([]Contact, error) {
 	query := `
 	SELECT id, brand_name, product_name, contact_name, contact_title, contact_level,
 	       email, email_verified, twitter_handle, linkedin_url, github_handle, source, created_at
 	FROM brand_contacts
-	WHERE brand_name = ?
-	ORDER BY CASE WHEN contact_title = 'Reported via App' THEN 0 ELSE 1 END, FIELD(contact_level, 'founder', 'c_suite', 'vp', 'director', 'manager', 'ic')
+	WHERE brand_name = ? AND ` + routableBrandContactSQL + `
+	ORDER BY FIELD(contact_level, 'founder', 'c_suite', 'vp', 'director', 'manager', 'ic')
 	`
 
 	rows, err := s.db.Query(query, brandName)
@@ -92,7 +97,8 @@ func (s *ContactService) GetContactsForBrandProduct(brandName, productName strin
 	       email, email_verified, twitter_handle, linkedin_url, github_handle, source, created_at
 	FROM brand_contacts
 	WHERE brand_name = ? AND (product_name = ? OR product_name IS NULL OR product_name = '')
-	ORDER BY CASE WHEN contact_title = 'Reported via App' THEN 0 ELSE 1 END, FIELD(contact_level, 'founder', 'c_suite', 'vp', 'director', 'manager', 'ic')
+	AND ` + routableBrandContactSQL + `
+	ORDER BY FIELD(contact_level, 'founder', 'c_suite', 'vp', 'director', 'manager', 'ic')
 	`
 
 	rows, err := s.db.Query(query, brandName, productName)

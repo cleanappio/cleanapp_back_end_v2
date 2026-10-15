@@ -66,7 +66,7 @@ func TestEvidenceFiltersAreStrictAndScopeIsExplicit(t *testing.T) {
 	if filter.Kind != "firsthand" || filter.Sort != "signal" {
 		t.Fatalf("defaults = %+v", filter)
 	}
-	if got := strings.Join(filter.Brands, ","); got != "anthropic,claude,claude-code,claudecode" {
+	if got := strings.Join(filter.Brands, ","); got != "anthropic,anthropic.com,claude,claudeai,claude.ai,claude ai,@claudeai,claudecode,claude-code,claude_code,claude code" {
 		t.Fatalf("scope=%s", got)
 	}
 	if _, err := NormalizeEvidenceFilter(EvidenceFilter{BrandName: "anthropic", Product: "openai"}); err == nil {
