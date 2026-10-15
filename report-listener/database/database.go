@@ -437,8 +437,18 @@ func (d *Database) UpdateLastProcessedSeq(ctx context.Context, seq int) error {
 // If full_data is true, returns reports with analysis. If false, returns only reports.
 // Only returns reports that are not resolved and are not privately owned
 func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int, classification string, full_data bool) (interface{}, error) {
+	return d.getLastNAnalyzedReports(ctx, limit, classification, full_data, false)
+}
+
+// GetRecentPublicDiscoveryReports is a nonspatial feed read. Missing coordinates
+// must not hide a public observation; map readers keep the legacy location gate.
+func (d *Database) GetRecentPublicDiscoveryReports(ctx context.Context, limit int, classification string) (interface{}, error) {
+	return d.getLastNAnalyzedReports(ctx, limit, classification, false, true)
+}
+
+func (d *Database) getLastNAnalyzedReports(ctx context.Context, limit int, classification string, full_data, discoveryFeed bool) (interface{}, error) {
 	locationFilter := ""
-	if classification == "physical" {
+	if classification == "physical" && !discoveryFeed {
 		locationFilter = " AND EXISTS (SELECT 1 FROM reports r WHERE r.seq=ra.seq AND r.latitude BETWEEN -90 AND 90 AND r.longitude BETWEEN -180 AND 180 AND (r.latitude <> 0 OR r.longitude <> 0))"
 	}
 	// FAST PATH: Use a simple query on report_analysis only to get the seq list
@@ -531,14 +541,19 @@ func (d *Database) GetLastNAnalyzedReports(ctx context.Context, limit int, class
 	// If full_data is false, return reports with minimal analysis (severity, classification, language, title)
 	if !full_data {
 		// Get minimal analysis data (severity, classification, language, title)
-		minimalAnalysesQuery := `
-			SELECT 
+		oldestOperator := ">"
+		if discoveryFeed {
+			// Include the oldest selected report, including a one-report feed.
+			oldestOperator = ">="
+		}
+		minimalAnalysesQuery := fmt.Sprintf(`
+			SELECT
 				ra.seq, ra.severity_level, ra.classification, ra.language, ra.title,
 				COALESCE(ra.summary, ''), COALESCE(ra.brand_name, ''), COALESCE(ra.brand_display_name, '')
 			FROM report_analysis ra
-			WHERE ra.seq > ?
+			WHERE ra.seq %s ?
 			ORDER BY ra.seq DESC, ra.language ASC
-		`
+		`, oldestOperator)
 
 		minimalAnalysisRows, err := d.db.QueryContext(ctx, minimalAnalysesQuery, firstSeq)
 		if err != nil {
