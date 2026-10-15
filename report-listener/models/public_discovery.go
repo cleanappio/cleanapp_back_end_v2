@@ -1,18 +1,19 @@
 package models
 
 type PublicDiscoveryCard struct {
-	Evidence       *PublicEvidence   `json:"evidence,omitempty"`
-	Recurrence     *PublicRecurrence `json:"recurrence,omitempty"`
-	DiscoveryToken string            `json:"discovery_token"`
-	Title          string            `json:"title"`
-	Summary        string            `json:"summary"`
-	Classification string            `json:"classification"`
-	SeverityLevel  float64           `json:"severity_level"`
-	Timestamp      string            `json:"timestamp"`
-	BrandName      string            `json:"brand_name,omitempty"`
-	BrandDisplay   string            `json:"brand_display_name,omitempty"`
-	Latitude       *float64          `json:"latitude,omitempty"`
-	Longitude      *float64          `json:"longitude,omitempty"`
+	NotificationCount PublicNotificationCount `json:"notification_count"`
+	Evidence          *PublicEvidence         `json:"evidence,omitempty"`
+	Recurrence        *PublicRecurrence       `json:"recurrence,omitempty"`
+	DiscoveryToken    string                  `json:"discovery_token"`
+	Title             string                  `json:"title"`
+	Summary           string                  `json:"summary"`
+	Classification    string                  `json:"classification"`
+	SeverityLevel     float64                 `json:"severity_level"`
+	Timestamp         string                  `json:"timestamp"`
+	BrandName         string                  `json:"brand_name,omitempty"`
+	BrandDisplay      string                  `json:"brand_display_name,omitempty"`
+	Latitude          *float64                `json:"latitude,omitempty"`
+	Longitude         *float64                `json:"longitude,omitempty"`
 }
 
 type PublicDiscoveryBatch struct {

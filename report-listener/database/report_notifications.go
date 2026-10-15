@@ -12,6 +12,13 @@ import (
 	"report-listener/models"
 )
 
+const reportNotificationLegacyUnrecordedSQL = `NOT EXISTS (
+   SELECT 1 FROM report_email_delivery_events e
+   WHERE e.seq = old.seq AND e.delivery_status = 'sent'
+     AND e.recipient_email = old.recipient_email
+     AND e.delivery_source = old.delivery_source AND e.sent_at <=> old.sent_at
+ )`
+
 // A sequence-indexed union retains legacy receipts without double-counting
 // receipts already captured in the append-only ledger. Legacy rows only retain
 // the latest send per recipient, so their presence makes history incomplete.
@@ -23,12 +30,7 @@ const reportNotificationRowsSQL = `
  SELECT old.recipient_email, old.delivery_source, old.sent_at, TRUE AS is_legacy
  FROM report_email_deliveries old
  WHERE old.seq = ? AND old.delivery_status = 'sent'
- AND NOT EXISTS (
-   SELECT 1 FROM report_email_delivery_events e
-   WHERE e.seq = old.seq AND e.delivery_status = 'sent'
-     AND e.recipient_email = old.recipient_email
-     AND e.delivery_source = old.delivery_source AND e.sent_at <=> old.sent_at
- )
+ AND ` + reportNotificationLegacyUnrecordedSQL + `
  ORDER BY sent_at DESC`
 
 type notificationReceipt struct {
