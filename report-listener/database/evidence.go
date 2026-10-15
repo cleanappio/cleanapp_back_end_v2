@@ -199,8 +199,8 @@ func evidenceCTE(f EvidenceFilter, analysisWhere string, args []interface{}) (st
   FROM report_analysis ra LEFT JOIN report_evidence ev ON ev.seq = ra.seq WHERE %[1]s AND ra.is_valid = TRUE
  ), metadata AS (
   SELECT ra.seq,
-   CASE WHEN m.seq IS NOT NULL THEN m.id ELSE fallback.id END AS id,
-   CASE WHEN m.seq IS NOT NULL THEN m.public_id ELSE fallback.public_id END AS public_id,
+   CASE WHEN m.seq IS NOT NULL THEN m.id ELSE fallback.id END COLLATE utf8mb4_bin AS id,
+   CASE WHEN m.seq IS NOT NULL THEN m.public_id ELSE fallback.public_id END COLLATE utf8mb4_bin AS public_id,
    CASE WHEN m.seq IS NOT NULL THEN m.ts ELSE fallback.ts END AS ts,
    CASE WHEN m.seq IS NOT NULL THEN m.latitude ELSE fallback.latitude END AS latitude,
    CASE WHEN m.seq IS NOT NULL THEN m.longitude ELSE fallback.longitude END AS longitude,

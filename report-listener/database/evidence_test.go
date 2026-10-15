@@ -180,7 +180,11 @@ func TestEvidenceMetadataProjectionKeepsUnprojectedHistory(t *testing.T) {
 		t.Fatal("historical fallback must use a null lookup key for already projected reports")
 	}
 	for _, field := range []string{"id", "public_id", "ts", "latitude", "longitude"} {
-		if !strings.Contains(query, "CASE WHEN m.seq IS NOT NULL THEN m."+field+" ELSE fallback."+field+" END AS "+field) {
+		collation := ""
+		if field == "id" || field == "public_id" {
+			collation = " COLLATE utf8mb4_bin"
+		}
+		if !strings.Contains(query, "CASE WHEN m.seq IS NOT NULL THEN m."+field+" ELSE fallback."+field+" END"+collation+" AS "+field) {
 			t.Fatalf("projection must preserve nullable metadata without coalescing stale fallback values: %s", field)
 		}
 	}
