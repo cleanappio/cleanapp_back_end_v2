@@ -43,7 +43,7 @@ func TestReportNotificationsMySQLFixture(t *testing.T) {
 	}()
 	statements := []struct{ name, ddl string }{
 		{"report_email_deliveries", `CREATE TABLE report_email_deliveries (id BIGINT AUTO_INCREMENT PRIMARY KEY,seq INT NOT NULL,recipient_email VARCHAR(255) NOT NULL,delivery_status VARCHAR(32) NOT NULL,delivery_source VARCHAR(64) NOT NULL,sent_at TIMESTAMP NULL,UNIQUE KEY(seq,recipient_email),KEY(seq)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`},
-		{"reports", `CREATE TABLE reports (seq INT PRIMARY KEY,public_id VARCHAR(40),UNIQUE KEY(public_id)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`},
+		{"reports", `CREATE TABLE reports (seq INT PRIMARY KEY,public_id VARCHAR(40),image BLOB,UNIQUE KEY(public_id)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`},
 		{"report_raw", `CREATE TABLE report_raw (report_seq INT PRIMARY KEY,visibility VARCHAR(32)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`},
 		{"report_status", `CREATE TABLE report_status (seq INT PRIMARY KEY,status VARCHAR(32)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`},
 		{"reports_owners", `CREATE TABLE reports_owners (seq INT,owner VARCHAR(64),is_public BOOL,KEY(seq)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`},
@@ -65,7 +65,7 @@ func TestReportNotificationsMySQLFixture(t *testing.T) {
 	seed := []string{
 		`INSERT INTO report_email_deliveries VALUES (1,1,'support@x.ai','sent','aggregate_report','2026-10-15 18:00:00'),(2,1,'contact@x.ai','sent','aggregate_brand',NULL),(3,2,'private@x.ai','failed','aggregate_report','2026-10-15 18:00:00')`,
 		`INSERT INTO report_email_delivery_events (seq,recipient_email,delivery_status,delivery_source,sent_at,legacy_delivery_id,is_legacy) VALUES (1,'support@x.ai','sent','aggregate_brand','2026-09-21 18:36:41',1,TRUE),(1,'support@x.ai','sent','aggregate_report','2026-10-15 18:00:00',NULL,FALSE),(2,'support@x.ai','sent','aggregate_report','2026-10-15 18:00:00',NULL,FALSE)`,
-		`INSERT INTO reports VALUES (1,'rpt_public'),(2,'rpt_private'),(3,'rpt_shadow'),(4,'rpt_resolved')`,
+		`INSERT INTO reports VALUES (1,'rpt_public','public-image'),(2,'rpt_private','private-image'),(3,'rpt_shadow','shadow-image'),(4,'rpt_resolved','resolved-image')`,
 		`INSERT INTO reports_owners VALUES (2,'owner',FALSE)`,
 		`INSERT INTO report_raw VALUES (3,'shadow')`,
 		`INSERT INTO report_status VALUES (4,'resolved')`,
@@ -97,9 +97,22 @@ func TestReportNotificationsMySQLFixture(t *testing.T) {
 		if _, err := database.PublicReportSequence(ctx, publicID); err != sql.ErrNoRows {
 			t.Fatalf("nonpublic report %s disclosed notification existence: %v", publicID, err)
 		}
+		if image, err := database.GetImageByPublicID(ctx, publicID); err == nil || len(image) != 0 {
+			t.Fatalf("nonpublic report %s disclosed image: %q, %v", publicID, image, err)
+		}
 	}
 	if seq, err := database.PublicReportSequence(ctx, "rpt_public"); err != nil || seq != 1 {
 		t.Fatalf("public report resolution: %d %v", seq, err)
+	}
+	if image, err := database.GetImageByPublicID(ctx, "rpt_public"); err != nil || string(image) != "public-image" {
+		t.Fatalf("public image: %q %v", image, err)
+	}
+	// A token can outlive publication. Every later image read must apply current policy.
+	if _, err := db.Exec(`INSERT INTO reports_owners VALUES (1,'new-private-owner',FALSE)`); err != nil {
+		t.Fatal(err)
+	}
+	if image, err := database.GetImageByPublicID(ctx, "rpt_public"); err == nil || len(image) != 0 {
+		t.Fatalf("previously public image remained available after privatization: %q %v", image, err)
 	}
 	for _, userID := range []string{"active-base", "expired", "free", "future", "missing"} {
 		got, err := database.HasActiveNotificationSubscription(ctx, userID)

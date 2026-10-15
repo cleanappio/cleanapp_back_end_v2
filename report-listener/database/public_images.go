@@ -7,13 +7,11 @@ import (
 )
 
 func (d *Database) GetImageByPublicID(ctx context.Context, publicID string) ([]byte, error) {
-	query := fmt.Sprintf(`
+	query := `
 		SELECT r.image
 		FROM reports r
-		LEFT JOIN report_raw rr ON r.seq = rr.report_seq
 		WHERE r.public_id = ?
-		AND %s
-	`, PublicVisibilityWhereSQL)
+		AND ` + publicReportCurrentVisibilitySQL
 
 	var image []byte
 	err := d.db.QueryRowContext(ctx, query, publicID).Scan(&image)

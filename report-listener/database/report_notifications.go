@@ -41,11 +41,7 @@ func (d *Database) PublicReportSequence(ctx context.Context, publicID string) (i
 	var seq int
 	err := d.db.QueryRowContext(ctx, `
  SELECT r.seq FROM reports r
- WHERE r.public_id = ?
- AND (SELECT COUNT(*) FROM report_raw rr WHERE rr.report_seq = r.seq AND rr.visibility <> 'public') = 0
- AND (SELECT COUNT(*) FROM report_status rs WHERE rs.seq = r.seq AND rs.status <> 'active') = 0
- AND (SELECT COUNT(*) FROM reports_owners ro WHERE ro.seq = r.seq AND ro.owner IS NOT NULL AND ro.owner <> '' AND ro.is_public = FALSE) = 0
- LIMIT 1`, publicID).Scan(&seq)
+ WHERE r.public_id = ? AND `+publicReportCurrentVisibilitySQL+` LIMIT 1`, publicID).Scan(&seq)
 	return seq, err
 }
 
