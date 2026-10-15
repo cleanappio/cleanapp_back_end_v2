@@ -45,3 +45,16 @@ func TestPublicMediaRejectsNonReportTokensBeforeDatabaseAccess(t *testing.T) {
 		}
 	}
 }
+
+func TestLegacyPublicImageResponsesCannotBeCached(t *testing.T) {
+	h := &Handlers{} // Invalid input must be rejected before any database access.
+	for _, serve := range []func(*gin.Context){h.GetImageByPublicID, h.GetRawImageByPublicID} {
+		response := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(response)
+		ctx.Request = httptest.NewRequest(http.MethodGet, "/image", nil)
+		serve(ctx)
+		if response.Code != http.StatusBadRequest || response.Header().Get("Cache-Control") != "private, no-store, max-age=0" || response.Header().Get("X-Content-Type-Options") != "nosniff" {
+			t.Fatal("legacy public image denial omitted revocable-media headers")
+		}
+	}
+}

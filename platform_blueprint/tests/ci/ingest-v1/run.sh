@@ -157,6 +157,7 @@ curl -fsS --max-time 10 -H "content-type: application/json" \
 code="$(curl -sS -o /dev/null -w "%{http_code}" --max-time 10 "http://localhost:18082/api/v3/reports/by-seq?seq=${seq}" || true)"
 if [[ "$code" != "200" ]]; then
   echo "expected 200 after promotion seq=$seq, got http=$code" >&2
+  dc logs --no-color report_listener || true
   exit 1
 fi
 

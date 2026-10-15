@@ -925,7 +925,8 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 			check(EvidenceFilter{BrandName: product.company, Product: product.name}, want)
 		}
 	})
-
+	t.Run("PublicBrandPreview", func(t *testing.T) { testPublicBrandPreviewMySQL(t, db) })
+	t.Run("PublicDetailMixedMetadataCollations", func(t *testing.T) { testPublicDetailMixedMetadataCollationsMySQL(t, db) })
 }
 
 func evidencePagesEqualIgnoringClock(a, b EvidenceBrandPage) bool {

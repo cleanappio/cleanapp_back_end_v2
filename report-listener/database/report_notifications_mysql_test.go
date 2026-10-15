@@ -47,6 +47,7 @@ func TestReportNotificationsMySQLFixture(t *testing.T) {
 		{"report_raw", `CREATE TABLE report_raw (report_seq INT PRIMARY KEY,visibility VARCHAR(32)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`},
 		{"report_status", `CREATE TABLE report_status (seq INT PRIMARY KEY,status VARCHAR(32)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`},
 		{"reports_owners", `CREATE TABLE reports_owners (seq INT,owner VARCHAR(64),is_public BOOL,KEY(seq)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`},
+		{"wire_submissions_raw", `CREATE TABLE wire_submissions_raw (report_seq INT,report_json JSON,KEY(report_seq)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`},
 		{"subscriptions", `CREATE TABLE subscriptions (id INT PRIMARY KEY,customer_id VARCHAR(64),status VARCHAR(32),plan_type VARCHAR(32),start_date DATE,KEY(customer_id)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`},
 	}
 	for _, statement := range statements {

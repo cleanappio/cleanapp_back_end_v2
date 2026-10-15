@@ -75,6 +75,8 @@ func detectImageContentType(imageData []byte) string {
 }
 
 func (h *Handlers) GetImageByPublicID(c *gin.Context) {
+	c.Header("Cache-Control", "private, no-store, max-age=0")
+	c.Header("X-Content-Type-Options", "nosniff")
 	publicID := strings.TrimSpace(c.Query("public_id"))
 	if publicID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing public_id parameter"})
@@ -97,6 +99,8 @@ func (h *Handlers) GetImageByPublicID(c *gin.Context) {
 }
 
 func (h *Handlers) GetRawImageByPublicID(c *gin.Context) {
+	c.Header("Cache-Control", "private, no-store, max-age=0")
+	c.Header("X-Content-Type-Options", "nosniff")
 	publicID := strings.TrimSpace(c.Query("public_id"))
 	if publicID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing public_id parameter"})
