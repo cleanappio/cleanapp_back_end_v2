@@ -48,6 +48,12 @@ type PlannedCompanyReport struct {
 	PublicID   string    `json:"public_id"`
 	Title      string    `json:"title"`
 	EvidenceAt time.Time `json:"evidence_at"`
+
+	// Current canonical public projection, never the raw stored evidence. These
+	// fields stay out of operator-plan JSON and are refreshed before sending.
+	excerpt          string
+	impact           string
+	hasOriginalMedia bool
 }
 type companyReaderReport struct {
 	Report struct {
@@ -60,12 +66,15 @@ type companyReaderReport struct {
 		Classification string `json:"classification"`
 	} `json:"analysis"`
 	Evidence struct {
-		Kind         string     `json:"report_kind"`
-		Intake       string     `json:"intake_method"`
-		Relationship string     `json:"entity_relationship"`
-		Observed     *time.Time `json:"observed_at"`
-		Published    *time.Time `json:"source_published_at"`
-		Ingested     *time.Time `json:"ingested_at"`
+		Kind             string     `json:"report_kind"`
+		Intake           string     `json:"intake_method"`
+		Relationship     string     `json:"entity_relationship"`
+		Observed         *time.Time `json:"observed_at"`
+		Published        *time.Time `json:"source_published_at"`
+		Ingested         *time.Time `json:"ingested_at"`
+		Excerpt          *string    `json:"excerpt"`
+		Impact           *string    `json:"reported_impact"`
+		HasOriginalMedia bool       `json:"has_original_media"`
 	} `json:"evidence"`
 }
 
@@ -99,7 +108,14 @@ func freshCompanyReport(row companyReaderReport, route CompanyRoute, now time.Ti
 	if date == nil || date.IsZero() || date.Before(now.Add(-companyFreshWindow)) || date.After(now) {
 		return PlannedCompanyReport{}, false
 	}
-	return PlannedCompanyReport{Seq: row.Report.Seq, PublicID: row.Report.PublicID, Title: a.Title, EvidenceAt: date.UTC()}, true
+	planned := PlannedCompanyReport{Seq: row.Report.Seq, PublicID: row.Report.PublicID, Title: a.Title, EvidenceAt: date.UTC(), hasOriginalMedia: row.Evidence.HasOriginalMedia}
+	if row.Evidence.Excerpt != nil {
+		planned.excerpt = *row.Evidence.Excerpt
+	}
+	if row.Evidence.Impact != nil {
+		planned.impact = *row.Evidence.Impact
+	}
+	return planned, true
 }
 
 func (s *EmailService) freshCompanyCandidates(ctx context.Context, route CompanyRoute, now time.Time) ([]PlannedCompanyReport, int, error) {
@@ -318,7 +334,7 @@ func (s *EmailService) companyDailyCount(ctx context.Context, route CompanyRoute
  WHERE ra.language='en' AND ra.brand_name IN (` + in + `) AND d.delivery_status='sent'
  AND REGEXP_LIKE(d.recipient_email,'[^[:space:]]') AND d.sent_at>=? AND d.sent_at<?
  AND NOT EXISTS(SELECT 1 FROM report_email_delivery_events e FORCE INDEX (idx_report_delivery_event_seq)
- WHERE e.seq=d.seq AND e.recipient_email COLLATE utf8mb4_bin=d.recipient_email COLLATE utf8mb4_bin AND e.delivery_source COLLATE utf8mb4_bin=d.delivery_source COLLATE utf8mb4_bin AND e.sent_at<=>d.sent_at AND e.delivery_status='sent')
+ WHERE e.seq=d.seq AND LOWER(TRIM(e.recipient_email)) COLLATE utf8mb4_bin=LOWER(TRIM(d.recipient_email)) COLLATE utf8mb4_bin AND e.delivery_source COLLATE utf8mb4_bin=d.delivery_source COLLATE utf8mb4_bin AND e.sent_at<=>d.sent_at AND e.delivery_status='sent')
  )
  SELECT COUNT(DISTINCT message_key) FROM (
  SELECT message_key FROM company_acceptances
@@ -544,6 +560,15 @@ func (s *EmailService) processCompanyPlan(ctx context.Context, plan CompanyNotif
 	for _, r := range current {
 		if planned[r.Seq] {
 			if finding, ok := bySeq[r.Seq]; ok && finding.PublicID == r.PublicID {
+				// The canonical reader applies Wire privacy flags and sensitive
+				// text filtering. Missing projected text must clear raw values;
+				// image eligibility must also come from this current response.
+				finding.OriginalExcerpt = r.excerpt
+				finding.ReportedImpact = r.impact
+				if !r.hasOriginalMedia {
+					finding.Image = nil
+				}
+				bySeq[r.Seq] = finding
 				fresh = append(fresh, r)
 			}
 		}

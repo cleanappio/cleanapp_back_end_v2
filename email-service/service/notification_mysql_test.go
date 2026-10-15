@@ -265,6 +265,12 @@ func TestNotificationMySQL(t *testing.T) {
 			accept(seq, "support@openai.com", "google_workspace", "message-A", at)
 		}
 		check(1)
+		// The legacy UNIQUE key can retain an older mailbox's letter case
+		// while the append writer normalizes the same recipient to lower case.
+		if _, err := db.ExecContext(ctx, `UPDATE report_email_deliveries SET recipient_email='SUPPORT@OPENAI.COM' WHERE seq BETWEEN 100 AND 103`); err != nil {
+			t.Fatal(err)
+		}
+		check(1)
 		var eventCopies, latestCopies int
 		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM report_email_delivery_events WHERE seq BETWEEN 100 AND 103`).Scan(&eventCopies); err != nil {
 			t.Fatal(err)

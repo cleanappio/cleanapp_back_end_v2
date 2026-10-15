@@ -1,10 +1,13 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"database/sql/driver"
 	"encoding/json"
 	"errors"
+	"image"
+	"image/png"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -492,24 +495,37 @@ func (s *companyCaptureSender) SendAggregateEmailsWithResults(to []string, summa
 	return s.aggregateTestSender.SendAggregateEmailsWithResults(to, summary, optOut)
 }
 
-func TestCompanySendUsesOnlyCurrentPendingFindingsAndVerifiedRecipient(t *testing.T) {
+func TestCompanySendUsesOnlyCurrentPendingFindingsAndCanonicalSafeEvidence(t *testing.T) {
 	db, mock, _ := sqlmock.New()
 	defer db.Close()
 	now := time.Now().UTC()
 	route, _ := ResolveCompanyRoute("grok")
+	safeQuote, safeImpact, currentQuote := "Public source wording", "Public impact", "New current public wording"
 	server := companyFixtureServer(t, "xai", func() []companyReaderReport {
-		return []companyReaderReport{companyFixture(4, now.Add(-time.Minute)), companyFixture(3, now.Add(-time.Hour)), companyFixture(2, now.Add(-2*time.Hour)), companyFixture(1, now.Add(-3*time.Hour))}
+		redacted := companyFixture(4, now.Add(-time.Minute))
+		safe := companyFixture(2, now.Add(-2*time.Hour))
+		safe.Evidence.Excerpt = &safeQuote
+		safe.Evidence.Impact = &safeImpact
+		safe.Evidence.HasOriginalMedia = true
+		updated := companyFixture(1, now.Add(-3*time.Hour))
+		updated.Evidence.Excerpt = &currentQuote
+		return []companyReaderReport{redacted, companyFixture(3, now.Add(-time.Hour)), safe, updated}
 	})
 	defer server.Close()
 	expectReceiptPreflight(mock)
 	rows := sqlmock.NewRows([]string{"seq", "public_id", "title", "summary", "excerpt", "impact", "kind", "classification", "ts"})
 	for i := 4; i > 0; i-- {
-		rows.AddRow(i, "rpt_safe", "Issue", "Summary", "Original", "Impact", "firsthand", "digital", now)
+		rows.AddRow(i, "rpt_safe", "Issue", "Summary", "raw-secret-excerpt", "raw-private-impact", "firsthand", "digital", now)
 	}
 	mock.ExpectQuery(`(?s)SELECT r.seq,r.public_id.*ra.brand_name IN.*ORDER BY r.ts DESC,r.seq DESC LIMIT 20`).WillReturnRows(rows)
-	for _, seq := range []int{4, 3, 2} {
-		mock.ExpectQuery(`SELECT CASE WHEN OCTET_LENGTH`).WithArgs(email.MaxPreviewInputBytes, seq).WillReturnRows(sqlmock.NewRows([]string{"image"}).AddRow(nil))
+	var originalImage bytes.Buffer
+	if err := png.Encode(&originalImage, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
+		t.Fatal(err)
 	}
+	for _, seq := range []int{4, 3, 2} {
+		mock.ExpectQuery(`SELECT CASE WHEN OCTET_LENGTH`).WithArgs(email.MaxPreviewInputBytes, seq).WillReturnRows(sqlmock.NewRows([]string{"image"}).AddRow(originalImage.Bytes()))
+	}
+
 	// Report 3 was accepted/processed or held while the plan was being loaded.
 	expectCompanyPending(mock, []int64{4, 3, 2, 1}, []int64{4, 2, 1})
 	mock.ExpectQuery(`SELECT COUNT\(\*\).*FROM opted_out_emails`).WithArgs("support@x.ai").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
@@ -529,13 +545,23 @@ func TestCompanySendUsesOnlyCurrentPendingFindingsAndVerifiedRecipient(t *testin
 	s := &EmailService{db: db, email: sender, config: &config.Config{ReportListenerURL: server.URL, MaxDailyEmailsPerBrand: 10}}
 	plan := CompanyNotificationPlan{Company: "xai", State: "ready", route: route, total: 301}
 	for _, seq := range []int64{4, 3, 2, 1} {
-		plan.Reports = append(plan.Reports, PlannedCompanyReport{Seq: seq, PublicID: "rpt_safe", EvidenceAt: now.Add(-time.Hour)})
+		plan.Reports = append(plan.Reports, PlannedCompanyReport{Seq: seq, PublicID: "rpt_safe", EvidenceAt: now.Add(-time.Hour), excerpt: "stale-plan-quote", impact: "stale-plan-impact", hasOriginalMedia: true})
 	}
 	if err := s.processCompanyPlan(context.Background(), plan); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(sender.recipients, []string{"support@x.ai"}) || !reflect.DeepEqual(sender.summary.ReportSeqs, []int64{4, 2, 1}) || len(sender.summary.Reports) != 3 || sender.summary.NewReportCount != 3 {
 		t.Fatalf("wrong delivered scope: to=%v summary=%#v", sender.recipients, sender.summary)
+	}
+	redacted, safe, updated := sender.summary.Reports[0], sender.summary.Reports[1], sender.summary.Reports[2]
+	if redacted.OriginalExcerpt != "" || redacted.ReportedImpact != "" || len(redacted.Image) != 0 {
+		t.Fatalf("reader-redacted evidence reappeared from raw storage: %#v", redacted)
+	}
+	if safe.OriginalExcerpt != safeQuote || safe.ReportedImpact != safeImpact || len(safe.Image) == 0 {
+		t.Fatalf("current public evidence was lost: %#v", safe)
+	}
+	if updated.OriginalExcerpt != currentQuote || updated.ReportedImpact != "" || len(updated.Image) != 0 {
+		t.Fatalf("outgoing findings used stale planned/raw projection: %#v", updated)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

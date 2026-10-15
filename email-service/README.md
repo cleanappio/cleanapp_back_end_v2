@@ -82,6 +82,10 @@ persistence, so overlapping worker instances cannot send the same pending batch.
 A failed company cycle is reported while other companies continue. Read-only
 plans and dry runs never acquire these locks.
 
+Immediately before sending, quotes, impact text and image eligibility are
+refreshed from the reader's public evidence projection. Redacted or missing
+fields clear stored raw evidence rather than falling back to it.
+
 Preview the current bounded plan without creating a sender, starting workers or
 writing processing state:
 
