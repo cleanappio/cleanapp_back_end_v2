@@ -12,11 +12,15 @@ func TestPublicIntakeChannelOnlyProjectsRecordedNativeChannels(t *testing.T) {
 		for _, method := range []string{"human_submission", "shared_submission"} {
 			r := evidenceRecord{Version: 1, Kind: "firsthand", ActorKind: "human", IntakeChannel: channel, GenerationMethod: method, SourcePlatform: "sensor"}
 			evidence := r.publicEvidence()
-			if evidence.IntakeMethod != "cleanapp_submission" || evidence.IntakeChannel == nil || *evidence.IntakeChannel != channel {
+			wantChannel := channel
+			if method == "shared_submission" {
+				wantChannel = "share"
+			}
+			if evidence.IntakeMethod != "cleanapp_submission" || evidence.IntakeChannel == nil || *evidence.IntakeChannel != wantChannel {
 				t.Fatalf("native channel %s/%s was lost: %+v", channel, method, evidence)
 			}
 			encoded, err := json.Marshal(evidence)
-			if err != nil || !strings.Contains(string(encoded), `"intake_channel":"`+channel+`"`) {
+			if err != nil || !strings.Contains(string(encoded), `"intake_channel":"`+wantChannel+`"`) {
 				t.Fatalf("native channel JSON: %s error=%v", encoded, err)
 			}
 			for _, internal := range []string{"actor_kind", "generation_method", "fetcher_id", "device_id", "session_id"} {
@@ -42,6 +46,59 @@ func TestPublicIntakeChannelOnlyProjectsRecordedNativeChannels(t *testing.T) {
 		if !strings.Contains(string(encoded), `"intake_channel":null`) || strings.Contains(string(encoded), "private-device-secret") {
 			t.Fatalf("unproven channel was disclosed: %s", encoded)
 		}
+	}
+}
+
+func TestPublicAgentAPIChannelKeepsMachineProvenanceAndDates(t *testing.T) {
+	added := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	observed, published := added.Add(-time.Hour), added.Add(-24*time.Hour)
+	for _, method := range []string{"cleanapp_cli", "openclaw_skill"} {
+		for _, kind := range []string{"firsthand", "coverage", "unknown"} {
+			r := evidenceRecord{Version: 1, Kind: kind, ActorKind: "machine", IntakeChannel: "wire", GenerationMethod: method, SourcePlatform: "web", FetcherID: "private-fetcher-secret", SourceAccountKey: "private-account-secret", IngestedAt: added, ObservedAt: &observed, PublishedAt: &published, PrivacyRestricted: true, Excerpt: "private original excerpt"}
+			got := r.publicEvidence()
+			if got.IntakeChannel == nil || *got.IntakeChannel != "agent_api" || got.IntakeMethod != "imported" || got.ReportKind != kind {
+				t.Fatalf("direct API transport changed source classification: %+v", got)
+			}
+			if got.IntakeLabel != "Submitted through CleanApp Agentic API" || got.ObservedAt == nil || !got.ObservedAt.Equal(observed) || got.SourcePublishedAt == nil || !got.SourcePublishedAt.Equal(published) || got.IngestedAt == nil || !got.IngestedAt.Equal(added) {
+				t.Fatalf("API channel changed original dates: %+v", got)
+			}
+			encoded, err := json.Marshal(got)
+			if err != nil || !strings.Contains(string(encoded), `"intake_channel":"agent_api"`) {
+				t.Fatalf("public API channel JSON: %s %v", encoded, err)
+			}
+			for _, internal := range []string{method, "actor_kind", "generation_method", "fetcher_id", "auth_method", "key_id", "private-fetcher-secret", "private-account-secret", "private original excerpt"} {
+				if strings.Contains(string(encoded), internal) {
+					t.Fatalf("public API channel leaked internal metadata %s: %s", internal, encoded)
+				}
+			}
+		}
+	}
+}
+
+func TestPublicAgentAPIChannelDoesNotRelabelImportsOrUnknownWireClients(t *testing.T) {
+	for _, method := range []string{"", "twitter_submitter", "github_issue_submitter", "bluesky_submitter", "human_authored_public", "legacy_v3_bulk_ingest", "legacy_v1_bulk_ingest", "report_processor_match", "human_submission", "shared_submission", "unrecognized-client-secret"} {
+		r := evidenceRecord{ActorKind: "machine", IntakeChannel: "wire", GenerationMethod: method}
+		if got := r.publicEvidence(); got.IntakeChannel != nil || got.IntakeMethod != "imported" || got.IntakeLabel != "Imported public report" {
+			t.Fatalf("unknown/imported Wire client claimed direct API intake: method=%q %+v", method, got)
+		}
+	}
+	for _, r := range []evidenceRecord{
+		{ActorKind: "machine", IntakeChannel: "wire", GenerationMethod: "cleanapp_cli", ExternalSource: true, SourcePlatform: "bluesky"},
+		{ActorKind: "machine", IntakeChannel: "wire", GenerationMethod: "openclaw_skill", ExternalSource: true, SourcePlatform: "github"},
+		{ActorKind: "human", IntakeChannel: "wire", GenerationMethod: "cleanapp_cli"},
+		{ActorKind: "machine", IntakeChannel: "mobile", GenerationMethod: "openclaw_skill"},
+		{ActorKind: "machine", GenerationMethod: "cleanapp_cli"},
+		{IntakeChannel: "wire", GenerationMethod: "openclaw_skill"},
+	} {
+		if got := r.publicEvidence(); got.IntakeChannel != nil || got.IntakeMethod == "cleanapp_submission" {
+			t.Fatalf("unproven API transport was promoted: %+v", got)
+		}
+	}
+	// A proven API transport does not supply an otherwise missing observation
+	// or source-publication date, or classify an unenriched report as firsthand.
+	r := evidenceRecord{Kind: "firsthand", ActorKind: "machine", IntakeChannel: "wire", GenerationMethod: "cleanapp_cli"}
+	if got := r.publicEvidence(); got.ReportKind != "unknown" || got.ObservedAt != nil || got.SourcePublishedAt != nil || got.IngestedAt != nil {
+		t.Fatalf("API label fabricated dates or evidence classification: %+v", got)
 	}
 }
 
@@ -212,12 +269,13 @@ func TestRelatedFamilyKeepsIndependentCorroborationUnknown(t *testing.T) {
 
 func TestNativeSharePreservesActualCleanAppIntakeAndWireCannotSpoofIt(t *testing.T) {
 	shared := evidenceRecord{Version: 1, Kind: "coverage", ActorKind: "human", IntakeChannel: "mobile", GenerationMethod: "shared_submission", SourcePlatform: "twitter", ExternalSource: true}
-	if shared.publicEvidence().IntakeMethod != "cleanapp_submission" {
-		t.Fatal("native shared submission became imported solely because its original source was external")
+	got := shared.publicEvidence()
+	if got.IntakeMethod != "cleanapp_submission" || got.IntakeChannel == nil || *got.IntakeChannel != "share" || got.ReportKind != "coverage" || got.ObservedAt != nil || got.SourcePublishedAt != nil {
+		t.Fatal("native shared submission lost its actual share channel or changed evidence/date claims")
 	}
 	shared.IntakeChannel = "wire"
-	if shared.publicEvidence().IntakeMethod == "cleanapp_submission" {
-		t.Fatal("Wire generation_method spoofed authenticated native intake")
+	if got := shared.publicEvidence(); got.IntakeMethod == "cleanapp_submission" || got.IntakeChannel != nil {
+		t.Fatal("Wire generation_method spoofed authenticated native/share intake")
 	}
 }
 

@@ -25,6 +25,7 @@ import (
 const (
 	humanChannelMobile         = "mobile"
 	humanChannelWeb            = "web"
+	humanChannelShare          = "share"
 	humanChannelLegacyV2       = "legacy_v2"
 	maxHumanWebAnnotationBytes = 8192
 	maxHumanWebImageBytes      = 1024 * 1024
@@ -66,6 +67,8 @@ func normalizeHumanChannel(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case humanChannelWeb:
 		return humanChannelWeb
+	case humanChannelShare:
+		return humanChannelShare
 	case humanChannelLegacyV2, "legacy", "v2":
 		return humanChannelLegacyV2
 	default:
@@ -74,7 +77,13 @@ func normalizeHumanChannel(raw string) string {
 }
 
 func syntheticHumanFetcherID(channel string) string {
-	return "human-" + normalizeHumanChannel(channel)
+	channel = normalizeHumanChannel(channel)
+	// Shares keep the established profile and idempotency namespace. Only
+	// their recorded intake channel changes; no new fetcher is provisioned.
+	if channel == humanChannelShare {
+		channel = humanChannelMobile
+	}
+	return "human-" + channel
 }
 
 func syntheticHumanSourceID(prefix string, req humanReportSubmissionRequest) string {
