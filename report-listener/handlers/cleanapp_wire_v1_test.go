@@ -81,6 +81,10 @@ func TestSharedURLSubmissionQualityPublishesURLOnlyShares(t *testing.T) {
 	t.Parallel()
 
 	cfg := &config.Config{CleanAppWirePublishLaneMinTier: 2}
+	auth := (&Handlers{cfg: cfg}).humanReportAuthContext("share")
+	if auth.ActorKind != "human" || auth.Channel != "share" || auth.FetcherID != "human-share" {
+		t.Fatalf("share endpoint lost its server-owned intake channel: %+v", auth)
+	}
 	payload, err := normalizeDigitalSharePayload(
 		digitalShareSubmissionRequest{
 			Platform:    "ios",
@@ -94,6 +98,9 @@ func TestSharedURLSubmissionQualityPublishesURLOnlyShares(t *testing.T) {
 	}
 
 	sub := buildDigitalShareWireSubmission(payload, "human")
+	if sub.Provenance.GenerationMethod != "shared_submission" {
+		t.Fatal("native share provenance was lost")
+	}
 	quality := computeCleanAppWireSubmissionQuality(sub)
 	if quality < 0.50 {
 		t.Fatalf("quality = %.2f, want at least 0.50 for URL-only shares", quality)

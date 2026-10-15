@@ -465,17 +465,32 @@ func (r evidenceRecord) publicEvidence() models.PublicEvidence {
 		// Expose only the recorded native channel already verified by this
 		// actor/generation branch, never a platform guess or arbitrary metadata.
 		channel := r.IntakeChannel
+		// The native share adapter historically stored channel=mobile. Its
+		// server-owned shared-submission provenance preserves the actual path.
+		if r.GenerationMethod == "shared_submission" {
+			channel = "share"
+		}
 		intakeChannel = &channel
 	} else if r.ExternalSource {
 		intake, label = "imported", "Imported public report"
 	} else if platform != "" || r.FetcherID != "" || r.ActorKind == "machine" {
 		intake, label = "imported", "Imported public report"
 	}
+	// These repo clients submit directly through the authenticated Wire API.
+	// Machine/Wire alone also describes crawlers, so keep unknown clients and
+	// imported sources unlabeled. This transport label changes no authorship,
+	// report-kind, intake-method or observation-date claim.
+	if r.ActorKind == "machine" && r.IntakeChannel == "wire" && !r.ExternalSource &&
+		(r.GenerationMethod == "cleanapp_cli" || r.GenerationMethod == "openclaw_skill") {
+		channel := "agent_api"
+		intakeChannel = &channel
+		label = "Submitted through CleanApp Agentic API"
+	}
 	if platform == "" && sourceURL != "" {
 		u, _ := url.Parse(sourceURL)
 		platform = u.Hostname()
 	}
-	if intake == "imported" && strings.Contains(strings.ToLower(platform), "github") {
+	if intake == "imported" && intakeChannel == nil && strings.Contains(strings.ToLower(platform), "github") {
 		label = "Imported GitHub report"
 	}
 	relationship := r.Relationship
