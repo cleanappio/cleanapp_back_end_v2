@@ -836,7 +836,7 @@ func (s *EmailService) ProcessBrandNotifications() error {
 			// Quarantine this accepted batch for operator receipt recovery. The
 			// explicit reason is excluded from every automatic send candidate
 			// query, so repairing logs cannot accidentally resend the email.
-			scheduledRetries += s.scheduleReportsRetry(ctx, summary.ReportSeqs, retryReasonReceiptPending, time.Now().Add(24*time.Hour))
+			s.scheduleReportsRetry(ctx, summary.ReportSeqs, retryReasonReceiptPending, time.Now().Add(24*time.Hour))
 			return fmt.Errorf("accepted notification receipt persistence failed; batch quarantined: %w", receiptFailure)
 		}
 		if failedRecipients > 0 {
