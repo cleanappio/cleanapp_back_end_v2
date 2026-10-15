@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"time"
+
+	"github.com/apex/log"
 )
 
 type CaseEscalationRecipient struct {
@@ -44,6 +46,11 @@ func (s *EmailService) SendCaseEscalationEmails(
 		if result.DeliverySource == "" {
 			result.DeliverySource = "case_target"
 		}
+		if s.config != nil && s.config.DryRun {
+			result.Status = "dry_run"
+			results = append(results, result)
+			continue
+		}
 		if !s.isValidEmail(emailAddr) {
 			result.Status = "invalid_email"
 			result.Error = "invalid recipient email"
@@ -82,10 +89,10 @@ func (s *EmailService) SendCaseEscalationEmails(
 		result.Error = sendResult.Error
 		if sendResult.Status == "sent" {
 			if err := s.recordEmailSent(ctx, emailAddr); err != nil {
-				result.Status = "failed"
-				result.Error = err.Error()
-				result.ProviderMessageID = ""
-				result.SentAt = nil
+				// General recipient history is secondary to the accepted send.
+				// Preserve its result so the case caller can persist its receipt
+				// and does not retry an email already accepted by the transport.
+				log.WithError(err).Warn("Case email accepted; secondary recipient history persistence failed")
 			}
 		}
 		results = append(results, result)

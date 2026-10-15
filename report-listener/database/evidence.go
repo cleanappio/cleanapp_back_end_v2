@@ -24,22 +24,39 @@ type EvidenceFilter struct {
 	asOf                                     time.Time
 }
 
-// Identity aliases are exact matches. Parent pages include their known products.
+// Identity aliases are exact matches. Keep the three company scopes aligned
+// with email-service's VerifiedCompanyRoutes so a routed product cannot disappear
+// from its company's public evidence page. Product filters stay within the
+// selected product; X/Twitter remain separate from xAI/Grok.
 var evidenceProducts = map[string][]string{
-	"anthropic": {"anthropic", "claude", "claude-code", "claudecode"},
-	"claude":    {"claude", "claude-code", "claudecode"},
-	"openai":    {"openai", "chatgpt", "chat-gpt", "codex", "openai-api", "openaiapi", "openai-node", "openainode", "openai-python", "openaipython", "whisper", "dall-e", "dalle"},
-	"xai":       {"xai", "x-ai", "grok"}, "x-ai": {"xai", "x-ai", "grok"},
+	"anthropic": {"anthropic", "anthropic.com", "claude", "claudeai", "claude.ai", "claude ai", "@claudeai", "claudecode", "claude-code", "claude_code", "claude code"},
+	"claude":    {"claude", "claudeai", "claude.ai", "claude ai", "@claudeai", "claudecode", "claude-code", "claude_code", "claude code"},
+	"openai":    {"openai", "openai.com", "chatgpt", "chat-gpt", "chat gpt", "codex", "openaiapi", "openai-api", "openai_api", "openai api", "openainode", "openai-node", "openai_node", "openai node", "openaipython", "openai-python", "openai_python", "openai python", "whisper", "dall-e", "dalle"},
+	"xai":       {"xai", "x.ai", "x-ai", "x_ai", "x ai", "grok", "grok.com"},
+	"x-ai":      {"xai", "x.ai", "x-ai", "x_ai", "x ai", "grok", "grok.com"},
 }
 
-var evidenceProductAliases = map[string][]string{
-	"claude-code": {"claude-code", "claudecode"}, "claudecode": {"claude-code", "claudecode"},
-	"openai-node": {"openai-node", "openainode"}, "openainode": {"openai-node", "openainode"},
-	"openai-python": {"openai-python", "openaipython"}, "openaipython": {"openai-python", "openaipython"},
-	"openai-api": {"openai-api", "openaiapi"}, "openaiapi": {"openai-api", "openaiapi"},
-	"chatgpt": {"chatgpt", "chat-gpt"}, "chat-gpt": {"chatgpt", "chat-gpt"},
-	"dall-e": {"dall-e", "dalle"}, "dalle": {"dall-e", "dalle"},
-}
+var evidenceProductAliases = func() map[string][]string {
+	aliases := map[string][]string{}
+	for _, group := range [][]string{
+		{"anthropic", "anthropic.com"},
+		{"claude", "claudeai", "claude.ai", "claude ai", "@claudeai"},
+		{"claude-code", "claudecode", "claude_code", "claude code"},
+		{"openai", "openai.com"},
+		{"openai-node", "openainode", "openai_node", "openai node"},
+		{"openai-python", "openaipython", "openai_python", "openai python"},
+		{"openai-api", "openaiapi", "openai_api", "openai api"},
+		{"chatgpt", "chat-gpt", "chat gpt"},
+		{"dall-e", "dalle"},
+		{"xai", "x.ai", "x-ai", "x_ai", "x ai"},
+		{"grok", "grok.com"},
+	} {
+		for _, alias := range group {
+			aliases[alias] = group
+		}
+	}
+	return aliases
+}()
 var evidenceScopeProducts = map[string][]string{
 	"anthropic": {"anthropic", "claude", "claude-code"}, "claude": {"claude", "claude-code"},
 	"openai": {"openai", "chatgpt", "codex", "openai-api", "openai-node", "openai-python", "whisper", "dall-e"},

@@ -49,6 +49,40 @@ For detailed API documentation, see [OPT_OUT_API_ENDPOINT.md](OPT_OUT_API_ENDPOI
 
 ## Architecture
 
+### Verified company notifications
+
+Anthropic/Claude, OpenAI/ChatGPT/Codex and xAI/Grok use a separate bounded worker.
+Its reviewed support routes and publication sources live in
+`service/company_routing.go`. X/Twitter is a separate company scope.
+
+Each cycle reads at most 50 canonical public evidence results per company and
+selects up to 20 pending reports, then waits one minute. Only affected-product firsthand
+reports from the past 30 days qualify. Imported reports need an original source
+or observation date; only native submissions can use their recorded intake date.
+Private, inactive, already processed and already accepted reports are excluded.
+The worker rechecks eligibility before sending, respects opt-outs and daily
+limits, and checks the official recipient's cooldown across all company aliases.
+It can reconsider a `no_valid_emails` delay because the verified route resolves
+that condition; other future retry holds remain in force.
+
+Preview the current bounded plan without creating a sender, starting workers or
+writing processing state:
+
+```sh
+docker exec cleanapp_email_service ./main --notification-plan
+```
+
+The output contains public report identifiers and contact-source URLs. A ready
+plan is a proposal, not a delivery receipt. `EMAIL_DRY_RUN=true` also prevents
+automatic workers from sending or changing processing, retry or throttle state.
+
+Successful provider acceptances are recorded per recipient in the append-only
+delivery ledger before a report can be marked processed. A receipt persistence
+failure quarantines the batch for operator recovery instead of repeating an
+accepted email. Processing markers alone must never be treated as proof of mail.
+
+### General and area notifications
+
 The service follows the same logic as the original `sendAffectedPolygonsEmails()` function:
 
 1. **Polling**: Continuously polls for unprocessed reports

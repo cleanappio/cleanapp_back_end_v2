@@ -30,7 +30,7 @@ func TestEvidenceBrandRequestDefaultsAndExplicitFilters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if filter.Kind != "unknown" || filter.Sort != "recent" || filter.Offset != 12 || filter.Limit != 50 || strings.Join(filter.Brands, ",") != "claude-code,claudecode" {
+	if filter.Kind != "unknown" || filter.Sort != "recent" || filter.Offset != 12 || filter.Limit != 50 || strings.Join(filter.Brands, ",") != "claude-code,claudecode,claude_code,claude code" {
 		t.Fatalf("explicit scope=%+v", filter)
 	}
 	for _, query := range []string{"brand_name=claude&kind=bogus", "brand_name=claude&sort=bogus", "brand_name=claude&offset=-1", "brand_name=claude&product=openai", "brand_name=claude&n=0"} {

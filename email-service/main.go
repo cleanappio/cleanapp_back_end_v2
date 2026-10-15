@@ -6,6 +6,8 @@ import (
 	"email-service/handlers"
 	"email-service/service"
 	"email-service/version"
+	"encoding/json"
+	"flag"
 	"log"
 	"net/http"
 	"os"
@@ -19,9 +21,22 @@ import (
 )
 
 func main() {
+	notificationPlan := flag.Bool("notification-plan", false, "print a read-only verified-company notification plan and exit")
+	flag.Parse()
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatal("Failed to load email-service config:", err)
+	}
+	if *notificationPlan {
+		planService, err := service.NewNotificationPlanService(context.Background(), cfg)
+		if err != nil {
+			log.Fatal("Failed to create notification plan reader: ", err)
+		}
+		defer planService.Close()
+		if err := json.NewEncoder(os.Stdout).Encode(planService.BuildCompanyNotificationPlans(context.Background(), time.Now().UTC())); err != nil {
+			log.Fatal(err)
+		}
+		return
 	}
 	emailService, err := service.NewEmailService(cfg)
 	if err != nil {
@@ -53,6 +68,17 @@ func main() {
 		log.Printf("HTTP server starting on port %s", cfg.HTTPPort)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Printf("HTTP server error: %v", err)
+		}
+	}()
+	// Run this bounded priority route separately: the legacy global aggregation
+	// can take several minutes and must not delay verified fresh reports.
+	go func() {
+		const interval = time.Minute
+		for {
+			if err := emailService.ProcessCompanyNotifications(); err != nil {
+				log.Printf("Error processing verified company notifications: %v", err)
+			}
+			time.Sleep(interval)
 		}
 	}()
 	go func() {

@@ -1,6 +1,7 @@
 package contacts
 
 import (
+	"fmt"
 	"log"
 	"regexp"
 	"strings"
@@ -59,7 +60,21 @@ func ExtractContactsFromText(text string) (emails []string, handles []string) {
 	return emails, handles
 }
 
-// ProcessReportDescription extracts and saves contacts from report description
+// saveReportSuggestion retains extracted contact suggestions for review. A
+// report's text does not verify authority over a brand or an email address, and
+// cannot overwrite a separately managed contact with the same unique identity.
+func (s *ContactService) saveReportSuggestion(brandName, email, handle string) error {
+	_, err := s.db.Exec(`INSERT INTO brand_contacts
+		(brand_name,contact_name,contact_title,contact_level,email,email_verified,twitter_handle,source)
+		VALUES (?,'User Reported Contact','Reported via App','ic',?,FALSE,?,'manual')
+		ON DUPLICATE KEY UPDATE id=id`, brandName, email, handle)
+	if err != nil {
+		return fmt.Errorf("save unverified report contact suggestion: %w", err)
+	}
+	return nil
+}
+
+// ProcessReportDescription extracts unverified suggestions from report text.
 func (s *ContactService) ProcessReportDescription(brandName string, description string) error {
 	log.Printf("ProcessReportDescription called for brand %q with description: %q", brandName, description)
 
@@ -94,16 +109,7 @@ func (s *ContactService) ProcessReportDescription(brandName string, description 
 		if existingEmailMap[email] {
 			continue
 		}
-		contact := &Contact{
-			BrandName:     brandName,
-			ContactName:   "User Reported Contact",
-			ContactTitle:  "Reported via App",
-			ContactLevel:  "ic",
-			Email:         email,
-			Source:        "manual",
-			EmailVerified: true,
-		}
-		if err := s.SaveContact(contact); err != nil {
+		if err := s.saveReportSuggestion(brandName, email, ""); err != nil {
 			log.Printf("Failed to save user-reported email %s: %v", email, err)
 		}
 	}
@@ -113,15 +119,7 @@ func (s *ContactService) ProcessReportDescription(brandName string, description 
 		if existingHandleMap[handle] {
 			continue
 		}
-		contact := &Contact{
-			BrandName:     brandName,
-			ContactName:   "User Reported Contact",
-			ContactTitle:  "Reported via App",
-			ContactLevel:  "ic",
-			TwitterHandle: handle,
-			Source:        "manual",
-		}
-		if err := s.SaveContact(contact); err != nil {
+		if err := s.saveReportSuggestion(brandName, "", handle); err != nil {
 			log.Printf("Failed to save user-reported handle %s: %v", handle, err)
 		}
 	}

@@ -349,6 +349,10 @@ func (s *EmailService) Close() error {
 
 // ProcessReports polls for new reports and sends emails
 func (s *EmailService) ProcessReports() error {
+	if s.config.DryRun {
+		log.Info("DRY RUN: automatic processing skipped without changes; use --notification-plan for a read-only company plan")
+		return nil
+	}
 	ctx := context.Background()
 	start := time.Now()
 	log.Info("Polling cycle started: fetching unprocessed reports")
@@ -385,6 +389,7 @@ func (s *EmailService) getUnprocessedReports(ctx context.Context) ([]models.Repo
         WHERE sre.seq IS NULL
         AND ra.language = 'en'
 		AND (rr.visibility IS NULL OR rr.visibility = 'public')
+        AND ` + notificationPublicStateSQL("r") + `
 		AND (erry.seq IS NULL OR erry.next_attempt_at <= NOW())
 		AND (erry.reason IS NULL OR erry.reason <> 'notification_receipt_pending')
         ORDER BY r.seq DESC
@@ -452,6 +457,7 @@ func (s *EmailService) getUnprocessedBrandlessPhysicalReports(ctx context.Contex
 		  AND ra.classification = 'physical'
 		  AND ra.language = 'en'
 		  AND (rr.visibility IS NULL OR rr.visibility = 'public')
+          AND `+notificationPublicStateSQL("ra")+`
 		  AND (ra.brand_name IS NULL OR ra.brand_name = '')
 		  AND (erry.seq IS NULL OR erry.next_attempt_at <= NOW())
 		AND (erry.reason IS NULL OR erry.reason <> 'notification_receipt_pending')
@@ -514,6 +520,10 @@ func (s *EmailService) getUnprocessedBrandlessPhysicalReports(ctx context.Contex
 // ProcessBrandlessPhysicalReports processes physical reports with empty brand_name.
 // Bounded by `limit` to avoid bursty catch-up sends.
 func (s *EmailService) ProcessBrandlessPhysicalReports(limit int) error {
+	if s.config.DryRun {
+		log.Info("DRY RUN: automatic processing skipped without changes; use --notification-plan for a read-only company plan")
+		return nil
+	}
 	ctx := context.Background()
 	start := time.Now()
 	log.Info("Brandless physical cycle started: fetching unprocessed physical reports with empty brand_name")
@@ -535,24 +545,12 @@ func (s *EmailService) ProcessBrandlessPhysicalReports(limit int) error {
 				continue
 			}
 			if strings.TrimSpace(analysis.InferredContactEmails) == "" {
-				log.Infof("Brandless physical: seq %d has (0,0) coordinates and no inferred contacts; marking processed", report.Seq)
-				if err := s.markReportAsProcessed(ctx, report.Seq); err != nil {
-					log.Warnf("Brandless physical: failed to mark seq %d processed: %v", report.Seq, err)
-					continue
+				log.Infof("Brandless physical: seq %d lacks coordinates and contacts; keeping pending", report.Seq)
+				if err := s.scheduleReportRetry(ctx, report.Seq, retryReasonNoValidEmails, time.Now().Add(6*time.Hour)); err != nil {
+					log.Warnf("Could not defer contactless report: seq=%d error=%v", report.Seq, err)
 				}
-				processed++
 				continue
 			}
-		}
-
-		if s.config.DryRun {
-			log.Infof("🔒 DRY RUN: Would process brandless physical seq=%d; marking processed without sending", report.Seq)
-			if err := s.markReportAsProcessed(ctx, report.Seq); err != nil {
-				log.Warnf("Brandless physical: failed to mark seq %d processed in dry-run: %v", report.Seq, err)
-				continue
-			}
-			processed++
-			continue
 		}
 
 		if err := s.processReport(ctx, report); err != nil {
@@ -599,6 +597,7 @@ func (s *EmailService) getUnprocessedReportsByBrand(ctx context.Context) ([]mode
 		  AND ` + notificationPublicStateSQL("r") + `
 		  AND (erry.seq IS NULL OR erry.next_attempt_at <= NOW())
 		AND (erry.reason IS NULL OR erry.reason <> 'notification_receipt_pending')
+		AND ` + genericCompanyExclusionSQL("ra.brand_name") + `
 		GROUP BY ra.brand_name, ra.brand_display_name
 		ORDER BY new_count DESC
 		LIMIT 100
@@ -644,13 +643,12 @@ func (s *EmailService) getUnprocessedReportsByBrand(ctx context.Context) ([]mode
 
 // ProcessBrandNotifications processes reports grouped by brand, sending ONE aggregate email per brand
 func (s *EmailService) ProcessBrandNotifications() error {
+	if s.config.DryRun {
+		log.Info("DRY RUN: automatic processing skipped without changes; use --notification-plan for a read-only company plan")
+		return nil
+	}
 	ctx := context.Background()
 	start := time.Now()
-
-	// Log if dry-run mode is enabled
-	if s.config.DryRun {
-		log.Info("🔒 DRY RUN MODE ENABLED - emails will be logged but not sent")
-	}
 
 	log.Info("Aggregate notification cycle started: fetching brands with new reports")
 
@@ -666,10 +664,16 @@ func (s *EmailService) ProcessBrandNotifications() error {
 	receiptPreflighted := false
 
 	for _, summary := range brandSummaries {
+		if _, known := ResolveCompanyRoute(summary.BrandName); known {
+			continue
+		} // curated cohorts use the exclusive freshness gate
 		// SAFETY CHECK: Daily email limit per brand
 		dailyCount, err := s.getDailyEmailCount(ctx, summary.BrandName)
 		if err != nil {
-			log.Warnf("Failed to get daily email count for %s: %v", summary.BrandName, err)
+			log.Warnf("Daily recipient budget unavailable for %s; keeping reports pending: %v", summary.BrandName, err)
+			scheduledRetries += s.scheduleReportsRetry(ctx, summary.ReportSeqs, retryReasonThrottleError, time.Now().Add(30*time.Minute))
+			skippedBrands++
+			continue
 		} else if dailyCount >= s.config.MaxDailyEmailsPerBrand {
 			log.Warnf("⚠️ DAILY LIMIT REACHED for brand %s (%d/%d), skipping",
 				summary.BrandName, dailyCount, s.config.MaxDailyEmailsPerBrand)
@@ -680,7 +684,7 @@ func (s *EmailService) ProcessBrandNotifications() error {
 			continue
 		}
 
-		if !s.config.DryRun && !receiptPreflighted {
+		if !receiptPreflighted {
 			if err := s.preflightNotificationReceipts(ctx); err != nil {
 				return fmt.Errorf("notification receipt preflight failed; no emails sent: %w", err)
 			}
@@ -774,21 +778,6 @@ func (s *EmailService) ProcessBrandNotifications() error {
 			continue
 		}
 
-		// DRY RUN MODE: Log what would be sent but don't actually send
-		if s.config.DryRun {
-			log.Infof("🔒 DRY RUN: Would send to %d recipients for brand %s (%d new, %d total reports)",
-				len(cleanEmails), summary.BrandName, summary.NewReportCount, summary.TotalReportCount)
-			log.Infof("🔒 DRY RUN: Recipients: %v", cleanEmails)
-			for _, seq := range summary.ReportSeqs {
-				if err := s.markReportAsProcessed(ctx, seq); err != nil {
-					log.Warnf("Failed to mark report %d as processed in dry-run: %v", seq, err)
-				}
-			}
-			processedBrands++
-			emailsSent += len(cleanEmails)
-			continue
-		}
-
 		// Send ONE aggregate notification for this brand
 		log.Infof("Brand %s: sending aggregate notification (%d new, %d total) to %d recipients",
 			summary.BrandName, summary.NewReportCount, summary.TotalReportCount, len(cleanEmails))
@@ -860,10 +849,18 @@ func (s *EmailService) ProcessBrandNotifications() error {
 
 // processReport processes a single report and sends emails if needed
 func (s *EmailService) processReport(ctx context.Context, report models.Report) error {
+	if s.config.DryRun {
+		log.Info("DRY RUN: automatic processing skipped without changes; use --notification-plan for a read-only company plan")
+		return nil
+	}
 	// Get analysis data for this report
 	analysis, err := s.getReportAnalysis(ctx, report.Seq)
 	if err != nil {
 		return fmt.Errorf("failed to get analysis for report %d: %w", report.Seq, err)
+	}
+
+	if _, known := ResolveCompanyRoute(analysis.BrandName); known && analysis.Classification == "digital" {
+		return fmt.Errorf("known AI company notifications require the verified freshness route")
 	}
 
 	// Check if we have inferred contact emails
@@ -888,7 +885,7 @@ func (s *EmailService) processReport(ctx context.Context, report models.Report) 
 
 			// Send emails to inferred contacts (no area context needed)
 			if err := s.sendEmailsToInferredContacts(ctx, report, analysis, cleanEmails); err != nil {
-				log.Errorf("Failed to send emails to inferred contacts for report %d: %v", report.Seq, err)
+				return fmt.Errorf("inferred notification remains pending: %w", err)
 			} else {
 				log.Infof("Successfully sent emails to inferred contacts for report %d (%s report)", report.Seq, analysis.Classification)
 			}
@@ -913,36 +910,44 @@ func (s *EmailService) processReport(ctx context.Context, report models.Report) 
 		return fmt.Errorf("failed to find areas for report: %w", err)
 	}
 
-	// If no areas found, mark as processed and return
+	// No send must not become a successful processed marker. Keep discovery
+	// retryable, using the existing capped no-contact backoff when it cannot run.
 	if len(emails) == 0 {
-		// Physical reports may get inferred_contact_emails populated asynchronously (OSM/web enrichment, email-fetcher, etc).
-		// If we mark processed immediately, we lose the chance to send when those contacts arrive.
-		if analysis.Classification != "digital" {
-			if report.Latitude == 0 && report.Longitude == 0 {
-				log.Infof("Report %d: No areas found and location is (0,0); cannot do location-based contact discovery. Marking processed.", report.Seq)
-				return s.markReportAsProcessed(ctx, report.Seq)
-			}
-			deferred, derr := s.deferReportForContactDiscovery(ctx, report.Seq)
-			if derr != nil {
-				return derr
+		if analysis.Classification != "digital" && (report.Latitude != 0 || report.Longitude != 0) {
+			deferred, err := s.deferReportForContactDiscovery(ctx, report.Seq)
+			if err != nil {
+				return err
 			}
 			if deferred {
-				return nil
+				return fmt.Errorf("report is awaiting contact discovery")
 			}
 		}
-
-		log.Infof("Report %d: No areas found, marking as processed", report.Seq)
-		return s.markReportAsProcessed(ctx, report.Seq)
+		if err := s.scheduleReportRetry(ctx, report.Seq, retryReasonNoValidEmails, time.Now().Add(6*time.Hour)); err != nil {
+			return err
+		}
+		return fmt.Errorf("report has no recipient; remains pending")
 	}
 
 	log.Infof("Report %d: Found %d areas with emails, sending area-based emails", report.Seq, len(emails))
 
-	// Send emails for each area
+	// Any failed or held area keeps this report pending. Previously accepted
+	// recipients are skipped by the append-only acceptance check on retry.
+	var areaFailure error
 	for areaID, emailAddrs := range emails {
 		if err := s.sendEmailsForArea(ctx, report, analysis, features[areaID], emailAddrs); err != nil {
 			log.Errorf("Failed to send emails for area %d: %v", areaID, err)
-			// Continue with other areas
+			if areaFailure == nil {
+				areaFailure = err
+			}
+			// Stop if an accepted receipt requires recovery; a later failure
+			// must never replace this quarantine with an automatic retry.
+			if strings.Contains(err.Error(), "quarantined") {
+				return err
+			}
 		}
+	}
+	if areaFailure != nil {
+		return areaFailure
 	}
 
 	// Mark report as processed
@@ -981,7 +986,7 @@ func (s *EmailService) deferReportForContactDiscovery(ctx context.Context, seq i
 	}
 
 	if retryCount >= maxRetries {
-		log.Infof("Report %d: No recipients found; contact-discovery retries exhausted (%d/%d), will mark as processed",
+		log.Infof("Report %d: No recipients found; contact-discovery retries exhausted (%d/%d), keeping pending",
 			seq, retryCount, maxRetries)
 		return false, nil
 	}
@@ -1037,7 +1042,7 @@ func (s *EmailService) findAreasForReport(ctx context.Context, report models.Rep
 
 	log.Infof("Report %d: area_index returned %d area ids (in %s)", report.Seq, len(areaMap), time.Since(qStart))
 	if len(areaMap) == 0 {
-		log.Infof("Report %d: No areas found, marking as processed", report.Seq)
+		log.Infof("Report %d: No matching contact areas found", report.Seq)
 		return nil, nil, nil
 	}
 
@@ -1142,181 +1147,48 @@ func (s *EmailService) getAreaEmails(ctx context.Context, areaMap map[uint64]boo
 }
 
 // sendEmailsToInferredContacts sends emails to inferred contact emails without area context
-func (s *EmailService) sendEmailsToInferredContacts(ctx context.Context, report models.Report, analysis *models.ReportAnalysis, emails []string) error {
-	emails = s.filterHighQualityInferredEmails(emails, analysis.Classification)
-	if len(emails) == 0 {
-		log.Infof("Report %d: inferred contacts were present, but none met the quality bar for sending", report.Seq)
-		return nil
+func (s *EmailService) sendEmailsToInferredContacts(ctx context.Context, report models.Report, analysis *models.ReportAnalysis, recipients []string) error {
+	recipients = s.filterHighQualityInferredEmails(recipients, analysis.Classification)
+	brand := analysis.BrandName
+	if brand == "" {
+		brand = "__missing_brand__"
 	}
-
-	brandName := analysis.BrandName
-	if brandName == "" {
-		brandName = "__missing_brand__"
-	}
-
-	// Filter out opted-out emails AND throttled emails
-	var validEmails []string
-	var throttledCount int
-	for _, email := range emails {
-		// Check opt-out first
-		optedOut, err := s.isEmailOptedOut(ctx, email)
-		if err != nil {
-			log.Warnf("Failed to check if email %s is opted out: %v, skipping", email, err)
-			continue
-		}
-
-		if optedOut {
-			log.Infof("Skipping opted-out email: %s", email)
-			continue
-		}
-
-		// Check per-brand throttle
-		throttled, err := s.shouldThrottleEmail(ctx, brandName, email)
-		if err != nil {
-			log.Warnf("Failed to check throttle for brand %s, email %s: %v, proceeding anyway", brandName, email, err)
-			// On error, proceed with sending (fail-open for throttle)
-		} else if throttled {
-			log.Infof("Throttling email to %s for brand %s (already sent recently)", email, brandName)
-			throttledCount++
-			continue
-		}
-
-		validEmails = append(validEmails, email)
-	}
-
-	if len(validEmails) == 0 {
-		if throttledCount > 0 {
-			log.Infof("All %d emails for report %d (brand: %s) are throttled or opted out, no emails sent", len(emails), report.Seq, brandName)
-		} else {
-			log.Infof("All emails for report %d are opted out, no emails sent", report.Seq)
-		}
-		return nil
-	}
-
-	log.Infof("Sending emails to %d valid inferred contacts for report %d (filtered from %d total, %d throttled)", len(validEmails), report.Seq, len(emails), throttledCount)
-
-	// Generate map image only for physical reports (digital reports don't need location context)
-	var mapImg []byte
+	var mapImage []byte
 	if analysis.Classification != "digital" {
 		var err error
-		mapImg, err = email.GeneratePolygonImg(nil, report.Latitude, report.Longitude)
+		mapImage, err = email.GeneratePolygonImg(nil, report.Latitude, report.Longitude)
 		if err != nil {
-			log.Warnf("Failed to generate map image for report %d: %v, sending email without map", report.Seq, err)
-			// Continue without map image
-		}
-	} else {
-		log.Infof("Report %d is digital, skipping map generation", report.Seq)
-	}
-
-	// Send emails with analysis data and map image
-	reportImg := report.Image
-	if reportImg == nil {
-		// Lazy-load blob only once we're committed to sending.
-		img, err := s.getReportImage(ctx, report.Seq)
-		if err != nil {
-			log.Warnf("Failed to load report image for seq %d: %v; sending email without report image", report.Seq, err)
-		} else {
-			reportImg = img
+			log.Warnf("Report map unavailable: seq=%d error=%v", report.Seq, err)
 		}
 	}
-	err := s.email.SendEmailsWithAnalysis(validEmails, reportImg, mapImg, analysis)
+	outcome, err := s.sendIndividualReportNotifications(ctx, report, analysis, recipients, mapImage, "inferred_contact", brand)
 	if err != nil {
 		return err
 	}
-
-	// Record that emails were sent to these recipients (for both general history and brand throttling)
-	for _, emailAddr := range validEmails {
-		// Record general email history
-		if recordErr := s.recordEmailSent(ctx, emailAddr); recordErr != nil {
-			log.Warnf("Failed to record email sent to %s: %v", emailAddr, recordErr)
-			// Continue - don't fail the whole operation for history tracking
-		}
-
-		// Record brand-specific throttle (this is critical for preventing spam)
-		if recordErr := s.recordBrandEmailSent(ctx, brandName, emailAddr); recordErr != nil {
-			log.Warnf("Failed to record brand email sent for %s to %s: %v", brandName, emailAddr, recordErr)
-			// Continue - don't fail the whole operation
-		}
-
-		if recordErr := s.recordReportEmailDelivery(ctx, report.Seq, emailAddr, "inferred_contact"); recordErr != nil {
-			log.Warnf("Failed to record report email delivery for seq %d to %s: %v", report.Seq, emailAddr, recordErr)
-		}
+	if !outcome.Complete {
+		return fmt.Errorf("individual notification remains pending")
 	}
-
 	return nil
 }
 
-// sendEmailsForArea sends emails for a specific area
-func (s *EmailService) sendEmailsForArea(ctx context.Context, report models.Report, analysis *models.ReportAnalysis, feature *geojson.Feature, emails []string) error {
-	if len(emails) == 0 {
-		return nil
-	}
-
-	// Filter out opted-out emails
-	var validEmails []string
-	for _, email := range emails {
-		optedOut, err := s.isEmailOptedOut(ctx, email)
-		if err != nil {
-			log.Warnf("Failed to check if email %s is opted out: %v, skipping", email, err)
-			continue
-		}
-
-		if optedOut {
-			log.Infof("Skipping opted-out email: %s", email)
-			continue
-		}
-
-		validEmails = append(validEmails, email)
-	}
-
-	if len(validEmails) == 0 {
-		log.Infof("All emails for area are opted out, no emails sent")
-		return nil
-	}
-
-	log.Infof("Sending emails to %d valid contacts for area (filtered from %d total)", len(validEmails), len(emails))
-
-	// Generate polygon image only for physical reports (digital reports don't need location)
-	var polyImg []byte
+// sendEmailsForArea preserves the existing area-recipient policy while recording
+// each accepted recipient before another address is attempted.
+func (s *EmailService) sendEmailsForArea(ctx context.Context, report models.Report, analysis *models.ReportAnalysis, feature *geojson.Feature, recipients []string) error {
+	var mapImage []byte
 	if analysis.Classification != "digital" {
 		var err error
-		polyImg, err = email.GeneratePolygonImg(feature, report.Latitude, report.Longitude)
+		mapImage, err = email.GeneratePolygonImg(feature, report.Latitude, report.Longitude)
 		if err != nil {
-			log.Warnf("Failed to generate polygon image: %v, sending email without map", err)
-			// Continue without map image
-		}
-	} else {
-		log.Infof("Report %d is digital, skipping polygon image generation", report.Seq)
-	}
-
-	// Send emails with analysis data
-	reportImg := report.Image
-	if reportImg == nil {
-		// Lazy-load blob only once we're committed to sending.
-		img, err := s.getReportImage(ctx, report.Seq)
-		if err != nil {
-			log.Warnf("Failed to load report image for seq %d: %v; sending email without report image", report.Seq, err)
-		} else {
-			reportImg = img
+			log.Warnf("Area map unavailable: seq=%d error=%v", report.Seq, err)
 		}
 	}
-	err := s.email.SendEmailsWithAnalysis(validEmails, reportImg, polyImg, analysis)
+	outcome, err := s.sendIndividualReportNotifications(ctx, report, analysis, recipients, mapImage, "area_contact", "")
 	if err != nil {
 		return err
 	}
-
-	// Record that emails were sent to these recipients
-	for _, emailAddr := range validEmails {
-		if recordErr := s.recordEmailSent(ctx, emailAddr); recordErr != nil {
-			log.Warnf("Failed to record email sent to %s: %v", emailAddr, recordErr)
-			// Continue - don't fail the whole operation for history tracking
-		}
-
-		if recordErr := s.recordReportEmailDelivery(ctx, report.Seq, emailAddr, "area_contact"); recordErr != nil {
-			log.Warnf("Failed to record report email delivery for seq %d to %s: %v", report.Seq, emailAddr, recordErr)
-		}
+	if !outcome.Complete {
+		return fmt.Errorf("area notification remains pending")
 	}
-
 	return nil
 }
 

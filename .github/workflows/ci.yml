@@ -111,6 +111,14 @@ jobs:
           docker exec -e MYSQL_PWD=local-evidence-fixture ${{ job.services.mysql.id }} mysql -uroot -e 'CREATE DATABASE email_notification_test;'
           go test ./service -run '^TestNotificationMySQL$' -count=1 -v
 
+      - name: Check report contact suggestions cannot become global routing on MySQL
+        working-directory: report-analyze-pipeline
+        env:
+          CONTACTS_TEST_DSN: "root:local-evidence-fixture@tcp(127.0.0.1:33306)/pipeline_contact_routing_test?parseTime=true&charset=utf8mb4"
+        run: |
+          docker exec -e MYSQL_PWD=local-evidence-fixture ${{ job.services.mysql.id }} mysql -uroot -e 'CREATE DATABASE pipeline_contact_routing_test;'
+          go test ./contacts -run '^TestContactRoutingMySQLFixture$' -count=1 -v
+
   evidence_original_mysql:
     name: Original lookup and online index (MySQL 8.0.44)
     runs-on: ubuntu-latest
@@ -201,6 +209,14 @@ jobs:
         run: |
           docker exec -e MYSQL_PWD=local-evidence-fixture ${{ job.services.mysql.id }} mysql -uroot -e 'CREATE DATABASE email_notification_test;'
           go test ./service -run '^TestNotificationMySQL$' -count=1 -v
+
+      - name: Check report contact quarantine on MySQL 8.0
+        working-directory: report-analyze-pipeline
+        env:
+          CONTACTS_TEST_DSN: "root:local-evidence-fixture@tcp(127.0.0.1:33306)/pipeline_contact_routing_test?parseTime=true&charset=utf8mb4"
+        run: |
+          docker exec -e MYSQL_PWD=local-evidence-fixture ${{ job.services.mysql.id }} mysql -uroot -e 'CREATE DATABASE pipeline_contact_routing_test;'
+          go test ./contacts -run '^TestContactRoutingMySQLFixture$' -count=1 -v
 
   golangci:
     name: Go Lint (golangci-lint)

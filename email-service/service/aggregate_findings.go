@@ -39,7 +39,11 @@ func notificationPublicStateSQL(alias string) string {
 // getAggregateFindings only considers the current pending batch. It cannot
 // select historical, already processed reports merely because they rank highly.
 func (s *EmailService) getAggregateFindings(ctx context.Context, summary *models.BrandReportSummary) ([]models.BrandReportFinding, error) {
-	if len(summary.ReportSeqs) == 0 {
+	return s.getAggregateFindingsForBrands(ctx, summary, []string{summary.BrandName})
+}
+
+func (s *EmailService) getAggregateFindingsForBrands(ctx context.Context, summary *models.BrandReportSummary, brands []string) ([]models.BrandReportFinding, error) {
+	if len(summary.ReportSeqs) == 0 || len(brands) == 0 {
 		return nil, nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -50,13 +54,17 @@ func (s *EmailService) getAggregateFindings(ctx context.Context, summary *models
 		marks[i] = "?"
 		args = append(args, seq)
 	}
-	args = append(args, summary.BrandName)
+	brandMarks := make([]string, len(brands))
+	for i, brand := range brands {
+		brandMarks[i] = "?"
+		args = append(args, brand)
+	}
 	rows, err := s.db.QueryContext(ctx, `SELECT r.seq,r.public_id,COALESCE(ra.title,''),COALESCE(ra.summary,''),
 		COALESCE(ev.evidence_excerpt,''),COALESCE(ev.reported_impact,''),COALESCE(ev.report_kind,'unknown'),
 		COALESCE(ra.classification,''),r.ts
 		FROM reports r JOIN report_analysis ra ON ra.seq=r.seq AND ra.language='en'
 		LEFT JOIN report_raw rr ON rr.report_seq=r.seq LEFT JOIN report_evidence ev ON ev.seq=r.seq
-		WHERE r.seq IN (`+strings.Join(marks, ",")+`) AND ra.brand_name=? AND ra.is_valid=TRUE
+		WHERE r.seq IN (`+strings.Join(marks, ",")+`) AND ra.brand_name IN (`+strings.Join(brandMarks, ",")+`) AND ra.is_valid=TRUE
 		AND (rr.visibility IS NULL OR rr.visibility='public') AND `+notificationPublicStateSQL("r")+` AND r.public_id IS NOT NULL AND r.public_id<>''
 		ORDER BY r.ts DESC,r.seq DESC LIMIT 20`, args...)
 	if err != nil {
@@ -111,8 +119,12 @@ func (s *EmailService) alreadyNotifiedAllReports(ctx context.Context, seqs []int
 		args = append(args, seq)
 	}
 	var count int
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT seq) FROM report_email_deliveries
-		WHERE recipient_email=? AND delivery_status='sent' AND seq IN (`+strings.Join(marks, ",")+`)`, args...).Scan(&count)
+	query := `SELECT COUNT(DISTINCT seq) FROM (
+ SELECT seq FROM report_email_deliveries WHERE recipient_email=? AND delivery_status='sent' AND seq IN (` + strings.Join(marks, ",") + `)
+ UNION ALL SELECT seq FROM report_email_delivery_events WHERE recipient_email=? AND delivery_status='sent' AND seq IN (` + strings.Join(marks, ",") + `)
+ ) accepted`
+	args = append(args, args...)
+	err := s.db.QueryRowContext(ctx, query, args...).Scan(&count)
 	return count == len(seqs), err
 }
 
