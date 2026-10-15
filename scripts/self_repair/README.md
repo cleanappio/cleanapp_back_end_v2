@@ -146,6 +146,14 @@ and these objects:
 Keep evidence references durable and free of credentials. Store necessary
 verification files privately beside the ledger; publish only redacted findings.
 
+For an operational data repair, the released artifact is the exact repair tool
+that was applied: record its source commit, binary SHA-256, execution time and
+bounded repair log. Bind live verification to that applied tool identity and
+also record the serving application's separate version/digest. Verify the
+reported failure after the data repair. Do not restart or redeploy an unchanged
+application merely to satisfy the evidence format, and do not describe the
+repair tool's commit as the running application's commit.
+
 ## Rollout and operation
 
 The first deployment uses a 30-minute scheduled continuation in the existing
