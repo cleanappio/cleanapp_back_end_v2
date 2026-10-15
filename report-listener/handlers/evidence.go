@@ -56,10 +56,10 @@ func (h *Handlers) serveEvidenceBrand(c *gin.Context, discovery bool) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve evidence briefing"})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"items": items, "count": len(items), "total_count": page.Total, "high_priority_count": page.High, "medium_priority_count": page.Medium, "kind": filter.Kind, "sort": filter.Sort, "offset": filter.Offset, "has_more": page.HasMore, "kind_counts": page.KindCounts, "counts_exact": true, "scope": scope})
+		c.JSON(http.StatusOK, gin.H{"items": items, "count": len(items), "total_count": page.Total, "high_priority_count": page.High, "medium_priority_count": page.Medium, "kind": filter.Kind, "sort": filter.Sort, "offset": filter.Offset, "has_more": page.HasMore, "kind_counts": page.KindCounts, "counts_exact": true, "scope": scope, "overview": page.Overview})
 		return
 	}
-	response := gin.H{"reports": page.Reports, "count": len(page.Reports), "total_count": page.Total, "high_priority_count": page.High, "medium_priority_count": page.Medium, "kind": filter.Kind, "sort": filter.Sort, "offset": filter.Offset, "has_more": page.HasMore, "kind_counts": page.KindCounts, "counts_exact": true, "scope": scope, "from_seq": 0, "to_seq": 0}
+	response := gin.H{"reports": page.Reports, "count": len(page.Reports), "total_count": page.Total, "high_priority_count": page.High, "medium_priority_count": page.Medium, "kind": filter.Kind, "sort": filter.Sort, "offset": filter.Offset, "has_more": page.HasMore, "kind_counts": page.KindCounts, "counts_exact": true, "scope": scope, "overview": page.Overview, "from_seq": 0, "to_seq": 0}
 	if len(page.Reports) > 0 {
 		response["from_seq"] = page.Reports[0].Report.Seq
 		response["to_seq"] = page.Reports[len(page.Reports)-1].Report.Seq

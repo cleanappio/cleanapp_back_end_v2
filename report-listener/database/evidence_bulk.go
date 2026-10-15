@@ -513,7 +513,7 @@ func hydrateEvidenceDisplay(ctx context.Context, tx *sql.Tx, f EvidenceFilter, c
 func evidenceTextPointer(s string) *string { return &s }
 
 func loadEvidenceBrandPageBulk(ctx context.Context, tx *sql.Tx, f EvidenceFilter) (EvidenceBrandPage, error) {
-	page := EvidenceBrandPage{Reports: []models.ReportWithMinimalAnalysis{}}
+	page := EvidenceBrandPage{Reports: []models.ReportWithMinimalAnalysis{}, Overview: evidenceOverview(nil, f.asOf)}
 	analysis, ids, err := loadEvidenceAnalysisCore(ctx, tx, f)
 	if err != nil {
 		return page, err
@@ -564,6 +564,7 @@ func loadEvidenceBrandPageBulk(ctx context.Context, tx *sql.Tx, f EvidenceFilter
 		r.SeverityNull = a.SeverityNull
 		all = append(all, r)
 	}
+	page.Overview = evidenceOverview(all, f.asOf)
 	cases, err := loadEvidenceCaseReferences(ctx, tx, visible)
 	if err != nil {
 		return page, err
