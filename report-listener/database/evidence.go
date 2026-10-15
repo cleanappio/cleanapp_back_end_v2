@@ -504,6 +504,9 @@ func (r evidenceRecord) publicEvidence() models.PublicEvidence {
 		ingestedAt = &r.IngestedAt
 	}
 	ev := models.PublicEvidence{ReportKind: kind, IntakeMethod: intake, IntakeChannel: intakeChannel, IntakeLabel: label, SourcePlatform: evidenceText(platform, 64), SourceURL: evidenceText(sourceURL, 2048), SourcePublishedAt: publicEvidenceDate(r.PublishedAt), ObservedAt: publicEvidenceDate(r.ObservedAt), IngestedAt: ingestedAt, EntityRelationship: relationship, ValidationStatus: "not_independently_reproduced", UpstreamStatus: "unknown", ResolutionStatus: "unknown", WhySurfaced: []string{}, EvidenceVersion: r.Version, HasOriginalMedia: r.HasOriginalMedia && !r.PrivacyRestricted}
+	if r.PrivacyRestricted {
+		ev.SourceURL = nil
+	}
 	if r.Version > 0 && !r.PrivacyRestricted {
 		if !sensitiveEvidence.MatchString(r.Excerpt) && !hasUnsafeEvidenceControls(r.Excerpt) {
 			ev.Excerpt = evidenceText(r.Excerpt, 500)
@@ -623,6 +626,12 @@ func (d *Database) AttachPublicEvidence(ctx context.Context, reports []*models.R
 		return err
 	}
 	rows.Close()
+	// Missing public evidence cannot authorize returning the raw detail object.
+	for _, report := range reports {
+		if _, ok := bySeq[report.Report.Seq]; !ok {
+			return fmt.Errorf("public detail projection is incomplete")
+		}
+	}
 	mediaSeqs := []int{}
 	for _, r := range bySeq {
 		if r.HasOriginalMedia && !r.PrivacyRestricted {
@@ -635,17 +644,29 @@ func (d *Database) AttachPublicEvidence(ctx context.Context, reports []*models.R
 	}
 	for _, report := range reports {
 		if r, ok := bySeq[report.Report.Seq]; ok {
-			ev := r.publicEvidence()
-			rec := r.publicRecurrence()
-			rec.CountsExact = false
-			ev.HasOriginalMedia = ev.HasOriginalMedia && valid[report.Report.Seq]
-			report.Evidence = &ev
-			report.Recurrence = &rec
-			report.Report.SourceURL = ev.SourceURL
-			report.Report.SourceTimestamp = ev.SourcePublishedAt
+			attachPublicDetailProjection(report, r, valid[report.Report.Seq])
 		}
 	}
 	return nil
+}
+
+// Only public detail handlers call this projection. Private subscriber readers
+// retain the underlying evidence; a privacy flag must also cover AI derivatives
+// and legacy media/text fields that precede structured evidence in the reader.
+func attachPublicDetailProjection(report *models.ReportWithAnalysis, r evidenceRecord, validImage bool) {
+	ev, rec := r.publicEvidence(), r.publicRecurrence()
+	rec.CountsExact = false
+	ev.HasOriginalMedia = ev.HasOriginalMedia && validImage
+	report.Evidence, report.Recurrence = &ev, &rec
+	report.Report.SourceURL, report.Report.SourceTimestamp = ev.SourceURL, ev.SourcePublishedAt
+	if r.PrivacyRestricted {
+		report.Report.Image, report.Report.Description = nil, nil
+		for i := range report.Analysis {
+			report.Analysis[i].Title = "Reported issue"
+			report.Analysis[i].Summary, report.Analysis[i].Description = "", ""
+			report.Analysis[i].AnalysisImage, report.Analysis[i].AnalysisText = nil, ""
+		}
+	}
 }
 
 // Decode only the bounded selected-page image headers, never report blobs across

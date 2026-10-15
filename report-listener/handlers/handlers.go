@@ -966,8 +966,8 @@ func (h *Handlers) GetReportBySeq(c *gin.Context) {
 		return
 	}
 
-	if err := h.db.AttachPublicEvidence(c.Request.Context(), []*models.ReportWithAnalysis{reportWithAnalysis}); err != nil {
-		log.Printf("Public detail evidence unavailable: %v", err)
+	if !attachPublicDetailEvidence(c, reportWithAnalysis, h.db.AttachPublicEvidence) {
+		return
 	}
 	h.attachPublicNotificationSummary(c.Request.Context(), reportWithAnalysis)
 	c.JSON(http.StatusOK, reportWithAnalysis)
@@ -995,8 +995,8 @@ func (h *Handlers) GetReportByPublicID(c *gin.Context) {
 		return
 	}
 
-	if err := h.db.AttachPublicEvidence(c.Request.Context(), []*models.ReportWithAnalysis{reportWithAnalysis}); err != nil {
-		log.Printf("Public detail evidence unavailable: %v", err)
+	if !attachPublicDetailEvidence(c, reportWithAnalysis, h.db.AttachPublicEvidence) {
+		return
 	}
 	h.attachPublicNotificationSummary(c.Request.Context(), reportWithAnalysis)
 	c.JSON(http.StatusOK, reportWithAnalysis)

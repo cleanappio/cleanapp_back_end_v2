@@ -252,6 +252,7 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 			publicDiscovery.GET("/by-brand", h.GetPublicDiscoveryByBrand)
 			publicDiscovery.GET("/by-latlng", h.GetPublicDiscoveryByLatLng)
 			publicDiscovery.GET("/brands/summary", h.GetPublicDiscoveryBrandSummaries)
+			publicDiscovery.GET("/brand-preview", h.GetPublicBrandPreview)
 			publicDiscovery.GET("/physical-points", h.GetPublicDiscoveryPhysicalPoints)
 		}
 
@@ -440,6 +441,7 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 			publicDiscoveryV4.GET("/by-brand", h.GetPublicDiscoveryByBrand)
 			publicDiscoveryV4.GET("/by-latlng", h.GetPublicDiscoveryByLatLng)
 			publicDiscoveryV4.GET("/brands/summary", h.GetPublicDiscoveryBrandSummaries)
+			publicDiscoveryV4.GET("/brand-preview", h.GetPublicBrandPreview)
 			publicDiscoveryV4.GET("/physical-points", h.GetPublicDiscoveryPhysicalPoints)
 		}
 
