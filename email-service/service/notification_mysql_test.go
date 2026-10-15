@@ -3,8 +3,10 @@ package service
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -31,12 +33,22 @@ func notificationMySQLFixture(t *testing.T) *sql.DB {
 		t.Fatal("fixture requires localhost TCP and a *_notification_test database")
 	}
 	cfg.ParseTime = true
+	if cfg.Params == nil {
+		cfg.Params = map[string]string{}
+	}
+	cfg.Params["time_zone"] = "'+00:00'"
 	cfg.Timeout = 5 * time.Second
 	cfg.ReadTimeout = 10 * time.Second
 	cfg.WriteTimeout = 10 * time.Second
 	db, err := sql.Open("mysql", cfg.FormatDSN())
 	if err != nil {
 		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(4)
+	var sessionZone string
+	if err := db.QueryRow(`SELECT @@session.time_zone`).Scan(&sessionZone); err != nil || sessionZone != "+00:00" {
+		db.Close()
+		t.Fatalf("fixture must establish UTC on every session: %q %v", sessionZone, err)
 	}
 	t.Cleanup(func() { db.Close() })
 	ddl := []string{
@@ -49,8 +61,8 @@ func notificationMySQLFixture(t *testing.T) *sql.DB {
 		`CREATE TABLE sent_reports_emails(seq INT PRIMARY KEY)`,
 		`CREATE TABLE email_report_retry(seq INT PRIMARY KEY,next_attempt_at DATETIME,reason VARCHAR(64))`,
 		`CREATE TABLE brand_email_throttle(brand_name VARCHAR(255),email VARCHAR(255),last_sent_at DATETIME,PRIMARY KEY(brand_name,email))`,
-		`CREATE TABLE report_email_deliveries(id BIGINT AUTO_INCREMENT PRIMARY KEY,seq INT,recipient_email VARCHAR(255),delivery_status VARCHAR(32),delivery_source VARCHAR(64),provider VARCHAR(32),sent_at TIMESTAMP NULL,updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,UNIQUE KEY uq_report_email_delivery(seq,recipient_email))`,
-		`CREATE TABLE report_email_delivery_events(id BIGINT AUTO_INCREMENT PRIMARY KEY,seq INT,recipient_email VARCHAR(320),delivery_status VARCHAR(32),delivery_source VARCHAR(64),provider VARCHAR(64),provider_message_id VARCHAR(255),sent_at TIMESTAMP NULL,legacy_delivery_id BIGINT NULL,is_legacy BOOLEAN DEFAULT FALSE,receipt_key CHAR(64) NULL,UNIQUE KEY(receipt_key),UNIQUE KEY(legacy_delivery_id,sent_at,delivery_source),KEY idx_report_delivery_event_seq(seq,sent_at,id))`,
+		`CREATE TABLE report_email_deliveries(id BIGINT AUTO_INCREMENT PRIMARY KEY,seq INT,recipient_email VARCHAR(255),delivery_status VARCHAR(32),delivery_source VARCHAR(64),provider VARCHAR(32),sent_at TIMESTAMP NULL,updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,UNIQUE KEY uq_report_email_delivery(seq,recipient_email)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+		`CREATE TABLE report_email_delivery_events(id BIGINT AUTO_INCREMENT PRIMARY KEY,seq INT,recipient_email VARCHAR(320),delivery_status VARCHAR(32),delivery_source VARCHAR(64),provider VARCHAR(64),provider_message_id VARCHAR(255),sent_at TIMESTAMP NULL,legacy_delivery_id BIGINT NULL,is_legacy BOOLEAN DEFAULT FALSE,receipt_key CHAR(64) NULL,UNIQUE KEY(receipt_key),UNIQUE KEY(legacy_delivery_id,sent_at,delivery_source),KEY idx_report_delivery_event_seq(seq,sent_at,id)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
 	}
 	var existing int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE()`).Scan(&existing); err != nil {
@@ -145,15 +157,16 @@ func TestNotificationMySQL(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM report_email_delivery_events WHERE seq=2 AND delivery_source='aggregate_brand' AND sent_at='2026-09-21 18:36:41'`).Scan(&original); err != nil || original != 1 {
 		t.Fatalf("original digest was rewritten/lost: count=%d %v", original, err)
 	}
-	// Only the fixed no-contact reason may bypass an existing future retry.
+	// The short company cadence can supersede obsolete no-contact and seven-day
+	// throttle delays for a report that has never been accepted or processed.
 	// Successful prior delivery, processed rows, privacy, and every other hold
 	// remain authoritative even when a verified recipient has become available.
 	for _, q := range []string{
-		`INSERT INTO reports(seq,public_id,ts) VALUES(8,'rpt_8',NOW()),(9,'rpt_9',NOW()),(10,'rpt_10',NOW()),(11,'rpt_11',NOW()),(12,'rpt_12',NOW()),(13,'rpt_13',NOW()),(14,'rpt_14',NOW()),(15,'rpt_15',NOW()),(16,'rpt_16',NOW()),(17,'rpt_17',NOW()),(18,'rpt_18',NOW()),(19,'rpt_19',NOW())`,
+		`INSERT INTO reports(seq,public_id,ts) VALUES(8,'rpt_8',NOW()),(9,'rpt_9',NOW()),(10,'rpt_10',NOW()),(11,'rpt_11',NOW()),(12,'rpt_12',NOW()),(13,'rpt_13',NOW()),(14,'rpt_14',NOW()),(15,'rpt_15',NOW()),(16,'rpt_16',NOW()),(17,'rpt_17',NOW()),(18,'rpt_18',NOW()),(19,'rpt_19',NOW()),(20,'rpt_unknown_history',NOW())`,
 		`INSERT INTO report_analysis SELECT seq,'en','grok','Grok','Issue','Summary','digital','',TRUE FROM reports WHERE seq>=8`,
 		`INSERT INTO report_evidence(seq,report_kind,entity_relationship,evidence_version) SELECT seq,IF(seq=17,'coverage','firsthand'),IF(seq=18,'dependency','affected'),IF(seq=19,0,1) FROM reports WHERE seq>=8`,
 		`INSERT INTO email_report_retry VALUES(9,DATE_ADD(NOW(),INTERVAL 30 DAY),'no_valid_emails'),(10,DATE_ADD(NOW(),INTERVAL 30 DAY),'all_throttled'),(11,DATE_ADD(NOW(),INTERVAL 30 DAY),'daily_limit'),(12,'2020-01-01','notification_receipt_pending')`,
-		`INSERT INTO report_email_deliveries(seq,recipient_email,delivery_status,delivery_source,provider,sent_at) VALUES(13,'prior@company.com','sent','aggregate_brand','sendgrid',NOW())`,
+		`INSERT INTO report_email_deliveries(seq,recipient_email,delivery_status,delivery_source,provider,sent_at) VALUES(13,'prior@company.com','sent','aggregate_brand','sendgrid',NOW()),(20,'prior@company.com','sent','aggregate_brand','sendgrid',NULL)`,
 		`INSERT INTO report_email_delivery_events(seq,recipient_email,delivery_status,delivery_source,provider,sent_at) VALUES(14,'prior@company.com','sent','aggregate_report','sendgrid',NOW())`,
 		`INSERT INTO sent_reports_emails VALUES(15)`,
 		`INSERT INTO reports_owners VALUES(16,'owner',FALSE)`,
@@ -164,34 +177,48 @@ func TestNotificationMySQL(t *testing.T) {
 		}
 	}
 	var candidates []PlannedCompanyReport
-	for seq := int64(8); seq <= 19; seq++ {
+	for seq := int64(8); seq <= 20; seq++ {
 		candidates = append(candidates, PlannedCompanyReport{Seq: seq})
 	}
 	pending, err := s.pendingCompanyReports(ctx, candidates)
-	if err != nil || len(pending) != 2 || pending[0].Seq != 8 || pending[1].Seq != 9 {
+	if err != nil || len(pending) != 3 || pending[0].Seq != 8 || pending[1].Seq != 9 || pending[2].Seq != 10 {
 		t.Fatalf("company recovery bypassed protected state: %#v %v", pending, err)
 	}
 	route, _ := ResolveCompanyRoute("anthropic")
-	s.config = &config.Config{ThrottleDays: 7}
-	next, err := s.companyThrottle(ctx, route, "support@anthropic.com", time.Date(2026, 10, 15, 20, 0, 0, 0, time.UTC))
-	if err != nil || next == nil || !next.Equal(time.Date(2026, 10, 16, 22, 57, 17, 0, time.UTC)) {
-		t.Fatalf("official recipient alias cooldown changed: %v %v", next, err)
+	s.config = &config.Config{ThrottleDays: 7, CompanyNotificationInterval: 5 * time.Minute}
+	now := time.Date(2026, 10, 15, 20, 0, 0, 0, time.UTC)
+	// The generic seven-day setting no longer postpones new company reports.
+	if next, err := s.companyThrottle(ctx, route, "support@anthropic.com", now); err != nil || next != nil {
+		t.Fatalf("obsolete seven-day company cooldown survived: %v %v", next, err)
 	}
-	// A successful event is sufficient even when the secondary throttle cache
-	// failed completely, and a newer event must extend an older cached cooldown.
-	if _, err := db.ExecContext(ctx, `INSERT INTO report_email_delivery_events(seq,recipient_email,delivery_status,delivery_source,provider,sent_at) VALUES(8,'support@x.ai','sent','aggregate_report','google_workspace','2026-10-14 12:00:00')`); err != nil {
+	if _, err := db.ExecContext(ctx, `UPDATE brand_email_throttle SET last_sent_at=? WHERE brand_name=' Claude Code '`, now.Add(-2*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	next, err := s.companyThrottle(ctx, route, "support@anthropic.com", now)
+	if err != nil || next == nil || !next.Equal(now.Add(3*time.Minute)) {
+		t.Fatalf("official recipient alias cadence changed: %v %v", next, err)
+	}
+	if next, err := s.companyThrottle(ctx, route, "support@anthropic.com", now.Add(3*time.Minute)); err != nil || next != nil {
+		t.Fatalf("expired short cadence still held a company: %v %v", next, err)
+	}
+	// A recent accepted event is sufficient when the mutable throttle cache
+	// failed completely, and extends an older cached cadence across aliases.
+	if _, err := db.ExecContext(ctx, `INSERT INTO report_email_delivery_events(seq,recipient_email,delivery_status,delivery_source,provider,sent_at) VALUES(8,'support@x.ai','sent','aggregate_report','google_workspace',?)`, now.Add(-time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	for _, cache := range []bool{false, true} {
 		if cache {
-			if _, err := db.ExecContext(ctx, `INSERT INTO brand_email_throttle VALUES('grok','support@x.ai','2026-10-09 12:00:00')`); err != nil {
+			if _, err := db.ExecContext(ctx, `INSERT INTO brand_email_throttle VALUES('grok','support@x.ai',?)`, now.Add(-time.Hour)); err != nil {
 				t.Fatal(err)
 			}
 		}
 		xai, _ := ResolveCompanyRoute("grok")
-		next, err := s.companyThrottle(ctx, xai, "support@x.ai", time.Date(2026, 10, 15, 20, 0, 0, 0, time.UTC))
-		if err != nil || next == nil || !next.Equal(time.Date(2026, 10, 21, 12, 0, 0, 0, time.UTC)) {
-			t.Fatalf("accepted ledger did not retain cooldown (cache=%v): %v %v", cache, next, err)
+		next, err := s.companyThrottle(ctx, xai, "support@x.ai", now)
+		if err != nil || next == nil || !next.Equal(now.Add(4*time.Minute)) {
+			t.Fatalf("accepted ledger did not retain short cadence (cache=%v): %v %v", cache, next, err)
+		}
+		if next, err := s.companyThrottle(ctx, xai, "support@x.ai", now.Add(4*time.Minute)); err != nil || next != nil {
+			t.Fatalf("expired durable receipt still imposed a seven-day hold: %v %v", next, err)
 		}
 	}
 	if _, err := db.ExecContext(ctx, `INSERT INTO email_report_retry(seq,next_attempt_at,reason) VALUES(1,'2020-01-01','notification_receipt_pending'),(2,'2020-01-01','notification_receipt_pending')`); err != nil {
@@ -201,4 +228,206 @@ func TestNotificationMySQL(t *testing.T) {
 	if err != nil || len(quarantined) != 0 {
 		t.Fatalf("receipt recovery batch re-entered automatic send queue: %#v %v", quarantined, err)
 	}
+	t.Run("ActualCompanyMessagesPerUTCDay", func(t *testing.T) {
+		route, _ := ResolveCompanyRoute("openai")
+		day := time.Date(2026, 10, 15, 20, 0, 0, 0, time.UTC)
+		start, end := companyDailyWindow(day)
+		at := start.Add(12 * time.Hour)
+		for seq := int64(100); seq < 112; seq++ {
+			if _, err := db.ExecContext(ctx, `INSERT INTO reports(seq,public_id,ts) VALUES(?,'rpt_budget',?)`, seq, at); err != nil {
+				t.Fatal(err)
+			}
+			brand := "openai"
+			if seq%2 == 1 {
+				brand = "chat gpt"
+			}
+			if _, err := db.ExecContext(ctx, `INSERT INTO report_analysis VALUES(?,'en',?,'OpenAI','Issue','Summary','digital','',TRUE)`, seq, brand); err != nil {
+				t.Fatal(err)
+			}
+		}
+		check := func(want int) {
+			t.Helper()
+			got, err := s.companyDailyCount(ctx, route, day)
+			if err != nil || got != want {
+				t.Fatalf("actual UTC-day message count=%d want=%d error=%v", got, want, err)
+			}
+		}
+		accept := func(seq int64, recipient, provider, id string, when time.Time) {
+			t.Helper()
+			if err := s.recordReportEmailDeliveryResult(ctx, seq, recipient, "aggregate_report", email.CustomEmailSendResult{Status: "sent", Provider: provider, ProviderMessageID: id, SentAt: when}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		check(0)
+		// One SMTP acceptance directly links four reports. Each report has an
+		// append event and latest legacy copy, but the daily budget uses one.
+		for seq := int64(100); seq < 104; seq++ {
+			accept(seq, "support@openai.com", "google_workspace", "message-A", at)
+		}
+		check(1)
+		var eventCopies, latestCopies int
+		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM report_email_delivery_events WHERE seq BETWEEN 100 AND 103`).Scan(&eventCopies); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM report_email_deliveries WHERE seq BETWEEN 100 AND 103`).Scan(&latestCopies); err != nil {
+			t.Fatal(err)
+		}
+		if eventCopies != 4 || latestCopies != 4 {
+			t.Fatal("fixture did not create per-report event and legacy copies")
+		}
+		// Distinct opaque IDs are separate actual sends, even at the same
+		// timestamp. Their case and provider identity must be preserved.
+		accept(100, "support@openai.com", "google_workspace", "message-B", at)
+		check(2)
+		accept(100, "support@openai.com", "google_workspace", "message-a", at)
+		check(3)
+		accept(101, "support@openai.com", "sendgrid", "message-A", at)
+		check(4)
+		// ID-less historical batch snapshots share recipient/source/time, and
+		// the same recipient at a different time is a new recorded message.
+		for seq := int64(104); seq < 106; seq++ {
+			accept(seq, "support@openai.com", "google_workspace", "", at.Add(10*time.Second))
+		}
+		check(5)
+		accept(104, "support@openai.com", "google_workspace", "", at.Add(11*time.Second))
+		check(6)
+		accept(105, "other@openai.com", "google_workspace", "message-A", at)
+		check(7)
+		accept(106, "support@openai.com", "google_workspace", "midnight", start)
+		check(8)
+		for _, row := range []struct {
+			seq                   int64
+			recipient, status, id string
+			when                  any
+		}{
+			{107, "support@openai.com", "failed", "failed", at},
+			{108, " \t\n", "sent", "blank-recipient", at},
+			{109, "support@openai.com", "sent", "unknown-time", nil},
+			{110, "support@openai.com", "sent", "previous-day", start.Add(-time.Second)},
+			{111, "support@openai.com", "sent", "next-day", end},
+			{1, "support@openai.com", "sent", "wrong-company", at},
+		} {
+			if _, err := db.ExecContext(ctx, `INSERT INTO report_email_delivery_events(seq,recipient_email,delivery_status,delivery_source,provider,provider_message_id,sent_at) VALUES(?,?,?,'aggregate_report','google_workspace',?,?)`, row.seq, row.recipient, row.status, row.id, row.when); err != nil {
+				t.Fatal(err)
+			}
+		}
+		check(8)
+		// Known cache snapshots add nothing. Unledgered cache snapshots count
+		// conservatively, with duplicate company aliases collapsed.
+		for _, brand := range []string{"openai", "chatgpt"} {
+			if _, err := db.ExecContext(ctx, `INSERT INTO brand_email_throttle VALUES(?,'support@openai.com',?)`, brand, at); err != nil {
+				t.Fatal(err)
+			}
+		}
+		check(8)
+		// Cache recording follows transport acceptance by a few seconds. The
+		// documented five-second tolerance must not spend a second budget slot;
+		// a six-second unmatched cache snapshot remains conservative.
+		for _, offset := range []time.Duration{time.Second, 5 * time.Second} {
+			if _, err := db.ExecContext(ctx, `UPDATE brand_email_throttle SET last_sent_at=? WHERE brand_name='openai'`, start.Add(offset)); err != nil {
+				t.Fatal(err)
+			}
+			check(8)
+		}
+		if _, err := db.ExecContext(ctx, `UPDATE brand_email_throttle SET last_sent_at=? WHERE brand_name='openai'`, start.Add(6*time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		check(9)
+		if _, err := db.ExecContext(ctx, `UPDATE brand_email_throttle SET last_sent_at=? WHERE brand_name='openai'`, at); err != nil {
+			t.Fatal(err)
+		}
+		check(8)
+		unledgered := at.Add(15 * time.Minute)
+		if _, err := db.ExecContext(ctx, `UPDATE brand_email_throttle SET last_sent_at=? WHERE brand_name='openai'`, unledgered); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.ExecContext(ctx, `INSERT INTO brand_email_throttle VALUES('codex','support@openai.com',?)`, unledgered); err != nil {
+			t.Fatal(err)
+		}
+		check(9)
+		if _, err := db.ExecContext(ctx, `INSERT INTO brand_email_throttle VALUES('whisper','legacy@openai.com',?)`, unledgered); err != nil {
+			t.Fatal(err)
+		}
+		check(10)
+		if got, err := s.companyDailyCount(ctx, route, day.In(time.FixedZone("west", -7*60*60))); err != nil || got != 10 {
+			t.Fatalf("caller timezone changed the UTC budget: %d %v", got, err)
+		}
+		// Legacy-only batch records remain countable without provider IDs.
+		// Capturing an exact old row in the append ledger must not count it twice.
+		legacyAt := at.Add(30 * time.Minute)
+		if _, err := db.ExecContext(ctx, `INSERT INTO report_email_deliveries(seq,recipient_email,delivery_status,delivery_source,provider,sent_at) VALUES(106,'legacy-only@openai.com','sent','aggregate_brand','sendgrid',?),(107,'legacy-only@openai.com','sent','aggregate_brand','sendgrid',?)`, legacyAt, legacyAt); err != nil {
+			t.Fatal(err)
+		}
+		check(11)
+		if _, err := db.ExecContext(ctx, `INSERT INTO report_email_delivery_events(seq,recipient_email,delivery_status,delivery_source,provider,sent_at,is_legacy) VALUES(106,'legacy-only@openai.com','sent','aggregate_brand','sendgrid',?,TRUE)`, legacyAt); err != nil {
+			t.Fatal(err)
+		}
+		check(11)
+		if got, err := s.companyDailyCount(ctx, route, end); err != nil || got != 1 {
+			t.Fatalf("UTC day boundary counted old or lost midnight messages: %d %v", got, err)
+		}
+	})
+
+	t.Run("CanonicalCompanyLock", func(t *testing.T) {
+		lockCtx, lockCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer lockCancel()
+		entered, release := make(chan struct{}), make(chan struct{})
+		var releaseOnce sync.Once
+		unblock := func() { releaseOnce.Do(func() { close(release) }) }
+		defer unblock()
+		failure := errors.New("controlled callback failure")
+		type lockResult struct {
+			ran bool
+			err error
+		}
+		done := make(chan lockResult, 1)
+		go func() {
+			ran, err := s.withCompanyNotificationLock(lockCtx, "x.ai", func() error {
+				// The lock owns a separate connection; ordinary callback queries
+				// must still have a usable pool connection.
+				var one int
+				if err := db.QueryRowContext(lockCtx, `SELECT 1`).Scan(&one); err != nil {
+					return err
+				}
+				close(entered)
+				select {
+				case <-release:
+					return failure
+				case <-lockCtx.Done():
+					return lockCtx.Err()
+				}
+			})
+			done <- lockResult{ran, err}
+		}()
+		select {
+		case <-entered:
+		case <-lockCtx.Done():
+			t.Fatal("first worker did not acquire its company lock")
+		}
+		busyCalled := false
+		ran, err := s.withCompanyNotificationLock(lockCtx, "  Grok  ", func() error { busyCalled = true; return nil })
+		if err != nil || ran || busyCalled {
+			t.Fatalf("canonical aliases ran concurrently: ran=%v callback=%v error=%v", ran, busyCalled, err)
+		}
+		otherCalled := false
+		ran, err = s.withCompanyNotificationLock(lockCtx, "anthropic", func() error { otherCalled = true; return nil })
+		if err != nil || !ran || !otherCalled {
+			t.Fatalf("unrelated company was locked: %v %v", ran, err)
+		}
+		unblock()
+		select {
+		case result := <-done:
+			if !result.ran || !errors.Is(result.err, failure) {
+				t.Fatalf("callback outcome lost: %+v", result)
+			}
+		case <-lockCtx.Done():
+			t.Fatal("failing callback did not release its lock")
+		}
+		afterCalled := false
+		ran, err = s.withCompanyNotificationLock(lockCtx, "xai", func() error { afterCalled = true; return nil })
+		if err != nil || !ran || !afterCalled {
+			t.Fatalf("callback failure stranded the company lock: %v %v", ran, err)
+		}
+	})
+
 }

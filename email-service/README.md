@@ -60,10 +60,27 @@ selects up to 20 pending reports, then waits one minute. Only affected-product f
 reports from the past 30 days qualify. Imported reports need an original source
 or observation date; only native submissions can use their recorded intake date.
 Private, inactive, already processed and already accepted reports are excluded.
-The worker rechecks eligibility before sending, respects opt-outs and daily
-limits, and checks the official recipient's cooldown across all company aliases.
-It can reconsider a `no_valid_emails` delay because the verified route resolves
-that condition; other future retry holds remain in force.
+The worker rechecks eligibility before sending and respects opt-outs. Verified
+company recipients use `COMPANY_NOTIFICATION_INTERVAL` (default `5m`) across all
+company aliases, independently of the legacy `EMAIL_THROTTLE_DAYS` setting.
+Previously accepted reports remain excluded even after this interval expires.
+The worker reconsiders `no_valid_emails` and obsolete `all_throttled` delays under
+the current cadence and daily gates; other future holds, including receipt
+recovery quarantine, remain in force. It does not delete the retry queue.
+
+`MAX_DAILY_EMAILS_PER_BRAND` still defaults to 10 accepted recipient messages per
+company per UTC day. One email linking multiple reports counts once, using its
+provider message ID across the append-only and latest-delivery ledgers. Legacy
+messages without IDs use recorded recipient, source, provider and timestamp.
+An unmatched throttle-cache record counts conservatively; a cache write within
+five seconds of the same recipient's receipt is treated as its secondary write.
+Day limits resume at midnight UTC. The sender and read-only plan connections set
+their database session timezone to UTC explicitly.
+
+A per-company database advisory lock covers selection, sending and receipt
+persistence, so overlapping worker instances cannot send the same pending batch.
+A failed company cycle is reported while other companies continue. Read-only
+plans and dry runs never acquire these locks.
 
 Preview the current bounded plan without creating a sender, starting workers or
 writing processing state:
@@ -144,6 +161,8 @@ For Google Workspace, configure its SMTP relay to authorize the deployment's pub
 
 ### Service
 - `POLL_INTERVAL`: How often to poll for new reports (default: 10s)
+- `COMPANY_NOTIFICATION_INTERVAL`: Minimum interval between verified-company recipient notifications, using Go duration syntax (default: `5m`; invalid/nonpositive values use the default). Does not change general or area notification throttles.
+- `MAX_DAILY_EMAILS_PER_BRAND`: Maximum accepted recipient messages per verified company per UTC day (default: `10`).
 - `HTTP_PORT`: HTTP server port for API endpoints (default: 8080)
 - `OPT_OUT_URL`: URL for email opt-out links (defaults to `CLEANAPP_BASE_URL`/`FRONTEND_URL`-derived public opt-out path; localhost only in dev-like environments)
 

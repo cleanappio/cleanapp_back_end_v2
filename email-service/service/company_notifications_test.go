@@ -110,12 +110,14 @@ func companySQLArgs(route CompanyRoute, prefix ...driver.Value) []driver.Value {
 	return args
 }
 
+const companyDailyQueryPattern = `(?s)WITH company_acceptances AS.*COUNT\(DISTINCT message_key\).*accepted_messages`
+
 func expectCompanyPolicyAllowed(mock sqlmock.Sqlmock, route CompanyRoute) {
 	recipient := route.Recipients[0].Email
 	mock.ExpectQuery(`SELECT COUNT\(\*\).*FROM opted_out_emails`).WithArgs(recipient).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 	mock.ExpectQuery(`SELECT MAX\(last_sent_at\) FROM brand_email_throttle`).WithArgs(companySQLArgs(route, recipient)...).WillReturnRows(sqlmock.NewRows([]string{"last"}).AddRow(nil))
 	mock.ExpectQuery(`(?s)SELECT MAX\(sent_at\).*UNION ALL`).WillReturnRows(sqlmock.NewRows([]string{"accepted"}).AddRow(nil))
-	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM brand_email_throttle WHERE LOWER`).WithArgs(companySQLArgs(route)...).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectQuery(companyDailyQueryPattern).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 }
 
 func TestCompanyPlanChecksRecipientPolicyBeforeReaderAndMakesNoHeldBatchWrites(t *testing.T) {
@@ -126,7 +128,7 @@ func TestCompanyPlanChecksRecipientPolicyBeforeReaderAndMakesNoHeldBatchWrites(t
 			route, _ := ResolveCompanyRoute("grok")
 			recipient := route.Recipients[0].Email
 			now := time.Now().UTC().Truncate(time.Second)
-			last := now.Add(-time.Hour)
+			last := now.Add(-time.Minute)
 			var calls atomic.Int32
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				calls.Add(1)
@@ -155,7 +157,7 @@ func TestCompanyPlanChecksRecipientPolicyBeforeReaderAndMakesNoHeldBatchWrites(t
 					} else {
 						ledger.WillReturnRows(sqlmock.NewRows([]string{"accepted"}).AddRow(nil))
 						if scenario != "throttled" {
-							daily := mock.ExpectQuery(`SELECT COUNT\(\*\) FROM brand_email_throttle WHERE LOWER`).WithArgs(companySQLArgs(route)...)
+							daily := mock.ExpectQuery(companyDailyQueryPattern)
 							if scenario == "daily_error" {
 								daily.WillReturnError(errors.New("budget unavailable"))
 							} else {
@@ -176,7 +178,7 @@ func TestCompanyPlanChecksRecipientPolicyBeforeReaderAndMakesNoHeldBatchWrites(t
 				if err != nil || plan.State != scenario {
 					t.Fatalf("wrong policy state: %#v %v", plan, err)
 				}
-				if scenario == "throttled" && (plan.RetryAt == nil || !plan.RetryAt.Equal(last.Add(7*24*time.Hour))) {
+				if scenario == "throttled" && (plan.RetryAt == nil || !plan.RetryAt.Equal(last.Add(5*time.Minute))) {
 					t.Fatalf("cooldown lost: %#v", plan)
 				}
 				if scenario == "daily_limit" && plan.RetryAt == nil {
@@ -230,11 +232,11 @@ func TestCompanyThrottleRetainsOfficialRecipientAndAllAliasHistory(t *testing.T)
 	defer db.Close()
 	route, _ := ResolveCompanyRoute("claude-code")
 	now := time.Now().UTC().Truncate(time.Second)
-	previous := now.Add(-24 * time.Hour)
+	previous := now.Add(-time.Minute)
 	mock.ExpectQuery(`SELECT MAX\(last_sent_at\) FROM brand_email_throttle WHERE LOWER\(TRIM\(email\)\)=\? AND LOWER\(TRIM\(brand_name\)\) IN`).WithArgs(companySQLArgs(route, "support@anthropic.com")...).WillReturnRows(sqlmock.NewRows([]string{"last"}).AddRow(previous))
 	mock.ExpectQuery(`(?s)SELECT MAX\(sent_at\).*STRAIGHT_JOIN report_email_deliveries.*UNION ALL.*STRAIGHT_JOIN report_email_delivery_events`).WillReturnRows(sqlmock.NewRows([]string{"accepted"}).AddRow(nil))
 	next, err := (&EmailService{db: db, config: &config.Config{ThrottleDays: 7}}).companyThrottle(context.Background(), route, " Support@Anthropic.com ", now)
-	if err != nil || next == nil || !next.Equal(previous.Add(7*24*time.Hour)) {
+	if err != nil || next == nil || !next.Equal(previous.Add(5*time.Minute)) {
 		t.Fatalf("alias cooldown bypassed: %v %v", next, err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -247,14 +249,14 @@ func TestCompanyThrottleUsesDurableAcceptanceWhenCacheWasNotWritten(t *testing.T
 	defer db.Close()
 	route, _ := ResolveCompanyRoute("grok")
 	now := time.Now().UTC().Truncate(time.Second)
-	at := now.Add(-time.Hour)
+	at := now.Add(-time.Minute)
 	mock.ExpectQuery(`SELECT MAX\(last_sent_at\) FROM brand_email_throttle`).WithArgs(companySQLArgs(route, "support@x.ai")...).WillReturnRows(sqlmock.NewRows([]string{"last"}).AddRow(nil))
 	args := companySQLArgs(route)
-	args = append(args, "support@x.ai", now.Add(-7*24*time.Hour))
+	args = append(args, "support@x.ai", now.Add(-5*time.Minute))
 	args = append(args, args...)
 	mock.ExpectQuery(`(?s)SELECT MAX\(sent_at\).*report_analysis ra STRAIGHT_JOIN report_email_deliveries.*UNION ALL.*report_analysis ra STRAIGHT_JOIN report_email_delivery_events`).WithArgs(args...).WillReturnRows(sqlmock.NewRows([]string{"accepted"}).AddRow(at))
 	next, err := (&EmailService{db: db, config: &config.Config{ThrottleDays: 7}}).companyThrottle(context.Background(), route, "support@x.ai", now)
-	if err != nil || next == nil || !next.Equal(at.Add(7*24*time.Hour)) {
+	if err != nil || next == nil || !next.Equal(at.Add(5*time.Minute)) {
 		t.Fatalf("accepted send lost cooldown after throttle-cache failure: %v %v", next, err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -267,13 +269,114 @@ func TestCompanyThrottleUsesNewerAcceptanceThanStaleCache(t *testing.T) {
 	defer db.Close()
 	route, _ := ResolveCompanyRoute("grok")
 	now := time.Date(2026, 10, 15, 20, 0, 0, 0, time.UTC)
-	cache := time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
-	accepted := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	cache := now.Add(-3 * time.Minute)
+	accepted := now.Add(-time.Minute)
 	mock.ExpectQuery(`SELECT MAX\(last_sent_at\)`).WillReturnRows(sqlmock.NewRows([]string{"last"}).AddRow(cache))
 	mock.ExpectQuery(`(?s)SELECT MAX\(sent_at\).*UNION ALL`).WillReturnRows(sqlmock.NewRows([]string{"accepted"}).AddRow(accepted))
 	next, err := (&EmailService{db: db, config: &config.Config{ThrottleDays: 7}}).companyThrottle(context.Background(), route, "support@x.ai", now)
-	if err != nil || next == nil || !next.Equal(accepted.Add(7*24*time.Hour)) {
+	if err != nil || next == nil || !next.Equal(accepted.Add(5*time.Minute)) {
 		t.Fatalf("stale cache shortened cooldown: %v %v", next, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCompanyCadenceDoesNotReuseLegacySevenDayHold(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	defer db.Close()
+	now := time.Now().UTC()
+	route, _ := ResolveCompanyRoute("grok")
+	mock.ExpectQuery(`SELECT MAX\(last_sent_at\)`).WillReturnRows(sqlmock.NewRows([]string{"last"}).AddRow(now.Add(-time.Hour)))
+	mock.ExpectQuery(`(?s)SELECT MAX\(sent_at\).*UNION ALL`).WillReturnRows(sqlmock.NewRows([]string{"accepted"}).AddRow(nil))
+	next, err := (&EmailService{db: db, config: &config.Config{ThrottleDays: 7}}).companyThrottle(context.Background(), route, "support@x.ai", now)
+	if err != nil || next != nil {
+		t.Fatalf("old day throttle still suppresses new reports: %v %v", next, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCompanyCadenceCanBeConfiguredWithoutChangingOtherThrottles(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	defer db.Close()
+	now := time.Now().UTC()
+	last := now.Add(-time.Minute)
+	route, _ := ResolveCompanyRoute("grok")
+	mock.ExpectQuery(`SELECT MAX\(last_sent_at\)`).WillReturnRows(sqlmock.NewRows([]string{"last"}).AddRow(last))
+	mock.ExpectQuery(`(?s)SELECT MAX\(sent_at\).*UNION ALL`).WillReturnRows(sqlmock.NewRows([]string{"accepted"}).AddRow(nil))
+	next, err := (&EmailService{db: db, config: &config.Config{ThrottleDays: 17, CompanyNotificationInterval: 2 * time.Minute}}).companyThrottle(context.Background(), route, "support@x.ai", now)
+	if err != nil || next == nil || !next.Equal(last.Add(2*time.Minute)) {
+		t.Fatalf("configured company cadence ignored: %v %v", next, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func companyDailyArgs(route CompanyRoute, now time.Time) []driver.Value {
+	start, end := companyDailyWindow(now)
+	branch := companySQLArgs(route)
+	branch = append(branch, start, end)
+	args := append([]driver.Value(nil), branch...)
+	args = append(args, branch...)
+	return append(args, branch...)
+}
+
+func TestCompanyDailyCountAndRetryUseUTCMessageWindow(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	defer db.Close()
+	local := time.Date(2026, 10, 16, 0, 2, 0, 0, time.FixedZone("CEST", 2*60*60))
+	route, _ := ResolveCompanyRoute("grok")
+	start, end := companyDailyWindow(local)
+	if !start.Equal(time.Date(2026, 10, 15, 0, 0, 0, 0, time.UTC)) || !end.Equal(time.Date(2026, 10, 16, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("incorrect UTC window: %v %v", start, end)
+	}
+	mock.ExpectQuery(`SELECT COUNT\(\*\).*FROM opted_out_emails`).WithArgs("support@x.ai").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectQuery(`SELECT MAX\(last_sent_at\)`).WillReturnRows(sqlmock.NewRows([]string{"last"}).AddRow(nil))
+	mock.ExpectQuery(`(?s)SELECT MAX\(sent_at\).*UNION ALL`).WillReturnRows(sqlmock.NewRows([]string{"accepted"}).AddRow(nil))
+	mock.ExpectQuery(companyDailyQueryPattern).WithArgs(companyDailyArgs(route, local)...).WillReturnRows(sqlmock.NewRows([]string{"messages"}).AddRow(10))
+	plan, err := (&EmailService{db: db, config: &config.Config{MaxDailyEmailsPerBrand: 10}}).buildCompanyPlan(context.Background(), route, local)
+	if err != nil || plan.State != "daily_limit" || plan.RetryAt == nil || !plan.RetryAt.Equal(end) {
+		t.Fatalf("daily message cap bypassed or retry misaligned: %#v %v", plan, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCompanyFailureDoesNotStarveLaterCompanies(t *testing.T) {
+	firstErr, secondErr := errors.New("receipt persistence failed"), errors.New("provider unavailable")
+	var visited []string
+	err := processCompanyRoutes(VerifiedCompanyRoutes(), func(route CompanyRoute) error {
+		visited = append(visited, route.CompanyKey)
+		if route.CompanyKey == "anthropic" {
+			return firstErr
+		}
+		if route.CompanyKey == "openai" {
+			return secondErr
+		}
+		return nil
+	})
+	if !reflect.DeepEqual(visited, []string{"anthropic", "openai", "xai"}) || !errors.Is(err, firstErr) || !errors.Is(err, secondErr) {
+		t.Fatalf("company failure starved another route: %v %v", visited, err)
+	}
+}
+
+func TestCompanyWorkerDryRunNeverAcquiresLockOrMutates(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	defer db.Close()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"reports": []any{}, "kind": "firsthand", "counts_exact": true, "scope": map[string]any{"brand_name": r.URL.Query().Get("brand_name")}})
+	}))
+	defer server.Close()
+	for _, route := range VerifiedCompanyRoutes() {
+		expectCompanyPolicyAllowed(mock, route)
+	}
+	s := &EmailService{db: db, config: &config.Config{DryRun: true, ReportListenerURL: server.URL}}
+	if err := s.ProcessCompanyNotifications(); err != nil {
+		t.Fatal(err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
@@ -308,7 +411,7 @@ func expectCompanyPending(mock sqlmock.Sqlmock, seqs, allowed []int64) {
 	for _, seq := range allowed {
 		rows.AddRow(seq)
 	}
-	mock.ExpectQuery(`(?s)SELECT r.seq FROM reports r.*ev.report_kind='firsthand'.*ev.entity_relationship='affected'.*ev.evidence_version>0.*sent.seq IS NULL.*ra.is_valid=TRUE.*visibility='public'.*report_status.*reports_owners.*retry.reason='no_valid_emails'.*notification_receipt_pending.*NOT EXISTS.*report_email_deliveries.*NOT EXISTS.*report_email_delivery_events`).WithArgs(args...).WillReturnRows(rows)
+	mock.ExpectQuery(`(?s)SELECT r.seq FROM reports r.*ev.report_kind='firsthand'.*ev.entity_relationship='affected'.*ev.evidence_version>0.*sent.seq IS NULL.*ra.is_valid=TRUE.*visibility='public'.*report_status.*reports_owners.*retry.reason IN \('no_valid_emails','all_throttled'\).*notification_receipt_pending.*NOT EXISTS.*report_email_deliveries.*NOT EXISTS.*report_email_delivery_events`).WithArgs(args...).WillReturnRows(rows)
 }
 
 func TestCompanyPendingSelectionIsBoundedAndKeepsNewestTwenty(t *testing.T) {
@@ -412,7 +515,7 @@ func TestCompanySendUsesOnlyCurrentPendingFindingsAndVerifiedRecipient(t *testin
 	mock.ExpectQuery(`SELECT COUNT\(\*\).*FROM opted_out_emails`).WithArgs("support@x.ai").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 	mock.ExpectQuery(`SELECT MAX\(last_sent_at\).*WHERE LOWER\(TRIM\(email\)\)=\?`).WithArgs(companySQLArgs(route, "support@x.ai")...).WillReturnRows(sqlmock.NewRows([]string{"last"}).AddRow(nil))
 	mock.ExpectQuery(`(?s)SELECT MAX\(sent_at\).*STRAIGHT_JOIN report_email_deliveries.*UNION ALL.*STRAIGHT_JOIN report_email_delivery_events`).WillReturnRows(sqlmock.NewRows([]string{"accepted"}).AddRow(nil))
-	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM brand_email_throttle WHERE LOWER`).WithArgs(companySQLArgs(route)...).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectQuery(companyDailyQueryPattern).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 	mock.ExpectExec(`INSERT INTO brand_email_throttle`).WithArgs("xai", "support@x.ai").WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec(`INSERT INTO email_recipient_history`).WithArgs("support@x.ai").WillReturnResult(sqlmock.NewResult(1, 1))
 	for _, seq := range []int64{4, 2, 1} {

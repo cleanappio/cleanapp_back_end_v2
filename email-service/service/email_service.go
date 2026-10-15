@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -315,9 +316,10 @@ func NewEmailService(cfg *config.Config) (*EmailService, error) {
 		return nil, err
 	}
 
-	// Connect to database
+	// TIMESTAMP reads and the per-company daily budget use the same UTC day,
+	// independent of the database host's system timezone.
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true",
-		cfg.DBUser, cfg.DBPassword, cfg.DBHost, cfg.DBPort, cfg.DBName)
+		cfg.DBUser, cfg.DBPassword, cfg.DBHost, cfg.DBPort, cfg.DBName) + "&time_zone=" + url.QueryEscape("'+00:00'")
 
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
