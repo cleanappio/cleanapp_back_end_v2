@@ -32,6 +32,7 @@ func narrowEvidenceBrandPageQuery(f EvidenceFilter) (string, []interface{}, erro
 		{"COALESCE(ev.classification_reason,'') AS classification_reason", "'' AS classification_reason"},
 		{"FROM report_analysis ra LEFT JOIN report_evidence ev", "FROM report_analysis ra FORCE INDEX (" + evidenceBrandCoreIndex + ") LEFT JOIN report_evidence ev"},
 		{"ra.title, ra.summary, ra.classification,", "ra.created_at AS analysis_created_at,ra.title, ra.summary, ra.classification,"},
+		{"ws.submitted_at, (", "ws.submitted_at AS submitted_at, ("},
 		{"LEFT JOIN external_ingest_index eii ON eii.seq = r.seq", `LEFT JOIN external_ingest_index eii_identity FORCE INDEX(idx_seq) ON eii_identity.seq=r.seq
   LEFT JOIN external_ingest_header_projection eii_header ON eii_header.seq=eii_identity.seq AND eii_header.source=eii_identity.source AND eii_header.external_id=eii_identity.external_id
   LEFT JOIN external_ingest_index eii_fallback FORCE INDEX(PRIMARY) ON eii_fallback.source=CASE WHEN eii_header.seq IS NULL THEN eii_identity.source ELSE NULL END AND eii_fallback.external_id=eii_identity.external_id AND eii_fallback.seq=eii_identity.seq`},
