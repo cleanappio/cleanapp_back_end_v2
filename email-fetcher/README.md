@@ -34,3 +34,20 @@ SEQ_RANGE=29590-29600 cargo run -q
 Docker
 ------
 Build an image similar to other services. A minimal Dockerfile will be added later to align with pipeline conventions.
+
+### Graceful shutdown
+
+The entrypoint replaces its shell with the Rust process so Docker's default
+SIGTERM reaches the application. SIGTERM and SIGINT are registered before
+database startup and retained during each batch. A signal stops the next batch;
+the current batch finishes and the MySQL pool disconnects before exit. An active
+network or database request can extend that drain, so a stop timeout is not a
+guarantee that the process has finished. Operators should verify the exit state
+and avoid escalating to a forced kill while work is draining.
+
+The local signal tests use only freshly spawned fixture processes, with no
+database, API or email work:
+
+```sh
+cargo test --manifest-path email-fetcher/Cargo.toml --locked shutdown::tests
+```

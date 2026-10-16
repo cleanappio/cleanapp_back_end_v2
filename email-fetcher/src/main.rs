@@ -8,8 +8,9 @@ use std::collections::HashSet;
 use std::io::{self, Write};
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tokio::{signal, time::sleep};
 use tracing::{error, info, warn};
+
+mod shutdown;
 
 #[derive(Clone, Debug)]
 struct Config {
@@ -1085,6 +1086,8 @@ async fn main() -> Result<()> {
     println!("email-fetcher: logger initialized and feature enabled");
     let _ = io::stdout().flush();
 
+    // Register both signals before database startup and retain them across batches.
+    let mut shutdown = shutdown::Shutdown::new().context("registering shutdown signals")?;
     let cfg = Config::from_env();
     println!(
         "email-fetcher: config loaded: db={} openai_model={} delay={}ms digital_limit={} physical_limit={} digital_enabled={} physical_enabled={}",
@@ -1133,25 +1136,25 @@ async fn main() -> Result<()> {
     );
 
     loop {
-        tokio::select! {
-            _ = signal::ctrl_c() => {
-                info!("Shutdown signal received");
-                break;
-            }
-            _ = sleep(Duration::from_millis(cfg.loop_delay_ms)) => {
-                match run_once(&pool, &cfg).await {
-                    Ok(stats) => info!(
-                        "Batch summary: digital candidates={} updated={} | physical candidates={} resolved={} no_match={} errors={}",
-                        stats.digital_candidates,
-                        stats.digital_updated,
-                        stats.physical_candidates,
-                        stats.physical_resolved,
-                        stats.physical_no_match,
-                        stats.physical_errors
-                    ),
-                    Err(e) => error!("Batch error: {:#}", e),
-                }
-            }
+        if let Some(signal) = shutdown
+            .wait_before_batch(Duration::from_millis(cfg.loop_delay_ms))
+            .await
+            .context("waiting for shutdown signal")?
+        {
+            info!(signal, "Shutdown signal received; current batch drained");
+            break;
+        }
+        match run_once(&pool, &cfg).await {
+            Ok(stats) => info!(
+                "Batch summary: digital candidates={} updated={} | physical candidates={} resolved={} no_match={} errors={}",
+                stats.digital_candidates,
+                stats.digital_updated,
+                stats.physical_candidates,
+                stats.physical_resolved,
+                stats.physical_no_match,
+                stats.physical_errors
+            ),
+            Err(e) => error!("Batch error: {:#}", e),
         }
     }
 
