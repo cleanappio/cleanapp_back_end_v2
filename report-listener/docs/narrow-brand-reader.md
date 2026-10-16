@@ -56,6 +56,11 @@ after paging, only for selected families, with the existing eight-sample and
 privacy rules. Private selection metadata is removed by public serialization.
 Samples carry their existing family rank privately so a different physical join
 order cannot change the supporting-source order or expand the first-eight slice.
+Page details use `paged STRAIGHT_JOIN normalized` by selected sequence. Samples
+likewise start with `paged`, join only that family's first-eight non-private
+ranked rows, then read normalized details by sequence. This replaces the late
+`IN (SELECT seq FROM paged)` semijoin so hydration starts from the bounded page;
+the actual full plan must confirm indexed detail lookups before runtime proof.
 
 The original binary selected-public-ID predicate is authoritative: NULL, empty
 and all-ASCII-space identities stay excluded under mixed parent/projection

@@ -39,7 +39,7 @@ func TestNarrowEvidenceRetainsOracleGroupingButDefersDisplayBodies(t *testing.T)
 			t.Fatalf("missing narrow-reader invariant %s", required)
 		}
 	}
-	if strings.Index(query, "family_samples AS (") < strings.Index(query, "paged AS (") || !strings.Contains(query, "f.family_representative_seq IN (SELECT seq FROM paged)") {
+	if strings.Index(query, "family_samples AS (") < strings.Index(query, "paged AS (") || !strings.Contains(query, "FROM paged p STRAIGHT_JOIN filtered f ON f.family_representative_seq=p.seq") {
 		t.Fatal("sample JSON must be aggregated only after family pagination")
 	}
 	for _, forbidden := range []string{"ws.", "eii.", "LEFT JOIN wire_submissions_raw ws ", "LEFT JOIN external_ingest_index eii "} {
@@ -69,10 +69,13 @@ func TestNarrowEvidenceKeepsDisplayIdentityFieldsOutsideRankingWindows(t *testin
 				t.Fatalf("%s ranking windows carry late detail %s", sortBy, forbidden)
 			}
 		}
-		for _, required := range []string{"FROM paged p JOIN normalized n ON n.seq=p.seq", "FROM filtered f JOIN normalized n ON n.seq=f.seq WHERE f.family_representative_seq IN (SELECT seq FROM paged)", "LEFT JOIN paged_details p ON TRUE", "'rank',f.family_rank", "'created',DATE_FORMAT(n.analysis_created_at"} {
+		for _, required := range []string{"FROM paged p STRAIGHT_JOIN normalized n ON n.seq=p.seq", "FROM paged p STRAIGHT_JOIN filtered f ON f.family_representative_seq=p.seq AND f.family_rank <= 8 AND f.privacy_restricted = 0 STRAIGHT_JOIN normalized n ON n.seq=f.seq", "LEFT JOIN paged_details p ON TRUE", "'rank',f.family_rank", "'created',DATE_FORMAT(n.analysis_created_at"} {
 			if !strings.Contains(query, required) {
 				t.Fatalf("%s loses bounded detail/selection contract %s", sortBy, required)
 			}
+		}
+		if strings.Contains(query, "family_representative_seq IN (SELECT seq FROM paged)") {
+			t.Fatal("sample detail reads must start at the bounded page, not a late semijoin")
 		}
 	}
 }

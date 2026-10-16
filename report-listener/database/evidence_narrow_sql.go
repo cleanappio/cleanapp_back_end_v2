@@ -126,7 +126,7 @@ func narrowEvidenceBrandPageQuery(f EvidenceFilter) (string, []interface{}, erro
 		{"'report_kind',report_kind", "'report_kind',n.report_kind"},
 		{"YEAR(source_timestamp)", "YEAR(n.source_timestamp)"},
 		{"DATE_FORMAT(source_timestamp,", "DATE_FORMAT(n.source_timestamp,"},
-		{"FROM filtered WHERE family_rank <= 8 AND privacy_restricted = 0 GROUP BY family_representative_seq", "FROM filtered f JOIN normalized n ON n.seq=f.seq WHERE f.family_representative_seq IN (SELECT seq FROM paged) AND f.family_rank <= 8 AND f.privacy_restricted = 0 GROUP BY f.family_representative_seq"},
+		{"FROM filtered WHERE family_rank <= 8 AND privacy_restricted = 0 GROUP BY family_representative_seq", "FROM paged p STRAIGHT_JOIN filtered f ON f.family_representative_seq=p.seq AND f.family_rank <= 8 AND f.privacy_restricted = 0 STRAIGHT_JOIN normalized n ON n.seq=f.seq GROUP BY f.family_representative_seq"},
 	} {
 		if strings.Count(samples, change[0]) != 1 {
 			return "", nil, fmt.Errorf("narrow evidence sample detail contract changed")
@@ -135,7 +135,7 @@ func narrowEvidenceBrandPageQuery(f EvidenceFilter) (string, []interface{}, erro
 	}
 	paged := " paged AS (SELECT * FROM briefing ORDER BY " + evidenceOrderBy(f.Sort) + " LIMIT ? OFFSET ?)"
 	if err := replaceOne(paged, paged+`,
- paged_details AS (SELECT n.*,p.import_count,p.case_id,p.group_key,p.supporting_report_count,p.source_account_count,p.duplicate_import_count,p.related_observation_count,p.last_signal_at,p.latest_observed_at,p.latest_source_published_at FROM paged p JOIN normalized n ON n.seq=p.seq),
+ paged_details AS (SELECT n.*,p.import_count,p.case_id,p.group_key,p.supporting_report_count,p.source_account_count,p.duplicate_import_count,p.related_observation_count,p.last_signal_at,p.latest_observed_at,p.latest_source_published_at FROM paged p STRAIGHT_JOIN normalized n ON n.seq=p.seq),
  `+samples); err != nil {
 		return "", nil, err
 	}
