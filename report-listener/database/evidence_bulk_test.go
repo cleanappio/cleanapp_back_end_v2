@@ -7,7 +7,6 @@ import (
 	"regexp"
 	"testing"
 	"time"
-	"unsafe"
 
 	"github.com/DATA-DOG/go-sqlmock"
 )
@@ -19,7 +18,8 @@ func TestEvidenceBulkFailureCannotReturnPartialExactCounts(t *testing.T) {
 	}
 	defer db.Close()
 	mock.ExpectBegin()
-	mock.ExpectQuery("SELECT ids.seq,ids.language,ids.created_at").WillReturnError(errors.New("metadata deadline exceeded"))
+	mock.ExpectQuery("SELECT seq,language,created_at").WillReturnRows(sqlmock.NewRows([]string{"seq", "language", "created_at", "brand_name", "classification", "severity", "requested", "english", "weight", "created_literal"}).AddRow(1, "en", time.Date(2026, 10, 14, 0, 0, 0, 0, time.UTC), "openai", "digital", 0.5, 1, 1, []byte("en"), "2026-10-14 00:00:00.000000"))
+	mock.ExpectQuery("SELECT ids.seq").WillReturnError(errors.New("metadata deadline exceeded"))
 	mock.ExpectRollback()
 	page, err := (&Database{db: db}).GetEvidenceBrandPage(context.Background(), EvidenceFilter{BrandName: "openai"})
 	if err == nil || page.Total != 0 || len(page.Reports) != 0 {
@@ -121,145 +121,6 @@ func TestWireMissingSelectedMetadataFailsClosed(t *testing.T) {
 	}
 	mock.ExpectRollback()
 	tx.Rollback()
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestEvidenceIndexSourcesOrdersOnlyAmbiguousIdentities(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	mock.ExpectBegin()
-	tx, err := db.Begin()
-	if err != nil {
-		t.Fatal(err)
-	}
-	covered := evidenceIndexSourcesSQL
-	// Most reports have one identity and need no global string/collation sort.
-	columns := []string{"seq", "source", "id", "url", "published", "created", "metadata_present"}
-	mock.ExpectQuery(regexp.QuoteMeta(covered) + `$`).WithArgs("[1,2,3]").WillReturnRows(sqlmock.NewRows(columns).AddRow(3, "z", "last", "https://example.test/3", nil, nil, true).AddRow(2, "z", "later", "https://example.test/later", nil, nil, true).AddRow(1, "sole", "one", "https://example.test/1", nil, nil, true).AddRow(2, "é", "winner", "https://example.test/2", nil, nil, true))
-	// SQL, not Go byte order, remains authoritative for ambiguous reports.
-	mock.ExpectQuery(regexp.QuoteMeta(covered+` ORDER BY e.source,e.external_id`) + `$`).WithArgs("[2]").WillReturnRows(sqlmock.NewRows(columns).AddRow(2, "é", "winner", "https://example.test/2", nil, nil, true).AddRow(2, "z", "later", "https://example.test/later", nil, nil, true))
-	sources := map[int]evidenceSourceNormalizationRow{1: {Seq: 1}, 2: {Seq: 2}, 3: {Seq: 3}}
-	if err := loadEvidenceIndexSources(context.Background(), tx, []int{1, 2, 3}, sources); err != nil {
-		t.Fatal(err)
-	}
-	if *sources[2].EiiSource != "é" || *sources[2].EiiID != "winner" || *sources[1].EiiURL != "https://example.test/1" || *sources[3].EiiURL != "https://example.test/3" {
-		t.Fatal("source winner or keyed hydration changed")
-	}
-	mock.ExpectRollback()
-	if err := tx.Rollback(); err != nil {
-		t.Fatal(err)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestEvidenceIndexSingletonsNeedNoCollationSort(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	mock.ExpectBegin()
-	tx, err := db.Begin()
-	if err != nil {
-		t.Fatal(err)
-	}
-	covered := evidenceIndexSourcesSQL
-	mock.ExpectQuery(regexp.QuoteMeta(covered) + `$`).WithArgs("[1,2]").WillReturnRows(sqlmock.NewRows([]string{"seq", "source", "id", "url", "published", "created", "metadata_present"}).AddRow(2, "source", "two", nil, nil, nil, true).AddRow(1, "source", "one", nil, nil, nil, true))
-	if err := loadEvidenceIndexSources(context.Background(), tx, []int{1, 2}, map[int]evidenceSourceNormalizationRow{}); err != nil {
-		t.Fatal(err)
-	}
-	mock.ExpectRollback()
-	if err := tx.Rollback(); err != nil {
-		t.Fatal(err)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestEvidenceIndexMissingWinnerOrHeaderFailsClosed(t *testing.T) {
-	for _, missing := range []string{"ambiguous_winner", "header"} {
-		t.Run(missing, func(t *testing.T) {
-			db, mock, err := sqlmock.New()
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer db.Close()
-			mock.ExpectBegin()
-			tx, err := db.Begin()
-			if err != nil {
-				t.Fatal(err)
-			}
-			columns := []string{"seq", "source", "id", "url", "published", "created", "metadata_present"}
-			rows := sqlmock.NewRows(columns)
-			if missing == "ambiguous_winner" {
-				rows.AddRow(1, "source", "one", nil, nil, nil, true).AddRow(1, "source", "two", nil, nil, nil, true)
-			} else {
-				rows.AddRow(1, "source", "one", nil, nil, nil, false)
-			}
-			mock.ExpectQuery("SELECT e.seq,e.source,e.external_id").WithArgs("[1]").WillReturnRows(rows)
-			if missing == "ambiguous_winner" {
-				mock.ExpectQuery("SELECT e.seq,e.source,e.external_id.*ORDER BY e.source,e.external_id").WithArgs("[1]").WillReturnRows(sqlmock.NewRows(columns))
-			}
-			if err := loadEvidenceIndexSources(context.Background(), tx, []int{1}, map[int]evidenceSourceNormalizationRow{}); err == nil {
-				t.Fatal("incomplete selected source metadata silently returned exact counts")
-			}
-			mock.ExpectRollback()
-			if err := tx.Rollback(); err != nil {
-				t.Fatal(err)
-			}
-			if err := mock.ExpectationsWereMet(); err != nil {
-				t.Fatal(err)
-			}
-		})
-	}
-}
-
-func TestEvidenceMetadataCoreMapValuesRemainInline(t *testing.T) {
-	// Go stores map values larger than 128 bytes indirectly. Full display
-	// records would reintroduce one allocation per report before pagination.
-	if unsafe.Sizeof(evidenceMetadataRecord{}) > 128 || unsafe.Sizeof(evidenceAnalysisCore{}) > 192 {
-		t.Fatal("full-cohort maps retained oversized display records")
-	}
-}
-
-func TestEvidenceCombinedCoreDeduplicatesBeforeSourcePass(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	mock.ExpectBegin()
-	tx, err := db.Begin()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	columns := []string{"seq", "language", "created", "brand", "classification", "severity", "requested", "english", "weight", "created_literal", "id", "public_id", "ts", "lat", "lon", "media", "raw_type", "raw_id", "fetcher", "kind", "relationship", "version", "quote", "impact"}
-	rows := sqlmock.NewRows(columns).
-		AddRow(2, "fr", nil, "openai", "digital", 0.8, 0, 0, []byte("fr"), nil, "id2", "pub2", nil, 47.0, 8.0, false, nil, nil, "", "unknown", "unknown", 0, false, false).
-		AddRow(1, "en", nil, "openai", "digital", 0.2, 1, 1, []byte("en"), nil, "id1", "pub1", nil, 47.0, 8.0, false, nil, nil, "", "unknown", "unknown", 0, false, false).
-		AddRow(2, "en", nil, "openai", "digital", 0.4, 1, 1, []byte("en"), nil, "id2", "pub2", nil, 47.0, 8.0, false, nil, nil, "", "unknown", "unknown", 0, false, false)
-	mock.ExpectQuery("SELECT ids.seq,ids.language,ids.created_at.*FROM report_analysis ids FORCE INDEX").WithArgs("en", "openai").WillReturnRows(rows)
-	f := EvidenceFilter{Brands: []string{"openai"}, Language: "en"}
-	chosen, records, sources, visible, err := loadEvidenceAnalysisMetadataCore(context.Background(), tx, f)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(chosen) != 2 || len(records) != 2 || len(sources) != 2 || len(visible) != 2 || visible[0] != 1 || visible[1] != 2 || chosen[2].Record.Language != "en" || chosen[2].Record.Severity != 0.4 || sources[1].ReportID != "id1" || sources[2].ReportID != "id2" {
-		t.Fatal("combined stream changed ranking, unique IDs, or reused scan-buffer values")
-	}
-	mock.ExpectRollback()
-	if err := tx.Rollback(); err != nil {
-		t.Fatal(err)
-	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
 	}
