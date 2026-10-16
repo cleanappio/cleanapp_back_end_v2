@@ -288,3 +288,23 @@ What worked:
 Next time:
 - Refresh the owned report delivery-status API for durable log details; push payloads are navigation hints and may predate later deliveries.
 - Preserve the distinction between processing timestamps and recorded successful email receipt times.
+
+### 2026-10-16 (Aggregate email redesign release preparation)
+
+- Recovered Claude's `aggregate-email-redesign.patch` from its original chat and
+  applied it to current main, preserving report selection, delivery receipts,
+  Workspace transport, opt-outs, attachment bounds and scheduling.
+- Kept the table-based layout and original evidence. Counts describe reports,
+  mixed physical/digital batches say Mixed, and copy avoids unverified volume,
+  timing, attachment and permanence claims. Recording-transport previews do not
+  send mail. Tests cover empty batches and reports beyond the featured/link caps.
+- Preflight found `/home/deployer/docker-compose.override.yml` pinned the old
+  email image. The canonical digest helper honors such a pin even after a fresh
+  `:prod` promotion. Before a scoped source release, privately snapshot the
+  Compose files/current pins and replace only the selected email image selector
+  with its existing repository's `:prod` tag; retain the active digest overlay
+  until the helper writes the freshly resolved immutable pin. Verify the running
+  embedded commit and digest, not merely successful build/push output.
+- The existing hook used unsupported `gitleaks detect --staged` flags. Use the
+  supported `gitleaks git --pre-commit --staged --redact` command with the
+  repository's current gitleaks version; preserve the mandatory staged scan.

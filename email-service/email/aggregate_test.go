@@ -106,6 +106,43 @@ func TestAggregateBoundsDetailedReportsLinksAndAttachments(t *testing.T) {
 	}
 }
 
+func TestAggregateRedesignHandlesEmptyAndMixedReportBatches(t *testing.T) {
+	for _, count := range []int{0, 1, 3, 25} {
+		t.Run(fmt.Sprintf("%d_reports", count), func(t *testing.T) {
+			summary := &models.BrandReportSummary{BrandName: "Acme", Classification: "physical", NewReportCount: count, TotalReportCount: 100}
+			for i := 1; i <= count; i++ {
+				classification := "physical"
+				if i == count && count > 1 {
+					classification = "digital"
+				}
+				summary.Reports = append(summary.Reports, models.BrandReportFinding{Seq: int64(i), PublicID: fmt.Sprintf("rpt_%d", i), Classification: classification, Title: fmt.Sprintf("Issue %d", i)})
+			}
+			sender := workspaceEmailSender(&recordingWorkspace{})
+			view := sender.aggregateView("support@company.com", summary, "https://cleanapp.io/opt-out")
+			var rendered bytes.Buffer
+			if err := aggregateHTML.Execute(&rendered, view); err != nil {
+				t.Fatalf("template failed for valid batch: %v", err)
+			}
+			message := sender.aggregateMessage("support@company.com", summary, "https://cleanapp.io/opt-out")
+			if !strings.HasSuffix(strings.TrimSpace(message.HTML), "</html>") || strings.Contains(message.HTML, "#ZgotmplZ") {
+				t.Fatal("notification was truncated or contained an unsafe template value")
+			}
+			if strings.Contains(message.HTML, "evidence attached") || strings.Contains(message.HTML, "permanent") || len(message.Attachments) != 0 {
+				t.Fatal("image-free reports acquired an attachment or permanence claim")
+			}
+			if count > 1 && (view.Domain != "Mixed" || !strings.Contains(message.Text, "Mixed")) {
+				t.Fatal("mixed report batch was labelled as a single report type")
+			}
+			if count > 1 && !strings.Contains(message.HTML, fmt.Sprintf("%d new reports about Acme. We routed them to you.", count)) {
+				t.Fatal("headline does not describe the report count")
+			}
+			if count > LinkedReportLimit && !strings.Contains(message.HTML, "/report/rpt_20") {
+				t.Fatal("linked reports after the featured cards were lost")
+			}
+		})
+	}
+}
+
 type partialAggregateTransport struct{ calls int }
 
 func (s *partialAggregateTransport) Provider() string { return "google_workspace" }

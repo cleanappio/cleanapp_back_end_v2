@@ -82,10 +82,13 @@ type aggregateReportView struct {
 	Featured, HasPreview                                                 bool
 }
 type aggregateView struct {
-	Brand, Subject, DashboardURL, OptOutURL          string
+	Brand, Subject, DashboardURL, OptOutURL, Domain  string
 	NewReportCount, TotalReportCount, RemainingCount int
 	Reports                                          []aggregateReportView
 }
+
+// HasListed reports whether any linked reports follow the featured cards.
+func (v aggregateView) HasListed() bool { return len(v.Reports) > FeaturedReportLimit }
 
 func limitText(value string, max int) string {
 	runes := []rune(strings.TrimSpace(value))
@@ -100,7 +103,10 @@ func (e *EmailSender) aggregateView(recipient string, summary *models.BrandRepor
 	if brand == "" {
 		brand = summary.BrandName
 	}
-	v := aggregateView{Brand: limitText(brand, 120), NewReportCount: summary.NewReportCount, TotalReportCount: summary.TotalReportCount, DashboardURL: e.getAggregateDashboardURL(summary)}
+	v := aggregateView{Brand: limitText(brand, 120), NewReportCount: summary.NewReportCount, TotalReportCount: summary.TotalReportCount, DashboardURL: e.getAggregateDashboardURL(summary), Domain: "Physical"}
+	if summary.Classification == "digital" {
+		v.Domain = "Digital"
+	}
 	if parsed, err := url.Parse(optOutURL); err == nil && (parsed.Scheme == "https" || parsed.Scheme == "http") {
 		q := parsed.Query()
 		q.Set("email", recipient)
@@ -109,7 +115,17 @@ func (e *EmailSender) aggregateView(recipient string, summary *models.BrandRepor
 	}
 	for _, report := range summary.Reports {
 		link := ReportURL(report)
-		if link == "" || len(v.Reports) >= LinkedReportLimit {
+		if link == "" {
+			continue
+		}
+		domain := "Physical"
+		if report.Classification == "digital" {
+			domain = "Digital"
+		}
+		if v.Domain != domain {
+			v.Domain = "Mixed"
+		}
+		if len(v.Reports) >= LinkedReportLimit {
 			continue
 		}
 		kind := "Report"
@@ -149,26 +165,107 @@ func (e *EmailSender) aggregateView(recipient string, summary *models.BrandRepor
 	return v
 }
 
-var aggregateHTML = template.Must(template.New("aggregate").Parse(`<!doctype html><html><head><meta charset="utf-8"><title>{{.Subject}}</title></head>
-<body style="margin:0;background:#f5f7f5;font-family:Arial,sans-serif;color:#18241c;line-height:1.5"><main style="max-width:680px;margin:0 auto;padding:28px 20px;background:white">
-<p style="color:#167139;font-weight:bold">CleanApp</p><h1 style="font-size:25px;margin-bottom:8px">New reports about {{.Brand}}</h1>
-<p>{{.NewReportCount}} new {{if eq .NewReportCount 1}}report{{else}}reports{{end}} · {{.TotalReportCount}} total in CleanApp</p>
-{{range .Reports}}{{if .Featured}}<section style="padding:24px 0;border-top:1px solid #dfe7df"><p style="font-size:13px;color:#516156">{{.Kind}}{{if .Received}} · Received {{.Received}}{{end}}</p>
-<h2 style="font-size:21px;margin:8px 0"><a href="{{.URL}}" style="color:#145c30;text-decoration:none">{{.Title}}</a></h2>
-{{if .Summary}}<p>{{.Summary}}</p>{{end}}{{if .ReportedImpact}}<p><strong>Reported impact:</strong> {{.ReportedImpact}}</p>{{end}}
-{{if .OriginalExcerpt}}<blockquote style="margin:16px 0;padding:14px 18px;background:#eff9f1;border-left:3px solid #22a14b"><strong>From the original report</strong><br>“{{.OriginalExcerpt}}”</blockquote>{{end}}
-{{if .HasPreview}}<a href="{{.URL}}"><img src="cid:report_{{.Seq}}" alt="Report image — open report for full size" style="max-width:100%;height:auto;border:1px solid #dfe7df"></a>{{end}}
-<p><a href="{{.URL}}" style="color:#145c30;font-weight:bold">View report &amp; evidence →</a></p></section>{{else}}<p><a href="{{.URL}}" style="color:#145c30">{{.Title}}</a></p>{{end}}{{end}}
-{{if .RemainingCount}}<p>{{.RemainingCount}} more new {{if eq .RemainingCount 1}}report{{else}}reports{{end}} on the brand page.</p>{{end}}
-<p><a href="{{.DashboardURL}}" style="color:#145c30">See all reports about {{.Brand}} →</a></p>
-<p style="font-size:13px;color:#516156">Reports describe what people submitted or published. CleanApp has not independently reproduced these findings.</p>
-<footer style="margin-top:28px;padding-top:16px;border-top:1px solid #dfe7df;font-size:12px;color:#516156">The CleanApp team{{if .OptOutURL}} · <a href="{{.OptOutURL}}">Unsubscribe</a>{{end}}</footer>
-</main></body></html>`))
+// aggregateHTML is table-based with inline styles so it renders consistently in
+// Gmail, Outlook and Apple Mail. html/template strips comments, so no MSO conditionals.
+var aggregateHTML = template.Must(template.New("aggregate").Parse(`<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="x-apple-disable-message-reformatting">
+<title>{{.Subject}}</title>
+<style>
+@media only screen and (max-width:620px){
+  .wrap{width:100%!important;max-width:100%!important;border-radius:0!important}
+  .pad{padding-left:20px!important;padding-right:20px!important}
+  .cardpad{padding-left:18px!important;padding-right:18px!important}
+  .stack{display:block!important;width:100%!important;box-sizing:border-box!important;padding:10px 0!important;border-right:0!important}
+  .h1{font-size:23px!important;line-height:30px!important}
+}
+</style>
+</head>
+<body style="margin:0;padding:0;background:#eef2ee;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;mso-hide:all">{{if .Reports}}{{(index .Reports 0).Title}} — {{end}}open the report and available evidence, no account needed.</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#eef2ee">
+<tr><td align="center" style="padding:28px 12px">
+<table role="presentation" class="wrap" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;background:#ffffff;border:1px solid #dde5dd;border-radius:14px;overflow:hidden">
+
+<tr><td style="height:5px;background:#1f7a3f;font-size:0;line-height:0">&nbsp;</td></tr>
+
+<tr><td class="pad" style="padding:22px 32px 0">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+<td style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:19px;font-weight:800;letter-spacing:1.5px;color:#14532d;line-height:24px">CLEAN<span style="color:#7fb73c">APP</span></td>
+<td align="right" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#6b7a6e;line-height:24px">Report notice</td>
+</tr></table>
+</td></tr>
+
+<tr><td class="pad" style="padding:26px 32px 6px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
+<p style="margin:0 0 10px;font-size:12px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#1f7a3f">{{.NewReportCount}} new {{if eq .NewReportCount 1}}report{{else}}reports{{end}} about {{.Brand}}</p>
+<h1 class="h1" style="margin:0 0 12px;font-size:27px;line-height:34px;font-weight:800;letter-spacing:-0.3px;color:#111c15">{{if eq .NewReportCount 1}}Someone reported a problem with {{.Brand}}. We routed it to you.{{else}}{{.NewReportCount}} new reports about {{.Brand}}. We routed them to you.{{end}}</h1>
+<p style="margin:0;font-size:15px;line-height:23px;color:#4b5a4f">CleanApp turns what people notice on streets, shelves and screens into structured reports, then sends each one to the party best placed to act. The original evidence is below. No account needed.</p>
+</td></tr>
+
+<tr><td class="pad" style="padding:18px 32px 24px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #dde5dd;border-radius:10px;background:#f5f8f5"><tr>
+<td class="stack" width="33%" align="center" valign="top" style="padding:14px 10px;border-right:1px solid #dde5dd;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif"><div style="font-size:24px;line-height:28px;font-weight:800;color:#14532d">{{.NewReportCount}}</div><div style="font-size:11px;line-height:16px;font-weight:600;letter-spacing:0.8px;text-transform:uppercase;color:#6b7a6e">New reports</div></td>
+<td class="stack" width="33%" align="center" valign="top" style="padding:14px 10px;border-right:1px solid #dde5dd;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif"><div style="font-size:24px;line-height:28px;font-weight:800;color:#14532d">{{.TotalReportCount}}</div><div style="font-size:11px;line-height:16px;font-weight:600;letter-spacing:0.8px;text-transform:uppercase;color:#6b7a6e">Public reports</div></td>
+<td class="stack" width="34%" align="center" valign="top" style="padding:14px 10px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif"><div style="font-size:24px;line-height:28px;font-weight:800;color:#14532d">{{.Domain}}</div><div style="font-size:11px;line-height:16px;font-weight:600;letter-spacing:0.8px;text-transform:uppercase;color:#6b7a6e">Report type</div></td>
+</tr></table>
+</td></tr>
+
+{{range $i, $r := .Reports}}{{if .Featured}}<tr><td class="pad" style="padding:0 32px 20px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #dde5dd;border-radius:12px;background:#ffffff">
+<tr><td class="cardpad" style="padding:22px 24px 6px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
+<p style="margin:0 0 12px;font-size:12px;line-height:18px;color:#6b7a6e"><span style="display:inline-block;padding:2px 9px;border-radius:999px;background:#e6f2df;color:#1f5f2e;font-weight:700;letter-spacing:0.3px">{{.Kind}}</span>{{if .Received}}&nbsp;&nbsp;Received {{.Received}}{{end}}</p>
+<h2 style="margin:0 0 10px;font-size:20px;line-height:27px;font-weight:700;color:#111c15"><a href="{{.URL}}" style="color:#111c15;text-decoration:none">{{.Title}}</a></h2>
+{{if .Summary}}<p style="margin:0 0 12px;font-size:15px;line-height:23px;color:#2f3a32">{{.Summary}}</p>{{end}}
+{{if .ReportedImpact}}<p style="margin:0 0 12px;font-size:14px;line-height:21px;color:#2f3a32"><strong style="color:#9a3412">Reported impact:</strong> {{.ReportedImpact}}</p>{{end}}
+</td></tr>
+{{if .OriginalExcerpt}}<tr><td class="cardpad" style="padding:4px 24px 12px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f1f8ec;border-left:4px solid #7fb73c;border-radius:0 8px 8px 0"><tr><td style="padding:12px 16px 13px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
+<p style="margin:0 0 4px;font-size:11px;line-height:16px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#2f6f3a">From the original report</p>
+<p style="margin:0;font-size:15px;line-height:23px;font-style:italic;color:#14361f">&ldquo;{{.OriginalExcerpt}}&rdquo;</p>
+</td></tr></table>
+</td></tr>{{end}}
+{{if .HasPreview}}<tr><td class="cardpad" style="padding:6px 24px 0"><a href="{{.URL}}" style="display:block;text-decoration:none"><img src="cid:report_{{.Seq}}" alt="Evidence attached to this report. Open the report for full size." width="100%" style="display:block;width:100%;height:auto;border:1px solid #dde5dd;border-radius:8px"></a></td></tr>{{end}}
+<tr><td class="cardpad" style="padding:18px 24px 22px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td bgcolor="#1f7a3f" style="border-radius:8px;background:#1f7a3f"><a href="{{.URL}}" style="display:inline-block;padding:12px 22px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;font-weight:700;line-height:18px;color:#ffffff;text-decoration:none;border-radius:8px">View report &amp; evidence &rarr;</a></td></tr></table>
+{{if eq $i 0}}<p style="margin:10px 0 0;font-size:12px;line-height:17px;color:#6b7a6e">Open the full report for available evidence, location or URL, and related reports.</p>{{end}}
+</td></tr>
+</table>
+</td></tr>{{end}}{{end}}
+
+{{if .HasListed}}<tr><td class="pad" style="padding:0 32px 24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
+<p style="margin:0 0 8px;font-size:12px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#6b7a6e">Also new</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">{{range .Reports}}{{if not .Featured}}<tr><td style="padding:9px 0;border-top:1px solid #e6ece6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:20px"><a href="{{.URL}}" style="color:#1f5f2e;font-weight:600;text-decoration:none">{{.Title}}</a><span style="color:#8a968d;font-size:12px">&nbsp;&nbsp;{{.Kind}}{{if .Received}} &middot; {{.Received}}{{end}}</span></td></tr>{{end}}{{end}}</table>
+</td></tr>{{end}}
+{{if .RemainingCount}}<tr><td class="pad" style="padding:0 32px 24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:20px;color:#4b5a4f">{{.RemainingCount}} more new {{if eq .RemainingCount 1}}report is{{else}}reports are{{end}} waiting on the {{.Brand}} page.</td></tr>{{end}}
+
+<tr><td class="pad" style="padding:26px 32px 28px;background:#14532d;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
+<p style="margin:0 0 16px;font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#a3d47c">Why this reached you</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+<td class="stack" width="33%" valign="top" style="padding:0 14px 0 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif"><p style="margin:0 0 4px;font-size:15px;line-height:21px;font-weight:700;color:#ffffff">Noticed by people</p><p style="margin:0;font-size:13px;line-height:19px;color:#cfe3c4">Share a photo or screenshot, describe the problem, and add its location or URL. No sign-up.</p></td>
+<td class="stack" width="33%" valign="top" style="padding:0 7px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif"><p style="margin:0 0 4px;font-size:15px;line-height:21px;font-weight:700;color:#ffffff">Structured by AI</p><p style="margin:0;font-size:13px;line-height:19px;color:#cfe3c4">Each report is classified, summarized and linked to related reports, with the original wording kept intact.</p></td>
+<td class="stack" width="34%" valign="top" style="padding:0 0 0 14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif"><p style="margin:0 0 4px;font-size:15px;line-height:21px;font-weight:700;color:#ffffff">Routed for action</p><p style="margin:0;font-size:13px;line-height:19px;color:#cfe3c4">We infer who may be able to act and send them the report, with a link to the public evidence.</p></td>
+</tr></table>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-top:20px"><tr><td style="border:1px solid #7fb73c;border-radius:8px"><a href="{{.DashboardURL}}" style="display:inline-block;padding:10px 18px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:700;line-height:18px;color:#ffffff;text-decoration:none">See all reports about {{.Brand}} &rarr;</a></td></tr></table>
+</td></tr>
+
+<tr><td class="pad" style="padding:20px 32px 26px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;line-height:18px;color:#6b7a6e">
+<p style="margin:0 0 10px">Reports describe what people submitted or published; CleanApp has not independently reproduced these findings. A brand association identifies a likely subject and does not establish fault, ownership or legal responsibility.</p>
+<p style="margin:0"><a href="https://www.cleanapp.io" style="color:#1f5f2e;text-decoration:none;font-weight:600">cleanapp.io</a> &middot; <a href="mailto:info@cleanapp.io" style="color:#1f5f2e;text-decoration:none">info@cleanapp.io</a>{{if .OptOutURL}} &middot; <a href="{{.OptOutURL}}" style="color:#6b7a6e;text-decoration:underline">Unsubscribe</a>{{end}}</p>
+</td></tr>
+
+</table>
+</td></tr></table>
+</body>
+</html>`))
 
 func (e *EmailSender) aggregateMessage(recipient string, summary *models.BrandReportSummary, optOutURL string) mailtransport.Message {
 	v := e.aggregateView(recipient, summary, optOutURL)
 	var body strings.Builder
-	fmt.Fprintf(&body, "%d new report(s) about %s · %d total in CleanApp.\n", v.NewReportCount, v.Brand, v.TotalReportCount)
+	fmt.Fprintf(&body, "CLEANAPP · Report notice\n\n%d new report(s) about %s · %d public reports in total · %s\n\n", v.NewReportCount, v.Brand, v.TotalReportCount, v.Domain)
+	body.WriteString("Someone reported a problem and CleanApp routed it to you. CleanApp turns what people notice on streets, shelves and screens into structured reports, then sends each one to the party best placed to act. The original evidence is linked below. No account needed.\n")
 	for _, r := range v.Reports {
 		fmt.Fprintf(&body, "\n%s\n%s", r.Title, r.Kind)
 		if r.Received != "" {
@@ -191,7 +288,7 @@ func (e *EmailSender) aggregateMessage(recipient string, summary *models.BrandRe
 	if v.RemainingCount > 0 {
 		fmt.Fprintf(&body, "\n%d more new reports on the brand page.\n", v.RemainingCount)
 	}
-	fmt.Fprintf(&body, "\nSee all reports: %s\n\nReports describe what people submitted or published. CleanApp has not independently reproduced these findings.\n\nThe CleanApp team\n", v.DashboardURL)
+	fmt.Fprintf(&body, "\nSee all reports about %s: %s\n\nWhy this reached you: anyone can share a problem with no sign-up; each report is classified, summarized and linked to related reports with the original wording kept intact; CleanApp infers who may be able to act and sends them the report with a link to the public evidence.\n\nReports describe what people submitted or published; CleanApp has not independently reproduced these findings. A brand association identifies a likely subject and does not establish fault, ownership or legal responsibility.\n\ncleanapp.io · info@cleanapp.io\n", v.Brand, v.DashboardURL)
 	if v.OptOutURL != "" {
 		fmt.Fprintf(&body, "Unsubscribe: %s\n", v.OptOutURL)
 	}
