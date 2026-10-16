@@ -27,8 +27,9 @@ type Service struct {
 	mu               sync.RWMutex
 
 	// Control channels
-	stopChan chan struct{}
-	wg       sync.WaitGroup
+	stopChan            chan struct{}
+	wg                  sync.WaitGroup
+	sourceRefreshCancel context.CancelFunc
 
 	// RabbitMQ
 	publisher             *rabbitmq.Publisher
@@ -83,6 +84,14 @@ func NewService(cfg *config.Config) (*Service, error) {
 // Start starts the service
 func (s *Service) Start() error {
 	log.Printf("Starting report listener service...")
+	// Migrations run through the explicit release command. Startup verifies the
+	// source projection contract and never silently creates tables or triggers.
+	verifyCtx, verifyCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	err := s.db.VerifyEvidenceSourceProjection(verifyCtx)
+	verifyCancel()
+	if err != nil {
+		return fmt.Errorf("evidence source projection migration is not ready")
+	}
 
 	// Start the WebSocket hub
 	go s.hub.Run()
@@ -105,6 +114,13 @@ func (s *Service) Start() error {
 	// Start the broadcast loop
 	s.wg.Add(1)
 	go s.broadcastLoop()
+	refreshCtx, refreshCancel := context.WithCancel(context.Background())
+	s.sourceRefreshCancel = refreshCancel
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		s.db.RunEvidenceSourceProjectionWorker(refreshCtx)
+	}()
 
 	log.Printf("Report listener service started successfully")
 	return nil
@@ -116,6 +132,9 @@ func (s *Service) Stop() error {
 
 	// Signal stop
 	close(s.stopChan)
+	if s.sourceRefreshCancel != nil {
+		s.sourceRefreshCancel()
+	}
 
 	// Wait for goroutines to finish
 	s.wg.Wait()
