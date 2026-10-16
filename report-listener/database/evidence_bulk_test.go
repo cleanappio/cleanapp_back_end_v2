@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/DATA-DOG/go-sqlmock"
 )
@@ -137,12 +138,12 @@ func TestEvidenceIndexSourcesOrdersOnlyAmbiguousIdentities(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	covered := `SELECT e.seq,e.source,e.external_id FROM ` + evidenceIDsTable + ` JOIN external_ingest_index e FORCE INDEX(idx_seq) ON e.seq=ids.seq`
+	covered := evidenceIndexSourcesSQL
 	// Most reports have one identity and need no global string/collation sort.
-	mock.ExpectQuery(regexp.QuoteMeta(covered) + `$`).WithArgs("[1,2,3]").WillReturnRows(sqlmock.NewRows([]string{"seq", "source", "id"}).AddRow(3, "z", "last").AddRow(2, "z", "later").AddRow(1, "sole", "one").AddRow(2, "é", "winner"))
+	columns := []string{"seq", "source", "id", "url", "published", "created", "metadata_present"}
+	mock.ExpectQuery(regexp.QuoteMeta(covered) + `$`).WithArgs("[1,2,3]").WillReturnRows(sqlmock.NewRows(columns).AddRow(3, "z", "last", "https://example.test/3", nil, nil, true).AddRow(2, "z", "later", "https://example.test/later", nil, nil, true).AddRow(1, "sole", "one", "https://example.test/1", nil, nil, true).AddRow(2, "é", "winner", "https://example.test/2", nil, nil, true))
 	// SQL, not Go byte order, remains authoritative for ambiguous reports.
-	mock.ExpectQuery(regexp.QuoteMeta(covered+` ORDER BY e.source,e.external_id`) + `$`).WithArgs("[2]").WillReturnRows(sqlmock.NewRows([]string{"seq", "source", "id"}).AddRow(2, "é", "winner").AddRow(2, "z", "later"))
-	mock.ExpectQuery("SELECT ids.seq,ids.source,ids.id").WithArgs(`[{"seq":1,"source":"sole","id":"one"},{"seq":2,"source":"é","id":"winner"},{"seq":3,"source":"z","id":"last"}]`).WillReturnRows(sqlmock.NewRows([]string{"seq", "source", "id", "url", "published", "created"}).AddRow(3, "z", "last", "https://example.test/3", nil, nil).AddRow(2, "é", "winner", "https://example.test/2", nil, nil).AddRow(1, "sole", "one", "https://example.test/1", nil, nil))
+	mock.ExpectQuery(regexp.QuoteMeta(covered+` ORDER BY e.source,e.external_id`) + `$`).WithArgs("[2]").WillReturnRows(sqlmock.NewRows(columns).AddRow(2, "é", "winner", "https://example.test/2", nil, nil, true).AddRow(2, "z", "later", "https://example.test/later", nil, nil, true))
 	sources := map[int]evidenceSourceNormalizationRow{1: {Seq: 1}, 2: {Seq: 2}, 3: {Seq: 3}}
 	if err := loadEvidenceIndexSources(context.Background(), tx, []int{1, 2, 3}, sources); err != nil {
 		t.Fatal(err)
@@ -170,9 +171,8 @@ func TestEvidenceIndexSingletonsNeedNoCollationSort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	covered := `SELECT e.seq,e.source,e.external_id FROM ` + evidenceIDsTable + ` JOIN external_ingest_index e FORCE INDEX(idx_seq) ON e.seq=ids.seq`
-	mock.ExpectQuery(regexp.QuoteMeta(covered) + `$`).WithArgs("[1,2]").WillReturnRows(sqlmock.NewRows([]string{"seq", "source", "id"}).AddRow(2, "source", "two").AddRow(1, "source", "one"))
-	mock.ExpectQuery("SELECT ids.seq,ids.source,ids.id").WithArgs(`[{"seq":1,"source":"source","id":"one"},{"seq":2,"source":"source","id":"two"}]`).WillReturnRows(sqlmock.NewRows([]string{"seq", "source", "id", "url", "published", "created"}).AddRow(1, "source", "one", nil, nil, nil).AddRow(2, "source", "two", nil, nil, nil))
+	covered := evidenceIndexSourcesSQL
+	mock.ExpectQuery(regexp.QuoteMeta(covered) + `$`).WithArgs("[1,2]").WillReturnRows(sqlmock.NewRows([]string{"seq", "source", "id", "url", "published", "created", "metadata_present"}).AddRow(2, "source", "two", nil, nil, nil, true).AddRow(1, "source", "one", nil, nil, nil, true))
 	if err := loadEvidenceIndexSources(context.Background(), tx, []int{1, 2}, map[int]evidenceSourceNormalizationRow{}); err != nil {
 		t.Fatal(err)
 	}
@@ -198,15 +198,16 @@ func TestEvidenceIndexMissingWinnerOrHeaderFailsClosed(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			rows := sqlmock.NewRows([]string{"seq", "source", "id"}).AddRow(1, "source", "one")
+			columns := []string{"seq", "source", "id", "url", "published", "created", "metadata_present"}
+			rows := sqlmock.NewRows(columns)
 			if missing == "ambiguous_winner" {
-				rows.AddRow(1, "source", "two")
+				rows.AddRow(1, "source", "one", nil, nil, nil, true).AddRow(1, "source", "two", nil, nil, nil, true)
+			} else {
+				rows.AddRow(1, "source", "one", nil, nil, nil, false)
 			}
 			mock.ExpectQuery("SELECT e.seq,e.source,e.external_id").WithArgs("[1]").WillReturnRows(rows)
 			if missing == "ambiguous_winner" {
-				mock.ExpectQuery("SELECT e.seq,e.source,e.external_id.*ORDER BY e.source,e.external_id").WithArgs("[1]").WillReturnRows(sqlmock.NewRows([]string{"seq", "source", "id"}))
-			} else {
-				mock.ExpectQuery("SELECT ids.seq,ids.source,ids.id").WillReturnRows(sqlmock.NewRows([]string{"seq", "source", "id", "url", "published", "created"}))
+				mock.ExpectQuery("SELECT e.seq,e.source,e.external_id.*ORDER BY e.source,e.external_id").WithArgs("[1]").WillReturnRows(sqlmock.NewRows(columns))
 			}
 			if err := loadEvidenceIndexSources(context.Background(), tx, []int{1}, map[int]evidenceSourceNormalizationRow{}); err == nil {
 				t.Fatal("incomplete selected source metadata silently returned exact counts")
@@ -219,5 +220,13 @@ func TestEvidenceIndexMissingWinnerOrHeaderFailsClosed(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+func TestEvidenceMetadataCoreMapValuesRemainInline(t *testing.T) {
+	// Go stores map values larger than 128 bytes indirectly. Full display
+	// records would reintroduce one allocation per report before pagination.
+	if unsafe.Sizeof(evidenceMetadataRecord{}) > 128 || unsafe.Sizeof(evidenceAnalysisCore{}) > 192 {
+		t.Fatal("full-cohort maps retained oversized display records")
 	}
 }

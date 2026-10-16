@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"sort"
@@ -166,6 +167,38 @@ func testEvidenceIndexWinnerParityMySQL(t *testing.T, db *sql.DB) {
  (6302,'same','zeta','https://example.test/later-id',NULL,'2026-10-15'),
  (6302,'same','éclair','https://example.test/first-id','2026-02-01','2026-10-15'),
  (6303,'MixedCase','OriginalCase','https://example.test/original-case',NULL,'2026-10-15')`)
+	var planJSON string
+	if err := db.QueryRow(`EXPLAIN FORMAT=JSON `+evidenceIndexSourcesSQL, evidenceIDsJSON(ids)).Scan(&planJSON); err != nil {
+		t.Fatal(err)
+	}
+	var plan any
+	if err := json.Unmarshal([]byte(planJSON), &plan); err != nil {
+		t.Fatal(err)
+	}
+	var coveredIdentity func(any) bool
+	coveredIdentity = func(value any) bool {
+		switch value := value.(type) {
+		case map[string]any:
+			if value["table_name"] == "e" && value["key"] == "idx_seq" && value["using_index"] == true {
+				return true
+			}
+			for _, child := range value {
+				if coveredIdentity(child) {
+					return true
+				}
+			}
+		case []any:
+			for _, child := range value {
+				if coveredIdentity(child) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	if !coveredIdentity(plan) {
+		t.Fatal("combined header read forced original identity parent-row reads")
+	}
 	for _, mode := range []string{"cold", "warm", "mixed"} {
 		t.Run(mode, func(t *testing.T) {
 			if _, err := eiiheader.Backfill(context.Background(), db, ids); err != nil {
@@ -215,4 +248,35 @@ func testEvidenceIndexWinnerParityMySQL(t *testing.T, db *sql.DB) {
 			}
 		})
 	}
+	t.Run("ProjectedNullsRemainAuthoritative", func(t *testing.T) {
+		if _, err := eiiheader.Backfill(context.Background(), db, []int{6300}); err != nil {
+			t.Fatal(err)
+		}
+		exec(`UPDATE external_ingest_header_projection SET source_url=NULL,source_timestamp=NULL,created_at=NULL WHERE seq=6300`)
+		for _, projected := range []bool{true, false} {
+			if !projected {
+				exec(`DELETE FROM external_ingest_header_projection WHERE seq=6300`)
+			}
+			tx, err := db.BeginTx(context.Background(), &sql.TxOptions{ReadOnly: true, Isolation: sql.LevelRepeatableRead})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback()
+			sources := map[int]evidenceSourceNormalizationRow{}
+			err = loadEvidenceIndexSources(context.Background(), tx, []int{6300}, sources)
+			if closeErr := tx.Rollback(); closeErr != nil {
+				t.Fatal(closeErr)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			source := sources[6300]
+			if projected && (source.EiiURL != nil || source.EiiPublished != nil || source.EiiCreated != nil) {
+				t.Fatal("projected SQL NULL resurrected a parent source value")
+			}
+			if !projected && (source.EiiURL == nil || *source.EiiURL != "https://example.test/sole" || source.EiiCreated == nil) {
+				t.Fatal("absent source projection lost its parent fallback")
+			}
+		}
+	})
 }

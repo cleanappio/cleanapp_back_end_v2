@@ -122,6 +122,11 @@ based on the successful operational repair.
    a stale archived counter can reuse an old tag. Follow that repository's
    version policy (frontend counters remain CI-owned), and always identify the
    release by its source SHA and actual immutable digest rather than its tag.
+   Inspect the selected service's effective base/override image before releasing;
+   an old immutable override can defeat promotion of a new `:prod` image. If it
+   conflicts with the intended release, reconcile only that selected image with
+   an expected-old-value guard and retain the running digest for rollback.
+   Keep resolved environment values in memory and record image metadata only.
 7. Verify the report-specific failure on the released artifact, including the
    actual public path where relevant. Record the source SHA, artifact digest,
    deployment time, before/after result, method, and evidence location. A healthy
