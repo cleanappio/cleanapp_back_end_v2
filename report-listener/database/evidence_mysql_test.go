@@ -956,6 +956,9 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 	t.Run("ProjectedMalformedPublicIDs", func(t *testing.T) { testProjectedEvidenceMalformedPublicIDsMySQL(t, db) })
 	t.Run("ProjectedFamilyRanks", func(t *testing.T) { testProjectedEvidenceSlimRanksMySQL(t, db) })
 	t.Run("ProjectedSourceWinnerIdentity", func(t *testing.T) { testProjectedEvidenceSourceWinnerIdentityMySQL(t, db) })
+	t.Run("ProjectedPreferredAnalysisStream", func(t *testing.T) { testProjectedEvidencePreferredAnalysisStreamMySQL(t, db) })
+	t.Run("ProjectedPublicationBlockerParity", func(t *testing.T) { testProjectedEvidencePublicationBlockerParityMySQL(t, db) })
+	t.Run("ProjectedOptionalOwnerIndex", func(t *testing.T) { testProjectedEvidenceOptionalOwnerIndexMySQL(t, db) })
 }
 
 func evidencePagesEqualIgnoringClock(a, b EvidenceBrandPage) bool {

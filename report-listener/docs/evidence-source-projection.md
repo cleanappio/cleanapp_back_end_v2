@@ -7,7 +7,7 @@ every request can exceed the eight-second public deadline. The derived
 analysis, visibility, ownership/status, evidence kind, cases, facets and media
 remain live. It contains no report body or original media.
 
-The explicit listener migration `0031_report_evidence_source_projection` installs
+The explicit listener migration `0031_evidence_source_projection` installs
 the table and additive invalidation triggers. Current source revisions and
 normalizer version must match the computed result, and the complete result must
 be present. A missing, dirty, malformed or obsolete entry requires the same exact
@@ -27,6 +27,20 @@ reviewed, exact source archive. Select only `cleanapp_report_listener`, retain t
 source SHA, and use a unique owned remote staging directory. Startup and the
 refresh command verify the schema; they do not create it. Apply the migration
 before starting a binary that requires it. A schema mismatch fails verification.
+
+On binary-logged MySQL, creating triggers may require an administrative privilege
+in addition to the runtime role's `TRIGGER` grant. Do not grant the application
+`SUPER` or change global binary-log trust settings as a workaround. Run the same
+exact-source `cmd/migrate` entrypoint inside the database container with the
+existing local administrative identity when needed. Keep credential values
+server-side in an ephemeral private environment file, remove it in a `finally`
+cleanup, and verify the completed schema and migration ledger using the normal
+runtime identity before warming. No new credential is needed.
+
+The migration uses a five-second metadata-lock wait. A failed attempt may leave
+valid additive DDL installed; it must not be treated as complete. Inspect lock
+metadata and wait for the blocking work to finish before an idempotent retry.
+Do not widen global timeouts or cancel unrelated work to force installation.
 
 Build `./cmd/refresh-evidence-sources` from that same source with `BuildSHA` set to
 the full commit. Record the executable SHA-256. Run it through the existing

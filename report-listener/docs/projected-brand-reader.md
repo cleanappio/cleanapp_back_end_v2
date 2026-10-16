@@ -1,8 +1,9 @@
 # Revision-checked evidence source reader
 
-`getEvidenceBrandPageProjected` is an off-route candidate. The public reader is
-unchanged until real MySQL parity and source-bound complete requests pass the
-existing eight-second deadline.
+`GetEvidenceBrandPage` uses `getEvidenceBrandPageProjected` for public brand
+briefings. Revision-checked normalized source values avoid repeated source
+discovery, while exact misses and every live publication guard remain in the
+same read-only snapshot and unchanged eight-second deadline.
 
 One explicit query selects preferred analysis, report metadata with authoritative
 projection NULLs, live visibility/status/ownership, live evidence presence and
