@@ -333,42 +333,9 @@ func loadEvidenceWireSources(ctx context.Context, tx *sql.Tx, ids []int, sources
 		s.WireSubmitted = nullableEvidenceString(submitted)
 		s.WireActor = actor
 		s.WireChannel = channel
-		platform := map[string]json.RawMessage{}
-		metadata := map[string]json.RawMessage{}
-		privacy := map[string]json.RawMessage{}
-		put := func(m map[string]json.RawMessage, key string, node []byte) {
-			if node != nil {
-				m[key] = json.RawMessage(node)
-			}
+		if err := assembleEvidenceWireNodes(&s, nodes); err != nil {
+			return fmt.Errorf("assemble selected evidence Wire metadata: %w", err)
 		}
-		put(platform, "platform", nodes[0])
-		put(platform, "legacy_source", nodes[1])
-		put(metadata, "source_url", nodes[2])
-		put(platform, "source_url", nodes[3])
-		put(platform, "url", nodes[4])
-		put(metadata, "source_published_at", nodes[6])
-		put(metadata, "author_did", nodes[7])
-		put(metadata, "author_username", nodes[8])
-		put(metadata, "author_handle", nodes[9])
-		put(platform, "author_handle", nodes[10])
-		put(privacy, "contains_pii", nodes[11])
-		put(privacy, "requires_redaction", nodes[12])
-		metaJSON, _ := json.Marshal(metadata)
-		platform["metadata"] = metaJSON
-		dcJSON, _ := json.Marshal(platform)
-		privacyJSON, _ := json.Marshal(privacy)
-		report := map[string]json.RawMessage{"digital_context": dcJSON, "privacy": privacyJSON}
-		if nodes[5] != nil {
-			bundle, _ := json.Marshal([]map[string]json.RawMessage{{"uri": nodes[5]}})
-			report["evidence_bundle"] = bundle
-		}
-		s.WireReport, _ = json.Marshal(report)
-		provenance := map[string]json.RawMessage{}
-		extensions := map[string]json.RawMessage{}
-		put(provenance, "generation_method", nodes[13])
-		put(extensions, "observation_time_supplied", nodes[14])
-		s.WireProvenance, _ = json.Marshal(provenance)
-		s.WireExtensions, _ = json.Marshal(extensions)
 		sources[seq] = s
 	}
 	if err := rows.Err(); err != nil {

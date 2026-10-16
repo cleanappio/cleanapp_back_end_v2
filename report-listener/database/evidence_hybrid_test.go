@@ -2,9 +2,11 @@ package database
 
 import (
 	"context"
+	"crypto/sha1"
 	"database/sql/driver"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"regexp"
 	"strconv"
@@ -20,7 +22,7 @@ func TestHybridEvidenceReadsUnfilteredNormalizedScopeWithOnlyScopeArgs(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	query, args, err := hybridEvidenceNormalizedQuery(f)
+	query, args, err := hybridEvidenceInputQuery(f)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,31 +33,31 @@ func TestHybridEvidenceReadsUnfilteredNormalizedScopeWithOnlyScopeArgs(t *testin
 	if !reflect.DeepEqual(args, wantArgs) {
 		t.Fatalf("normalized scope retained non-scope parameters: %v", args)
 	}
-	for _, forbidden := range []string{"rank_input AS", "representatives AS", "family_samples AS", "family_facets AS", "scope_counts AS", "overview_clock AS", "NO_MERGE(r)", "LIMIT ?", "WHERE report_kind"} {
+	for _, forbidden := range []string{"rank_input AS", "representatives AS", "family_samples AS", "family_facets AS", "scope_counts AS", "overview_clock AS", "NO_MERGE", "LIMIT ?", "WHERE report_kind", "canonical_url", " AS source_key", "STR_TO_DATE", "SHA1("} {
 		if strings.Contains(query, forbidden) {
 			t.Fatalf("fused stream retained aggregation/paging/materialization: %s", forbidden)
 		}
 	}
-	for _, required := range []string{"NO_MERGE(candidates)", "NO_MERGE(provenance)", "NO_MERGE(normalized)", "MAX_EXECUTION_TIME(8000) SET_VAR(tmp_table_size=67108864)", "seq,public_id,ts,", "classification,severity_level,language,brand_name", "DATE_FORMAT(analysis_created_at", "LEFT JOIN LATERAL", "wire_header.report_seq=r.seq"} {
+	for _, required := range []string{"MAX_EXECUTION_TIME(8000) SET_VAR(tmp_table_size=67108864)", "r.classification,r.severity_level,r.language,r.brand_name", "DATE_FORMAT(r.created_at", "DATE_FORMAT(r.ts", "COALESCE(r.id,'')", "LEFT JOIN LATERAL", "wire_header.report_seq=r.seq", "CAST(CASE WHEN wire_header.submission_id IS NOT NULL THEN wire_header.contains_pii", "WHERE r.public_id <> ''"} {
 		if !strings.Contains(query, required) {
 			t.Fatalf("fused stream lost normalized/null/source contract: %s", required)
 		}
 	}
 	other := f
 	other.Kind, other.Sort, other.Limit, other.Offset = "all", "recurrence", 50, 100
-	otherQuery, otherArgs, err := hybridEvidenceNormalizedQuery(other)
+	otherQuery, otherArgs, err := hybridEvidenceInputQuery(other)
 	if err != nil || query != otherQuery || !reflect.DeepEqual(args, otherArgs) {
 		t.Fatal("kind/sort/pagination changed the full normalized report universe")
 	}
 }
 
-var hybridTestColumns = strings.Split("seq,public_id,ts,latitude,longitude,classification,severity,language,brand,kind,excerpt,impact,relationship,version,platform,url,published,observed,actor,fetcher,private,source_key,media,external,channel,generation,account,missing_time,created", ",")
+var hybridTestColumns = strings.Split("seq,public_id,latitude,longitude,classification,severity,language,brand,analysis_created,kind,excerpt,impact,relationship,version,media,stored_id,report_ts,raw_type,raw_id,fetcher,eii_source,eii_id,eii_url,eii_published,eii_created,wire_id,wire_loaded,wire_observed,wire_submitted,wire_actor,wire_channel,node0,node1,node2,node3,node4,node5,node6,node7,node8,node9,node10,node11,node12,node13,node14", ",")
 
 func hybridTestRow(seq int) []driver.Value {
-	added := time.Date(2026, 10, 15, 0, 0, 0, 0, time.UTC)
 	id := strconv.Itoa(seq)
-	return []driver.Value{seq, "r_test_" + id, added, 0, 0, "digital", 0.7, "fr", "claude", "firsthand", "1", "1", "affected", 1,
-		"github", "https://example.test/report/" + id, added, nil, "machine", "test", false, "url:example.test/report/" + id, false, true, "wire", "native", nil, false, "2026-10-15 00:00:00.000000"}
+	row := []driver.Value{seq, "r_test_" + id, 0, 0, "digital", 0.7, "fr", "claude", "2026-10-15 00:00:00.000000", "firsthand", "1", "1", "affected", 1, false,
+		"stored_" + id, "2026-10-15 00:00:00.000000", nil, nil, "test", "custom", id, "https://example.test/report/" + id, "2026-10-14 12:00:00.123456", "2026-10-15 00:00:00.000000", nil, false, nil, nil, "", ""}
+	return append(row, make([]driver.Value, 15)...)
 }
 
 type hybridSelectedAnalysisArgument struct{}
@@ -102,7 +104,7 @@ func TestHybridEvidenceGroupsFullScopeAndHydratesOnlyChosenNullableAnalyses(t *t
 	}
 	defer db.Close()
 	f, _ := NormalizeEvidenceFilter(EvidenceFilter{BrandName: "claude", Kind: "firsthand", Language: "fr", Limit: 1, asOf: time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)})
-	query, args, err := hybridEvidenceNormalizedQuery(f)
+	query, args, err := hybridEvidenceInputQuery(f)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,14 +113,28 @@ func TestHybridEvidenceGroupsFullScopeAndHydratesOnlyChosenNullableAnalyses(t *t
 		values[i] = args[i]
 	}
 	first, winner, unrelated := hybridTestRow(42), hybridTestRow(43), hybridTestRow(44)
-	first[2], first[6], first[7], first[28] = nil, nil, nil, nil
-	winner[2] = nil
+	first[16], first[5], first[6], first[8] = nil, nil, nil, nil
+	winner[16] = nil
 	published := time.Date(2026, 10, 14, 12, 0, 0, 123456000, time.UTC)
-	first[16], winner[16] = published.Add(-time.Hour), published
+	first[23] = "2026-10-14 11:00:00.123456"
 	unrelated[9], unrelated[13] = "unknown", 0
 	rows := sqlmock.NewRows(hybridTestColumns).AddRow(first...).AddRow(winner...).AddRow(unrelated...)
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta(query)).WithArgs(values...).WillReturnRows(rows)
+	normalizedColumns := strings.Split("seq,platform,url,published,observed,ingested,missing,actor,fetcher,private,key,external,channel,generation,account,null_time", ",")
+	normalized := sqlmock.NewRows(normalizedColumns)
+	for _, seq := range []int{42, 43, 44} {
+		var added driver.Value
+		if seq == 44 {
+			added = time.Date(2026, 10, 15, 0, 0, 0, 0, time.UTC)
+		}
+		pub := published
+		if seq == 42 {
+			pub = pub.Add(-time.Hour)
+		}
+		normalized.AddRow(seq, "custom", fmt.Sprintf("https://example.test/report/%d", seq), pub, nil, added, false, "", "test", false, fmt.Sprintf("url:example.test/report/%d", seq), true, "", "", "", seq != 44)
+	}
+	mock.ExpectQuery("WITH source_rows AS").WillReturnRows(normalized)
 	mock.ExpectQuery("SELECT cr.seq,MIN").WithArgs("[42,43,44]").WillReturnRows(sqlmock.NewRows([]string{"seq", "case"}).AddRow(42, "family-1").AddRow(43, "family-1"))
 	mock.ExpectQuery("WITH display AS").WithArgs("fr", hybridSelectedAnalysisArgument{}).WillReturnRows(sqlmock.NewRows([]string{"seq", "title", "summary", "brand"}).AddRow(43, "Chosen title", "Chosen summary", "Claude").AddRow(42, "Nullable sample", "Sample summary", "Claude"))
 	mock.ExpectQuery("SELECT ev.seq,COALESCE").WithArgs("[43]").WillReturnRows(sqlmock.NewRows([]string{"seq", "excerpt", "impact", "reason"}).AddRow(43, "Original observation", "Blocked", "Direct"))
@@ -172,5 +188,79 @@ func TestHybridEvidenceRejectsPartialOrDuplicateNormalizedStreams(t *testing.T) 
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+func TestHybridEvidenceArchiveInputsRemainNativeWithoutWireDocuments(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	row := hybridTestRow(42)
+	digest := fmt.Sprintf("%x", sha1.Sum([]byte("reddit:t3_abc")))[:32]
+	row[5], row[6], row[8], row[14] = nil, nil, nil, true
+	row[15], row[16], row[20], row[21], row[22], row[23] = "reddit_t3_abc", "2026-03-01 00:00:00.000000", "reddit_archive", digest, nil, nil
+	mock.ExpectBegin()
+	mock.ExpectQuery("WITH preferred").WillReturnRows(sqlmock.NewRows(hybridTestColumns).AddRow(row...))
+	mock.ExpectRollback()
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	f, _ := NormalizeEvidenceFilter(EvidenceFilter{BrandName: "claude", Kind: "all"})
+	all, selected, _, inputs, err := loadHybridEvidenceInputs(context.Background(), tx, f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inputs) != 1 || inputs[0].ReportID != "reddit_t3_abc" || inputs[0].RawSourceType != nil || inputs[0].RawSourceID != nil || inputs[0].EiiURL != nil || len(inputs[0].WireReport) != 0 || len(inputs[0].WireProvenance) != 0 || len(inputs[0].WireExtensions) != 0 {
+		t.Fatal("raw identity/nulls or absent Wire documents changed")
+	}
+	// Any unexpected SQL normalization query fails the mock: this exact trusted
+	// archive shape must use the already-tested native path.
+	if err := normalizeHybridEvidenceInputs(context.Background(), tx, all, inputs); err != nil {
+		t.Fatal(err)
+	}
+	if all[0].SourceKey != "source:reddit_archive:test:"+digest || all[0].PublicID != "r_test_42" || !all[0].HasOriginalMedia || all[0].Excerpt != "1" || !all[0].SeverityNull || !selected[0].languageNull || selected[0].created.Valid || all[0].PublishedAt == nil || all[0].PublishedAt.Month() != time.March || all[0].IngestedAt.Month() != time.October {
+		t.Fatal("normalization overwrote selected metadata or changed archive dates")
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestEvidenceWireNodeAssemblyPreservesExactJSONTypesAndPresence(t *testing.T) {
+	nodes := make([][]byte, 15)
+	nodes[0], nodes[1], nodes[2], nodes[6], nodes[8] = []byte(`"github"`), []byte(`null`), []byte(`"__non_http_source_uri__"`), []byte(`null`), []byte(`7`)
+	nodes[11], nodes[12], nodes[13], nodes[14] = []byte(`false`), []byte(`0`), []byte(`"human_submission"`), []byte(`false`)
+	var s evidenceSourceNormalizationRow
+	if err := assembleEvidenceWireNodes(&s, nodes); err != nil {
+		t.Fatal(err)
+	}
+	var report struct {
+		Digital struct {
+			Platform json.RawMessage            `json:"platform"`
+			Legacy   json.RawMessage            `json:"legacy_source"`
+			Metadata map[string]json.RawMessage `json:"metadata"`
+		} `json:"digital_context"`
+		Privacy map[string]json.RawMessage `json:"privacy"`
+	}
+	if err := json.Unmarshal(s.WireReport, &report); err != nil {
+		t.Fatal(err)
+	}
+	if string(report.Digital.Legacy) != "null" || string(report.Digital.Metadata["source_published_at"]) != "null" || string(report.Digital.Metadata["author_username"]) != "7" || report.Digital.Metadata["author_did"] != nil || string(report.Privacy["contains_pii"]) != "false" || string(report.Privacy["requires_redaction"]) != "0" || !strings.Contains(string(s.WireExtensions), "false") {
+		t.Fatal("Wire SQL NULL/JSON null/boolean/number types changed")
+	}
+	var present evidenceSourceNormalizationRow
+	if err := assembleEvidenceWireNodes(&present, make([][]byte, 15)); err != nil || len(present.WireReport) == 0 || len(present.WireProvenance) == 0 || len(present.WireExtensions) == 0 {
+		t.Fatal("a present all-NULL Wire projection must remain a present document")
+	}
+	nodes[0] = []byte(`{`)
+	if err := assembleEvidenceWireNodes(&s, nodes); err == nil {
+		t.Fatal("invalid projected JSON must fail closed")
 	}
 }

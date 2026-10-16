@@ -7,40 +7,28 @@ import (
 	"strings"
 	"time"
 
+	"cleanapp-common/wiremeta"
 	"report-listener/models"
 )
 
-// One authoritative normalized row per visible report, with no SQL source or
-// family aggregation. Grouping and overview reuse the established Go adapter.
-func hybridEvidenceNormalizedQuery(f EvidenceFilter) (string, []interface{}, error) {
+// Stream chosen source scalars once. The existing normalizer handles inference,
+// using its proven native archive path or bounded SQL fallback in the same tx.
+func hybridEvidenceInputQuery(f EvidenceFilter) (string, []interface{}, error) {
 	query, args, err := narrowEvidenceBrandPageQuery(f)
 	if err != nil {
 		return "", nil, err
 	}
-	const boundary = "), rank_input AS ("
-	if strings.Count(query, boundary) != 1 {
-		return "", nil, fmt.Errorf("hybrid evidence normalized boundary changed")
+	const before = "), candidates AS ("
+	const from = "FROM source_winners r"
+	const after = "), provenance AS ("
+	if strings.Count(query, before) != 1 || strings.Count(query, from) != 1 || strings.Count(query, after) != 1 {
+		return "", nil, fmt.Errorf("hybrid evidence input boundary changed")
 	}
-	query = query[:strings.Index(query, boundary)+1]
-	// The fused stream has one normalization consumer. The narrow SQL reader
-	// needs this materialization for several consumers; here it only postpones
-	// the first row and copies the complete selected metadata scope needlessly.
-	const sharedScope = "SELECT /*+ NO_MERGE(r) */ r.seq, r.public_id,"
-	if strings.Count(query, sharedScope) != 1 {
-		return "", nil, fmt.Errorf("hybrid evidence source scope changed")
+	begin, joinStart, end := strings.Index(query, before), strings.Index(query, from), strings.Index(query, after)
+	if begin >= joinStart || joinStart >= end {
+		return "", nil, fmt.Errorf("hybrid evidence input scope changed")
 	}
-	query = strings.Replace(query, sharedScope, "SELECT r.seq, r.public_id,", 1)
-	// Match the deployed compact normalizer's scalar boundaries. Otherwise
-	// MySQL expands source URL/JSON expressions into every canonical-key use.
-	for _, change := range [][2]string{
-		{"SELECT candidates.*,", "SELECT /*+ NO_MERGE(candidates) */ candidates.*,"},
-		{"SELECT provenance.*,", "SELECT /*+ NO_MERGE(provenance) */ provenance.*,"},
-	} {
-		if strings.Count(query, change[0]) != 1 {
-			return "", nil, fmt.Errorf("hybrid evidence normalization boundary changed")
-		}
-		query = strings.Replace(query, change[0], change[1], 1)
-	}
+	prefix, joins := query[:begin+1], query[joinStart:end]
 	scopeArgs := 1 + len(f.Brands)
 	extraArgs := 3 // the full reader's overview clock, page limit and offset
 	if f.Kind != "all" {
@@ -49,13 +37,24 @@ func hybridEvidenceNormalizedQuery(f EvidenceFilter) (string, []interface{}, err
 	if len(args) != scopeArgs+extraArgs {
 		return "", nil, fmt.Errorf("hybrid evidence scope parameters changed")
 	}
-	query += fmt.Sprintf(`
- SELECT /*+ MAX_EXECUTION_TIME(%d) SET_VAR(tmp_table_size=%d) NO_MERGE(normalized) */
- seq,public_id,ts,COALESCE(latitude,0),COALESCE(longitude,0),classification,severity_level,language,brand_name,
- report_kind,evidence_excerpt,reported_impact,entity_relationship,evidence_version,
- source_platform,source_url,source_timestamp,observed_at,actor_kind,fetcher_id,privacy_restricted,source_key,
- has_original_media,external_source,intake_channel,generation_method,source_account_key,ingestion_time_missing,
- DATE_FORMAT(analysis_created_at,'%%Y-%%m-%%d %%H:%%i:%%s.%%f') FROM normalized`, publicDiscoveryQueryTimeout.Milliseconds(), narrowEvidenceTempTableBudgetBytes)
+	choose := func(header, original, present string) string {
+		return "CASE WHEN " + present + " IS NOT NULL THEN " + header + " ELSE " + original + " END"
+	}
+	date := func(value string) string { return "DATE_FORMAT(" + value + ",'%Y-%m-%d %H:%i:%s.%f')" }
+	eii := func(field string) string { return choose("eii_header."+field, "eii_fallback."+field, "eii_header.seq") }
+	wire := func(field string) string {
+		return choose("wire_header."+field, "wire_fallback."+field, "wire_header.submission_id")
+	}
+	columns := []string{"r.seq", "r.public_id", "COALESCE(r.latitude,0)", "COALESCE(r.longitude,0)", "r.classification", "r.severity_level", "r.language", "r.brand_name", date("r.created_at"),
+		"CASE WHEN COALESCE(ev.evidence_version,0)>0 AND COALESCE(ev.report_kind,'unknown') IN ('firsthand','coverage') THEN COALESCE(ev.report_kind,'unknown') ELSE 'unknown' END",
+		"CASE WHEN COALESCE(ev.evidence_excerpt<>'',FALSE) THEN '1' ELSE '' END", "CASE WHEN COALESCE(ev.reported_impact<>'',FALSE) THEN '1' ELSE '' END", "COALESCE(ev.entity_relationship,'unknown')", "COALESCE(ev.evidence_version,0)", "r.has_original_media",
+		"COALESCE(r.id,'')", date("r.ts"), "rr.source_type", "rr.source_id", "COALESCE(rr.fetcher_id,'')", "r.source", "r.external_id", eii("source_url"), date(eii("source_timestamp")), date(eii("created_at")),
+		"r.wire_submission_id", "(wire_header.submission_id IS NOT NULL OR wire_fallback.submission_id IS NOT NULL)", date(wire("observed_at")), date(wire("submitted_at")), "COALESCE(" + wire("actor_kind") + ",'')", "COALESCE(" + wire("channel") + ",'')"}
+	originalNodes := wiremeta.NodeExpressions("wire_fallback")
+	for i, name := range wiremeta.NodeColumns() {
+		columns = append(columns, "CAST("+choose("wire_header."+name, originalNodes[i], "wire_header.submission_id")+" AS JSON)")
+	}
+	query = prefix + fmt.Sprintf("\n SELECT /*+ MAX_EXECUTION_TIME(%d) SET_VAR(tmp_table_size=%d) */ ", publicDiscoveryQueryTimeout.Milliseconds(), narrowEvidenceTempTableBudgetBytes) + strings.Join(columns, ",") + " " + joins
 	return query, args[:scopeArgs], nil
 }
 
@@ -66,53 +65,96 @@ type hybridEvidenceAnalysisSelection struct {
 	languageNull bool
 }
 
-func loadHybridEvidenceNormalized(ctx context.Context, tx *sql.Tx, f EvidenceFilter) ([]evidenceRecord, []hybridEvidenceAnalysisSelection, map[int]int, error) {
-	query, args, err := hybridEvidenceNormalizedQuery(f)
+func loadHybridEvidenceInputs(ctx context.Context, tx *sql.Tx, f EvidenceFilter) ([]evidenceRecord, []hybridEvidenceAnalysisSelection, map[int]int, []evidenceSourceNormalizationRow, error) {
+	query, args, err := hybridEvidenceInputQuery(f)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	rows, err := tx.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("read hybrid normalized evidence: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("read hybrid evidence inputs: %w", err)
 	}
 	defer rows.Close()
 	all := []evidenceRecord{}
 	selections := []hybridEvidenceAnalysisSelection{}
 	bySeq := map[int]int{}
+	inputs := []evidenceSourceNormalizationRow{}
+	nodeCount := len(wiremeta.NodeColumns())
 	for rows.Next() {
 		var r evidenceRecord
 		var selected hybridEvidenceAnalysisSelection
-		var added sql.NullTime
 		var severity sql.NullFloat64
-		var language, account sql.NullString
+		var language, reportTS, rawType, rawID, platform, externalID, url, published, created, wireID, observed, submitted sql.NullString
 		var hasMedia sql.NullBool
-		if err := rows.Scan(&r.Seq, &r.PublicID, &added, &r.Latitude, &r.Longitude, &r.Classification, &severity, &language, &r.Brand,
-			&r.Kind, &r.Excerpt, &r.Impact, &r.Relationship, &r.Version,
-			&r.SourcePlatform, &r.SourceURL, &r.PublishedAt, &r.ObservedAt, &r.ActorKind, &r.FetcherID, &r.PrivacyRestricted, &r.SourceKey,
-			&hasMedia, &r.ExternalSource, &r.IntakeChannel, &r.GenerationMethod, &account, &r.IngestionTimeMissing, &selected.created); err != nil {
-			return nil, nil, nil, err
+		var s evidenceSourceNormalizationRow
+		var wireLoaded bool
+		nodes := make([][]byte, nodeCount)
+		dest := []interface{}{&r.Seq, &r.PublicID, &r.Latitude, &r.Longitude, &r.Classification, &severity, &language, &r.Brand, &selected.created,
+			&r.Kind, &r.Excerpt, &r.Impact, &r.Relationship, &r.Version, &hasMedia,
+			&s.ReportID, &reportTS, &rawType, &rawID, &s.FetcherID, &platform, &externalID, &url, &published, &created,
+			&wireID, &wireLoaded, &observed, &submitted, &s.WireActor, &s.WireChannel}
+		for i := range nodes {
+			dest = append(dest, &nodes[i])
+		}
+		if err := rows.Scan(dest...); err != nil {
+			return nil, nil, nil, nil, err
 		}
 		if _, duplicate := bySeq[r.Seq]; duplicate {
-			return nil, nil, nil, fmt.Errorf("hybrid evidence has duplicate normalized sequence")
+			return nil, nil, nil, nil, fmt.Errorf("hybrid evidence has duplicate input sequence")
 		}
-		r.IngestedAt, r.IngestedAtNull = added.Time, !added.Valid
+		if wireID.Valid != wireLoaded {
+			return nil, nil, nil, nil, fmt.Errorf("hybrid evidence selected Wire metadata is incomplete")
+		}
 		r.Severity, r.SeverityNull = severity.Float64, !severity.Valid
 		r.Language, selected.languageNull = language.String, !language.Valid
 		r.HasOriginalMedia = hasMedia.Valid && hasMedia.Bool
-		r.SourceAccountKey = account.String
+		s.Seq = r.Seq
+		s.ReportTS, s.RawSourceType, s.RawSourceID = nullableEvidenceString(reportTS), nullableEvidenceString(rawType), nullableEvidenceString(rawID)
+		s.EiiSource, s.EiiID, s.EiiURL = nullableEvidenceString(platform), nullableEvidenceString(externalID), nullableEvidenceString(url)
+		s.EiiPublished, s.EiiCreated = nullableEvidenceString(published), nullableEvidenceString(created)
+		if wireID.Valid {
+			s.WireObserved, s.WireSubmitted = nullableEvidenceString(observed), nullableEvidenceString(submitted)
+			if err := assembleEvidenceWireNodes(&s, nodes); err != nil {
+				return nil, nil, nil, nil, err
+			}
+		}
 		bySeq[r.Seq] = len(all)
 		all = append(all, r)
 		selections = append(selections, selected)
+		inputs = append(inputs, s)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
-	return all, selections, bySeq, nil
+	return all, selections, bySeq, inputs, nil
+}
+
+func normalizeHybridEvidenceInputs(ctx context.Context, tx *sql.Tx, all []evidenceRecord, inputs []evidenceSourceNormalizationRow) error {
+	normalized, err := normalizeEvidenceSources(ctx, tx, inputs)
+	if err != nil {
+		return err
+	}
+	if len(normalized) != len(all) {
+		return fmt.Errorf("hybrid evidence source normalization is incomplete")
+	}
+	for i := range all {
+		s, ok := normalized[all[i].Seq]
+		if !ok || s.Seq != all[i].Seq {
+			return fmt.Errorf("hybrid evidence source identity differs")
+		}
+		r := &all[i]
+		r.SourcePlatform, r.SourceURL, r.SourceKey = s.SourcePlatform, s.SourceURL, s.SourceKey
+		r.PublishedAt, r.ObservedAt, r.IngestedAt = s.PublishedAt, s.ObservedAt, s.IngestedAt
+		r.IngestionTimeMissing, r.IngestedAtNull = s.IngestionTimeMissing, s.IngestedAtNull
+		r.ActorKind, r.FetcherID, r.PrivacyRestricted = s.ActorKind, s.FetcherID, s.PrivacyRestricted
+		r.ExternalSource, r.IntakeChannel, r.GenerationMethod, r.SourceAccountKey = s.ExternalSource, s.IntakeChannel, s.GenerationMethod, s.SourceAccountKey
+	}
+	return nil
 }
 
 func loadEvidenceBrandPageHybrid(ctx context.Context, tx *sql.Tx, f EvidenceFilter) (EvidenceBrandPage, error) {
 	page := EvidenceBrandPage{Reports: []models.ReportWithMinimalAnalysis{}, Overview: evidenceOverview(nil, f.asOf)}
-	all, selections, bySeq, err := loadHybridEvidenceNormalized(ctx, tx, f)
+	all, selections, bySeq, inputs, err := loadHybridEvidenceInputs(ctx, tx, f)
 	if err != nil {
 		return EvidenceBrandPage{}, err
 	}
@@ -121,6 +163,9 @@ func loadEvidenceBrandPageHybrid(ctx context.Context, tx *sql.Tx, f EvidenceFilt
 	}
 	if len(all) == 0 {
 		return page, nil
+	}
+	if err := normalizeHybridEvidenceInputs(ctx, tx, all, inputs); err != nil {
+		return EvidenceBrandPage{}, err
 	}
 	ids := make([]int, len(all))
 	for i := range all {
