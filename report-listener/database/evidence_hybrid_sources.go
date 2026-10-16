@@ -75,11 +75,11 @@ const hybridEvidenceChosenSourcesCTE = `chosen_source_ids AS (
  FROM metadata r LEFT JOIN chosen_source_ids chosen ON chosen.seq=r.seq
  )`
 
-func loadHybridEvidenceSourceChoices(ctx context.Context, tx *sql.Tx, f EvidenceFilter) (string, error) {
+func loadHybridEvidenceSourceChoices(ctx context.Context, tx *sql.Tx, f EvidenceFilter) (string, int, error) {
 	query, args := hybridEvidenceSourceIdentityQuery(f)
 	rows, err := tx.QueryContext(ctx, query, args...)
 	if err != nil {
-		return "", fmt.Errorf("read covered hybrid source identities: %w", err)
+		return "", 0, fmt.Errorf("read covered hybrid source identities: %w", err)
 	}
 	choices := map[int]*hybridEvidenceSourceChoice{}
 	for rows.Next() {
@@ -87,7 +87,7 @@ func loadHybridEvidenceSourceChoices(ctx context.Context, tx *sql.Tx, f Evidence
 		var source, id, wire sql.NullString
 		if err := rows.Scan(&kind, &seq, &source, &id, &wire); err != nil {
 			rows.Close()
-			return "", err
+			return "", 0, err
 		}
 		choice := choices[seq]
 		if choice == nil {
@@ -107,13 +107,13 @@ func loadHybridEvidenceSourceChoices(ctx context.Context, tx *sql.Tx, f Evidence
 			}
 		default:
 			rows.Close()
-			return "", fmt.Errorf("hybrid source identity is incomplete")
+			return "", 0, fmt.Errorf("hybrid source identity is incomplete")
 		}
 	}
 	err = rows.Err()
 	rows.Close()
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	eiiDuplicates, wireDuplicates := []int{}, []int{}
 	ids := make([]int, 0, len(choices))
@@ -130,16 +130,20 @@ func loadHybridEvidenceSourceChoices(ctx context.Context, tx *sql.Tx, f Evidence
 	sort.Ints(eiiDuplicates)
 	sort.Ints(wireDuplicates)
 	if err := resolveHybridEvidenceDuplicateEII(ctx, tx, choices, eiiDuplicates); err != nil {
-		return "", err
+		return "", 0, err
 	}
 	if err := resolveHybridEvidenceDuplicateWire(ctx, tx, choices, wireDuplicates); err != nil {
-		return "", err
+		return "", 0, err
 	}
 	selected := make([]*hybridEvidenceSourceChoice, 0, len(ids))
 	for _, seq := range ids {
 		selected = append(selected, choices[seq])
 	}
-	return encodeHybridEvidenceSourceChoices(selected)
+	encoded, err := encodeHybridEvidenceSourceChoices(selected)
+	if err != nil {
+		return "", 0, err
+	}
+	return encoded, len(selected), nil
 }
 
 func resolveHybridEvidenceDuplicateEII(ctx context.Context, tx *sql.Tx, choices map[int]*hybridEvidenceSourceChoice, ids []int) error {

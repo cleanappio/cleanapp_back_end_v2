@@ -70,7 +70,7 @@ type hybridEvidenceAnalysisSelection struct {
 }
 
 func loadHybridEvidenceInputs(ctx context.Context, tx *sql.Tx, f EvidenceFilter) ([]evidenceRecord, []hybridEvidenceAnalysisSelection, map[int]int, []evidenceSourceNormalizationRow, error) {
-	selectedSources, err := loadHybridEvidenceSourceChoices(ctx, tx, f)
+	selectedSources, sourceCount, err := loadHybridEvidenceSourceChoices(ctx, tx, f)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -83,27 +83,40 @@ func loadHybridEvidenceInputs(ctx context.Context, tx *sql.Tx, f EvidenceFilter)
 		return nil, nil, nil, nil, fmt.Errorf("read hybrid evidence inputs: %w", err)
 	}
 	defer rows.Close()
-	all := []evidenceRecord{}
-	selections := []hybridEvidenceAnalysisSelection{}
-	bySeq := map[int]int{}
-	inputs := []evidenceSourceNormalizationRow{}
-	nodeCount := len(wiremeta.NodeColumns())
+	// Capacity is only a growth hint: the metadata driver also includes reports
+	// with neither source, and append must retain every such report. Bound eager
+	// allocation for unusually large scopes and allow a little source-less slack.
+	capacity := sourceCount + sourceCount/8
+	if capacity > 65536 {
+		capacity = 65536
+	}
+	all := make([]evidenceRecord, 0, capacity)
+	selections := make([]hybridEvidenceAnalysisSelection, 0, capacity)
+	bySeq := make(map[int]int, capacity)
+	inputs := make([]evidenceSourceNormalizationRow, 0, capacity)
+
+	var r evidenceRecord
+	var selected hybridEvidenceAnalysisSelection
+	var severity sql.NullFloat64
+	var language, reportTS, rawType, rawID, platform, externalID, url, published, created, wireID, observed, submitted sql.NullString
+	var hasMedia sql.NullBool
+	var s evidenceSourceNormalizationRow
+	var wireLoaded bool
+	nodes := make([][]byte, len(wiremeta.NodeColumns()))
+	dest := []interface{}{&r.Seq, &r.PublicID, &r.Latitude, &r.Longitude, &r.Classification, &severity, &language, &r.Brand, &selected.created,
+		&r.Kind, &r.Excerpt, &r.Impact, &r.Relationship, &r.Version, &hasMedia,
+		&s.ReportID, &reportTS, &rawType, &rawID, &s.FetcherID, &platform, &externalID, &url, &published, &created,
+		&wireID, &wireLoaded, &observed, &submitted, &s.WireActor, &s.WireChannel}
+	for i := range nodes {
+		dest = append(dest, &nodes[i])
+	}
 	for rows.Next() {
-		var r evidenceRecord
-		var selected hybridEvidenceAnalysisSelection
-		var severity sql.NullFloat64
-		var language, reportTS, rawType, rawID, platform, externalID, url, published, created, wireID, observed, submitted sql.NullString
-		var hasMedia sql.NullBool
-		var s evidenceSourceNormalizationRow
-		var wireLoaded bool
-		nodes := make([][]byte, nodeCount)
-		dest := []interface{}{&r.Seq, &r.PublicID, &r.Latitude, &r.Longitude, &r.Classification, &severity, &language, &r.Brand, &selected.created,
-			&r.Kind, &r.Excerpt, &r.Impact, &r.Relationship, &r.Version, &hasMedia,
-			&s.ReportID, &reportTS, &rawType, &rawID, &s.FetcherID, &platform, &externalID, &url, &published, &created,
-			&wireID, &wireLoaded, &observed, &submitted, &s.WireActor, &s.WireChannel}
-		for i := range nodes {
-			dest = append(dest, &nodes[i])
-		}
+		// Reuse only scan scratch. Completed values are copied into the retained
+		// slices below; nullableEvidenceString and the Wire assembler own their
+		// pointer/document copies. Reset absent Wire fields before every scan.
+		r = evidenceRecord{}
+		selected = hybridEvidenceAnalysisSelection{}
+		s = evidenceSourceNormalizationRow{}
 		if err := rows.Scan(dest...); err != nil {
 			return nil, nil, nil, nil, err
 		}

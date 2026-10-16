@@ -14,6 +14,24 @@ import (
 
 var hybridIdentityTestColumns = []string{"kind", "seq", "source", "external_id", "wire_id"}
 
+func TestHybridSourceTuplesRoundTripNullEmptyAndEscapedIdentityBytes(t *testing.T) {
+	source, id, wire := "é \"Source\"\\\x00\n\t ", "", "null"
+	encoded, err := encodeHybridEvidenceSourceChoices([]*hybridEvidenceSourceChoice{
+		{Seq: 42, Source: &source, ExternalID: &id, WireID: &wire},
+		{Seq: 43},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tuples [][4]interface{}
+	if err := json.Unmarshal([]byte(encoded), &tuples); err != nil {
+		t.Fatal(err)
+	}
+	if len(tuples) != 2 || tuples[0][0] != float64(42) || tuples[0][1] != source || tuples[0][2] != "" || tuples[0][3] != "null" || tuples[1][1] != nil || tuples[1][2] != nil || tuples[1][3] != nil {
+		t.Fatal("compact payload changed null, empty, literal null, or escaped identity bytes")
+	}
+}
+
 func TestHybridSourceParameterRejectsOversizedCohortWithoutPartialJSON(t *testing.T) {
 	source, id, wire := strings.Repeat("s", 64), strings.Repeat("i", 255), strings.Repeat("w", 64)
 	choice := &hybridEvidenceSourceChoice{Seq: 42, Source: &source, ExternalID: &id, WireID: &wire}
@@ -75,7 +93,7 @@ func TestHybridSourceChoicesResolveOnlyDuplicateKindsAndKeepSQLWinners(t *testin
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	encoded, err := loadHybridEvidenceSourceChoices(context.Background(), tx, f)
+	encoded, _, err := loadHybridEvidenceSourceChoices(context.Background(), tx, f)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +142,7 @@ func TestHybridSourceChoicesFailClosedOnPartialIdentityOrDuplicateReads(t *testi
 				t.Fatal(err)
 			}
 			f, _ := NormalizeEvidenceFilter(EvidenceFilter{BrandName: "claude", Kind: "all"})
-			encoded, err := loadHybridEvidenceSourceChoices(context.Background(), tx, f)
+			encoded, _, err := loadHybridEvidenceSourceChoices(context.Background(), tx, f)
 			if err == nil || encoded != "" {
 				t.Fatal("incomplete identity reads must not produce a usable selected cohort")
 			}

@@ -61,6 +61,56 @@ func hybridTestRow(seq int) []driver.Value {
 	return append(row, make([]driver.Value, 15)...)
 }
 
+func TestHybridEvidenceScanReuseOwnsNullableValuesAndWireDocuments(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	first, absent, last := hybridTestRow(42), hybridTestRow(43), hybridTestRow(44)
+	first[16], first[25], first[26], first[27], first[28], first[42] = "2026-01-01 00:00:00.000000", "private-first", true, "2026-01-01 00:00:00.000000", "2026-01-02 00:00:00.000000", []byte("true")
+	absent[5], absent[6], absent[8] = nil, nil, nil
+	last[25], last[26], last[27], last[28], last[42] = "public-last", true, "2026-10-01 00:00:00.000000", "2026-10-02 00:00:00.000000", []byte("false")
+	mock.ExpectBegin()
+	mock.ExpectQuery("WITH identity_scope").WillReturnRows(sqlmock.NewRows(hybridIdentityTestColumns))
+	mock.ExpectQuery("WITH preferred").WillReturnRows(sqlmock.NewRows(hybridTestColumns).AddRow(first...).AddRow(absent...).AddRow(last...))
+	mock.ExpectRollback()
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, _ := NormalizeEvidenceFilter(EvidenceFilter{BrandName: "claude", Kind: "all"})
+	all, selected, _, inputs, err := loadHybridEvidenceInputs(context.Background(), tx, f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 3 || all[0].Seq != 42 || all[1].Seq != 43 || all[2].Seq != 44 || !all[1].SeverityNull || !selected[1].languageNull || selected[1].created.Valid || !selected[0].created.Valid {
+		t.Fatal("reused record or nullable analysis scratch changed previously retained rows")
+	}
+	if *inputs[0].ReportTS != "2026-01-01 00:00:00.000000" || *inputs[0].EiiID != "42" || *inputs[2].EiiID != "44" || inputs[0].WireObserved == nil || *inputs[0].WireObserved != "2026-01-01 00:00:00.000000" {
+		t.Fatal("retained nullable source fields alias reused scan scratch")
+	}
+	if len(inputs[1].WireReport) != 0 || len(inputs[1].WireProvenance) != 0 || len(inputs[1].WireExtensions) != 0 || inputs[1].WireObserved != nil || inputs[1].WireSubmitted != nil {
+		t.Fatal("an absent Wire row inherited the preceding document or dates")
+	}
+	for i, want := range map[int]bool{0: true, 2: false} {
+		var report struct {
+			Privacy struct {
+				ContainsPII bool `json:"contains_pii"`
+			} `json:"privacy"`
+		}
+		if err := json.Unmarshal(inputs[i].WireReport, &report); err != nil || report.Privacy.ContainsPII != want {
+			t.Fatal("retained typed Wire documents alias the next scan's node buffer")
+		}
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 type hybridSelectedAnalysisArgument struct{}
 
 func (hybridSelectedAnalysisArgument) Match(value driver.Value) bool {
