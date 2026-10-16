@@ -566,46 +566,62 @@ func (s *EmailService) ProcessBrandlessPhysicalReports(limit int) error {
 	return nil
 }
 
+// brandSummaryQuery selects the 100 brands with the most pending reports, then
+// counts each selected brand's public total. The correlated total is evaluated
+// only for those output rows, not for every brand with a pending report, so a
+// cycle no longer rescans every brand's full public history.
+func brandSummaryQuery() string {
+	return `
+		SELECT
+			s.brand_name,
+			s.brand_display_name,
+			s.new_count,
+			(SELECT COUNT(*) FROM report_analysis ra2
+			  LEFT JOIN report_raw rr2 ON ra2.seq = rr2.report_seq
+			  WHERE ra2.brand_name = s.brand_name AND ra2.language = 'en' AND ra2.is_valid = TRUE
+			    AND (rr2.visibility IS NULL OR rr2.visibility = 'public')
+			    AND ` + notificationPublicStateSQL("ra2") + `
+			) as total_count,
+			s.seqs,
+			s.latest_seq,
+			s.classification,
+			s.inferred_contact_emails
+		FROM (
+			SELECT
+				ra.brand_name,
+				COALESCE(ra.brand_display_name, ra.brand_name) as brand_display_name,
+				COUNT(*) as new_count,
+				GROUP_CONCAT(CONCAT(r.seq, ':') ORDER BY r.seq DESC) as seqs,
+				MAX(r.seq) as latest_seq,
+				MAX(ra.classification) as classification,
+				MAX(ra.inferred_contact_emails) as inferred_contact_emails
+			FROM reports r
+			INNER JOIN report_analysis ra ON r.seq = ra.seq
+			LEFT JOIN report_raw rr ON r.seq = rr.report_seq
+			LEFT JOIN sent_reports_emails sre ON r.seq = sre.seq
+			LEFT JOIN email_report_retry erry ON r.seq = erry.seq
+			WHERE sre.seq IS NULL
+			  AND ra.brand_name != ''
+			  AND ra.is_valid = TRUE
+			  AND ra.language = 'en'
+			  AND (rr.visibility IS NULL OR rr.visibility = 'public')
+			  AND ` + notificationPublicStateSQL("r") + `
+			  AND (erry.seq IS NULL OR erry.next_attempt_at <= NOW())
+			AND (erry.reason IS NULL OR erry.reason <> 'notification_receipt_pending')
+			AND ` + genericCompanyExclusionSQL("ra.brand_name") + `
+			GROUP BY ra.brand_name, ra.brand_display_name
+			ORDER BY new_count DESC
+			LIMIT 100
+		) s
+		ORDER BY s.new_count DESC
+	`
+}
+
 // getUnprocessedReportsByBrand gets unprocessed reports grouped by brand for aggregate notifications
 func (s *EmailService) getUnprocessedReportsByBrand(ctx context.Context) ([]models.BrandReportSummary, error) {
 	qStart := time.Now()
 
-	// Query to get brand summaries with new report counts and seqs
-	query := `
-		SELECT 
-			ra.brand_name,
-			COALESCE(ra.brand_display_name, ra.brand_name) as brand_display_name,
-			COUNT(*) as new_count,
-			(SELECT COUNT(*) FROM report_analysis ra2
-			  LEFT JOIN report_raw rr2 ON ra2.seq = rr2.report_seq
-			  WHERE ra2.brand_name = ra.brand_name AND ra2.language = 'en' AND ra2.is_valid = TRUE
-			    AND (rr2.visibility IS NULL OR rr2.visibility = 'public')
-			    AND ` + notificationPublicStateSQL("ra2") + `
-			) as total_count,
-			GROUP_CONCAT(CONCAT(r.seq, ':') ORDER BY r.seq DESC) as seqs,
-			MAX(r.seq) as latest_seq,
-			MAX(ra.classification) as classification,
-			MAX(ra.inferred_contact_emails) as inferred_contact_emails
-		FROM reports r
-		INNER JOIN report_analysis ra ON r.seq = ra.seq
-		LEFT JOIN report_raw rr ON r.seq = rr.report_seq
-		LEFT JOIN sent_reports_emails sre ON r.seq = sre.seq
-		LEFT JOIN email_report_retry erry ON r.seq = erry.seq
-		WHERE sre.seq IS NULL
-		  AND ra.brand_name != ''
-		  AND ra.is_valid = TRUE
-		  AND ra.language = 'en'
-		  AND (rr.visibility IS NULL OR rr.visibility = 'public')
-		  AND ` + notificationPublicStateSQL("r") + `
-		  AND (erry.seq IS NULL OR erry.next_attempt_at <= NOW())
-		AND (erry.reason IS NULL OR erry.reason <> 'notification_receipt_pending')
-		AND ` + genericCompanyExclusionSQL("ra.brand_name") + `
-		GROUP BY ra.brand_name, ra.brand_display_name
-		ORDER BY new_count DESC
-		LIMIT 100
-	`
-
-	rows, err := s.db.QueryContext(ctx, query)
+	rows, err := s.db.QueryContext(ctx, brandSummaryQuery())
 	if err != nil {
 		log.Errorf("getUnprocessedReportsByBrand query error (in %s): %v", time.Since(qStart), err)
 		return nil, err

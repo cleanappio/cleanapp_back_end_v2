@@ -91,6 +91,7 @@ func notificationMySQLFixture(t *testing.T) *sql.DB {
 func TestNotificationMySQL(t *testing.T) {
 	db := notificationMySQLFixture(t)
 	t.Run("CorrelatedOwnerPublicationPolicy", func(t *testing.T) { testNotificationOwnerCorrelationMySQL(t, db) })
+	t.Run("BrandSummaryLegacyParity", func(t *testing.T) { testBrandSummaryLegacyParityMySQL(t, db) })
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	statements := []string{
