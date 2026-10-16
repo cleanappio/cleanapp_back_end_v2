@@ -11,7 +11,7 @@ import (
 // Runs only inside TestEvidenceMySQLFixture's guarded disposable database.
 // The executable SQL oracle, including its binary PADSPACE public-ID check,
 // remains authoritative when the parent and projection collations differ.
-func testNarrowEvidenceMalformedPublicIDsMySQL(t *testing.T, db *sql.DB) {
+func testProjectedEvidenceMalformedPublicIDsMySQL(t *testing.T, db *sql.DB) {
 	exec := func(query string, args ...any) {
 		t.Helper()
 		if _, err := db.Exec(query, args...); err != nil {
@@ -36,17 +36,13 @@ func testNarrowEvidenceMalformedPublicIDsMySQL(t *testing.T, db *sql.DB) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			got, err := d.getEvidenceBrandPageNarrowSQL(context.Background(), f)
+			got, err := d.getEvidenceBrandPageProjected(context.Background(), f)
 			if err != nil {
 				t.Fatal(err)
 			}
 			want, err := d.getEvidenceBrandPageSQL(context.Background(), f)
 			if err != nil || !reflect.DeepEqual(got, want) {
 				t.Fatalf("mixed-collation selected-ID oracle parity differs: %v", err)
-			}
-			hybrid, err := d.getEvidenceBrandPageHybrid(context.Background(), f)
-			if err != nil || !reflect.DeepEqual(hybrid, want) {
-				t.Fatalf("hybrid mixed-collation selected-ID parity differs: %v", err)
 			}
 			ids := map[int]string{}
 			for _, report := range got.Reports {
@@ -59,7 +55,7 @@ func testNarrowEvidenceMalformedPublicIDsMySQL(t *testing.T, db *sql.DB) {
 	}
 }
 
-func testNarrowEvidenceSlimRanksMySQL(t *testing.T, db *sql.DB) {
+func testProjectedEvidenceSlimRanksMySQL(t *testing.T, db *sql.DB) {
 	exec := func(query string, args ...any) {
 		t.Helper()
 		if _, err := db.Exec(query, args...); err != nil {
@@ -103,17 +99,13 @@ func testNarrowEvidenceSlimRanksMySQL(t *testing.T, db *sql.DB) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				got, err := d.getEvidenceBrandPageNarrowSQL(context.Background(), f)
+				got, err := d.getEvidenceBrandPageProjected(context.Background(), f)
 				if err != nil {
 					t.Fatal(err)
 				}
 				want, err := d.getEvidenceBrandPageSQL(context.Background(), f)
 				if err != nil || !reflect.DeepEqual(got, want) {
 					t.Fatalf("slim-rank public fields/counts/order differ from SQL oracle: %v\ngot: %+v\nwant: %+v", err, got, want)
-				}
-				hybrid, err := d.getEvidenceBrandPageHybrid(context.Background(), f)
-				if err != nil || !reflect.DeepEqual(hybrid, want) {
-					t.Fatalf("hybrid source/case/kind/sample parity differs: %v\nhybrid: %+v\nwant: %+v", err, hybrid, want)
 				}
 				if got.Overview.TotalReports != 14 || got.KindCounts.All != 1 || got.KindCounts.Firsthand != 1 || got.KindCounts.Coverage != 1 || got.KindCounts.Unknown != 0 {
 					t.Fatalf("source dedup/case grouping/facets/overview changed: %+v", got)
@@ -150,7 +142,7 @@ func testNarrowEvidenceSlimRanksMySQL(t *testing.T, db *sql.DB) {
 	}
 }
 
-func testNarrowEvidenceSourceWinnerIdentityMySQL(t *testing.T, db *sql.DB) {
+func testProjectedEvidenceSourceWinnerIdentityMySQL(t *testing.T, db *sql.DB) {
 	exec := func(query string, args ...any) {
 		t.Helper()
 		if _, err := db.Exec(query, args...); err != nil {
@@ -209,17 +201,13 @@ func testNarrowEvidenceSourceWinnerIdentityMySQL(t *testing.T, db *sql.DB) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			got, err := d.getEvidenceBrandPageNarrowSQL(context.Background(), f)
+			got, err := d.getEvidenceBrandPageProjected(context.Background(), f)
 			if err != nil {
 				t.Fatal(err)
 			}
 			want, err := d.getEvidenceBrandPageSQL(context.Background(), f)
 			if err != nil || !reflect.DeepEqual(got, want) {
 				t.Fatalf("identity-first native source/nullable projection/Wire selection differs: %v\ngot: %+v\nwant: %+v", err, got, want)
-			}
-			hybrid, err := d.getEvidenceBrandPageHybrid(context.Background(), f)
-			if err != nil || !reflect.DeepEqual(hybrid, want) {
-				t.Fatalf("hybrid native source/Wire/privacy parity differs: %v\nhybrid: %+v\nwant: %+v", err, hybrid, want)
 			}
 			if got.Total != 5 || got.KindCounts.All != 5 || got.Overview.TotalReports != 5 || len(got.Reports) != 5 {
 				t.Fatalf("source fanout or post-selection publication guards changed counts: %+v", got)
