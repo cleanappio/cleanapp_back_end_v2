@@ -1,3 +1,4 @@
+mod shutdown;
 use anyhow::{Context, Result};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine as _;
@@ -397,6 +398,7 @@ impl ReplyCallback {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let mut shutdown = shutdown::Shutdown::new()?;
     env_logger::init();
     let args = Args::parse();
 
@@ -465,13 +467,30 @@ async fn main() -> Result<()> {
         amqp_user, amqp_password, args.amqp_host, args.amqp_port
     );
 
-    let mut subscriber = Subscriber::new(&amqp_url, &args.exchange, &args.queue).await?;
+    let mut subscriber = tokio::select! {
+        biased;
+        reason = shutdown.wait() => {
+            info!("replier_twitter shutdown during startup: {}", reason?);
+            pool.disconnect().await?;
+            return Ok(());
+        }
+        subscriber = Subscriber::new(&amqp_url, &args.exchange, &args.queue) => subscriber?,
+    };
     let mut routing_map: HashMap<String, Arc<dyn Callback + Send + Sync + 'static>> =
         HashMap::new();
     routing_map.insert(args.routing_key.clone(), callback);
-    subscriber.start(routing_map).await?;
-
-    // Block forever
-    tokio::signal::ctrl_c().await.ok();
+    tokio::select! {
+        biased;
+        reason = shutdown.wait() => { info!("replier_twitter shutdown before intake: {}", reason?); }
+        started = subscriber.start(routing_map) => {
+            started?;
+            info!("replier_twitter draining after {}", shutdown.wait().await?);
+        }
+    }
+    let drained = subscriber.close().await;
+    let disconnected = pool.disconnect().await;
+    drained?;
+    disconnected?;
+    info!("replier_twitter callbacks and acknowledgments drained; service stopped");
     Ok(())
 }

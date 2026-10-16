@@ -41,3 +41,9 @@ cleanup decision.
 explicit queries, full/lightweight selection, authorization forwarding,
 additive metadata/count preservation, canonical 400 and unavailable 503, plus
 unsafe URL rejection, request timeouts and redirect/malformed-response rejection. Existing detail security tests remain unchanged.
+
+## Graceful shutdown
+
+Persistent SIGTERM and SIGINT listeners are registered before configuration and database startup. A signal stays pending across startup, then stops accepting new HTTP connections and lets admitted responses complete through Axum graceful shutdown. A normal drain returns success instead of exiting with the previous unconditional code 2. Routes and publication/privacy checks are unchanged. There is no forced request cancellation or promised fixed drain duration; an old running artifact still needs its own verified retirement procedure.
+
+`cargo test --manifest-path report-listener-v4/Cargo.toml --locked shutdown` runs real TERM/INT child-process fixtures and an HTTP regression that holds an admitted response open, requests graceful shutdown, and requires that response to complete before the server returns. These fixtures use no service database or production endpoint.

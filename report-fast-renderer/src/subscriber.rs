@@ -44,4 +44,11 @@ impl FastRendererSubscriber {
 
         Ok(())
     }
+    pub fn request_stop(&self) {
+        self.subscriber.request_stop();
+    }
+
+    pub async fn close(self) -> Result<(), SubscriberError> {
+        self.subscriber.close().await
+    }
 }

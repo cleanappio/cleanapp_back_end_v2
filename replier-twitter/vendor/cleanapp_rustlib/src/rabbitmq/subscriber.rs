@@ -1,12 +1,16 @@
 use lapin::{
+    Channel, Connection, ConnectionProperties, Consumer, ExchangeKind,
     options::*,
     types::{AMQPValue, FieldTable},
-    Channel, Connection, ConnectionProperties, Consumer, ExchangeKind,
 };
 use serde::de::DeserializeOwned;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use thiserror::Error;
-use tokio::time::{sleep, timeout};
+use tokio::{
+    sync::watch,
+    task::JoinHandle,
+    time::{sleep, timeout},
+};
 
 const DEFAULT_CONCURRENCY: usize = 20;
 const ENV_CONCURRENCY: &str = "RABBITMQ_CONCURRENCY";
@@ -62,9 +66,13 @@ fn retry_exchange_for_queue(prefix: &str, queue: &str) -> String {
 }
 
 fn retry_count_from_headers(headers: &Option<FieldTable>) -> u32 {
-    let Some(h) = headers.as_ref() else { return 0; };
+    let Some(h) = headers.as_ref() else {
+        return 0;
+    };
     // FieldTable is a thin wrapper around a map; access the inner map for lookups.
-    let Some(v) = h.inner().get(RETRY_COUNT_HEADER) else { return 0; };
+    let Some(v) = h.inner().get(RETRY_COUNT_HEADER) else {
+        return 0;
+    };
     match v {
         AMQPValue::LongUInt(n) => *n,
         AMQPValue::LongInt(n) => (*n).try_into().unwrap_or(0),
@@ -139,6 +147,8 @@ pub enum SubscriberError {
     Timeout(String),
     #[error("No callback found for routing key: {0}")]
     NoCallbackFound(String),
+    #[error("Subscriber lifecycle failed: {0}")]
+    Lifecycle(String),
 }
 
 /// Message represents a received RabbitMQ message
@@ -169,6 +179,9 @@ pub struct Subscriber {
     channel: Channel,
     exchange: String,
     queue: String,
+    connection: Option<Connection>,
+    shutdown: watch::Sender<bool>,
+    task: Option<JoinHandle<Result<(), SubscriberError>>>,
 }
 
 impl Subscriber {
@@ -176,7 +189,7 @@ impl Subscriber {
         amqp_url: &str,
         exchange_name: &str,
         queue_name: &str,
-    ) -> Result<(Channel, String), SubscriberError> {
+    ) -> Result<(Connection, Channel, String), SubscriberError> {
         // Create connection with timeout
         let connection = timeout(
             Duration::from_secs(60),
@@ -225,7 +238,7 @@ impl Subscriber {
             .await
             .map_err(|e| SubscriberError::QueueDeclarationFailed(e.to_string()))?;
 
-        Ok((channel, queue.name().to_string()))
+        Ok((connection, channel, queue.name().to_string()))
     }
 
     /// Creates a new RabbitMQ subscriber instance
@@ -239,7 +252,7 @@ impl Subscriber {
         // In CI and during deployments, RabbitMQ can become "healthy" slightly before it accepts
         // TCP connections on 5672. Without retry, services can crashloop on a transient refusal.
         let mut backoff = Duration::from_millis(250);
-        let (channel, queue) = loop {
+        let (connection, channel, queue) = loop {
             match Self::connect_channel(amqp_url, exchange_name, queue_name).await {
                 Ok(v) => break v,
                 Err(e) => {
@@ -255,11 +268,15 @@ impl Subscriber {
                 }
             }
         };
+        let (shutdown, _) = watch::channel(false);
         Ok(Subscriber {
             amqp_url: amqp_url.to_string(),
             channel,
             exchange: exchange_name.to_string(),
             queue,
+            connection: Some(connection),
+            shutdown,
+            task: None,
         })
     }
 
@@ -268,51 +285,61 @@ impl Subscriber {
         &mut self,
         routing_key_callbacks: HashMap<String, Arc<dyn Callback + Send + Sync>>,
     ) -> Result<(), SubscriberError> {
-        // Run the consumer in the background and transparently reconnect if RabbitMQ restarts.
-        //
-        // Without this, a broker restart can leave the service "healthy" but with no consumers.
+        if self.task.is_some() || *self.shutdown.borrow() {
+            return Err(SubscriberError::Lifecycle(
+                "already started or stopping".into(),
+            ));
+        }
         let amqp_url = self.amqp_url.clone();
         let exchange = self.exchange.clone();
         let connect_queue = self.queue.clone();
         let callbacks = Arc::new(routing_key_callbacks);
-
         let mut channel = self.channel.clone();
         let mut queue_name = self.queue.clone();
-
-        tokio::spawn(async move {
+        let mut connection = self.connection.take().ok_or_else(|| {
+            SubscriberError::Lifecycle("connection already owned by consumer".into())
+        })?;
+        let mut shutdown = self.shutdown.subscribe();
+        self.task = Some(tokio::spawn(async move {
             let mut backoff = Duration::from_secs(1);
-
-            loop {
-                let workers = rabbitmq_concurrency();
+            let result = loop {
                 let res = Subscriber::run_once(
                     &channel,
                     &exchange,
                     &queue_name,
                     callbacks.clone(),
-                    workers,
+                    rabbitmq_concurrency(),
+                    shutdown.clone(),
                 )
                 .await;
-
-                match res {
-                    Ok(()) => log::warn!(
-                        "rabbitmq: consumer ended; exchange={} queue={}",
-                        exchange,
-                        queue_name
-                    ),
-                    Err(e) => log::error!(
-                        "rabbitmq: consumer error; exchange={} queue={} err={}",
+                if *shutdown.borrow() {
+                    break res;
+                }
+                if let Err(error) = res {
+                    log::error!(
+                        "rabbitmq: consumer ended exchange={} queue={} err={}",
                         exchange,
                         queue_name,
-                        e
-                    ),
+                        error
+                    );
                 }
-
-                // Reconnect with exponential backoff (cap at 30s).
-                sleep(backoff).await;
+                tokio::select! {
+                    biased;
+                    _ = stop_requested(&mut shutdown) => break Ok(()),
+                    _ = sleep(backoff) => {}
+                }
                 backoff = std::cmp::min(backoff.saturating_mul(2), Duration::from_secs(30));
-
-                match Subscriber::connect_channel(&amqp_url, &exchange, &connect_queue).await {
-                    Ok((ch, q)) => {
+                let next = tokio::select! {
+                    biased;
+                    _ = stop_requested(&mut shutdown) => break Ok(()),
+                    result = Subscriber::connect_channel(&amqp_url, &exchange, &connect_queue) => result,
+                };
+                match next {
+                    Ok((next_connection, ch, q)) => {
+                        if connection.status().connected() {
+                            let _ = connection.close(200, "reconnecting drained consumer").await;
+                        }
+                        connection = next_connection;
                         channel = ch;
                         queue_name = q;
                         backoff = Duration::from_secs(1);
@@ -322,19 +349,32 @@ impl Subscriber {
                             queue_name
                         );
                     }
-                    Err(e) => {
-                        log::error!(
-                            "rabbitmq: reconnect failed exchange={} queue={} err={}",
-                            exchange,
-                            connect_queue,
-                            e
-                        );
-                    }
+                    Err(error) => log::error!(
+                        "rabbitmq: reconnect failed exchange={} queue={} err={}",
+                        exchange,
+                        connect_queue,
+                        error
+                    ),
                 }
-            }
-        });
-
+            };
+            // run_once has joined every admitted callback + ack/nack future.
+            // Buffered, unstarted deliveries are requeued by channel closure.
+            let closed = if connection.status().connected() {
+                connection
+                    .close(200, "consumer callbacks drained")
+                    .await
+                    .map_err(|e| SubscriberError::ConnectionFailed(e.to_string()))
+            } else {
+                Ok(())
+            };
+            result.and(closed)
+        }));
         Ok(())
+    }
+
+    /// Stop intake without aborting the admitted callback/ack futures.
+    pub fn request_stop(&self) {
+        self.shutdown.send_replace(true);
     }
 
     async fn run_once(
@@ -343,56 +383,66 @@ impl Subscriber {
         queue: &str,
         callbacks: Arc<HashMap<String, Arc<dyn Callback + Send + Sync>>>,
         workers: usize,
+        mut shutdown: watch::Receiver<bool>,
     ) -> Result<(), SubscriberError> {
-        // Create bindings for each routing key (idempotent).
-        for routing_key in callbacks.keys() {
+        let setup = async {
+            // Create bindings for each routing key (idempotent).
+            for routing_key in callbacks.keys() {
+                channel
+                    .queue_bind(
+                        queue,
+                        exchange,
+                        routing_key,
+                        QueueBindOptions::default(),
+                        FieldTable::default(),
+                    )
+                    .await
+                    .map_err(|e| {
+                        SubscriberError::QueueBindFailed(format!(
+                            "Failed to bind queue {} to exchange {} with routing key {}: {}",
+                            queue, exchange, routing_key, e
+                        ))
+                    })?;
+            }
+
+            // Constrain in-flight deliveries to match our processing concurrency.
             channel
-                .queue_bind(
+                .basic_qos(
+                    u16::try_from(workers).unwrap_or(u16::MAX),
+                    BasicQosOptions::default(),
+                )
+                .await
+                .map_err(|e| SubscriberError::ChannelFailed(format!("failed to set QoS: {}", e)))?;
+
+            let consumer = channel
+                .basic_consume(
                     queue,
-                    exchange,
-                    routing_key,
-                    QueueBindOptions::default(),
+                    "",
+                    BasicConsumeOptions {
+                        no_ack: false,
+                        exclusive: false,
+                        no_local: false,
+                        nowait: false,
+                    },
                     FieldTable::default(),
                 )
                 .await
-                .map_err(|e| {
-                    SubscriberError::QueueBindFailed(format!(
-                        "Failed to bind queue {} to exchange {} with routing key {}: {}",
-                        queue, exchange, routing_key, e
-                    ))
-                })?;
-        }
+                .map_err(|e| SubscriberError::ConsumerRegistrationFailed(e.to_string()))?;
 
-        // Constrain in-flight deliveries to match our processing concurrency.
-        channel
-            .basic_qos(
-                u16::try_from(workers).unwrap_or(u16::MAX),
-                BasicQosOptions::default(),
-            )
-            .await
-            .map_err(|e| SubscriberError::ChannelFailed(format!("failed to set QoS: {}", e)))?;
-
-        let consumer = channel
-            .basic_consume(
-                queue,
-                "",
-                BasicConsumeOptions {
-                    no_ack: false,
-                    exclusive: false,
-                    no_local: false,
-                    nowait: false,
-                },
-                FieldTable::default(),
-            )
-            .await
-            .map_err(|e| SubscriberError::ConsumerRegistrationFailed(e.to_string()))?;
-
+            Ok::<_, SubscriberError>(consumer)
+        };
+        let consumer = tokio::select! {
+            biased;
+            _ = stop_requested(&mut shutdown) => return Ok(()),
+            consumer = setup => consumer?,
+        };
         Self::process_messages(
             consumer,
             callbacks,
             channel.clone(),
             queue.to_string(),
             workers,
+            shutdown,
         )
         .await
     }
@@ -403,16 +453,16 @@ impl Subscriber {
         channel: Channel,
         queue_name: String,
         workers: usize,
+        shutdown: watch::Receiver<bool>,
     ) -> Result<(), SubscriberError> {
-        use futures_util::stream::TryStreamExt;
-
         let retry_prefix = std::env::var(ENV_RETRY_EXCHANGE_PREFIX)
             .unwrap_or_else(|_| DEFAULT_RETRY_EXCHANGE_PREFIX.to_string());
         let retry_exchange = retry_exchange_for_queue(&retry_prefix, &queue_name);
         let max_retries = rabbitmq_max_retries();
 
-        consumer
-            .try_for_each_concurrent(workers, move |delivery| {
+        let consumer_tag = consumer.tag().to_string();
+        let cancel_channel = channel.clone();
+        consume_and_drain(consumer, workers, shutdown, move |delivery| {
                 let callbacks = callbacks.clone();
                 let channel = channel.clone();
                 let queue_name = queue_name.clone();
@@ -637,9 +687,11 @@ impl Subscriber {
 
                     Ok::<(), lapin::Error>(())
                 }
+            }, move || async move {
+                cancel_channel.basic_cancel(&consumer_tag, BasicCancelOptions::default()).await
             })
             .await
-            .map_err(|e| SubscriberError::ChannelFailed(format!("consumer stream error: {}", e)))?;
+            .map_err(|e| SubscriberError::ChannelFailed(format!("consumer drain error: {}", e)))?;
 
         Ok(())
     }
@@ -671,10 +723,184 @@ impl Drop for Subscriber {
 }
 
 impl Subscriber {
-    /// Closes the subscriber connection and channel
-    pub async fn close(self) -> Result<(), SubscriberError> {
-        // Channel will be closed when dropped
-        // Connection will be closed when dropped
-        Ok(())
+    /// Cancel intake and JOIN the actual spawned consumer and all admitted
+    /// callback/ack work before closing the connection. No timeout/abort.
+    pub async fn close(mut self) -> Result<(), SubscriberError> {
+        self.request_stop();
+        if let Some(task) = self.task.take() {
+            task.await
+                .map_err(|e| SubscriberError::Lifecycle(e.to_string()))?
+        } else if let Some(connection) = self.connection.take() {
+            if connection.status().connected() {
+                connection
+                    .close(200, "subscriber closed before intake")
+                    .await
+                    .map_err(|e| SubscriberError::ConnectionFailed(e.to_string()))
+            } else {
+                Ok(())
+            }
+        } else {
+            Ok(())
+        }
+    }
+}
+
+async fn stop_requested(stop: &mut watch::Receiver<bool>) {
+    loop {
+        if *stop.borrow_and_update() {
+            return;
+        }
+        if stop.changed().await.is_err() {
+            return;
+        }
+    }
+}
+
+/// Keep admitted work futures alive on shutdown AND on stream/callback errors.
+/// Cancelling a `try_for_each_concurrent` future would silently drop them.
+async fn consume_and_drain<S, T, E, F, Work, Cancel, Cancelled>(
+    mut stream: S,
+    workers: usize,
+    mut stop: watch::Receiver<bool>,
+    mut work: F,
+    cancel: Cancel,
+) -> Result<(), E>
+where
+    S: futures_util::Stream<Item = Result<T, E>> + Unpin,
+    F: FnMut(T) -> Work,
+    Work: std::future::Future<Output = Result<(), E>>,
+    Cancel: FnOnce() -> Cancelled,
+    Cancelled: std::future::Future<Output = Result<(), E>>,
+{
+    use futures_util::{StreamExt, stream::FuturesUnordered};
+    let mut admitted = FuturesUnordered::new();
+    let mut result = Ok(());
+    let mut cancel = Some(cancel);
+    loop {
+        tokio::select! {
+            biased;
+            _ = stop_requested(&mut stop) => {
+                result = cancel.take().expect("cancel used once")().await;
+                break;
+            }
+            completed = admitted.next(), if !admitted.is_empty() => {
+                if let Some(Err(error)) = completed { result = Err(error); break; }
+            }
+            item = stream.next(), if admitted.len() < workers.max(1) => {
+                match item {
+                    Some(Ok(item)) => admitted.push(work(item)),
+                    Some(Err(error)) => { result = Err(error); break; }
+                    None => break,
+                }
+            }
+        }
+    }
+    while let Some(completed) = admitted.next().await {
+        if result.is_ok() {
+            result = completed;
+        }
+    }
+    result
+}
+
+#[cfg(test)]
+mod shutdown_tests {
+    use super::consume_and_drain;
+    use std::sync::{Arc, Mutex};
+    use tokio::sync::{mpsc, oneshot, watch};
+    use tokio_stream::wrappers::ReceiverStream;
+    #[tokio::test]
+    async fn cancel_joins_callback_then_ack_even_when_cancel_fails() {
+        for cancel_error in [false, true] {
+            let (stop, stopped) = watch::channel(false);
+            let (input, stream) = mpsc::channel(4);
+            let (began, started) = oneshot::channel();
+            let (finish_work, work_done) = oneshot::channel();
+            let (work_ended, work_ended_rx) = oneshot::channel();
+            let (finish_ack, ack_done) = oneshot::channel();
+            let (cancelled, cancel_seen) = oneshot::channel();
+            let unit = Arc::new(Mutex::new(Some((began, work_done, work_ended, ack_done))));
+            let task = tokio::spawn(consume_and_drain(
+                ReceiverStream::new(stream),
+                2,
+                stopped,
+                move |id| {
+                    assert_eq!(id, 1, "shutdown admitted the buffered next delivery");
+                    let (began, work, work_ended, ack) = unit.lock().unwrap().take().unwrap();
+                    async move {
+                        began.send(()).unwrap();
+                        work.await.unwrap();
+                        work_ended.send(()).unwrap();
+                        ack.await.unwrap();
+                        Ok::<_, &'static str>(())
+                    }
+                },
+                move || async move {
+                    cancelled.send(()).unwrap();
+                    if cancel_error { Err("cancel") } else { Ok(()) }
+                },
+            ));
+            input.send(Ok(1)).await.unwrap();
+            started.await.unwrap();
+            stop.send_replace(true);
+            let _ = input.send(Ok(2)).await;
+            cancel_seen.await.unwrap();
+            assert!(!task.is_finished());
+            finish_work.send(()).unwrap();
+            work_ended_rx.await.unwrap();
+            assert!(!task.is_finished(), "pending acknowledgment was dropped");
+            finish_ack.send(()).unwrap();
+            assert_eq!(
+                task.await.unwrap(),
+                if cancel_error { Err("cancel") } else { Ok(()) }
+            );
+        }
+    }
+    #[tokio::test]
+    async fn stream_error_joins_admitted_callback_and_ack() {
+        let (_stop, stopped) = watch::channel(false);
+        let (input, stream) = mpsc::channel(2);
+        let (began, started) = oneshot::channel();
+        let (release, completed) = oneshot::channel();
+        let unit = Arc::new(Mutex::new(Some((began, completed))));
+        let task = tokio::spawn(consume_and_drain(
+            ReceiverStream::new(stream),
+            2,
+            stopped,
+            move |_| {
+                let (began, completed) = unit.lock().unwrap().take().unwrap();
+                async move {
+                    began.send(()).unwrap();
+                    completed.await.unwrap();
+                    Ok::<_, &'static str>(())
+                }
+            },
+            || async { Ok(()) },
+        ));
+        input.send(Ok(1)).await.unwrap();
+        started.await.unwrap();
+        input.send(Err("stream")).await.unwrap();
+        tokio::task::yield_now().await;
+        assert!(!task.is_finished());
+        release.send(()).unwrap();
+        assert_eq!(task.await.unwrap(), Err("stream"));
+    }
+    #[tokio::test]
+    async fn pending_shutdown_admits_nothing() {
+        let (stop, stopped) = watch::channel(false);
+        stop.send_replace(true);
+        let result = consume_and_drain(
+            futures_util::stream::iter([Ok::<_, &'static str>(1)]),
+            1,
+            stopped,
+            |_| async {
+                panic!("pending shutdown started callback");
+                #[allow(unreachable_code)]
+                Ok(())
+            },
+            || async { Ok(()) },
+        )
+        .await;
+        assert_eq!(result, Ok(()));
     }
 }

@@ -3,6 +3,7 @@ use clap::Parser;
 use log::{info, warn};
 use mysql_async::prelude::*;
 use mysql_async::Pool;
+use news_indexer_bluesky::shutdown::Shutdown;
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
@@ -100,6 +101,7 @@ const NEGATIVE_KEYWORDS: &[&str] = &[
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let mut shutdown = Shutdown::new().context("registering shutdown signals")?;
     env_logger::init();
     let args = Args::parse();
 
@@ -149,12 +151,16 @@ async fn main() -> Result<()> {
         .timeout(StdDuration::from_secs(30))
         .build()?;
 
-    loop {
-        if let Err(e) = run_once(&pool, &client, &args, &app_password, &queries).await {
-            warn!("run_once error: {e}");
-        }
-        sleep(StdDuration::from_secs(args.interval_secs)).await;
-    }
+    let signal = shutdown
+        .run_batches(StdDuration::from_secs(args.interval_secs), || async {
+            if let Err(e) = run_once(&pool, &client, &args, &app_password, &queries).await {
+                warn!("run_once error: {e}");
+            }
+        })
+        .await?;
+    info!("{signal} received; current batch drained; disconnecting database pool");
+    pool.disconnect().await?;
+    Ok(())
 }
 
 async fn run_once(

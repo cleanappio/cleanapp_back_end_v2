@@ -4,6 +4,7 @@ use futures_util::{SinkExt, StreamExt};
 use log::{debug, error, info, warn};
 use mysql_async::prelude::*;
 use mysql_async::Pool;
+use news_indexer_bluesky::shutdown::{Shutdown, Wait};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::time::Duration;
@@ -622,6 +623,7 @@ const COMPLAINT_KEYWORDS: &[&str] = &[
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let mut shutdown = Shutdown::new().context("registering shutdown signals")?;
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     let args = Args::parse();
@@ -644,12 +646,15 @@ async fn main() -> Result<()> {
 
     info!("BlueskyNow running in COMPREHENSIVE mode - all complaints will be ingested");
 
-    if args.once {
-        run_once(&pool).await?;
+    let result = if args.once {
+        run_once(&pool, &mut shutdown).await
     } else {
-        run_continuous(&pool).await?;
-    }
-
+        run_continuous(&pool, &mut shutdown).await
+    };
+    // An active process_message is awaited before either loop can return.
+    let disconnected = pool.disconnect().await;
+    result?;
+    disconnected?;
     Ok(())
 }
 
@@ -692,7 +697,7 @@ async fn update_cursor(pool: &Pool, time_us: u64) -> Result<()> {
     Ok(())
 }
 
-async fn run_once(pool: &Pool) -> Result<()> {
+async fn run_once(pool: &Pool, shutdown: &mut Shutdown) -> Result<()> {
     info!("Running once for testing...");
     let cursor = get_cursor(pool).await?;
 
@@ -706,11 +711,25 @@ async fn run_once(pool: &Pool) -> Result<()> {
     };
 
     info!("Connecting to Jetstream: {}", url);
-    let (ws_stream, _) = connect_async(&url).await?;
+    let (ws_stream, _) = match shutdown.wait_for(connect_async(&url)).await? {
+        Wait::Ready(result) => result?,
+        Wait::Stopped(signal) => {
+            info!("{signal} received; stream drained; disconnecting database pool");
+            return Ok(());
+        }
+    };
     let (_, mut read) = ws_stream.split();
 
     let mut count = 0;
-    while let Some(msg) = read.next().await {
+    loop {
+        let msg = match shutdown.wait_for(read.next()).await? {
+            Wait::Ready(Some(msg)) => msg,
+            Wait::Ready(None) => break,
+            Wait::Stopped(signal) => {
+                info!("{signal} received; stream drained; disconnecting database pool");
+                break;
+            }
+        };
         match msg {
             Ok(Message::Text(text)) => {
                 if let Err(e) = process_message(&text, pool).await {
@@ -733,7 +752,7 @@ async fn run_once(pool: &Pool) -> Result<()> {
     Ok(())
 }
 
-async fn run_continuous(pool: &Pool) -> Result<()> {
+async fn run_continuous(pool: &Pool, shutdown: &mut Shutdown) -> Result<()> {
     let mut backoff_secs = 1u64;
 
     loop {
@@ -750,7 +769,20 @@ async fn run_continuous(pool: &Pool) -> Result<()> {
 
         info!("Connecting to Jetstream (cursor: {})...", cursor);
 
-        match tokio::time::timeout(Duration::from_secs(30), connect_async(&url)).await {
+        let connected = match shutdown
+            .wait_for(tokio::time::timeout(
+                Duration::from_secs(30),
+                connect_async(&url),
+            ))
+            .await?
+        {
+            Wait::Ready(result) => result,
+            Wait::Stopped(signal) => {
+                info!("{signal} received; stream drained; disconnecting database pool");
+                return Ok(());
+            }
+        };
+        match connected {
             Ok(Ok((mut ws_stream, _))) => {
                 backoff_secs = 1; // Reset backoff on success
 
@@ -760,9 +792,20 @@ async fn run_continuous(pool: &Pool) -> Result<()> {
                 let mut match_count = 0u64;
 
                 loop {
-                    let msg = match tokio::time::timeout(Duration::from_secs(90), ws_stream.next())
-                        .await
+                    let next = match shutdown
+                        .wait_for(tokio::time::timeout(
+                            Duration::from_secs(90),
+                            ws_stream.next(),
+                        ))
+                        .await?
                     {
+                        Wait::Ready(result) => result,
+                        Wait::Stopped(signal) => {
+                            info!("{signal} received; stream drained; disconnecting database pool");
+                            return Ok(());
+                        }
+                    };
+                    let msg = match next {
                         Ok(Some(msg)) => msg,
                         Ok(None) => break,
                         Err(_) => {
@@ -818,7 +861,13 @@ async fn run_continuous(pool: &Pool) -> Result<()> {
             "Connection lost, reconnecting in {} seconds...",
             backoff_secs
         );
-        sleep(Duration::from_secs(backoff_secs)).await;
+        if let Wait::Stopped(signal) = shutdown
+            .wait_for(sleep(Duration::from_secs(backoff_secs)))
+            .await?
+        {
+            info!("{signal} received; stream drained; disconnecting database pool");
+            return Ok(());
+        }
         backoff_secs = (backoff_secs * 2).min(60);
     }
 }

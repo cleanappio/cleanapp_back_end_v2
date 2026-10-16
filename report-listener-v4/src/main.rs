@@ -24,6 +24,7 @@ mod db;
 mod models;
 mod openapi;
 mod security;
+mod shutdown;
 
 use brand_briefing::{BrandBriefingClient, ReportsByBrandParams};
 use cfg::Config;
@@ -59,6 +60,7 @@ async fn main() {
 }
 
 async fn run() -> Result<()> {
+    let mut shutdown = shutdown::Shutdown::new()?;
     println!("boot: report-listener-v4 starting");
     use std::io::Write as _;
     let _ = std::io::stdout().flush();
@@ -128,17 +130,88 @@ async fn run() -> Result<()> {
     let addr: SocketAddr = format!("0.0.0.0:{}", cfg.http_port).parse().unwrap();
     tracing::info!("report-listener-v4 binding on {}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    if let Err(e) = axum::serve(
+    serve_http(listener, app, async move {
+        match shutdown.wait().await {
+            Ok(reason) => {
+                tracing::info!(signal = reason, "report-listener-v4 draining HTTP requests")
+            }
+            Err(error) => tracing::error!(%error, "shutdown signal listener failed"),
+        }
+    })
+    .await?;
+    tracing::info!("report-listener-v4 HTTP requests drained; service stopped");
+    Ok(())
+}
+
+async fn serve_http(
+    listener: tokio::net::TcpListener,
+    app: Router,
+    stopped: impl std::future::Future<Output = ()> + Send + 'static,
+) -> std::io::Result<()> {
+    axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
+    .with_graceful_shutdown(stopped)
     .await
-    {
-        eprintln!("server error: {:#}", e);
-        std::process::exit(1);
+}
+
+#[cfg(test)]
+mod http_shutdown_tests {
+    use super::serve_http;
+    use axum::{routing::get, Router};
+    use std::{sync::Arc, time::Duration};
+    use tokio::sync::{oneshot, Notify};
+
+    #[tokio::test]
+    async fn graceful_stop_waits_for_the_admitted_http_response() {
+        let accepted = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let app = Router::new().route(
+            "/controlled-request",
+            get({
+                let accepted = accepted.clone();
+                let release = release.clone();
+                move || async move {
+                    accepted.notify_one();
+                    release.notified().await;
+                    "completed"
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (stop, stopped) = oneshot::channel();
+        let (stop_seen, seen) = oneshot::channel();
+        let server = tokio::spawn(serve_http(listener, app, async {
+            stopped.await.unwrap();
+            stop_seen.send(()).unwrap();
+        }));
+        let request = tokio::spawn(async move {
+            reqwest::Client::new()
+                .get(format!("http://{address}/controlled-request"))
+                .timeout(Duration::from_secs(5))
+                .send()
+                .await
+                .unwrap()
+                .text()
+                .await
+                .unwrap()
+        });
+        tokio::time::timeout(Duration::from_secs(5), accepted.notified())
+            .await
+            .unwrap();
+        stop.send(()).unwrap();
+        seen.await.unwrap();
+        assert!(!server.is_finished(), "active response was abandoned");
+        release.notify_one();
+        assert_eq!(request.await.unwrap(), "completed");
+        tokio::time::timeout(Duration::from_secs(5), server)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
     }
-    eprintln!("server exited unexpectedly");
-    std::process::exit(2)
 }
 
 async fn health() -> impl IntoResponse {

@@ -1,0 +1,16 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-f', 'Dockerfile.bluesky_all', '--target', 'indexer', '-t', '${_TAG_INDEXER}', '.']
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-f', 'Dockerfile.bluesky_all', '--target', 'analyzer', '-t', '${_TAG_ANALYZER}', '.']
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-f', 'Dockerfile.bluesky_all', '--target', 'submitter', '-t', '${_TAG_SUBMITTER}', '.']
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-f', 'Dockerfile.bluesky_all', '--target', 'stream', '-t', '${_TAG_STREAM}', '.']
+images:
+  - '${_TAG_INDEXER}'
+  - '${_TAG_ANALYZER}'
+  - '${_TAG_SUBMITTER}'
+  - '${_TAG_STREAM}'
+options:
+  machineType: 'E2_HIGHCPU_32'

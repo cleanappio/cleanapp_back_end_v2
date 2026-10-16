@@ -20,6 +20,7 @@ mod db;
 mod handlers;
 mod model;
 mod reports_memory;
+mod shutdown;
 mod subscriber;
 
 use config::{get_config, init_config};
@@ -84,6 +85,7 @@ async fn get_config_info() -> Json<serde_json::Value> {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let mut shutdown = shutdown::Shutdown::new()?;
     // Initialize tracing
     tracing_subscriber::registry()
         .with(
@@ -106,9 +108,15 @@ async fn main() -> anyhow::Result<()> {
 
     // Initialize RabbitMQ subscriber
     tracing::info!("🐰 Initializing RabbitMQ subscriber...");
-    let mut subscriber = FastRendererSubscriber::new()
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to initialize subscriber: {}", e))?;
+    let mut subscriber = tokio::select! {
+        biased;
+        reason = shutdown.wait() => {
+            tracing::info!(signal = reason?, "renderer shutdown during startup");
+            return Ok(());
+        }
+        subscriber = FastRendererSubscriber::new() => subscriber
+            .map_err(|e| anyhow::anyhow!("Failed to initialize subscriber: {}", e))?,
+    };
 
     tracing::info!("✅ RabbitMQ subscriber initialized successfully");
 
@@ -138,14 +146,6 @@ async fn main() -> anyhow::Result<()> {
         }
         tracing::info!("✅ Loaded {} digital reports into memory", guard.len());
     }
-
-    // Start listening to messages
-    let reports_memory_for_subscriber = reports_memory.clone();
-    subscriber
-        .start_listening(reports_memory_for_subscriber)
-        .await
-        .map_err(|e| tracing::error!("Failed to start subscriber listening: {}", e))
-        .ok();
 
     // Build our application with routes
     let allowed_origins: Vec<HeaderValue> = config
@@ -189,7 +189,40 @@ async fn main() -> anyhow::Result<()> {
         port
     );
 
-    axum::serve(listener, app).await?;
+    tokio::select! {
+        biased;
+        reason = shutdown.wait() => {
+            tracing::info!(signal = reason?, "renderer shutdown before intake");
+            subscriber.close().await?;
+            return Ok(());
+        }
+        started = subscriber.start_listening(reports_memory.clone()) => {
+            started.map_err(|e| anyhow::anyhow!("Failed to start subscriber: {}", e))?;
+        }
+    }
+    let (http_stop, stopped) = tokio::sync::oneshot::channel::<()>();
+    use std::future::IntoFuture;
+    let server = axum::serve(listener, app)
+        .with_graceful_shutdown(async {
+            let _ = stopped.await;
+        })
+        .into_future();
+    tokio::pin!(server);
+    let served = tokio::select! {
+        result = &mut server => result,
+        reason = shutdown.wait() => {
+            tracing::info!(signal = reason?, "renderer stopping intake and draining HTTP/callbacks");
+            subscriber.request_stop();
+            let _ = http_stop.send(());
+            let (served, drained) = tokio::join!(&mut server, subscriber.close());
+            drained?;
+            served?;
+            tracing::info!("renderer HTTP, callbacks and acknowledgments drained; service stopped");
+            return Ok(());
+        }
+    };
+    subscriber.close().await?;
+    served?;
 
     Ok(())
 }

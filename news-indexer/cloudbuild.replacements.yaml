@@ -1,0 +1,7 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-f', 'Dockerfile.twitter_all', '--target', 'analyzer', '-t', '${_TAG_ANALYZER}', '.']
+images:
+  - '${_TAG_ANALYZER}'
+options:
+  machineType: 'E2_HIGHCPU_32'

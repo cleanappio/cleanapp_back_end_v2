@@ -3,6 +3,7 @@ use clap::Parser;
 use log::{info, warn};
 use mysql_async::prelude::*;
 use mysql_async::Pool;
+use news_indexer_bluesky::shutdown::Shutdown;
 use serde::Deserialize;
 use serde_json::{json, Value as JsonValue};
 use std::time::Duration as StdDuration;
@@ -90,6 +91,7 @@ If you truly cannot identify a specific brand, use "Other". Reports labeled "Oth
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let mut shutdown = Shutdown::new().context("registering shutdown signals")?;
     env_logger::init();
     let args = Args::parse();
 
@@ -129,12 +131,16 @@ async fn main() -> Result<()> {
         .timeout(StdDuration::from_secs(60))
         .build()?;
 
-    loop {
-        if let Err(e) = run_once(&pool, &client, &gemini_key, &args).await {
-            warn!("run_once error: {e}");
-        }
-        sleep(StdDuration::from_secs(args.interval_secs)).await;
-    }
+    let signal = shutdown
+        .run_batches(StdDuration::from_secs(args.interval_secs), || async {
+            if let Err(e) = run_once(&pool, &client, &gemini_key, &args).await {
+                warn!("run_once error: {e}");
+            }
+        })
+        .await?;
+    info!("{signal} received; current batch drained; disconnecting database pool");
+    pool.disconnect().await?;
+    Ok(())
 }
 
 async fn run_once(

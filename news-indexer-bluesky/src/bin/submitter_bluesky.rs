@@ -4,10 +4,10 @@ use clap::Parser;
 use log::{info, warn};
 use mysql_async::prelude::*;
 use mysql_async::{Pool, Row};
+use news_indexer_bluesky::shutdown::Shutdown;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::time::Duration as StdDuration;
-use tokio::time::sleep;
 
 #[path = "../indexer_bluesky_schema.rs"]
 mod indexer_bluesky_schema;
@@ -133,6 +133,7 @@ struct WireReceipt {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let mut shutdown = Shutdown::new().context("registering shutdown signals")?;
     env_logger::init();
     let args = Args::parse();
 
@@ -190,13 +191,18 @@ async fn main() -> Result<()> {
         .timeout(StdDuration::from_secs(60))
         .build()?;
 
-    loop {
-        if let Err(e) = run_once(&pool, &client, &endpoint_url, &token, protocol, batch_size).await
-        {
-            warn!("run_once error: {e}");
-        }
-        sleep(StdDuration::from_secs(args.interval_secs)).await;
-    }
+    let signal = shutdown
+        .run_batches(StdDuration::from_secs(args.interval_secs), || async {
+            if let Err(e) =
+                run_once(&pool, &client, &endpoint_url, &token, protocol, batch_size).await
+            {
+                warn!("run_once error: {e}");
+            }
+        })
+        .await?;
+    info!("{signal} received; current batch drained; disconnecting database pool");
+    pool.disconnect().await?;
+    Ok(())
 }
 
 async fn run_once(

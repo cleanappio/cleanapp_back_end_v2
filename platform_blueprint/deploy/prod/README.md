@@ -42,7 +42,30 @@ Optional inputs:
 - `REF=<git-ref>`
 - `HOST=deployer@34.122.15.16`
 - `RUN_GO_MIGRATIONS=0|1`
+- `BUILD_ONLY=0|1` (default `0`; only these literal values are accepted)
 - `KEEP_REMOTE_SOURCE=1`
+
+To build and verify replacement images while the current containers keep running:
+
+```bash
+make deploy-prod-source REF=<reviewed-commit> SOURCE_SERVICES="report-fast-renderer report-listener-v4" BUILD_ONLY=1
+```
+
+Build-only uses the same exact-source staging, image builds and `:prod` tag promotion. It skips explicit migrations and the digest deploy helper, so it does not write compose pins or restart containers. Tag promotion is a registry change; it is not a release. Capture and verify the selected Build digests before a separately authorized deployment. At deployment, recheck that the selected tags still resolve to those exact digests, preserve every unselected pin, and use the normal scoped `make deploy-prod SERVICES="<selected compose services>"` path with explicit migrations.
+
+The command contract is covered locally with `python3 -m unittest discover -s platform_blueprint/deploy/prod/vm/tests` using an isolated fake build host; it makes no production calls.
+
+The canonical news adapters have a fixed replacement scope. `news-indexer-bluesky` builds and promotes only the indexer, analyzer, submitter and `bluesky-now` images. `news-indexer` builds and promotes only the Twitter analyzer. Their `cloudbuild.replacements.yaml` files select these targets from the existing Dockerfiles; the original broader `build_images.sh` commands remain available and unchanged. Neither adapter publishes the Bluesky report analyzer or Twitter indexer/submitter images.
+
+The eight-service shutdown replacement build can therefore be prepared with:
+
+```bash
+make deploy-prod-source REF=<reviewed-commit> BUILD_ONLY=1 SOURCE_SERVICES="news-indexer-bluesky news-indexer report-fast-renderer report-listener-v4 replier-twitter"
+```
+
+The two news source versions increment in the staged archive using their existing file formats. Cloud Build receives that exact source directory and a fixed selected-image recipe. Build-only still promotes the selected tags; verify their exact Build digests before activation. The source mappings for this command name only the eight selected runtime services, and leave migrations and digest activation to the normal, separately authorized deployment.
+
+Some existing production Bluesky services use shared custom image repositories (`cleanapp-bluesky-diverse` or `cleanapp-bluesky-submitter-evidence`). Tagging the canonical replacement repositories does not update those image references. The reviewed activation must compare the current effective compose image references and pins, replace only the selected entries with the verified replacement digests, and preserve every unselected entry. The ordinary tag-based deploy must not be assumed to perform that repository change.
 
 Supported `SOURCE_SERVICES` currently include the services in this repo that have compose mappings, including:
 - `areas-service`
@@ -56,6 +79,8 @@ Supported `SOURCE_SERVICES` currently include the services in this repo that hav
 - `email-service`
 - `email-service-v3`
 - `gdpr-process-service`
+- `news-indexer` (Twitter analyzer only)
+- `news-indexer-bluesky` (four selected Bluesky services)
 - `replier-twitter`
 - `report-analyze-pipeline`
 - `report-fast-renderer`

@@ -14,8 +14,14 @@ REF="${REF:-HEAD}"
 RUN_GO_MIGRATIONS="${RUN_GO_MIGRATIONS:-1}"
 KEEP_REMOTE_SOURCE="${KEEP_REMOTE_SOURCE:-0}"
 DRY_RUN="${DRY_RUN:-0}"
+BUILD_ONLY="${BUILD_ONLY-0}"
 SOURCE_SERVICES_ENV="${SOURCE_SERVICES:-}"
 EXTRA_DEPLOY_SERVICES_ENV="${DEPLOY_SERVICES:-}"
+
+case "${BUILD_ONLY}" in
+  0|1) ;;
+  *) echo "ERROR: BUILD_ONLY must be 0 or 1" >&2; exit 2 ;;
+esac
 
 usage() {
   cat >&2 <<USAGE
@@ -30,6 +36,7 @@ Inputs:
   HOST              default: deployer@34.122.15.16
   REF               git ref to stage on the VM (default: HEAD)
   RUN_GO_MIGRATIONS default: 1
+  BUILD_ONLY        1 builds/promotes only; skips migrations and digest deploy (default: 0)
   DRY_RUN           default: 0
 
 Example:
@@ -82,7 +89,12 @@ for svc in "${source_services[@]}"; do
     # shellcheck disable=SC2206
     deploy_services+=( ${mapped} )
   fi
-  if [[ ! -x "${ROOT_DIR}/${svc}/build_image.sh" ]]; then
+  if news_replacement_images_for_source_service "${svc}" >/dev/null 2>&1; then
+    if [[ ! -x "${ROOT_DIR}/scripts/build/build_news_replacement_images.sh" || ! -f "${ROOT_DIR}/${svc}/cloudbuild.replacements.yaml" ]]; then
+      echo "ERROR: missing selected news build adapter for ${svc}" >&2
+      exit 3
+    fi
+  elif [[ ! -x "${ROOT_DIR}/${svc}/build_image.sh" ]]; then
     echo "ERROR: missing executable build_image.sh in ${svc}" >&2
     exit 3
   fi
@@ -104,6 +116,7 @@ echo "ref=${REF} (${short_sha})"
 echo "host=${HOST}"
 echo "source_services=${source_services[*]}"
 echo "deploy_services=${deploy_services[*]:-<none>}"
+echo "build_only=${BUILD_ONLY}"
 echo "remote_stage_dir=${remote_stage_dir}"
 
 if [[ "${DRY_RUN}" == "1" ]]; then
@@ -122,15 +135,25 @@ set -euo pipefail
 
 cd "${REMOTE_STAGE_DIR}"
 gcloud config set project "${PROJECT_NAME}" >/dev/null
+source platform_blueprint/deploy/prod/vm/source_build_map.sh
 
 for svc in ${SOURCE_SERVICES}; do
   echo "== build from source: ${svc} =="
   cd "${REMOTE_STAGE_DIR}/${svc}"
   export CLEANAPP_GIT_SHA_OVERRIDE CLEANAPP_BUILD_TIME_OVERRIDE
-  CLOUDSDK_CONFIG="${CLOUDSDK_CONFIG:-/home/deployer/.config/gcloud}" ./build_image.sh -e dev
+  news_images=""
+  if news_images="$(news_replacement_images_for_source_service "${svc}")"; then
+    CLOUDSDK_CONFIG="${CLOUDSDK_CONFIG:-/home/deployer/.config/gcloud}" \
+      "${REMOTE_STAGE_DIR}/scripts/build/build_news_replacement_images.sh" "${svc}" -e dev
+  else
+    CLOUDSDK_CONFIG="${CLOUDSDK_CONFIG:-/home/deployer/.config/gcloud}" ./build_image.sh -e dev
+  fi
   build_version=""
   if [[ -f .version ]]; then
     build_version="$(awk -F= '$1=="BUILD_VERSION"{print $2}' .version | tr -d "\"'[:space:]")"
+    if [[ -n "${news_images}" && "${svc}" == "news-indexer-bluesky" ]]; then
+      build_version="$(tr -d '\r\n' < .version)"
+    fi
   fi
   if [[ -z "${build_version}" && -f build_version.txt ]]; then
     build_version="$(tr -d "\"'[:space:]" < build_version.txt)"
@@ -140,29 +163,42 @@ for svc in ${SOURCE_SERVICES}; do
     # instead of writing a version file. In that case, promote from :dev.
     build_version="dev"
   fi
-  docker_image="$(sed -nE 's/^DOCKER_IMAGE="?([^"]+)"?/\1/p' build_image.sh | head -n1)"
-  if [[ -z "${docker_image}" ]]; then
+  docker_images="${news_images}"
+  if [[ -z "${docker_images}" ]]; then
+    docker_images="$(sed -nE 's/^DOCKER_IMAGE="?([^"]+)"?/\1/p' build_image.sh | head -n1)"
+  fi
+  if [[ -z "${docker_images}" ]]; then
     echo "ERROR: could not determine image metadata for ${svc}" >&2
     exit 4
   fi
-  docker_tag="${CLOUD_REGION}-docker.pkg.dev/${PROJECT_NAME}/${docker_image}"
-  echo "== promote to :prod: ${docker_tag}:${build_version} =="
-  gcloud artifacts docker tags add "${docker_tag}:${build_version}" "${docker_tag}:prod"
+  while IFS= read -r docker_image; do
+    docker_tag="${CLOUD_REGION}-docker.pkg.dev/${PROJECT_NAME}/${docker_image}"
+    echo "== promote to :prod: ${docker_tag}:${build_version} =="
+    gcloud artifacts docker tags add "${docker_tag}:${build_version}" "${docker_tag}:prod"
+  done <<< "${docker_images}"
 done
 REMOTE
 
-if [[ "${RUN_GO_MIGRATIONS}" == "1" && ${#deploy_services[@]} -gt 0 ]]; then
-  HOST="${HOST}" REMOTE_SOURCE_DIR="${remote_stage_dir}" "${SCRIPT_DIR}/run_go_migrations_remote.sh" "${deploy_services[@]}"
-fi
-
-if [[ ${#deploy_services[@]} -gt 0 ]]; then
-  HOST="${HOST}" RUN_GO_MIGRATIONS=0 SERVICES="${deploy_services[*]}" "${SCRIPT_DIR}/deploy_with_digests.sh"
+if [[ "${BUILD_ONLY}" == "1" ]]; then
+  echo "== build-only: skipping migrations and digest deployment =="
 else
-  echo "WARN: no mapped compose services to restart; built and promoted images only" >&2
+  if [[ "${RUN_GO_MIGRATIONS}" == "1" && ${#deploy_services[@]} -gt 0 ]]; then
+    HOST="${HOST}" REMOTE_SOURCE_DIR="${remote_stage_dir}" "${SCRIPT_DIR}/run_go_migrations_remote.sh" "${deploy_services[@]}"
+  fi
+
+  if [[ ${#deploy_services[@]} -gt 0 ]]; then
+    HOST="${HOST}" RUN_GO_MIGRATIONS=0 SERVICES="${deploy_services[*]}" "${SCRIPT_DIR}/deploy_with_digests.sh"
+  else
+    echo "WARN: no mapped compose services to restart; built and promoted images only" >&2
+  fi
 fi
 
 if [[ "${KEEP_REMOTE_SOURCE}" != "1" ]]; then
   ssh "${HOST}" "rm -rf '${remote_stage_dir}'"
 fi
 
-echo "OK: source-built ref ${short_sha} and deployed pinned services"
+if [[ "${BUILD_ONLY}" == "1" ]]; then
+  echo "OK: source-built ref ${short_sha} and promoted images; running digest pins unchanged"
+else
+  echo "OK: source-built ref ${short_sha} and deployed pinned services"
+fi
