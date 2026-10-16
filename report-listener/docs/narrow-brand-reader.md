@@ -73,3 +73,12 @@ removing those disk temporaries establishes that the entire request fits its
 deadline.
 
 Raw overview counts reuse all compact representative rows before source deduplication filtering. This preserves losing-import counts and ingestion-time windows while avoiding a separate full normalization consumer.
+
+The compact thirteen-field `rank_input` is explicitly materialized for the
+source windows with a scoped `NO_MERGE(rank_input)` hint. This computes source
+identity once per input row instead of inlining the normalization expression
+into several window sort keys. Import counts use the same ordered keys as the
+winner windows and an explicit unbounded-preceding through unbounded-following
+frame, preserving full-partition counts while permitting a shared sort. This
+does not alter the separate upstream source-selection work or establish runtime
+acceptance; the actual plan and complete eight-second request still need proof.

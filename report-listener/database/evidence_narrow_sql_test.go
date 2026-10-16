@@ -150,6 +150,29 @@ func TestNarrowEvidencePreferredAnalysisWindowExcludesPerReportEvidence(t *testi
 	}
 }
 
+func TestNarrowEvidenceStoresSourceRankInputsAndCountsWholePartition(t *testing.T) {
+	f, err := NormalizeEvidenceFilter(EvidenceFilter{BrandName: "microsoft", Kind: "all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	query, _, err := narrowEvidenceBrandPageQuery(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(query, "rank_input AS (SELECT "+narrowEvidenceRankColumns+" FROM normalized)") || !strings.Contains(query, "SELECT /*+ NO_MERGE(rank_input) */ rank_input.*") || strings.Count(query, "NO_MERGE(rank_input)") != 1 {
+		t.Fatal("source windows must consume stored compact rank inputs")
+	}
+	if strings.Count(query, "OVER (PARTITION BY source_key ORDER BY "+narrowEvidenceSourceOrder) != 3 {
+		t.Fatal("source ranking and import counts must share the exact native SQL ordering")
+	}
+	if !strings.Contains(query, "COUNT(*) OVER (PARTITION BY source_key ORDER BY "+narrowEvidenceSourceOrder+" ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS import_count FROM rank_input") {
+		t.Fatal("ordered import count must include all rows, not a running or peer count")
+	}
+	if strings.Contains(query, "COUNT(*) OVER (PARTITION BY source_key) AS import_count") {
+		t.Fatal("partition-only count prevents reuse of the source winner sort")
+	}
+}
+
 type narrowSelectedCoreArgument struct{}
 
 func (narrowSelectedCoreArgument) Match(value driver.Value) bool {

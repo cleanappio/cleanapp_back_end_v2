@@ -40,7 +40,11 @@ func narrowEvidenceBrandPageQuery(f EvidenceFilter) (string, []interface{}, erro
 		{"), candidates AS (", "), " + narrowEvidenceSourceIdentitiesCTE + ", candidates AS ("},
 		{"ROW_NUMBER() OVER (PARTITION BY r.seq ORDER BY eii.source ASC, eii.external_id ASC, ws.submitted_at DESC) AS source_rank", "1 AS source_rank"},
 		{"FROM preferred ra JOIN metadata r ON r.seq = ra.seq", "FROM source_winners selected JOIN preferred ra ON ra.seq=selected.seq JOIN metadata r ON r.seq=selected.seq"},
-		{"SELECT normalized.*, ROW_NUMBER() OVER (PARTITION BY source_key", "SELECT " + narrowEvidenceRankColumns + ", ROW_NUMBER() OVER (PARTITION BY source_key"},
+		{"), representatives AS (", "), rank_input AS (SELECT " + narrowEvidenceRankColumns + " FROM normalized), representatives AS ("},
+		{"SELECT normalized.*, ROW_NUMBER() OVER (PARTITION BY source_key", "SELECT /*+ NO_MERGE(rank_input) */ rank_input.*, ROW_NUMBER() OVER (PARTITION BY source_key"},
+		// The full frame preserves the original whole-partition import count.
+		// Matching all source windows' order permits a single shared sort.
+		{"COUNT(*) OVER (PARTITION BY source_key) AS import_count FROM normalized", "COUNT(*) OVER (PARTITION BY source_key ORDER BY " + narrowEvidenceSourceOrder + " ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS import_count FROM rank_input"},
 		// Representatives still contains every source row before duplicate_rank
 		// filtering. Reuse its compact materialization for the raw overview so
 		// a second consumer does not repeat the full normalization join tree.
@@ -56,6 +60,9 @@ func narrowEvidenceBrandPageQuery(f EvidenceFilter) (string, []interface{}, erro
 		if err := replaceOne(change[0], change[1]); err != nil {
 			return "", nil, err
 		}
+	}
+	if strings.Count(query, "OVER (PARTITION BY source_key ORDER BY "+narrowEvidenceSourceOrder+")") != 2 {
+		return "", nil, fmt.Errorf("narrow evidence source window order changed")
 	}
 	for _, field := range []string{"source_url", "source_timestamp", "created_at"} {
 		query = strings.ReplaceAll(query, "eii."+field, "(CASE WHEN eii_header.seq IS NOT NULL THEN eii_header."+field+" ELSE eii_fallback."+field+" END)")
@@ -139,6 +146,8 @@ func narrowEvidenceBrandPageQuery(f EvidenceFilter) (string, []interface{}, erro
 // Kept small independently of public display/source widths. All other fields
 // are restored from the same normalized snapshot only for chosen report seqs.
 const narrowEvidenceRankColumns = "seq,source_key,evidence_version,evidence_strength,entity_relevance,severity_level,report_kind,source_account_key,observed_at,source_timestamp,ts,privacy_restricted,ingestion_time_missing"
+
+const narrowEvidenceSourceOrder = "evidence_version DESC, evidence_strength DESC, entity_relevance DESC, seq DESC"
 
 // The original source-rank order depends only on native EII identities and Wire
 // submission time. Keep that window separate from all source JSON, URLs,
