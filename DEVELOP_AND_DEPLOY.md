@@ -71,6 +71,14 @@ This flow:
 4. runs explicit Go migrations
 5. deploys via digest pins
 
+### Rust dependency locks
+
+Rust release contexts must include the checked-in `Cargo.lock`. Use
+`cargo install --locked --path .` when installing a local binary: plain
+`cargo install` ignores that lock and can resolve a newer dependency requiring
+a compiler newer than the pinned Docker builder. See Cargo's
+[lockfile behavior](https://doc.rust-lang.org/cargo/commands/cargo-install.html#dealing-with-the-lockfile).
+
 ## Setting up a new CleanApp VM
 
 1.  Enable OS login on VMs

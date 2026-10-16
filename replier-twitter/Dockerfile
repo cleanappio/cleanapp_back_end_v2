@@ -14,7 +14,7 @@ COPY Cargo.toml ./
 COPY . .
 
 # Build the application
-RUN cargo install --path . -j $(nproc)
+RUN cargo install --locked --path . -j $(nproc)
 
 # Runtime stage
 FROM debian:bookworm-slim
