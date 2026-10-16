@@ -111,6 +111,9 @@ func TestProjectedEvidencePublicationGuardsKeepCorrelatedOwnerCountAndExactScope
 	if strings.Count(query, hinted) != 1 || strings.Count(query, "JOIN_INDEX(") != 1 || strings.Count(query, status) != 1 || strings.Count(query, "NOT EXISTS(") != 1 || strings.Count(query, "COUNT(*)") != 1 || strings.Contains(query, "ROW_NUMBER() OVER") || strings.Contains(query, "analysis_rank") || !strings.Contains(query, "WEIGHT_STRING(ra.language AS CHAR(2))") || !strings.Contains(query, "ra.analysis_requested,ra.analysis_english,ra.analysis_language_weight,ra.created_at") || !strings.Contains(query, "WHERE ra.seq IS NOT NULL") {
 		t.Fatal("correlated owner count or status existence guard changed exact blockers or preferred analysis")
 	}
+	if strings.Count(query, "BNL(m,rr,ev,p) NO_INDEX(m PRIMARY) NO_INDEX(rr PRIMARY) NO_INDEX(ev PRIMARY) NO_INDEX(p PRIMARY)") != 1 || strings.Contains(query, "NO_INDEX(ro") || strings.Contains(query, "NO_INDEX(ra") {
+		t.Fatal("compact lookup tables lost their hash-join build, or the owner/brand access paths changed")
+	}
 	if strings.Contains(query, "FORCE INDEX (idx_is_public)") || strings.Contains(query, "NOT IN") || strings.Contains(query, "LIMIT") || !strings.Contains(query, "MAX_EXECUTION_TIME(8000)") {
 		t.Fatal("publication guards introduced a required index, NULL-unsafe membership, or cohort/deadline change")
 	}

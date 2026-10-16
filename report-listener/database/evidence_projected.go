@@ -11,6 +11,14 @@ import (
 	"report-listener/models"
 )
 
+// Large brand cohorts touch most rows of these compact per-report tables.
+// Measured on production (Google, 61,184 rows): per-row PRIMARY lookups into
+// m, rr, ev and p cost 4.3s of a 6.6s server execution. Build each table once
+// as a hash join instead; the join predicates, columns and results are
+// unchanged, and the private-owner guard keeps its documented point lookups.
+// Hash join memory is allocated incrementally up to this bound, then spills.
+const projectedEvidenceHashJoinHints = `BNL(m,rr,ev,p) NO_INDEX(m PRIMARY) NO_INDEX(rr PRIMARY) NO_INDEX(ev PRIMARY) NO_INDEX(p PRIMARY) SET_VAR(join_buffer_size=67108864)`
+
 // Compact analysis inputs, live publication/evidence, and revision-checked
 // source values participate in the full-cohort read. Native SQL comparison keys
 // feed the existing Go analysis comparator without a window/materialization.
@@ -28,7 +36,7 @@ func projectedEvidenceBaseQuery(f EvidenceFilter) (string, []interface{}) {
  WEIGHT_STRING(ra.language AS CHAR(2)) AS analysis_language_weight
  FROM report_analysis ra FORCE INDEX (` + evidenceBrandCoreIndex + `)
  WHERE ra.brand_name IN (` + strings.Join(marks, ",") + `) AND ra.classification='digital' AND ra.is_valid=TRUE
- ) SELECT /*+ MAX_EXECUTION_TIME(8000) SET_VAR(tmp_table_size=67108864) */ ra.seq,
+ ) SELECT /*+ MAX_EXECUTION_TIME(8000) SET_VAR(tmp_table_size=67108864) ` + projectedEvidenceHashJoinHints + ` */ ra.seq,
  ra.classification,ra.severity_level,ra.language,ra.brand_name,DATE_FORMAT(ra.created_at,'%Y-%m-%d %H:%i:%s.%f'),
  CASE WHEN COALESCE(ev.evidence_version,0)>0 AND COALESCE(ev.report_kind,'unknown') IN ('firsthand','coverage') THEN COALESCE(ev.report_kind,'unknown') ELSE 'unknown' END,
  CASE WHEN COALESCE(ev.evidence_excerpt<>'',FALSE) THEN '1' ELSE '' END,
