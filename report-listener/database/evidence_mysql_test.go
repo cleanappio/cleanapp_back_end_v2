@@ -219,6 +219,21 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 	}
 
 	d := &Database{db: db}
+	checkNarrowHybrid := func(f EvidenceFilter) {
+		t.Helper()
+		f, err := NormalizeEvidenceFilter(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		actual, err := d.getEvidenceBrandPageHybrid(context.Background(), f)
+		if err != nil {
+			t.Fatalf("hybrid reader: %v", err)
+		}
+		reference, err := d.getEvidenceBrandPageSQL(context.Background(), f)
+		if err != nil || !reflect.DeepEqual(actual, reference) {
+			t.Fatalf("hybrid/reference complete public parity differs: %v\nactual=%+v\nreference=%+v", err, actual, reference)
+		}
+	}
 	checkNarrow := func(f EvidenceFilter) {
 		t.Helper()
 		f, err := NormalizeEvidenceFilter(f)
@@ -233,6 +248,7 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 		if err != nil || !reflect.DeepEqual(actual, reference) {
 			t.Fatalf("narrow/reference complete public parity differs: %v\nactual=%+v\nreference=%+v", err, actual, reference)
 		}
+		checkNarrowHybrid(f)
 	}
 	page, err := d.GetEvidenceBrandPage(context.Background(), EvidenceFilter{BrandName: "anthropic", Kind: "firsthand"})
 	if err != nil {
