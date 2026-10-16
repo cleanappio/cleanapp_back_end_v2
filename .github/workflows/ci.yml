@@ -296,6 +296,8 @@ jobs:
         run: ./scripts/ci/rust_fmt_check.sh
       - name: cargo clippy
         run: ./scripts/ci/rust_clippy_check.sh
+      - name: Email fetcher graceful shutdown
+        run: cargo test --manifest-path email-fetcher/Cargo.toml --locked shutdown::tests
 
   integration-analyzer:
     name: Integration (Analyzer Golden Path)
