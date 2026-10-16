@@ -188,7 +188,7 @@ var aggregateHTML = template.Must(template.New("aggregate").Parse(`<!doctype htm
 <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;mso-hide:all">{{if .Reports}}{{(index .Reports 0).Title}} — {{end}}open the report and available evidence, no account needed.</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#eef2ee">
 <tr><td align="center" style="padding:28px 12px">
-<table role="presentation" class="wrap" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;background:#ffffff;border:1px solid #dde5dd;border-radius:14px;overflow:hidden">
+<table role="presentation" class="wrap" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;overflow-wrap:anywhere;word-break:break-word;background:#ffffff;border:1px solid #dde5dd;border-radius:14px;overflow:hidden">
 
 <tr><td style="height:5px;background:#1f7a3f;font-size:0;line-height:0">&nbsp;</td></tr>
 
