@@ -28,17 +28,45 @@ func TestNarrowEvidenceRetainsOracleGroupingButDefersDisplayBodies(t *testing.T)
 			t.Fatalf("all-cohort window retains display body %s", field)
 		}
 	}
-	for _, required := range []string{"FORCE INDEX (idx_ra_brand_valid_class_core)", "external_ingest_header_projection", "wire_evidence_projection", "eii_fallback.source=CASE WHEN eii_header.seq IS NULL", "wire_fallback.submission_id=CASE WHEN wire_header.submission_id IS NULL", "PARTITION BY source_key ORDER BY evidence_version DESC", "MIN(cr.case_id)", "AND family_rank <= 8 AND privacy_restricted = 0", "COUNT(DISTINCT group_key)", "analysis_created_at", "'core',JSON_OBJECT("} {
+	for _, required := range []string{"FORCE INDEX (idx_ra_brand_valid_class_core)", "external_ingest_header_projection", "wire_evidence_projection", "eii_fallback.source=CASE WHEN eii_header.seq IS NULL", "wire_fallback.submission_id=CASE WHEN wire_header.submission_id IS NULL", "PARTITION BY source_key ORDER BY evidence_version DESC", "MIN(cr.case_id)", "AND f.family_rank <= 8 AND f.privacy_restricted = 0", "COUNT(DISTINCT group_key)", "analysis_created_at", "'core',JSON_OBJECT(", "END) AS submitted_at"} {
 		if !strings.Contains(query, required) {
 			t.Fatalf("missing narrow-reader invariant %s", required)
 		}
 	}
-	if strings.Index(query, "family_samples AS (") < strings.Index(query, "paged AS (") || !strings.Contains(query, "family_representative_seq IN (SELECT seq FROM paged)") {
+	if strings.Index(query, "family_samples AS (") < strings.Index(query, "paged AS (") || !strings.Contains(query, "f.family_representative_seq IN (SELECT seq FROM paged)") {
 		t.Fatal("sample JSON must be aggregated only after family pagination")
 	}
 	for _, forbidden := range []string{"ws.", "eii.", "LEFT JOIN wire_submissions_raw ws ", "LEFT JOIN external_ingest_index eii "} {
 		if strings.Contains(query, forbidden) {
 			t.Fatalf("unprojected source reference %s", forbidden)
+		}
+	}
+}
+
+func TestNarrowEvidenceKeepsDisplayIdentityFieldsOutsideRankingWindows(t *testing.T) {
+	for _, sortBy := range []string{"signal", "recent", "recurrence"} {
+		f, err := NormalizeEvidenceFilter(EvidenceFilter{BrandName: "microsoft", Kind: "coverage", Sort: sortBy})
+		if err != nil {
+			t.Fatal(err)
+		}
+		query, _, err := narrowEvidenceBrandPageQuery(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		start, end := strings.Index(query, " representatives AS ("), strings.Index(query, " paged_details AS (")
+		if start < 0 || end < start {
+			t.Fatal("rank core or bounded detail phase missing")
+		}
+		rank := query[start:end]
+		for _, forbidden := range []string{"normalized.*", "public_id", "source_url", "canonical_url", "original_id", "source_author", "analysis_created_at", "brand_name", "language", "latitude", "longitude", "title", "summary"} {
+			if strings.Contains(rank, forbidden) {
+				t.Fatalf("%s ranking windows carry late detail %s", sortBy, forbidden)
+			}
+		}
+		for _, required := range []string{"FROM paged p JOIN normalized n ON n.seq=p.seq", "FROM filtered f JOIN normalized n ON n.seq=f.seq WHERE f.family_representative_seq IN (SELECT seq FROM paged)", "LEFT JOIN paged_details p ON TRUE", "'rank',f.family_rank", "'created',DATE_FORMAT(n.analysis_created_at"} {
+			if !strings.Contains(query, required) {
+				t.Fatalf("%s loses bounded detail/selection contract %s", sortBy, required)
+			}
 		}
 	}
 }
@@ -77,7 +105,9 @@ func TestNarrowEvidenceHydratesOnlyPageAndSampleExactAnalysisSelections(t *testi
 	columns := strings.Split("all,firsthand,coverage,unknown,total,high,medium,total_reports,reports_last_30_days,reports_last_7_days,reports_previous_7_days,latest_report_at,seq,public_id,ts,latitude,longitude,title,summary,classification,severity_level,language,brand_name,brand_display_name,report_kind,evidence_excerpt,reported_impact,classification_reason,entity_relationship,evidence_version,source_platform,source_url,source_timestamp,observed_at,actor_kind,fetcher_id,privacy_restricted,source_key,import_count,case_id,related_observation_count,has_original_media,external_source,intake_channel,generation_method,source_account_key,group_key,supporting_report_count,source_account_count,duplicate_import_count,supporting_sources,latest_observed_at,latest_source_published_at,ingestion_time_missing,ingested_at_null,private_core", ",")
 	added := time.Date(2026, 10, 15, 0, 0, 0, 0, time.UTC)
 	core := `{"seq":42,"language":null,"created":null,"brand":"claude","classification":"digital","severity":null}`
-	samples := `[{"core":` + core + `,"title":"","source_url":"https://example.test/42","report_kind":"firsthand","source_published_at":null},{"core":{"seq":43,"language":"fr","created":"2026-10-15 00:00:00.000000","brand":"claude","classification":"digital","severity":0.7},"title":"","source_url":"https://example.test/43","report_kind":"firsthand","source_published_at":null}]`
+	// Simulate a late detail join returning samples in physical rather than rank
+	// order; nullable selected analysis metadata must still bind exactly.
+	samples := `[{"rank":2,"core":{"seq":43,"language":"fr","created":"2026-10-15 00:00:00.000000","brand":"claude","classification":"digital","severity":0.7},"title":"","source_url":"https://example.test/43","report_kind":"firsthand","source_published_at":null},{"rank":1,"core":` + core + `,"title":"","source_url":"https://example.test/42","report_kind":"firsthand","source_published_at":null}]`
 	rows := sqlmock.NewRows(columns).AddRow(50000, 9, 2, 49989, 9, 1, 1, 50001, 7, 4, 2, added, 42, "r_test", added, 0, 0, "", "", "digital", 0, "", "claude", "", "firsthand", "1", "1", "", "affected", 1, "github_issue", "https://example.test/42", nil, nil, "machine", "fetcher", false, "url:example.test/42", 1, "case-1", 2, false, true, "wire", "native", "github:user", "family:case-1", 2, 1, 0, samples, nil, nil, false, false, core)
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta(query)).WithArgs(values...).WillReturnRows(rows)

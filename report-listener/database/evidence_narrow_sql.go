@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -33,13 +34,14 @@ func narrowEvidenceBrandPageQuery(f EvidenceFilter) (string, []interface{}, erro
 		{"FROM report_analysis ra LEFT JOIN report_evidence ev", "FROM report_analysis ra FORCE INDEX (" + evidenceBrandCoreIndex + ") LEFT JOIN report_evidence ev"},
 		{"ra.title, ra.summary, ra.classification,", "ra.created_at AS analysis_created_at,ra.title, ra.summary, ra.classification,"},
 		{"ws.submitted_at, (", "ws.submitted_at AS submitted_at, ("},
+		{"SELECT normalized.*, ROW_NUMBER() OVER (PARTITION BY source_key", "SELECT " + narrowEvidenceRankColumns + ", ROW_NUMBER() OVER (PARTITION BY source_key"},
 		{"LEFT JOIN external_ingest_index eii ON eii.seq = r.seq", `LEFT JOIN external_ingest_index eii_identity FORCE INDEX(idx_seq) ON eii_identity.seq=r.seq
   LEFT JOIN external_ingest_header_projection eii_header ON eii_header.seq=eii_identity.seq AND eii_header.source=eii_identity.source AND eii_header.external_id=eii_identity.external_id
   LEFT JOIN external_ingest_index eii_fallback FORCE INDEX(PRIMARY) ON eii_fallback.source=CASE WHEN eii_header.seq IS NULL THEN eii_identity.source ELSE NULL END AND eii_fallback.external_id=eii_identity.external_id AND eii_fallback.seq=eii_identity.seq`},
 		{"LEFT JOIN wire_submissions_raw ws ON ws.report_seq = r.seq", `LEFT JOIN wire_submissions_raw wire_identity ON wire_identity.report_seq=r.seq
   LEFT JOIN wire_evidence_projection wire_header ON wire_header.submission_id=wire_identity.submission_id AND wire_header.report_seq=wire_identity.report_seq
   LEFT JOIN wire_submissions_raw wire_fallback ON wire_fallback.submission_id=CASE WHEN wire_header.submission_id IS NULL THEN wire_identity.submission_id ELSE NULL END AND wire_fallback.report_seq=wire_identity.report_seq`},
-		{"JSON_OBJECT('title',title,", "JSON_OBJECT('core'," + narrowEvidenceAnalysisJSON("") + ",'title',title,"},
+		{"JSON_OBJECT('title',title,", "JSON_OBJECT('core'," + narrowEvidenceAnalysisJSON("n") + ",'title',n.title,"},
 		{"COALESCE(p.ts IS NULL,FALSE) FROM scope_counts", "COALESCE(p.ts IS NULL,FALSE)," + narrowEvidenceAnalysisJSON("p") + " FROM scope_counts"},
 	}
 	for _, change := range changes {
@@ -82,9 +84,9 @@ func narrowEvidenceBrandPageQuery(f EvidenceFilter) (string, []interface{}, erro
 	if strings.Contains(query, "ws.") || strings.Contains(query, "eii.") {
 		return "", nil, fmt.Errorf("narrow evidence has an unprojected source reference")
 	}
-	// Sample JSON contains display-selection metadata. Aggregate it only for
-	// paged families; otherwise singleton archive families would create tens of
-	// thousands of unnecessary JSON objects before LIMIT despite late hydration.
+	// Only rank/count inputs cross the source and family windows. Full source,
+	// identity and selected-analysis fields rejoin after LIMIT, also for samples.
+	// The source_rank window guarantees normalized has one row per report seq.
 	start, end := strings.Index(query, " family_samples AS ("), strings.Index(query, "\n briefing AS (")
 	if start < 0 || end <= start {
 		return "", nil, fmt.Errorf("narrow evidence sample reference changed")
@@ -97,19 +99,38 @@ func narrowEvidenceBrandPageQuery(f EvidenceFilter) (string, []interface{}, erro
 	if err := replaceOne(" LEFT JOIN family_samples samples ON samples.family_representative_seq=f.family_representative_seq", ""); err != nil {
 		return "", nil, err
 	}
-	samples = strings.Replace(samples, "FROM filtered WHERE family_rank <= 8", "FROM filtered WHERE family_representative_seq IN (SELECT seq FROM paged) AND family_rank <= 8", 1)
+	for _, change := range [][2]string{
+		{"SELECT family_representative_seq,", "SELECT f.family_representative_seq,"},
+		{"JSON_OBJECT('core',", "JSON_OBJECT('rank',f.family_rank,'core',"},
+		{"'source_url',source_url", "'source_url',n.source_url"},
+		{"'report_kind',report_kind", "'report_kind',n.report_kind"},
+		{"YEAR(source_timestamp)", "YEAR(n.source_timestamp)"},
+		{"DATE_FORMAT(source_timestamp,", "DATE_FORMAT(n.source_timestamp,"},
+		{"FROM filtered WHERE family_rank <= 8 AND privacy_restricted = 0 GROUP BY family_representative_seq", "FROM filtered f JOIN normalized n ON n.seq=f.seq WHERE f.family_representative_seq IN (SELECT seq FROM paged) AND f.family_rank <= 8 AND f.privacy_restricted = 0 GROUP BY f.family_representative_seq"},
+	} {
+		if strings.Count(samples, change[0]) != 1 {
+			return "", nil, fmt.Errorf("narrow evidence sample detail contract changed")
+		}
+		samples = strings.Replace(samples, change[0], change[1], 1)
+	}
 	paged := " paged AS (SELECT * FROM briefing ORDER BY " + evidenceOrderBy(f.Sort) + " LIMIT ? OFFSET ?)"
-	if err := replaceOne(paged, paged+",\n "+samples); err != nil {
+	if err := replaceOne(paged, paged+`,
+ paged_details AS (SELECT n.*,p.import_count,p.case_id,p.group_key,p.supporting_report_count,p.source_account_count,p.duplicate_import_count,p.related_observation_count,p.last_signal_at,p.latest_observed_at,p.latest_source_published_at FROM paged p JOIN normalized n ON n.seq=p.seq),
+ `+samples); err != nil {
 		return "", nil, err
 	}
 	if err := replaceOne("COALESCE(p.supporting_sources,JSON_ARRAY())", "COALESCE(samples.supporting_sources,JSON_ARRAY())"); err != nil {
 		return "", nil, err
 	}
-	if err := replaceOne("LEFT JOIN paged p ON TRUE ORDER BY", "LEFT JOIN paged p ON TRUE LEFT JOIN family_samples samples ON samples.family_representative_seq=p.seq ORDER BY"); err != nil {
+	if err := replaceOne("LEFT JOIN paged p ON TRUE ORDER BY", "LEFT JOIN paged_details p ON TRUE LEFT JOIN family_samples samples ON samples.family_representative_seq=p.seq ORDER BY"); err != nil {
 		return "", nil, err
 	}
 	return query, args, nil
 }
+
+// Kept small independently of public display/source widths. All other fields
+// are restored from the same normalized snapshot only for chosen report seqs.
+const narrowEvidenceRankColumns = "seq,source_key,evidence_version,evidence_strength,entity_relevance,severity_level,report_kind,source_account_key,observed_at,source_timestamp,ts,privacy_restricted"
 
 func narrowEvidenceAnalysisJSON(alias string) string {
 	prefix := ""
@@ -142,6 +163,7 @@ func (n narrowEvidenceAnalysis) core() evidenceAnalysisCore {
 }
 
 type narrowEvidenceSample struct {
+	Rank      int                    `json:"rank"`
 	Core      narrowEvidenceAnalysis `json:"core"`
 	SourceURL string                 `json:"source_url"`
 	Kind      string                 `json:"report_kind"`
@@ -196,8 +218,11 @@ func (d *Database) getEvidenceBrandPageNarrowSQL(ctx context.Context, f Evidence
 			rows.Close()
 			return EvidenceBrandPage{}, fmt.Errorf("narrow evidence samples are invalid")
 		}
+		// JSON_ARRAYAGG order is unspecified once late detail joins are added;
+		// retain the existing deterministic family rank across that join.
+		sort.SliceStable(samples, func(i, j int) bool { return samples[i].Rank < samples[j].Rank })
 		for _, sample := range samples {
-			if sample.Core.Seq <= 0 {
+			if sample.Core.Seq <= 0 || sample.Rank < 1 || sample.Rank > 8 {
 				rows.Close()
 				return EvidenceBrandPage{}, fmt.Errorf("narrow evidence sample selection is invalid")
 			}
