@@ -49,7 +49,7 @@ func expectIndividualOptOut(mock sqlmock.Sqlmock, recipient string, count int) {
 	mock.ExpectQuery(`SELECT COUNT\(\*\).*FROM opted_out_emails`).WithArgs(recipient).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(count))
 }
 func expectIndividualPublicPolicy(mock sqlmock.Sqlmock, publishable bool) {
-	mock.ExpectQuery(`(?s)SELECT EXISTS\(SELECT 1 FROM reports r.*ra.language='en'.*WHERE r.seq=\? AND ra.is_valid=TRUE.*visibility='public'.*NOT EXISTS.*report_status.*NOT EXISTS.*reports_owners`).WithArgs(10).WillReturnRows(sqlmock.NewRows([]string{"publishable"}).AddRow(publishable))
+	mock.ExpectQuery(`(?s)SELECT EXISTS\(SELECT 1 FROM reports r.*ra.language='en'.*WHERE r.seq=\? AND ra.is_valid=TRUE.*visibility='public'.*NOT EXISTS.*report_status.*COUNT\(\*\).*reports_owners`).WithArgs(10).WillReturnRows(sqlmock.NewRows([]string{"publishable"}).AddRow(publishable))
 }
 func expectIndividualReceipt(mock sqlmock.Sqlmock, recipient string) {
 	mock.ExpectBegin()
