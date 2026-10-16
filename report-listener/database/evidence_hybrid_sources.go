@@ -45,7 +45,13 @@ type hybridEvidenceSourceChoice struct {
 const hybridEvidenceSourcePayloadLimit = 8 << 20
 
 func encodeHybridEvidenceSourceChoices(selected []*hybridEvidenceSourceChoice) (string, error) {
-	encoded, err := json.Marshal(selected)
+	// Fixed-position tuples avoid repeating long field names for every report.
+	// Pointers still encode absent identities as JSON null, never empty strings.
+	tuples := make([][4]interface{}, len(selected))
+	for i, choice := range selected {
+		tuples[i] = [4]interface{}{choice.Seq, choice.Source, choice.ExternalID, choice.WireID}
+	}
+	encoded, err := json.Marshal(tuples)
 	if err != nil {
 		return "", err
 	}
@@ -60,10 +66,10 @@ func encodeHybridEvidenceSourceChoices(selected []*hybridEvidenceSourceChoice) (
 // JSON collation never participates in choosing a winner.
 const hybridEvidenceChosenSourcesCTE = `chosen_source_ids AS (
  SELECT * FROM JSON_TABLE(?, '$[*]' COLUMNS(
- seq INT PATH '$.seq',
- source VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci PATH '$.source',
- external_id VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci PATH '$.external_id',
- wire_submission_id VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci PATH '$.wire_submission_id')) selected
+ seq INT PATH '$[0]',
+ source VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci PATH '$[1]',
+ external_id VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci PATH '$[2]',
+ wire_submission_id VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci PATH '$[3]')) selected
  ), source_winners AS (
  SELECT /*+ NO_MERGE(chosen) */ r.*,chosen.source,chosen.external_id,chosen.wire_submission_id
  FROM metadata r LEFT JOIN chosen_source_ids chosen ON chosen.seq=r.seq

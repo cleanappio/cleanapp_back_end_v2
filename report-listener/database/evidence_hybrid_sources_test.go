@@ -79,11 +79,11 @@ func TestHybridSourceChoicesResolveOnlyDuplicateKindsAndKeepSQLWinners(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	var selected []hybridEvidenceSourceChoice
+	var selected [][4]interface{}
 	if err := json.Unmarshal([]byte(encoded), &selected); err != nil {
 		t.Fatal(err)
 	}
-	if len(selected) != 4 || selected[0].Seq != 10 || *selected[0].ExternalID != "Keep CASE " || *selected[0].WireID != "one-wire" || selected[1].WireID != nil || selected[2].Source != nil || *selected[3].Source != "é" || *selected[3].ExternalID != "Native CASE " || *selected[3].WireID != "latest-private" {
+	if len(selected) != 4 || selected[0][0] != float64(10) || selected[0][2] != "Keep CASE " || selected[0][3] != "one-wire" || selected[1][3] != nil || selected[2][1] != nil || selected[3][1] != "é" || selected[3][2] != "Native CASE " || selected[3][3] != "latest-private" {
 		t.Fatalf("singleton independence, SQL winner, NULL source, or identity bytes changed: %s", encoded)
 	}
 	if err := tx.Rollback(); err != nil {
