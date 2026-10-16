@@ -334,7 +334,7 @@ func evidenceBrandPageQuery(f EvidenceFilter) (string, []interface{}) {
 }
 
 // Kept as the executable SQL reference for adapter parity fixtures. Public brand
-// requests use the independent bulk reads below; bounded detail batches reuse
+// requests use revision-checked source projections; bounded detail batches reuse
 // the same SQL provenance expressions.
 func (d *Database) getEvidenceBrandPageSQL(ctx context.Context, f EvidenceFilter) (EvidenceBrandPage, error) {
 	var err error
