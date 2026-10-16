@@ -29,7 +29,9 @@ func narrowEvidenceBrandPageQuery(f EvidenceFilter) (string, []interface{}, erro
 	changes := [][2]string{
 		// Bound server work as well as the client context: MySQL can otherwise
 		// continue materializing intermediate rows after the client disconnects.
-		{"SELECT sc.all_count,", fmt.Sprintf("SELECT /*+ MAX_EXECUTION_TIME(%d) */ sc.all_count,", publicDiscoveryQueryTimeout.Milliseconds())},
+		// The compact 50k+ scopes can exceed MySQL's 16MiB per-table default.
+		// This statement-only ceiling leaves shared engine limits unchanged.
+		{"SELECT sc.all_count,", fmt.Sprintf("SELECT /*+ MAX_EXECUTION_TIME(%d) SET_VAR(tmp_table_size=%d) */ sc.all_count,", publicDiscoveryQueryTimeout.Milliseconds(), narrowEvidenceTempTableBudgetBytes)},
 		{"ra.seq,ra.language,ra.created_at,ra.brand_name,ra.brand_display_name,ra.classification,ra.title,ra.summary,CAST(ra.severity_level AS DOUBLE) AS severity_level,COALESCE(ev.report_kind,'unknown') AS report_kind,COALESCE(ev.evidence_excerpt,'') AS evidence_excerpt,COALESCE(ev.reported_impact,'') AS reported_impact,COALESCE(ev.classification_reason,'') AS classification_reason,COALESCE(ev.entity_relationship,'unknown') AS entity_relationship,COALESCE(ev.evidence_version,0) AS evidence_version, ROW_NUMBER()", "ra.seq,ra.language,ra.created_at,ra.brand_name,ra.classification,CAST(ra.severity_level AS DOUBLE) AS severity_level, ROW_NUMBER()"},
 		{"FROM report_analysis ra LEFT JOIN report_evidence ev ON ev.seq = ra.seq WHERE", "FROM report_analysis ra FORCE INDEX (" + evidenceBrandCoreIndex + ") WHERE"},
 		{"SELECT ra.seq,\n   CASE WHEN m.seq", "SELECT ra.seq,ra.language,ra.created_at,ra.brand_name,ra.classification,ra.severity_level,\n   CASE WHEN m.seq"},
@@ -161,6 +163,8 @@ func narrowEvidenceBrandPageQuery(f EvidenceFilter) (string, []interface{}, erro
 const narrowEvidenceRankColumns = "seq,source_key,evidence_version,evidence_strength,entity_relevance,severity_level,report_kind,source_account_key,observed_at,source_timestamp,ts,privacy_restricted,ingestion_time_missing"
 
 const narrowEvidenceSourceOrder = "evidence_version DESC, evidence_strength DESC, entity_relevance DESC, seq DESC"
+
+const narrowEvidenceTempTableBudgetBytes = 64 << 20
 
 // Original source ranking is lexicographic: native EII source/ID, then Wire
 // submission time. Independent per-seq identity choices give the same winners

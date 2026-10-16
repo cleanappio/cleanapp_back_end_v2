@@ -25,6 +25,9 @@ func TestNarrowEvidenceRetainsOracleGroupingButDefersDisplayBodies(t *testing.T)
 	if strings.Count(query, "MAX_EXECUTION_TIME(8000)") != 1 {
 		t.Fatal("narrow statement must retain the public eight-second server work bound")
 	}
+	if strings.Count(query, "SET_VAR(tmp_table_size=67108864)") != 1 {
+		t.Fatal("temporary-table ceiling must be local to the outer statement")
+	}
 	if !strings.Contains(query, "FROM representatives n CROSS JOIN overview_clock c") || strings.Contains(query, "FROM normalized n CROSS JOIN overview_clock c") {
 		t.Fatal("raw overview must reuse every pre-deduplication representative row")
 	}

@@ -100,3 +100,5 @@ does not alter the separate upstream source-selection work or establish runtime
 acceptance; the actual plan and complete eight-second request still need proof.
 
 Kind facets group the unfiltered family keys once and retain one presence flag per kind. Summing those flags preserves overlapping kinds and the original key collation, with NULL keys excluded and empty sums coalesced to zero.
+
+The outer SELECT applies a 64MiB per-table temporary-memory ceiling for this statement. It restores automatically and does not change the engine shared RAM/mmap limits. It is a ceiling rather than a reservation or a whole-query RSS cap. The same statement retains the eight-second server/client work budget; larger memory alone is not performance acceptance.
