@@ -30,12 +30,12 @@ func narrowEvidenceBrandPageQuery(f EvidenceFilter) (string, []interface{}, erro
 		// Bound server work as well as the client context: MySQL can otherwise
 		// continue materializing intermediate rows after the client disconnects.
 		{"SELECT sc.all_count,", fmt.Sprintf("SELECT /*+ MAX_EXECUTION_TIME(%d) */ sc.all_count,", publicDiscoveryQueryTimeout.Milliseconds())},
-		{"ra.seq,ra.language,ra.created_at,ra.brand_name,ra.brand_display_name,ra.classification,ra.title,ra.summary,", "ra.seq,ra.language,ra.created_at,ra.brand_name,'' AS brand_display_name,ra.classification,'' AS title,'' AS summary,"},
-		{"COALESCE(ev.evidence_excerpt,'') AS evidence_excerpt", "CASE WHEN COALESCE(ev.evidence_excerpt<>'',FALSE) THEN '1' ELSE '' END AS evidence_excerpt"},
-		{"COALESCE(ev.reported_impact,'') AS reported_impact", "CASE WHEN COALESCE(ev.reported_impact<>'',FALSE) THEN '1' ELSE '' END AS reported_impact"},
-		{"COALESCE(ev.classification_reason,'') AS classification_reason", "'' AS classification_reason"},
-		{"FROM report_analysis ra LEFT JOIN report_evidence ev", "FROM report_analysis ra FORCE INDEX (" + evidenceBrandCoreIndex + ") LEFT JOIN report_evidence ev"},
-		{"ra.title, ra.summary, ra.classification,", "ra.created_at AS analysis_created_at,ra.title, ra.summary, ra.classification,"},
+		{"ra.seq,ra.language,ra.created_at,ra.brand_name,ra.brand_display_name,ra.classification,ra.title,ra.summary,CAST(ra.severity_level AS DOUBLE) AS severity_level,COALESCE(ev.report_kind,'unknown') AS report_kind,COALESCE(ev.evidence_excerpt,'') AS evidence_excerpt,COALESCE(ev.reported_impact,'') AS reported_impact,COALESCE(ev.classification_reason,'') AS classification_reason,COALESCE(ev.entity_relationship,'unknown') AS entity_relationship,COALESCE(ev.evidence_version,0) AS evidence_version, ROW_NUMBER()", "ra.seq,ra.language,ra.created_at,ra.brand_name,ra.classification,CAST(ra.severity_level AS DOUBLE) AS severity_level, ROW_NUMBER()"},
+		{"FROM report_analysis ra LEFT JOIN report_evidence ev ON ev.seq = ra.seq WHERE", "FROM report_analysis ra FORCE INDEX (" + evidenceBrandCoreIndex + ") WHERE"},
+		{"ra.title, ra.summary, ra.classification, ra.severity_level, ra.language, ra.brand_name, ra.brand_display_name,", "ra.created_at AS analysis_created_at,'' AS title,'' AS summary,ra.classification,ra.severity_level,ra.language,ra.brand_name,'' AS brand_display_name,"},
+		{"CASE WHEN ra.evidence_version > 0 AND ra.report_kind IN ('firsthand','coverage') THEN ra.report_kind ELSE 'unknown' END AS report_kind", "CASE WHEN COALESCE(ev.evidence_version,0)>0 AND COALESCE(ev.report_kind,'unknown') IN ('firsthand','coverage') THEN COALESCE(ev.report_kind,'unknown') ELSE 'unknown' END AS report_kind"},
+		{"ra.evidence_excerpt, ra.reported_impact, ra.classification_reason, ra.entity_relationship, ra.evidence_version,", "CASE WHEN COALESCE(ev.evidence_excerpt<>'',FALSE) THEN '1' ELSE '' END AS evidence_excerpt,CASE WHEN COALESCE(ev.reported_impact<>'',FALSE) THEN '1' ELSE '' END AS reported_impact,'' AS classification_reason,COALESCE(ev.entity_relationship,'unknown') AS entity_relationship,COALESCE(ev.evidence_version,0) AS evidence_version,"},
+		{"LEFT JOIN report_raw rr ON rr.report_seq = r.seq", "LEFT JOIN report_raw rr ON rr.report_seq = r.seq LEFT JOIN report_evidence ev ON ev.seq=r.seq"},
 		{"ws.submitted_at, (", "ws.submitted_at AS submitted_at, ("},
 		{"), candidates AS (", "), " + narrowEvidenceSourceIdentitiesCTE + ", candidates AS ("},
 		{"ROW_NUMBER() OVER (PARTITION BY r.seq ORDER BY eii.source ASC, eii.external_id ASC, ws.submitted_at DESC) AS source_rank", "1 AS source_rank"},

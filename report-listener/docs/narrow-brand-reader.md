@@ -17,6 +17,12 @@ display fields with empty values/presence bits and use the established scalar
 source projections with guarded original-data fallback. Contract drift returns
 an error rather than silently reverting to a wide query.
 
+Preferred analysis ranking carries only its six covered nullable analysis fields
+and the unchanged row number. Per-report evidence is keyed by sequence and does
+not affect either analysis or source selection, so it joins after both choices.
+Empty display placeholders and the exact SQL-collated evidence-presence flags
+are also introduced after selection, avoiding cells in the analysis temporary.
+
 The source winner window carries only the report sequence, native-collation EII
 source/external identities, and Wire submission identity. It keeps the original
 SQL source/ID/descending-submission-time order. Only Wire submission time is read

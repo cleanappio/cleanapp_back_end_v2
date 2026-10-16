@@ -119,6 +119,37 @@ func TestNarrowEvidenceChoosesSourceIdentitiesBeforeWideMetadata(t *testing.T) {
 	}
 }
 
+func TestNarrowEvidencePreferredAnalysisWindowExcludesPerReportEvidence(t *testing.T) {
+	f, err := NormalizeEvidenceFilter(EvidenceFilter{BrandName: "microsoft", Kind: "all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	query, _, err := narrowEvidenceBrandPageQuery(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preferred := strings.Split(query, "), metadata AS (")[0]
+	for _, forbidden := range []string{"report_evidence", "ev.", "'' AS", "brand_display_name", "ra.title", "ra.summary", "report_kind", "entity_relationship"} {
+		if strings.Contains(preferred, forbidden) {
+			t.Fatalf("preferred analysis ranking carries report/display data: %s", forbidden)
+		}
+	}
+	for _, required := range []string{"ra.seq,ra.language,ra.created_at,ra.brand_name,ra.classification,CAST(ra.severity_level AS DOUBLE) AS severity_level", "ROW_NUMBER() OVER (PARTITION BY ra.seq ORDER BY (ra.language = ?) DESC, (ra.language = 'en') DESC, ra.language ASC, ra.created_at DESC) AS analysis_rank"} {
+		if !strings.Contains(preferred, required) {
+			t.Fatalf("preferred analysis ranking/tuple changed: %s", required)
+		}
+	}
+	candidate := query[strings.Index(query, "), candidates AS ("):strings.Index(query, "), provenance AS (")]
+	for _, required := range []string{"LEFT JOIN report_evidence ev ON ev.seq=r.seq", "COALESCE(ev.report_kind,'unknown')", "COALESCE(ev.entity_relationship,'unknown') AS entity_relationship", "COALESCE(ev.evidence_version,0) AS evidence_version", "COALESCE(ev.evidence_excerpt<>'',FALSE)", "COALESCE(ev.reported_impact<>'',FALSE)", "'' AS title", "'' AS summary", "'' AS brand_display_name", "'' AS classification_reason"} {
+		if !strings.Contains(candidate, required) {
+			t.Fatalf("post-selection evidence defaults/flags missing: %s", required)
+		}
+	}
+	if strings.Count(query, "LEFT JOIN report_evidence ev") != 1 {
+		t.Fatal("per-report evidence must join once after source identity selection")
+	}
+}
+
 type narrowSelectedCoreArgument struct{}
 
 func (narrowSelectedCoreArgument) Match(value driver.Value) bool {
