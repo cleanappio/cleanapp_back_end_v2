@@ -32,14 +32,19 @@ func narrowEvidenceBrandPageQuery(f EvidenceFilter) (string, []interface{}, erro
 		{"SELECT sc.all_count,", fmt.Sprintf("SELECT /*+ MAX_EXECUTION_TIME(%d) */ sc.all_count,", publicDiscoveryQueryTimeout.Milliseconds())},
 		{"ra.seq,ra.language,ra.created_at,ra.brand_name,ra.brand_display_name,ra.classification,ra.title,ra.summary,CAST(ra.severity_level AS DOUBLE) AS severity_level,COALESCE(ev.report_kind,'unknown') AS report_kind,COALESCE(ev.evidence_excerpt,'') AS evidence_excerpt,COALESCE(ev.reported_impact,'') AS reported_impact,COALESCE(ev.classification_reason,'') AS classification_reason,COALESCE(ev.entity_relationship,'unknown') AS entity_relationship,COALESCE(ev.evidence_version,0) AS evidence_version, ROW_NUMBER()", "ra.seq,ra.language,ra.created_at,ra.brand_name,ra.classification,CAST(ra.severity_level AS DOUBLE) AS severity_level, ROW_NUMBER()"},
 		{"FROM report_analysis ra LEFT JOIN report_evidence ev ON ev.seq = ra.seq WHERE", "FROM report_analysis ra FORCE INDEX (" + evidenceBrandCoreIndex + ") WHERE"},
-		{"ra.title, ra.summary, ra.classification, ra.severity_level, ra.language, ra.brand_name, ra.brand_display_name,", "ra.created_at AS analysis_created_at,'' AS title,'' AS summary,ra.classification,ra.severity_level,ra.language,ra.brand_name,'' AS brand_display_name,"},
+		{"SELECT ra.seq,\n   CASE WHEN m.seq", "SELECT ra.seq,ra.language,ra.created_at,ra.brand_name,ra.classification,ra.severity_level,\n   CASE WHEN m.seq"},
+		{"ra.title, ra.summary, ra.classification, ra.severity_level, ra.language, ra.brand_name, ra.brand_display_name,", "r.created_at AS analysis_created_at,'' AS title,'' AS summary,r.classification,r.severity_level,r.language,r.brand_name,'' AS brand_display_name,"},
 		{"CASE WHEN ra.evidence_version > 0 AND ra.report_kind IN ('firsthand','coverage') THEN ra.report_kind ELSE 'unknown' END AS report_kind", "CASE WHEN COALESCE(ev.evidence_version,0)>0 AND COALESCE(ev.report_kind,'unknown') IN ('firsthand','coverage') THEN COALESCE(ev.report_kind,'unknown') ELSE 'unknown' END AS report_kind"},
 		{"ra.evidence_excerpt, ra.reported_impact, ra.classification_reason, ra.entity_relationship, ra.evidence_version,", "CASE WHEN COALESCE(ev.evidence_excerpt<>'',FALSE) THEN '1' ELSE '' END AS evidence_excerpt,CASE WHEN COALESCE(ev.reported_impact<>'',FALSE) THEN '1' ELSE '' END AS reported_impact,'' AS classification_reason,COALESCE(ev.entity_relationship,'unknown') AS entity_relationship,COALESCE(ev.evidence_version,0) AS evidence_version,"},
 		{"LEFT JOIN report_raw rr ON rr.report_seq = r.seq", "LEFT JOIN report_raw rr ON rr.report_seq = r.seq LEFT JOIN report_evidence ev ON ev.seq=r.seq"},
 		{"ws.submitted_at, (", "ws.submitted_at AS submitted_at, ("},
 		{"), candidates AS (", "), " + narrowEvidenceSourceIdentitiesCTE + ", candidates AS ("},
 		{"ROW_NUMBER() OVER (PARTITION BY r.seq ORDER BY eii.source ASC, eii.external_id ASC, ws.submitted_at DESC) AS source_rank", "1 AS source_rank"},
-		{"FROM preferred ra JOIN metadata r ON r.seq = ra.seq", "FROM source_winners selected JOIN preferred ra ON ra.seq=selected.seq JOIN metadata r ON r.seq=selected.seq"},
+		{"FROM preferred ra JOIN metadata r ON r.seq = ra.seq", "FROM source_winners r"},
+		{"WHERE ra.analysis_rank = 1 AND r.public_id", "WHERE r.public_id"},
+		// Share only chosen identity, analysis and scalar report metadata across
+		// normalization consumers. Source JSON/URLs and display fields stay out.
+		{"SELECT r.seq, r.public_id,", "SELECT /*+ NO_MERGE(r) */ r.seq, r.public_id,"},
 		{"), representatives AS (", "), rank_input AS (SELECT " + narrowEvidenceRankColumns + " FROM normalized), representatives AS ("},
 		{"SELECT normalized.*, ROW_NUMBER() OVER (PARTITION BY source_key", "SELECT /*+ NO_MERGE(rank_input) */ rank_input.*, ROW_NUMBER() OVER (PARTITION BY source_key"},
 		// The full frame preserves the original whole-partition import count.
@@ -49,10 +54,10 @@ func narrowEvidenceBrandPageQuery(f EvidenceFilter) (string, []interface{}, erro
 		// filtering. Reuse its compact materialization for the raw overview so
 		// a second consumer does not repeat the full normalization join tree.
 		{"FROM normalized n CROSS JOIN overview_clock c", "FROM representatives n CROSS JOIN overview_clock c"},
-		{"LEFT JOIN external_ingest_index eii ON eii.seq = r.seq", `LEFT JOIN external_ingest_header_projection eii_header ON eii_header.seq=selected.seq AND eii_header.source=selected.source AND eii_header.external_id=selected.external_id
-  LEFT JOIN external_ingest_index eii_fallback FORCE INDEX(PRIMARY) ON eii_fallback.source=CASE WHEN eii_header.seq IS NULL THEN selected.source ELSE NULL END AND eii_fallback.external_id=selected.external_id AND eii_fallback.seq=selected.seq`},
-		{"LEFT JOIN wire_submissions_raw ws ON ws.report_seq = r.seq", `LEFT JOIN wire_evidence_projection wire_header ON wire_header.submission_id=selected.wire_submission_id AND wire_header.report_seq=selected.seq
-  LEFT JOIN wire_submissions_raw wire_fallback ON wire_fallback.submission_id=CASE WHEN wire_header.submission_id IS NULL THEN selected.wire_submission_id ELSE NULL END AND wire_fallback.report_seq=selected.seq`},
+		{"LEFT JOIN external_ingest_index eii ON eii.seq = r.seq", `LEFT JOIN external_ingest_header_projection eii_header ON eii_header.seq=r.seq AND eii_header.source=r.source AND eii_header.external_id=r.external_id
+  LEFT JOIN external_ingest_index eii_fallback FORCE INDEX(PRIMARY) ON eii_fallback.source=CASE WHEN eii_header.seq IS NULL THEN r.source ELSE NULL END AND eii_fallback.external_id=r.external_id AND eii_fallback.seq=r.seq`},
+		{"LEFT JOIN wire_submissions_raw ws ON ws.report_seq = r.seq", `LEFT JOIN wire_evidence_projection wire_header ON wire_header.submission_id=r.wire_submission_id AND wire_header.report_seq=r.seq
+  LEFT JOIN wire_submissions_raw wire_fallback ON wire_fallback.submission_id=CASE WHEN wire_header.submission_id IS NULL THEN r.wire_submission_id ELSE NULL END AND wire_fallback.report_seq=r.seq`},
 		{"JSON_OBJECT('title',title,", "JSON_OBJECT('core'," + narrowEvidenceAnalysisJSON("n") + ",'title',n.title,"},
 		{"COALESCE(p.ts IS NULL,FALSE) FROM scope_counts", "COALESCE(p.ts IS NULL,FALSE)," + narrowEvidenceAnalysisJSON("p") + " FROM scope_counts"},
 	}
@@ -67,7 +72,7 @@ func narrowEvidenceBrandPageQuery(f EvidenceFilter) (string, []interface{}, erro
 	for _, field := range []string{"source_url", "source_timestamp", "created_at"} {
 		query = strings.ReplaceAll(query, "eii."+field, "(CASE WHEN eii_header.seq IS NOT NULL THEN eii_header."+field+" ELSE eii_fallback."+field+" END)")
 	}
-	query = strings.NewReplacer("eii.external_id", "selected.external_id", "eii.source", "selected.source").Replace(query)
+	query = strings.NewReplacer("eii.external_id", "r.external_id", "eii.source", "r.source").Replace(query)
 	// JSON column assignment and URI projection expressions have different SQL
 	// types. Explicit JSON casts preserve missing SQL NULL, literal JSON null,
 	// numeric types, and the non-HTTP URI blocker before the reference uses them.
@@ -101,7 +106,7 @@ func narrowEvidenceBrandPageQuery(f EvidenceFilter) (string, []interface{}, erro
 	}
 	// Only rank/count inputs cross the source and family windows. Full source,
 	// identity and selected-analysis fields rejoin after LIMIT, also for samples.
-	// The source_rank window guarantees normalized has one row per report seq.
+	// Analysis rank1 and the two identity-only LIMITs leave one row per seq.
 	start, end := strings.Index(query, " family_samples AS ("), strings.Index(query, "\n briefing AS (")
 	if start < 0 || end <= start {
 		return "", nil, fmt.Errorf("narrow evidence sample reference changed")
@@ -149,21 +154,24 @@ const narrowEvidenceRankColumns = "seq,source_key,evidence_version,evidence_stre
 
 const narrowEvidenceSourceOrder = "evidence_version DESC, evidence_strength DESC, entity_relevance DESC, seq DESC"
 
-// The original source-rank order depends only on native EII identities and Wire
-// submission time. Keep that window separate from all source JSON, URLs,
-// publication/privacy expressions, metadata and display fields. A missing/stale
-// Wire header may read only its original PK row for the ordering timestamp.
-// Full chosen-source headers and their exact typed nodes are joined afterward.
-const narrowEvidenceSourceIdentitiesCTE = `source_identities AS (
-  SELECT ra.seq,eii_choice.source,eii_choice.external_id,wire_choice.submission_id AS wire_submission_id,
-   ROW_NUMBER() OVER (PARTITION BY ra.seq ORDER BY eii_choice.source ASC,eii_choice.external_id ASC,CASE WHEN wire_choice_header.submission_id IS NOT NULL THEN wire_choice_header.submitted_at ELSE wire_choice_fallback.submitted_at END DESC) AS source_rank
-  FROM preferred ra
-  LEFT JOIN external_ingest_index eii_choice FORCE INDEX(idx_seq) ON eii_choice.seq=ra.seq
-  LEFT JOIN wire_submissions_raw wire_choice ON wire_choice.report_seq=ra.seq
-  LEFT JOIN wire_evidence_projection wire_choice_header ON wire_choice_header.submission_id=wire_choice.submission_id AND wire_choice_header.report_seq=wire_choice.report_seq
-  LEFT JOIN wire_submissions_raw wire_choice_fallback ON wire_choice_fallback.submission_id=CASE WHEN wire_choice_header.submission_id IS NULL THEN wire_choice.submission_id ELSE NULL END AND wire_choice_fallback.report_seq=wire_choice.report_seq
-  WHERE ra.analysis_rank=1
- ), source_winners AS (SELECT seq,source,external_id,wire_submission_id FROM source_identities WHERE source_rank=1)`
+// Original source ranking is lexicographic: native EII source/ID, then Wire
+// submission time. Independent per-seq identity choices give the same winners
+// without a cohort-wide source window. LIMIT applies only to each identity
+// lookup. Exact timestamp/collation ties retain the oracle's unspecified choice;
+// the chosen submission ID binds all later fields, including privacy.
+const narrowEvidenceSourceIdentitiesCTE = `source_winners AS (
+  SELECT r.*,eii_selected.source,eii_selected.external_id,wire_selected.wire_submission_id
+  FROM metadata r
+  LEFT JOIN LATERAL (SELECT eii_choice.source,eii_choice.external_id
+   FROM external_ingest_index eii_choice FORCE INDEX(idx_seq) WHERE eii_choice.seq=r.seq
+   ORDER BY eii_choice.source ASC,eii_choice.external_id ASC LIMIT 1) eii_selected ON TRUE
+  LEFT JOIN LATERAL (SELECT wire_choice.submission_id AS wire_submission_id
+   FROM wire_submissions_raw wire_choice
+   LEFT JOIN wire_evidence_projection wire_choice_header ON wire_choice_header.submission_id=wire_choice.submission_id AND wire_choice_header.report_seq=wire_choice.report_seq
+   LEFT JOIN wire_submissions_raw wire_choice_fallback ON wire_choice_fallback.submission_id=CASE WHEN wire_choice_header.submission_id IS NULL THEN wire_choice.submission_id ELSE NULL END AND wire_choice_fallback.report_seq=wire_choice.report_seq
+   WHERE wire_choice.report_seq=r.seq
+   ORDER BY CASE WHEN wire_choice_header.submission_id IS NOT NULL THEN wire_choice_header.submitted_at ELSE wire_choice_fallback.submitted_at END DESC LIMIT 1) wire_selected ON TRUE
+ )`
 
 func narrowEvidenceAnalysisJSON(alias string) string {
 	prefix := ""

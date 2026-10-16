@@ -23,19 +23,30 @@ not affect either analysis or source selection, so it joins after both choices.
 Empty display placeholders and the exact SQL-collated evidence-presence flags
 are also introduced after selection, avoiding cells in the analysis temporary.
 
-The source winner window carries only the report sequence, native-collation EII
-source/external identities, and Wire submission identity. It keeps the original
-SQL source/ID/descending-submission-time order. Only Wire submission time is read
-for that selection, using its projection or a missing/stale-header PK fallback;
-full report/source metadata, typed nodes and publication guards join after the
-winning identity. Guards depend only on report sequence, so moving them after
-selection cannot change the visible report universe or its full-source overview.
+The one selected analysis tuple travels through scalar report metadata, avoiding
+a second preferred-analysis lookup. Each report then uses independent indexed
+`LEFT JOIN LATERAL` lookups for its first native-collation EII source/external-ID
+pair and latest Wire submission. Each identity lookup alone has `LIMIT 1`; the
+cohort remains complete. Wire ordering reads its projection timestamp or a
+missing/stale-header PK fallback using `CASE`, preserving an authoritative NULL.
+Both the header and fallback must match the selected report sequence. Exact
+timestamp or collation ties retain the oracle's unspecified choice; there is no
+new tie-breaker, and every detail/privacy field binds to the chosen submission.
+
+The compact selected identity/analysis/report-metadata scope is materialized
+once with `NO_MERGE(r)` in its candidate consumer so late consumers do not rerun
+the lateral lookups. Source URLs, typed JSON nodes, source keys and display data
+stay outside that materialization. Full chosen source nodes and publication
+guards join afterward; latest-private Wire submissions are chosen before any
+privacy handling, suppressing older public data. Sequence-only publication
+guards preserve the visible report universe and full-source overview.
 
 Only thirteen scalar rank/count fields cross source deduplication, case tagging,
 family selection and pagination. Public identity, coordinates, source metadata,
 and selected-analysis metadata rejoin the same normalized snapshot by the chosen
-sequence after paging. The normalized source-rank window leaves exactly one row
-per sequence, so these bounded detail joins cannot multiply selected reports.
+sequence after paging. Analysis rank1 and the independent identity choices leave
+exactly one row per sequence, so these bounded detail joins cannot multiply
+selected reports.
 
 Page/sample private metadata retains the exact selected analysis's nullable
 language, creation literal, brand, classification and severity. The existing
