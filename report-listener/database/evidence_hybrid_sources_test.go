@@ -14,6 +14,19 @@ import (
 
 var hybridIdentityTestColumns = []string{"kind", "seq", "source", "external_id", "wire_id"}
 
+func TestHybridSourceParameterRejectsOversizedCohortWithoutPartialJSON(t *testing.T) {
+	source, id, wire := strings.Repeat("s", 64), strings.Repeat("i", 255), strings.Repeat("w", 64)
+	choice := &hybridEvidenceSourceChoice{Seq: 42, Source: &source, ExternalID: &id, WireID: &wire}
+	selected := make([]*hybridEvidenceSourceChoice, 25000)
+	for i := range selected {
+		selected[i] = choice
+	}
+	encoded, err := encodeHybridEvidenceSourceChoices(selected)
+	if err == nil || encoded != "" {
+		t.Fatal("oversized source identities produced a usable or truncated parameter")
+	}
+}
+
 func TestHybridSourceIdentityScopeIsSharedCoveredAndUnfiltered(t *testing.T) {
 	f, _ := NormalizeEvidenceFilter(EvidenceFilter{BrandName: "anthropic", Kind: "coverage", Language: "fr", Limit: 1, Offset: 100})
 	query, args := hybridEvidenceSourceIdentityQuery(f)

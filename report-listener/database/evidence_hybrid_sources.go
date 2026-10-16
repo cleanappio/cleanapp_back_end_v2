@@ -38,6 +38,23 @@ type hybridEvidenceSourceChoice struct {
 	wireCount  int
 }
 
+// Bound the one prepared-statement parameter without truncating the report
+// universe. Larger cohorts fail closed rather than sending an oversized packet
+// or reporting partial exact counts. The server may impose a smaller packet
+// limit; that query failure is propagated by the same transaction.
+const hybridEvidenceSourcePayloadLimit = 8 << 20
+
+func encodeHybridEvidenceSourceChoices(selected []*hybridEvidenceSourceChoice) (string, error) {
+	encoded, err := json.Marshal(selected)
+	if err != nil {
+		return "", err
+	}
+	if len(encoded) > hybridEvidenceSourcePayloadLimit {
+		return "", fmt.Errorf("hybrid source identity parameter exceeds its byte budget")
+	}
+	return string(encoded), nil
+}
+
 // JSON_TABLE column collations match the established projection hydration
 // contracts. These values are identities already selected on native columns;
 // JSON collation never participates in choosing a winner.
@@ -116,8 +133,7 @@ func loadHybridEvidenceSourceChoices(ctx context.Context, tx *sql.Tx, f Evidence
 	for _, seq := range ids {
 		selected = append(selected, choices[seq])
 	}
-	encoded, err := json.Marshal(selected)
-	return string(encoded), err
+	return encodeHybridEvidenceSourceChoices(selected)
 }
 
 func resolveHybridEvidenceDuplicateEII(ctx context.Context, tx *sql.Tx, choices map[int]*hybridEvidenceSourceChoice, ids []int) error {
