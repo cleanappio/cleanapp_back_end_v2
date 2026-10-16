@@ -98,3 +98,5 @@ winner windows and an explicit unbounded-preceding through unbounded-following
 frame, preserving full-partition counts while permitting a shared sort. This
 does not alter the separate upstream source-selection work or establish runtime
 acceptance; the actual plan and complete eight-second request still need proof.
+
+Kind facets group the unfiltered family keys once and retain one presence flag per kind. Summing those flags preserves overlapping kinds and the original key collation, with NULL keys excluded and empty sums coalesced to zero.

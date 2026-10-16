@@ -54,6 +54,14 @@ func narrowEvidenceBrandPageQuery(f EvidenceFilter) (string, []interface{}, erro
 		// filtering. Reuse its compact materialization for the raw overview so
 		// a second consumer does not repeat the full normalization join tree.
 		{"FROM normalized n CROSS JOIN overview_clock c", "FROM representatives n CROSS JOIN overview_clock c"},
+		// A family may contain several kinds. Group the unchanged, unfiltered
+		// family key once and retain each kind's presence, including empty scope.
+		{"scope_counts AS (SELECT COUNT(DISTINCT group_key) AS all_count, COUNT(DISTINCT CASE WHEN report_kind='firsthand' THEN group_key END) AS firsthand_count, COUNT(DISTINCT CASE WHEN report_kind='coverage' THEN group_key END) AS coverage_count, COUNT(DISTINCT CASE WHEN report_kind='unknown' THEN group_key END) AS unknown_count FROM tagged)", `family_facets AS (SELECT group_key,
+   MAX(CASE WHEN report_kind='firsthand' THEN 1 ELSE 0 END) AS has_firsthand,
+   MAX(CASE WHEN report_kind='coverage' THEN 1 ELSE 0 END) AS has_coverage,
+   MAX(CASE WHEN report_kind='unknown' THEN 1 ELSE 0 END) AS has_unknown
+   FROM tagged WHERE group_key IS NOT NULL GROUP BY group_key),
+ scope_counts AS (SELECT COUNT(*) AS all_count,COALESCE(SUM(has_firsthand),0) AS firsthand_count,COALESCE(SUM(has_coverage),0) AS coverage_count,COALESCE(SUM(has_unknown),0) AS unknown_count FROM family_facets)`},
 		{"LEFT JOIN external_ingest_index eii ON eii.seq = r.seq", `LEFT JOIN external_ingest_header_projection eii_header ON eii_header.seq=r.seq AND eii_header.source=r.source AND eii_header.external_id=r.external_id
   LEFT JOIN external_ingest_index eii_fallback FORCE INDEX(PRIMARY) ON eii_fallback.source=CASE WHEN eii_header.seq IS NULL THEN r.source ELSE NULL END AND eii_fallback.external_id=r.external_id AND eii_fallback.seq=r.seq`},
 		{"LEFT JOIN wire_submissions_raw ws ON ws.report_seq = r.seq", `LEFT JOIN wire_evidence_projection wire_header ON wire_header.submission_id=r.wire_submission_id AND wire_header.report_seq=r.seq

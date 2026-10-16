@@ -34,7 +34,7 @@ func TestNarrowEvidenceRetainsOracleGroupingButDefersDisplayBodies(t *testing.T)
 			t.Fatalf("all-cohort window retains display body %s", field)
 		}
 	}
-	for _, required := range []string{"FORCE INDEX (idx_ra_brand_valid_class_core)", "external_ingest_header_projection", "wire_evidence_projection", "eii_fallback.source=CASE WHEN eii_header.seq IS NULL", "wire_fallback.submission_id=CASE WHEN wire_header.submission_id IS NULL", "PARTITION BY source_key ORDER BY evidence_version DESC", "MIN(cr.case_id)", "AND f.family_rank <= 8 AND f.privacy_restricted = 0", "COUNT(DISTINCT group_key)", "analysis_created_at", "'core',JSON_OBJECT(", "END) AS submitted_at"} {
+	for _, required := range []string{"FORCE INDEX (idx_ra_brand_valid_class_core)", "external_ingest_header_projection", "wire_evidence_projection", "eii_fallback.source=CASE WHEN eii_header.seq IS NULL", "wire_fallback.submission_id=CASE WHEN wire_header.submission_id IS NULL", "PARTITION BY source_key ORDER BY evidence_version DESC", "MIN(cr.case_id)", "AND f.family_rank <= 8 AND f.privacy_restricted = 0", "FROM tagged WHERE group_key IS NOT NULL GROUP BY group_key", "analysis_created_at", "'core',JSON_OBJECT(", "END) AS submitted_at"} {
 		if !strings.Contains(query, required) {
 			t.Fatalf("missing narrow-reader invariant %s", required)
 		}
