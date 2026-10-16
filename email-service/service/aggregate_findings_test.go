@@ -31,9 +31,9 @@ func TestAggregateFindingsOnlyLoadPendingPublicValidReportsAndThreeImages(t *tes
 	for i := 4; i >= 1; i-- {
 		rows.AddRow(i, "rpt_safe", "Issue", "Generated summary", "Original wording", "Blocked", "firsthand", "digital", time.Now())
 	}
-	mock.ExpectQuery(`(?s)WHERE r.seq IN \(\?,\?,\?,\?\) AND ra.brand_name IN \(\?\) AND ra.is_valid=TRUE.*visibility='public'.*NOT EXISTS.*report_status.*NOT EXISTS.*reports_owners.*ORDER BY r.ts DESC,r.seq DESC LIMIT 20`).WithArgs(4, 3, 2, 1, "acme").WillReturnRows(rows)
+	mock.ExpectQuery(`(?s)WHERE r.seq IN \(\?,\?,\?,\?\) AND ra.brand_name IN \(\?\) AND ra.is_valid=TRUE.*visibility='public'.*NOT EXISTS.*report_status.*COUNT\(\*\).*reports_owners.*ORDER BY r.ts DESC,r.seq DESC LIMIT 20`).WithArgs(4, 3, 2, 1, "acme").WillReturnRows(rows)
 	for _, seq := range []int64{4, 3, 2} {
-		mock.ExpectQuery(`(?s)SELECT CASE WHEN OCTET_LENGTH\(r.image\)<=\? THEN r.image ELSE NULL END FROM reports r.*WHERE r.seq=\?.*NOT EXISTS.*report_status.*NOT EXISTS.*reports_owners`).WithArgs(email.MaxPreviewInputBytes, seq).WillReturnRows(sqlmock.NewRows([]string{"image"}).AddRow(nil))
+		mock.ExpectQuery(`(?s)SELECT CASE WHEN OCTET_LENGTH\(r.image\)<=\? THEN r.image ELSE NULL END FROM reports r.*WHERE r.seq=\?.*NOT EXISTS.*report_status.*COUNT\(\*\).*reports_owners`).WithArgs(email.MaxPreviewInputBytes, seq).WillReturnRows(sqlmock.NewRows([]string{"image"}).AddRow(nil))
 	}
 	reports, err := (&EmailService{db: db}).getAggregateFindings(context.Background(), &models.BrandReportSummary{BrandName: "acme", ReportSeqs: []int64{4, 3, 2, 1}})
 	if err != nil || len(reports) != 4 || reports[0].Seq != 4 || reports[0].OriginalExcerpt != "Original wording" || reports[0].Summary != "Generated summary" {
