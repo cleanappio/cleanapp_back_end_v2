@@ -141,3 +141,96 @@ func testNarrowEvidenceSlimRanksMySQL(t *testing.T, db *sql.DB) {
 		}
 	}
 }
+
+func testNarrowEvidenceSourceWinnerIdentityMySQL(t *testing.T, db *sql.DB) {
+	exec := func(query string, args ...any) {
+		t.Helper()
+		if _, err := db.Exec(query, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for seq := 6600; seq <= 6608; seq++ {
+		id := fmt.Sprint("rpt_source_", seq)
+		if seq == 6608 {
+			id = " "
+		}
+		exec(`INSERT INTO reports(seq,id,public_id,ts,latitude,longitude,image) VALUES(?,?,?,'2026-10-15',12.25,-41.5,'')`, seq, fmt.Sprint("source_", seq), id)
+		exec(`INSERT INTO report_analysis VALUES(?,'en','narrowsource','English',TRUE,'digital','2026-10-15',?,'English summary',0.8),(?,'fr','narrowsource','French',TRUE,'digital','2026-10-14',?,'French summary',0.6)`, seq, fmt.Sprint("English ", seq), seq, fmt.Sprint("French ", seq))
+		exec(`INSERT INTO report_evidence(seq,report_kind,evidence_excerpt,reported_impact,classification_reason,entity_relationship,evidence_version) VALUES(?,'firsthand','Observed','Blocked','Reason','affected',1)`, seq)
+	}
+	// These native-collation winners differ from bytewise Go ordering. Include
+	// both source and external-ID comparisons, plus a Wire/EII cross product.
+	for _, row := range []struct {
+		seq                int
+		source, id, suffix string
+	}{
+		{6600, "z_source", "id", "loser"}, {6600, "é_source", "id", "winner"},
+		{6601, "custom", "z_id", "loser"}, {6601, "custom", "é_id", "winner"},
+		{6604, "z_source", "cross", "loser"}, {6604, "é_source", "cross", "winner"},
+	} {
+		exec(`INSERT INTO external_ingest_index(seq,source,external_id,source_url,source_timestamp,created_at) VALUES(?,?,?,?,'2026-10-12','2026-10-15')`, row.seq, row.source, row.id, fmt.Sprintf("https://example.test/source/%d/%s", row.seq, row.suffix))
+	}
+	for _, seq := range []int{6602, 6603, 6604} {
+		for _, version := range []string{"old", "new"} {
+			private := (version == "old" && seq != 6603) || (version == "new" && seq == 6603)
+			body := fmt.Sprintf(`{"digital_context":{"metadata":{"source_url":"https://example.test/wire/%d/%s","author_username":"%s-author"}},"privacy":{"contains_pii":%t}}`, seq, version, version, private)
+			submitted, observed := "2026-10-14 08:00:00", "2026-10-01"
+			if version == "new" {
+				submitted, observed = "2026-10-14 09:00:00", "2026-10-02"
+			}
+			exec(`INSERT INTO wire_submissions_raw(submission_id,report_seq,report_json,provenance_json,observed_at,submitted_at,actor_kind,channel,extensions_json) VALUES(?,?,?,'{"generation_method":"human_submission"}',?,?,'human','web',JSON_OBJECT())`, fmt.Sprintf("source_%s_%d", version, seq), seq, body, observed, submitted)
+		}
+	}
+	exec(`INSERT INTO reports_owners VALUES(6605,'owner',FALSE)`)
+	exec(`INSERT INTO report_status VALUES(6606,'resolved')`)
+	exec(`INSERT INTO report_raw(report_seq,visibility) VALUES(6607,'shadow')`)
+	d := &Database{db: db}
+	for _, mode := range []string{"warm", "mixed", "cold"} {
+		t.Run(mode, func(t *testing.T) {
+			if mode == "mixed" {
+				exec(`DELETE FROM external_ingest_header_projection WHERE seq=6600`)
+				exec(`DELETE FROM wire_evidence_projection WHERE submission_id='source_new_6602'`)
+				exec(`UPDATE wire_evidence_projection SET report_seq=999 WHERE submission_id='source_new_6603'`)
+			}
+			if mode == "cold" {
+				exec(`DELETE FROM report_metadata_projection WHERE seq BETWEEN 6600 AND 6608`)
+				exec(`DELETE FROM external_ingest_header_projection WHERE seq BETWEEN 6600 AND 6608`)
+				exec(`DELETE FROM wire_evidence_projection WHERE submission_id LIKE 'source_%_66%'`)
+			}
+			f, err := NormalizeEvidenceFilter(EvidenceFilter{BrandName: "narrowsource", Language: "fr", Kind: "all", Limit: 50})
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := d.getEvidenceBrandPageNarrowSQL(context.Background(), f)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want, err := d.getEvidenceBrandPageSQL(context.Background(), f)
+			if err != nil || !reflect.DeepEqual(got, want) {
+				t.Fatalf("identity-first native source/nullable projection/Wire selection differs: %v\ngot: %+v\nwant: %+v", err, got, want)
+			}
+			if got.Total != 5 || got.KindCounts.All != 5 || got.Overview.TotalReports != 5 || len(got.Reports) != 5 {
+				t.Fatalf("source fanout or post-selection publication guards changed counts: %+v", got)
+			}
+			for _, report := range got.Reports {
+				seq, ev := report.Report.Seq, report.Evidence
+				if seq < 6600 || seq > 6604 || report.Analysis[0].Language != "fr" || report.Analysis[0].Title != fmt.Sprint("French ", seq) || report.Analysis[0].BrandDisplayName != "French" {
+					t.Fatal("publication guard or chosen analysis tuple changed")
+				}
+				if seq == 6603 {
+					if ev.SourceURL != nil || ev.Excerpt != nil || len(report.Recurrence.SupportingSources) != 0 {
+						t.Fatal("latest private Wire winner leaked old public metadata")
+					}
+					continue
+				}
+				expected := fmt.Sprintf("https://example.test/source/%d/winner", seq)
+				if seq == 6602 {
+					expected = "https://example.test/wire/6602/new"
+				}
+				if ev.SourceURL == nil || *ev.SourceURL != expected || ev.Excerpt == nil || *ev.Excerpt != "Observed" {
+					t.Fatalf("chosen identity did not bind matching public source/privacy nodes: seq=%d evidence=%+v", seq, ev)
+				}
+			}
+		})
+	}
+}

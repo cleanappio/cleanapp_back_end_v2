@@ -37,13 +37,14 @@ func narrowEvidenceBrandPageQuery(f EvidenceFilter) (string, []interface{}, erro
 		{"FROM report_analysis ra LEFT JOIN report_evidence ev", "FROM report_analysis ra FORCE INDEX (" + evidenceBrandCoreIndex + ") LEFT JOIN report_evidence ev"},
 		{"ra.title, ra.summary, ra.classification,", "ra.created_at AS analysis_created_at,ra.title, ra.summary, ra.classification,"},
 		{"ws.submitted_at, (", "ws.submitted_at AS submitted_at, ("},
+		{"), candidates AS (", "), " + narrowEvidenceSourceIdentitiesCTE + ", candidates AS ("},
+		{"ROW_NUMBER() OVER (PARTITION BY r.seq ORDER BY eii.source ASC, eii.external_id ASC, ws.submitted_at DESC) AS source_rank", "1 AS source_rank"},
+		{"FROM preferred ra JOIN metadata r ON r.seq = ra.seq", "FROM source_winners selected JOIN preferred ra ON ra.seq=selected.seq JOIN metadata r ON r.seq=selected.seq"},
 		{"SELECT normalized.*, ROW_NUMBER() OVER (PARTITION BY source_key", "SELECT " + narrowEvidenceRankColumns + ", ROW_NUMBER() OVER (PARTITION BY source_key"},
-		{"LEFT JOIN external_ingest_index eii ON eii.seq = r.seq", `LEFT JOIN external_ingest_index eii_identity FORCE INDEX(idx_seq) ON eii_identity.seq=r.seq
-  LEFT JOIN external_ingest_header_projection eii_header ON eii_header.seq=eii_identity.seq AND eii_header.source=eii_identity.source AND eii_header.external_id=eii_identity.external_id
-  LEFT JOIN external_ingest_index eii_fallback FORCE INDEX(PRIMARY) ON eii_fallback.source=CASE WHEN eii_header.seq IS NULL THEN eii_identity.source ELSE NULL END AND eii_fallback.external_id=eii_identity.external_id AND eii_fallback.seq=eii_identity.seq`},
-		{"LEFT JOIN wire_submissions_raw ws ON ws.report_seq = r.seq", `LEFT JOIN wire_submissions_raw wire_identity ON wire_identity.report_seq=r.seq
-  LEFT JOIN wire_evidence_projection wire_header ON wire_header.submission_id=wire_identity.submission_id AND wire_header.report_seq=wire_identity.report_seq
-  LEFT JOIN wire_submissions_raw wire_fallback ON wire_fallback.submission_id=CASE WHEN wire_header.submission_id IS NULL THEN wire_identity.submission_id ELSE NULL END AND wire_fallback.report_seq=wire_identity.report_seq`},
+		{"LEFT JOIN external_ingest_index eii ON eii.seq = r.seq", `LEFT JOIN external_ingest_header_projection eii_header ON eii_header.seq=selected.seq AND eii_header.source=selected.source AND eii_header.external_id=selected.external_id
+  LEFT JOIN external_ingest_index eii_fallback FORCE INDEX(PRIMARY) ON eii_fallback.source=CASE WHEN eii_header.seq IS NULL THEN selected.source ELSE NULL END AND eii_fallback.external_id=selected.external_id AND eii_fallback.seq=selected.seq`},
+		{"LEFT JOIN wire_submissions_raw ws ON ws.report_seq = r.seq", `LEFT JOIN wire_evidence_projection wire_header ON wire_header.submission_id=selected.wire_submission_id AND wire_header.report_seq=selected.seq
+  LEFT JOIN wire_submissions_raw wire_fallback ON wire_fallback.submission_id=CASE WHEN wire_header.submission_id IS NULL THEN selected.wire_submission_id ELSE NULL END AND wire_fallback.report_seq=selected.seq`},
 		{"JSON_OBJECT('title',title,", "JSON_OBJECT('core'," + narrowEvidenceAnalysisJSON("n") + ",'title',n.title,"},
 		{"COALESCE(p.ts IS NULL,FALSE) FROM scope_counts", "COALESCE(p.ts IS NULL,FALSE)," + narrowEvidenceAnalysisJSON("p") + " FROM scope_counts"},
 	}
@@ -55,7 +56,7 @@ func narrowEvidenceBrandPageQuery(f EvidenceFilter) (string, []interface{}, erro
 	for _, field := range []string{"source_url", "source_timestamp", "created_at"} {
 		query = strings.ReplaceAll(query, "eii."+field, "(CASE WHEN eii_header.seq IS NOT NULL THEN eii_header."+field+" ELSE eii_fallback."+field+" END)")
 	}
-	query = strings.NewReplacer("eii.external_id", "eii_identity.external_id", "eii.source", "eii_identity.source").Replace(query)
+	query = strings.NewReplacer("eii.external_id", "selected.external_id", "eii.source", "selected.source").Replace(query)
 	// JSON column assignment and URI projection expressions have different SQL
 	// types. Explicit JSON casts preserve missing SQL NULL, literal JSON null,
 	// numeric types, and the non-HTTP URI blocker before the reference uses them.
@@ -134,6 +135,22 @@ func narrowEvidenceBrandPageQuery(f EvidenceFilter) (string, []interface{}, erro
 // Kept small independently of public display/source widths. All other fields
 // are restored from the same normalized snapshot only for chosen report seqs.
 const narrowEvidenceRankColumns = "seq,source_key,evidence_version,evidence_strength,entity_relevance,severity_level,report_kind,source_account_key,observed_at,source_timestamp,ts,privacy_restricted"
+
+// The original source-rank order depends only on native EII identities and Wire
+// submission time. Keep that window separate from all source JSON, URLs,
+// publication/privacy expressions, metadata and display fields. A missing/stale
+// Wire header may read only its original PK row for the ordering timestamp.
+// Full chosen-source headers and their exact typed nodes are joined afterward.
+const narrowEvidenceSourceIdentitiesCTE = `source_identities AS (
+  SELECT ra.seq,eii_choice.source,eii_choice.external_id,wire_choice.submission_id AS wire_submission_id,
+   ROW_NUMBER() OVER (PARTITION BY ra.seq ORDER BY eii_choice.source ASC,eii_choice.external_id ASC,CASE WHEN wire_choice_header.submission_id IS NOT NULL THEN wire_choice_header.submitted_at ELSE wire_choice_fallback.submitted_at END DESC) AS source_rank
+  FROM preferred ra
+  LEFT JOIN external_ingest_index eii_choice FORCE INDEX(idx_seq) ON eii_choice.seq=ra.seq
+  LEFT JOIN wire_submissions_raw wire_choice ON wire_choice.report_seq=ra.seq
+  LEFT JOIN wire_evidence_projection wire_choice_header ON wire_choice_header.submission_id=wire_choice.submission_id AND wire_choice_header.report_seq=wire_choice.report_seq
+  LEFT JOIN wire_submissions_raw wire_choice_fallback ON wire_choice_fallback.submission_id=CASE WHEN wire_choice_header.submission_id IS NULL THEN wire_choice.submission_id ELSE NULL END AND wire_choice_fallback.report_seq=wire_choice.report_seq
+  WHERE ra.analysis_rank=1
+ ), source_winners AS (SELECT seq,source,external_id,wire_submission_id FROM source_identities WHERE source_rank=1)`
 
 func narrowEvidenceAnalysisJSON(alias string) string {
 	prefix := ""

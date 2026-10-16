@@ -74,6 +74,48 @@ func TestNarrowEvidenceKeepsDisplayIdentityFieldsOutsideRankingWindows(t *testin
 	}
 }
 
+func TestNarrowEvidenceChoosesSourceIdentitiesBeforeWideMetadata(t *testing.T) {
+	f, err := NormalizeEvidenceFilter(EvidenceFilter{BrandName: "microsoft", Kind: "all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	query, _, err := narrowEvidenceBrandPageQuery(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start, end := strings.Index(query, "source_identities AS ("), strings.Index(query, "), candidates AS (")
+	if start < 0 || end <= start {
+		t.Fatal("source identity selection phase missing")
+	}
+	identity := query[start : end+1]
+	for _, forbidden := range []string{"report_metadata_projection", "JOIN reports ", "JOIN metadata ", "report_json", "provenance_json", "extensions_json", "source_url", "source_timestamp", "privacy_restricted", "canonical_url", "public_id", "ra.*", "ra.title", "BINARY", "COLLATE"} {
+		if strings.Contains(identity, forbidden) {
+			t.Fatalf("source winner window carries wide data or changes native ordering: %s", forbidden)
+		}
+	}
+	for _, required := range []string{
+		"SELECT ra.seq,eii_choice.source,eii_choice.external_id,wire_choice.submission_id AS wire_submission_id",
+		"PARTITION BY ra.seq ORDER BY eii_choice.source ASC,eii_choice.external_id ASC,CASE WHEN wire_choice_header.submission_id IS NOT NULL THEN wire_choice_header.submitted_at ELSE wire_choice_fallback.submitted_at END DESC",
+		"external_ingest_index eii_choice FORCE INDEX(idx_seq) ON eii_choice.seq=ra.seq",
+		"wire_choice_header.report_seq=wire_choice.report_seq",
+		"wire_choice_fallback.submission_id=CASE WHEN wire_choice_header.submission_id IS NULL THEN wire_choice.submission_id ELSE NULL END",
+		"source_winners AS (SELECT seq,source,external_id,wire_submission_id FROM source_identities WHERE source_rank=1)",
+	} {
+		if !strings.Contains(identity, required) {
+			t.Fatalf("source identity selection lost contract: %s", required)
+		}
+	}
+	candidate := query[end:strings.Index(query, "), provenance AS (")]
+	for _, required := range []string{"FROM source_winners selected JOIN preferred ra ON ra.seq=selected.seq JOIN metadata r ON r.seq=selected.seq", "eii_header.seq=selected.seq", "wire_header.submission_id=selected.wire_submission_id AND wire_header.report_seq=selected.seq", "r.public_id <> ''", PublicVisibilityWhereSQL, "FROM report_status rs", "FROM reports_owners ro", "1 AS source_rank"} {
+		if !strings.Contains(candidate, required) {
+			t.Fatalf("chosen source hydration lost metadata/privacy contract: %s", required)
+		}
+	}
+	if strings.Contains(candidate, "ROW_NUMBER()") || strings.Contains(candidate, "LEFT JOIN external_ingest_index eii_choice") {
+		t.Fatal("wide source metadata must not participate in source winner selection")
+	}
+}
+
 type narrowSelectedCoreArgument struct{}
 
 func (narrowSelectedCoreArgument) Match(value driver.Value) bool {
