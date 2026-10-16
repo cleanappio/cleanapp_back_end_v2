@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"math/big"
+	"os"
 	"strings"
 
 	"github.com/apex/log"
@@ -47,8 +48,22 @@ func normalizeDisbursementAddress(raw string) (ethcommon.Address, bool) {
 	return address, true
 }
 
+// Resolve secrets at use time rather than putting them in flag defaults or
+// container arguments. Explicit legacy CLI values still take precedence.
+func disburserCredentials() (networkURL, key string) {
+	networkURL, key = *ethNetworkUrl, *privateKey
+	if networkURL == "" {
+		networkURL = os.Getenv("ETH_NETWORK_URL")
+	}
+	if key == "" {
+		key = os.Getenv("KITN_PRIVATE_KEY")
+	}
+	return networkURL, key
+}
+
 func NewDailyDisburser(db *sql.DB) (*DailyDisburser, error) {
-	disburser, err := commondisburse.NewDisburser(*ethNetworkUrl, *privateKey, *contractAddress)
+	networkURL, key := disburserCredentials()
+	disburser, err := commondisburse.NewDisburser(networkURL, key, *contractAddress)
 	if err != nil {
 		return nil, err
 	}
