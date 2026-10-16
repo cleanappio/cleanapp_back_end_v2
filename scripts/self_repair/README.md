@@ -81,6 +81,15 @@ active engineering lease is allowed at a time. Persist a branch, PR URL, and
 checkpoint before and after each external side effect. After interruption,
 reconcile the existing branch/PR/release before creating anything new.
 
+A report can require several artifacts, such as a data repair followed by a
+reader code fix. Keep the primary branch/PR fields immutable. Append each
+justified follow-up to `checkpoint.additional_artifacts`, recording its role,
+repository, branch, PR, source, and actual outcome. Resume the unfinished entry
+after interruption; do not replace the original record or create a duplicate
+PR. In the initial rollout, a zero-gap projection audit still left the public
+request timing out. That required further investigation, rather than closure
+based on the successful operational repair.
+
 ## Engineering execution on each scheduled wake
 
 1. Read this runbook and current repository guidance. Poll, inspect queue state,
@@ -109,6 +118,15 @@ reconcile the existing branch/PR/release before creating anything new.
    deployment in `DEVELOP_AND_DEPLOY.md`, restricted to affected services.
    Preserve unrelated service pins and rollback artifacts. For frontend fixes,
    use main's existing Cloud Build deployment and wait for its completion.
+   Check the service's build counter against its live version before building;
+   a stale archived counter can reuse an old tag. Follow that repository's
+   version policy (frontend counters remain CI-owned), and always identify the
+   release by its source SHA and actual immutable digest rather than its tag.
+   Inspect the selected service's effective base/override image before releasing;
+   an old immutable override can defeat promotion of a new `:prod` image. If it
+   conflicts with the intended release, reconcile only that selected image with
+   an expected-old-value guard and retain the running digest for rollback.
+   Keep resolved environment values in memory and record image metadata only.
 7. Verify the report-specific failure on the released artifact, including the
    actual public path where relevant. Record the source SHA, artifact digest,
    deployment time, before/after result, method, and evidence location. A healthy

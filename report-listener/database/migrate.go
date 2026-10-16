@@ -7,6 +7,7 @@ import (
 
 	"cleanapp-common/eiiheader"
 	"cleanapp-common/evidence"
+	"cleanapp-common/evidencesourceprojection"
 	"cleanapp-common/migrator"
 	"cleanapp-common/reportmeta"
 	"cleanapp-common/wiremeta"
@@ -45,6 +46,7 @@ func RunMigrations(ctx context.Context, db *sql.DB) error {
 		{ID: "0028_external_source_header_projection", Description: "create transactional external source header projection", Up: eiiheader.Migrate},
 		{ID: "0029_wire_evidence_projection", Description: "create transactional Wire evidence metadata projection", Up: wiremeta.Migrate},
 		{ID: "0030_report_email_delivery_events", Description: "create append-only report email notification history", Up: ensureReportEmailDeliveryEvents},
+		{ID: "0031_evidence_source_projection", Description: "create versioned normalized source projection and invalidation triggers", Up: evidencesourceprojection.Migrate},
 	})
 }
 

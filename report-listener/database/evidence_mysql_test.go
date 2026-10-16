@@ -13,6 +13,7 @@ import (
 
 	"cleanapp-common/eiiheader"
 	"cleanapp-common/evidence"
+	"cleanapp-common/evidencesourceprojection"
 	"cleanapp-common/reportmeta"
 	"cleanapp-common/wiremeta"
 	"github.com/go-sql-driver/mysql"
@@ -48,7 +49,8 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 		`CREATE TABLE report_analysis (seq INT,language VARCHAR(2),brand_name VARCHAR(255),brand_display_name VARCHAR(255),is_valid BOOL,classification VARCHAR(32),created_at DATETIME,title VARCHAR(500),summary TEXT,severity_level FLOAT,FULLTEXT KEY fixture_original_fulltext (title,summary)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 		`CREATE TABLE report_raw (report_seq INT PRIMARY KEY,source_type VARCHAR(64),source_id VARCHAR(255),fetcher_id VARCHAR(64),visibility VARCHAR(16)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
 		`CREATE TABLE external_ingest_index (seq INT NOT NULL,source VARCHAR(64) NOT NULL,external_id VARCHAR(255) NOT NULL,source_url VARCHAR(500),source_timestamp DATETIME,created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(source,external_id,seq),KEY idx_seq(seq)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
-		`CREATE TABLE wire_submissions_raw (submission_id VARCHAR(64) NOT NULL DEFAULT (UUID()) PRIMARY KEY,report_seq INT,report_json JSON,provenance_json JSON,observed_at TIMESTAMP NULL,submitted_at TIMESTAMP NOT NULL,actor_kind VARCHAR(32) NOT NULL DEFAULT 'machine',channel VARCHAR(32) NOT NULL DEFAULT 'wire',extensions_json JSON,KEY fixture_wire_report_seq(report_seq)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
+		`CREATE TABLE fetchers (fetcher_id VARCHAR(64) PRIMARY KEY) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
+		`CREATE TABLE wire_submissions_raw (fetcher_id VARCHAR(64) NULL,submission_id VARCHAR(64) NOT NULL DEFAULT (UUID()) PRIMARY KEY,report_seq INT,report_json JSON,provenance_json JSON,observed_at TIMESTAMP NULL,submitted_at TIMESTAMP NOT NULL,actor_kind VARCHAR(32) NOT NULL DEFAULT 'machine',channel VARCHAR(32) NOT NULL DEFAULT 'wire',extensions_json JSON,KEY fixture_wire_report_seq(report_seq)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
 		`CREATE TABLE report_status (seq INT,status VARCHAR(32)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
 		`CREATE TABLE reports_owners (seq INT,owner VARCHAR(64),is_public BOOL) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
 		`CREATE TABLE case_reports (seq INT,case_id VARCHAR(64)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
@@ -219,6 +221,25 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 	}
 
 	d := &Database{db: db}
+	created = append(created, evidencesourceprojection.Table)
+	if err := evidencesourceprojection.Migrate(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	checkProjected := func(f EvidenceFilter) {
+		t.Helper()
+		f, err := NormalizeEvidenceFilter(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		actual, err := d.getEvidenceBrandPageProjected(context.Background(), f)
+		if err != nil {
+			t.Fatalf("projected reader: %v", err)
+		}
+		reference, err := d.getEvidenceBrandPageSQL(context.Background(), f)
+		if err != nil || !reflect.DeepEqual(actual, reference) {
+			t.Fatalf("projected/reference complete public parity differs: %v\nactual=%+v\nreference=%+v", err, actual, reference)
+		}
+	}
 	page, err := d.GetEvidenceBrandPage(context.Background(), EvidenceFilter{BrandName: "anthropic", Kind: "firsthand"})
 	if err != nil {
 		t.Fatal(err)
@@ -229,6 +250,7 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 	if page.Total != 1 || len(page.Reports) != 1 || page.KindCounts.Firsthand != 1 || page.KindCounts.Coverage != 1 || page.KindCounts.Unknown != 1 || page.KindCounts.All != 3 {
 		t.Fatalf("public family/filter counts wrong: %+v", page)
 	}
+	checkProjected(EvidenceFilter{BrandName: "anthropic", Kind: "firsthand"})
 
 	if _, err := db.Exec(`INSERT INTO report_metadata_projection (seq,id,public_id,ts,latitude,longitude,has_original_media) SELECT seq,id,public_id,ts,latitude,longitude,LENGTH(image)>0 FROM reports WHERE MOD(seq,2)=0`); err != nil {
 		t.Fatal(err)
@@ -250,6 +272,7 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 	if !evidencePagesEqualIgnoringClock(page, partialHeader) {
 		t.Fatal("partial source header projection changed source selection, fields, dates or exact counts")
 	}
+	checkProjected(EvidenceFilter{BrandName: "anthropic", Kind: "firsthand"})
 	var headerRows int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM external_ingest_header_projection`).Scan(&headerRows); err != nil || headerRows != 1 {
 		t.Fatal("fixture must exercise mixed projected/unprojected source keys")
@@ -266,6 +289,7 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 	if err != nil || !evidencePagesEqualIgnoringClock(page, partialWire) {
 		t.Fatalf("partial Wire projection changed exact public semantics: %v", err)
 	}
+	checkProjected(EvidenceFilter{BrandName: "anthropic", Kind: "firsthand"})
 	var wireHeaderRows int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM wire_evidence_projection`).Scan(&wireHeaderRows); err != nil || wireHeaderRows != 1 {
 		t.Fatal("fixture must exercise mixed projected and unprojected Wire submissions")
@@ -280,6 +304,7 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 	if err != nil || !evidencePagesEqualIgnoringClock(page, mismatchedWire) {
 		t.Fatalf("stale Wire link bypassed original metadata fallback: %v", err)
 	}
+	checkProjected(EvidenceFilter{BrandName: "anthropic", Kind: "firsthand"})
 	if _, err := wiremeta.Backfill(context.Background(), db, []int{1}); err != nil {
 		t.Fatal(err)
 	}
@@ -836,6 +861,7 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 					if !reflect.DeepEqual(actual, reference) {
 						t.Fatalf("bulk/reference parity %s/%s/%s/%d differs: actual=%+v reference=%+v", brand, kind, sortBy, offset, actual, reference)
 					}
+					checkProjected(filter)
 				}
 			}
 		}
@@ -927,6 +953,9 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 	})
 	t.Run("PublicBrandPreview", func(t *testing.T) { testPublicBrandPreviewMySQL(t, db) })
 	t.Run("PublicDetailMixedMetadataCollations", func(t *testing.T) { testPublicDetailMixedMetadataCollationsMySQL(t, db) })
+	t.Run("ProjectedMalformedPublicIDs", func(t *testing.T) { testProjectedEvidenceMalformedPublicIDsMySQL(t, db) })
+	t.Run("ProjectedFamilyRanks", func(t *testing.T) { testProjectedEvidenceSlimRanksMySQL(t, db) })
+	t.Run("ProjectedSourceWinnerIdentity", func(t *testing.T) { testProjectedEvidenceSourceWinnerIdentityMySQL(t, db) })
 }
 
 func evidencePagesEqualIgnoringClock(a, b EvidenceBrandPage) bool {
