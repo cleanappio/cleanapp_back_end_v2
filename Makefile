@@ -3,6 +3,8 @@
 HOST ?= deployer@34.122.15.16
 SOURCE_SERVICES ?=
 REF ?= HEAD
+BUILD_ONLY ?= 0
+export BUILD_ONLY
 
 help:
 	@echo "Common commands:"
@@ -24,6 +26,7 @@ help:
 	@echo "  make watchdog-install    - install prod watchdog (HOST=deployer@<ip>)"
 	@echo "  make deploy-prod         - deploy already-built :prod tags via digest pins (HOST=deployer@<ip>)"
 	@echo "  make deploy-prod-source  - canonical prod path: source-build selected services, promote, migrate, deploy (HOST=..., SOURCE_SERVICES=...)"
+	@echo "                            BUILD_ONLY=1 builds/promotes without migrations or service activation"
 	@echo "  make report-auth-up      - start auth-service + report-auth-service locally (docker compose)"
 	@echo "  make report-auth-logs    - tail logs for local report-auth stack"
 	@echo "  make report-auth-down    - stop local report-auth stack"

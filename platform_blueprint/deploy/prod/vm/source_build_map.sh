@@ -13,6 +13,7 @@ compose_services_for_source_service() {
     email-service) echo "cleanapp_email_service" ;;
     email-service-v3) echo "cleanapp_email_service_v3" ;;
     gdpr-process-service) echo "cleanapp_gdpr_process_service" ;;
+    news-indexer) echo "cleanapp_news_analyzer_twitter" ;;
     news-indexer-bluesky) echo "cleanapp_bluesky_indexer cleanapp_bluesky_analyzer cleanapp_bluesky_submitter cleanapp_bluesky_now" ;;
     replier-twitter) echo "cleanapp_replier_twitter" ;;
     report-analysis-backfill) echo "" ;;
@@ -26,6 +27,20 @@ compose_services_for_source_service() {
     reports-pusher) echo "cleanapp_reports_pusher" ;;
     stxn_kickoff) echo "cleanapp_stxn_kickoff" ;;
     voice-assistant-service) echo "cleanapp_voice_assistant_service" ;;
+    *) return 1 ;;
+  esac
+}
+
+# These source directories contain several binaries. The canonical replacement
+# build deliberately publishes only the runtime services mapped above.
+news_replacement_images_for_source_service() {
+  case "$1" in
+    news-indexer) printf '%s\n' "cleanapp-docker-repo/cleanapp-news-analyzer-twitter-image" ;;
+    news-indexer-bluesky) printf '%s\n' \
+      "cleanapp-docker-repo/cleanapp-bluesky-indexer-image" \
+      "cleanapp-docker-repo/cleanapp-bluesky-analyzer-image" \
+      "cleanapp-docker-repo/cleanapp-bluesky-submitter-image" \
+      "cleanapp-docker-repo/bluesky-now" ;;
     *) return 1 ;;
   esac
 }

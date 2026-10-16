@@ -20,6 +20,8 @@ jobs:
           python-version: '3.12'
       - name: Durable ledger, fencing, intake and completion evidence
         run: python3 -m unittest discover -s scripts/self_repair -p 'test_*.py' -v
+      - name: Source build-only command contract
+        run: python3 -W error -m unittest discover -s platform_blueprint/deploy/prod/vm/tests -p 'test_source_build_and_deploy.py'
 
   secrets:
     name: Secret Scan (gitleaks)
@@ -298,6 +300,17 @@ jobs:
         run: ./scripts/ci/rust_clippy_check.sh
       - name: Email fetcher graceful shutdown
         run: cargo test --manifest-path email-fetcher/Cargo.toml --locked shutdown::tests
+      - name: News worker graceful shutdown
+        run: |
+          cargo test --manifest-path news-indexer-bluesky/Cargo.toml --locked
+          cargo test --manifest-path news-indexer/Cargo.toml --locked --lib --bin analyzer_twitter --test shutdown_process
+      - name: Rust HTTP and consumer graceful shutdown
+        run: |
+          cargo test --manifest-path report-fast-renderer/Cargo.toml --locked shutdown::tests
+          cargo test --manifest-path report-listener-v4/Cargo.toml --locked shutdown
+          cargo test --manifest-path replier-twitter/Cargo.toml --locked shutdown::tests
+          cargo test --manifest-path report-fast-renderer/vendor/cleanapp_rustlib/Cargo.toml --locked shutdown_tests
+          cargo test --manifest-path replier-twitter/vendor/cleanapp_rustlib/Cargo.toml --locked shutdown_tests
 
   integration-analyzer:
     name: Integration (Analyzer Golden Path)
