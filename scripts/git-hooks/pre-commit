@@ -10,7 +10,7 @@ if ! command -v gitleaks >/dev/null 2>&1; then
 fi
 
 # Only scan staged content so local untracked files don't block commits.
-gitleaks detect --staged --redact
+gitleaks git --pre-commit --staged --redact
 
 # Fail on whitespace errors in staged diff.
 git diff --cached --check
