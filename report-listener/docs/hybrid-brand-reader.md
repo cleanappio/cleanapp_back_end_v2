@@ -44,3 +44,5 @@ The guarded MySQL fixture adds full hybrid/reference parity to the existing
 kind/sort/offset matrix, cold/warm/mixed/stale projections, malformed public IDs,
 native source winners, and large/private family samples. Local tests without a
 fixture DSN cannot establish MySQL correctness or production performance.
+
+The normalized stream uses the existing compact normalizer's candidates/provenance/normalized materialization boundaries. This stores scalar URL/JSON results once instead of expanding their expressions repeatedly into canonical source keys. The single chosen-metadata scope remains mergeable; the three barriers contain only source metadata and display-presence fields.

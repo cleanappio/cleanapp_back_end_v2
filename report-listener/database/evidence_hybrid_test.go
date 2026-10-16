@@ -31,12 +31,12 @@ func TestHybridEvidenceReadsUnfilteredNormalizedScopeWithOnlyScopeArgs(t *testin
 	if !reflect.DeepEqual(args, wantArgs) {
 		t.Fatalf("normalized scope retained non-scope parameters: %v", args)
 	}
-	for _, forbidden := range []string{"rank_input AS", "representatives AS", "family_samples AS", "family_facets AS", "scope_counts AS", "overview_clock AS", "NO_MERGE", "LIMIT ?", "WHERE report_kind"} {
+	for _, forbidden := range []string{"rank_input AS", "representatives AS", "family_samples AS", "family_facets AS", "scope_counts AS", "overview_clock AS", "NO_MERGE(r)", "LIMIT ?", "WHERE report_kind"} {
 		if strings.Contains(query, forbidden) {
 			t.Fatalf("fused stream retained aggregation/paging/materialization: %s", forbidden)
 		}
 	}
-	for _, required := range []string{"MAX_EXECUTION_TIME(8000) SET_VAR(tmp_table_size=67108864)", "seq,public_id,ts,", "classification,severity_level,language,brand_name", "DATE_FORMAT(analysis_created_at", "LEFT JOIN LATERAL", "wire_header.report_seq=r.seq"} {
+	for _, required := range []string{"NO_MERGE(candidates)", "NO_MERGE(provenance)", "NO_MERGE(normalized)", "MAX_EXECUTION_TIME(8000) SET_VAR(tmp_table_size=67108864)", "seq,public_id,ts,", "classification,severity_level,language,brand_name", "DATE_FORMAT(analysis_created_at", "LEFT JOIN LATERAL", "wire_header.report_seq=r.seq"} {
 		if !strings.Contains(query, required) {
 			t.Fatalf("fused stream lost normalized/null/source contract: %s", required)
 		}

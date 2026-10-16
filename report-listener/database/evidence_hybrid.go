@@ -30,6 +30,17 @@ func hybridEvidenceNormalizedQuery(f EvidenceFilter) (string, []interface{}, err
 		return "", nil, fmt.Errorf("hybrid evidence source scope changed")
 	}
 	query = strings.Replace(query, sharedScope, "SELECT r.seq, r.public_id,", 1)
+	// Match the deployed compact normalizer's scalar boundaries. Otherwise
+	// MySQL expands source URL/JSON expressions into every canonical-key use.
+	for _, change := range [][2]string{
+		{"SELECT candidates.*,", "SELECT /*+ NO_MERGE(candidates) */ candidates.*,"},
+		{"SELECT provenance.*,", "SELECT /*+ NO_MERGE(provenance) */ provenance.*,"},
+	} {
+		if strings.Count(query, change[0]) != 1 {
+			return "", nil, fmt.Errorf("hybrid evidence normalization boundary changed")
+		}
+		query = strings.Replace(query, change[0], change[1], 1)
+	}
 	scopeArgs := 1 + len(f.Brands)
 	extraArgs := 3 // the full reader's overview clock, page limit and offset
 	if f.Kind != "all" {
@@ -39,7 +50,7 @@ func hybridEvidenceNormalizedQuery(f EvidenceFilter) (string, []interface{}, err
 		return "", nil, fmt.Errorf("hybrid evidence scope parameters changed")
 	}
 	query += fmt.Sprintf(`
- SELECT /*+ MAX_EXECUTION_TIME(%d) SET_VAR(tmp_table_size=%d) */
+ SELECT /*+ MAX_EXECUTION_TIME(%d) SET_VAR(tmp_table_size=%d) NO_MERGE(normalized) */
  seq,public_id,ts,COALESCE(latitude,0),COALESCE(longitude,0),classification,severity_level,language,brand_name,
  report_kind,evidence_excerpt,reported_impact,entity_relationship,evidence_version,
  source_platform,source_url,source_timestamp,observed_at,actor_kind,fetcher_id,privacy_restricted,source_key,
