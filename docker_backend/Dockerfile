@@ -33,6 +33,5 @@ COPY docker_backend/certificates/* /usr/local/share/ca-certificates/
 RUN update-ca-certificates
 
 EXPOSE 8080/tcp
-CMD "./service" \
-   "--mysql_password=${MYSQL_APP_PASSWORD}" \
+CMD exec "./service" \
    "--mysql_host=cleanapp_db"

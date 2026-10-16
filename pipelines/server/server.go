@@ -1,9 +1,12 @@
 package server
 
 import (
+	"context"
 	"flag"
 	"fmt"
-	"net/http"
+	"net"
+	"os/signal"
+	"syscall"
 
 	"cleanapp-common/edge"
 	"cleanapp-common/serverx"
@@ -24,6 +27,10 @@ var (
 )
 
 func StartService() {
+	// Install listeners before serving so Docker's PID1 signal is never handled
+	// by the default immediate process exit while a request is active.
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 	log.Info("Starting the service...")
 	router := gin.Default()
 	router.Use(edge.SecurityHeaders())
@@ -36,8 +43,12 @@ func StartService() {
 	router.POST(EndPointTokensDisburse, DisburseTokens)
 
 	srv := serverx.New(fmt.Sprintf(":%d", *serverPort), router)
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	listener, err := net.Listen("tcp", srv.Addr)
+	if err != nil {
 		log.Fatalf("Failed to start pipelines service: %v", err)
 	}
-	log.Warn("Finished the service. Should not ever being seen.")
+	if err := serveUntilShutdown(ctx, srv, listener); err != nil {
+		log.Fatalf("Pipelines service failed: %v", err)
+	}
+	log.Info("Pipelines requests drained; service stopped")
 }
