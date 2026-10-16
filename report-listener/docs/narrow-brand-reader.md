@@ -24,10 +24,13 @@ Empty display placeholders and the exact SQL-collated evidence-presence flags
 are also introduced after selection, avoiding cells in the analysis temporary.
 
 The one selected analysis tuple travels through scalar report metadata, avoiding
-a second preferred-analysis lookup. Each report then uses independent indexed
-`LEFT JOIN LATERAL` lookups for its first native-collation EII source/external-ID
-pair and latest Wire submission. Each identity lookup alone has `LIMIT 1`; the
-cohort remains complete. Wire ordering reads its projection timestamp or a
+a second preferred-analysis lookup. Independent narrow windows rank only actual
+EII and Wire identities joined to preferred rank1 reports. There are no absent
+source rows or wide metadata in either window and no per-report lateral
+rematerialization. Native EII source/external-ID order selects its first pair;
+Wire selects its latest timestamp. Rank1 predicates remain in the outer LEFT
+JOIN conditions so reports without either identity remain in the full cohort.
+Wire ordering reads its projection timestamp or a
 missing/stale-header PK fallback using `CASE`, preserving an authoritative NULL.
 Both the header and fallback must match the selected report sequence. Exact
 timestamp or collation ties retain the oracle's unspecified choice; there is no

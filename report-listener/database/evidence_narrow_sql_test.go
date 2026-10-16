@@ -92,12 +92,12 @@ func TestNarrowEvidenceChoosesSourceIdentitiesBeforeWideMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	start, end := strings.Index(query, "source_winners AS ("), strings.Index(query, "), candidates AS (")
+	start, end := strings.Index(query, "eii_identities AS ("), strings.Index(query, "), candidates AS (")
 	if start < 0 || end <= start {
 		t.Fatal("source identity selection phase missing")
 	}
 	identity := query[start : end+1]
-	for _, forbidden := range []string{"report_json", "provenance_json", "extensions_json", "source_url", "source_timestamp", "privacy_restricted", "canonical_url", "ra.*", "ra.title", "BINARY", "COLLATE", "ROW_NUMBER()"} {
+	for _, forbidden := range []string{"report_json", "provenance_json", "extensions_json", "source_url", "source_timestamp", "privacy_restricted", "canonical_url", "ra.*", "ra.title", "BINARY", "COLLATE", "LATERAL", "LIMIT"} {
 		if strings.Contains(identity, forbidden) {
 			t.Fatalf("source winner window carries wide data or changes native ordering: %s", forbidden)
 		}
@@ -105,14 +105,15 @@ func TestNarrowEvidenceChoosesSourceIdentitiesBeforeWideMetadata(t *testing.T) {
 	for _, required := range []string{
 		"SELECT r.*,eii_selected.source,eii_selected.external_id,wire_selected.wire_submission_id",
 		"FROM metadata r",
-		"LEFT JOIN LATERAL (SELECT eii_choice.source,eii_choice.external_id",
-		"external_ingest_index eii_choice FORCE INDEX(idx_seq) WHERE eii_choice.seq=r.seq",
-		"ORDER BY eii_choice.source ASC,eii_choice.external_id ASC LIMIT 1) eii_selected ON TRUE",
-		"LEFT JOIN LATERAL (SELECT wire_choice.submission_id AS wire_submission_id",
-		"WHERE wire_choice.report_seq=r.seq",
+		"SELECT p.seq,eii_choice.source,eii_choice.external_id,",
+		"FROM preferred p JOIN external_ingest_index eii_choice FORCE INDEX(idx_seq) ON eii_choice.seq=p.seq",
+		"PARTITION BY p.seq ORDER BY eii_choice.source ASC,eii_choice.external_id ASC) AS identity_rank",
+		"FROM preferred p JOIN wire_submissions_raw wire_choice ON wire_choice.report_seq=p.seq",
 		"wire_choice_header.report_seq=wire_choice.report_seq",
 		"wire_choice_fallback.submission_id=CASE WHEN wire_choice_header.submission_id IS NULL THEN wire_choice.submission_id ELSE NULL END",
-		"ORDER BY CASE WHEN wire_choice_header.submission_id IS NOT NULL THEN wire_choice_header.submitted_at ELSE wire_choice_fallback.submitted_at END DESC LIMIT 1) wire_selected ON TRUE",
+		"PARTITION BY p.seq ORDER BY CASE WHEN wire_choice_header.submission_id IS NOT NULL THEN wire_choice_header.submitted_at ELSE wire_choice_fallback.submitted_at END DESC) AS identity_rank",
+		"LEFT JOIN eii_identities eii_selected ON eii_selected.seq=r.seq AND eii_selected.identity_rank=1",
+		"LEFT JOIN wire_identities wire_selected ON wire_selected.seq=r.seq AND wire_selected.identity_rank=1",
 	} {
 		if !strings.Contains(identity, required) {
 			t.Fatalf("source identity selection lost contract: %s", required)
@@ -130,8 +131,14 @@ func TestNarrowEvidenceChoosesSourceIdentitiesBeforeWideMetadata(t *testing.T) {
 	if strings.Count(query, "FROM preferred ra") != 1 || strings.Contains(candidate, "ra.") || strings.Contains(query, "JOIN preferred ra") {
 		t.Fatal("chosen source hydration must reuse the one selected analysis/metadata scope")
 	}
-	if strings.Count(identity, "LIMIT 1") != 2 {
-		t.Fatal("only the two per-report identity lookups may limit the source scope")
+	if strings.Count(identity, "ROW_NUMBER()") != 2 || strings.Count(identity, "WHERE p.analysis_rank=1") != 2 {
+		t.Fatal("source ranking must cover actual matches within the selected analysis scope only")
+	}
+	windows := identity[:strings.Index(identity, "source_winners AS (")]
+	for _, forbidden := range []string{"p.*", "r.*", "FROM metadata", "LEFT JOIN external_ingest_index eii_choice", "LEFT JOIN wire_submissions_raw wire_choice ON", "public_id", "classification", "severity_level", "language", "brand_name"} {
+		if strings.Contains(windows, forbidden) {
+			t.Fatalf("actual-source window includes absent source or wide metadata: %s", forbidden)
+		}
 	}
 	if !strings.Contains(query, "SELECT ra.seq,ra.language,ra.created_at,ra.brand_name,ra.classification,ra.severity_level,") {
 		t.Fatal("metadata must carry the exact nullable selected analysis tuple")

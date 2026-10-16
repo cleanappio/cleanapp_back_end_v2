@@ -38,7 +38,7 @@ func TestHybridEvidenceReadsUnfilteredNormalizedScopeWithOnlyScopeArgs(t *testin
 			t.Fatalf("fused stream retained aggregation/paging/materialization: %s", forbidden)
 		}
 	}
-	for _, required := range []string{"MAX_EXECUTION_TIME(8000) SET_VAR(tmp_table_size=67108864)", "r.classification,r.severity_level,r.language,r.brand_name", "DATE_FORMAT(r.created_at", "DATE_FORMAT(r.ts", "COALESCE(r.id,'')", "LEFT JOIN LATERAL", "wire_header.report_seq=r.seq", "CAST(CASE WHEN wire_header.submission_id IS NOT NULL THEN wire_header.contains_pii", "WHERE r.public_id <> ''"} {
+	for _, required := range []string{"MAX_EXECUTION_TIME(8000) SET_VAR(tmp_table_size=67108864)", "r.classification,r.severity_level,r.language,r.brand_name", "DATE_FORMAT(r.created_at", "DATE_FORMAT(r.ts", "COALESCE(r.id,'')", "eii_identities AS (", "wire_identities AS (", "wire_header.report_seq=r.seq", "CAST(CASE WHEN wire_header.submission_id IS NOT NULL THEN wire_header.contains_pii", "WHERE r.public_id <> ''"} {
 		if !strings.Contains(query, required) {
 			t.Fatalf("fused stream lost normalized/null/source contract: %s", required)
 		}

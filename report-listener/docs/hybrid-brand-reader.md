@@ -14,6 +14,10 @@ presence check and fifteen typed projected JSON nodes. SQL selects the preferred
 analysis and native-collation source identities, and applies publication guards.
 It does not infer dates or compute canonical URLs/source keys for the whole
 cohort. Evidence text remains presence flags until bounded display hydration.
+Independent source windows contain only actual EII/Wire identities matched to
+the same preferred rank1 scope. The main report scope LEFT JOINs each rank1
+result, preserving reports with no source and avoiding per-report lateral
+rematerialization. Native ordering, timestamp NULL authority and ties are unchanged.
 
 The hybrid reuses `normalizeEvidenceSources`: its established guarded archive
 fast path and bounded MySQL fallback remain the only identity/date normalizers.

@@ -166,23 +166,28 @@ const narrowEvidenceSourceOrder = "evidence_version DESC, evidence_strength DESC
 
 const narrowEvidenceTempTableBudgetBytes = 64 << 20
 
-// Original source ranking is lexicographic: native EII source/ID, then Wire
-// submission time. Independent per-seq identity choices give the same winners
-// without a cohort-wide source window. LIMIT applies only to each identity
-// lookup. Exact timestamp/collation ties retain the oracle's unspecified choice;
-// the chosen submission ID binds all later fields, including privacy.
-const narrowEvidenceSourceIdentitiesCTE = `source_winners AS (
+// Rank only actual source identities in the selected analysis scope. EII and
+// Wire are independent: native EII source/ID order, then latest Wire timestamp.
+// Neither window carries metadata, bodies, URLs, or absent-source left rows.
+// Exact ties retain the oracle's unspecified choice; the chosen submission ID
+// binds every later detail/privacy node. Reports with no source stay visible.
+const narrowEvidenceSourceIdentitiesCTE = `eii_identities AS (
+  SELECT p.seq,eii_choice.source,eii_choice.external_id,
+   ROW_NUMBER() OVER (PARTITION BY p.seq ORDER BY eii_choice.source ASC,eii_choice.external_id ASC) AS identity_rank
+  FROM preferred p JOIN external_ingest_index eii_choice FORCE INDEX(idx_seq) ON eii_choice.seq=p.seq
+  WHERE p.analysis_rank=1
+ ), wire_identities AS (
+  SELECT p.seq,wire_choice.submission_id AS wire_submission_id,
+   ROW_NUMBER() OVER (PARTITION BY p.seq ORDER BY CASE WHEN wire_choice_header.submission_id IS NOT NULL THEN wire_choice_header.submitted_at ELSE wire_choice_fallback.submitted_at END DESC) AS identity_rank
+  FROM preferred p JOIN wire_submissions_raw wire_choice ON wire_choice.report_seq=p.seq
+  LEFT JOIN wire_evidence_projection wire_choice_header ON wire_choice_header.submission_id=wire_choice.submission_id AND wire_choice_header.report_seq=wire_choice.report_seq
+  LEFT JOIN wire_submissions_raw wire_choice_fallback ON wire_choice_fallback.submission_id=CASE WHEN wire_choice_header.submission_id IS NULL THEN wire_choice.submission_id ELSE NULL END AND wire_choice_fallback.report_seq=wire_choice.report_seq
+  WHERE p.analysis_rank=1
+ ), source_winners AS (
   SELECT r.*,eii_selected.source,eii_selected.external_id,wire_selected.wire_submission_id
   FROM metadata r
-  LEFT JOIN LATERAL (SELECT eii_choice.source,eii_choice.external_id
-   FROM external_ingest_index eii_choice FORCE INDEX(idx_seq) WHERE eii_choice.seq=r.seq
-   ORDER BY eii_choice.source ASC,eii_choice.external_id ASC LIMIT 1) eii_selected ON TRUE
-  LEFT JOIN LATERAL (SELECT wire_choice.submission_id AS wire_submission_id
-   FROM wire_submissions_raw wire_choice
-   LEFT JOIN wire_evidence_projection wire_choice_header ON wire_choice_header.submission_id=wire_choice.submission_id AND wire_choice_header.report_seq=wire_choice.report_seq
-   LEFT JOIN wire_submissions_raw wire_choice_fallback ON wire_choice_fallback.submission_id=CASE WHEN wire_choice_header.submission_id IS NULL THEN wire_choice.submission_id ELSE NULL END AND wire_choice_fallback.report_seq=wire_choice.report_seq
-   WHERE wire_choice.report_seq=r.seq
-   ORDER BY CASE WHEN wire_choice_header.submission_id IS NOT NULL THEN wire_choice_header.submitted_at ELSE wire_choice_fallback.submitted_at END DESC LIMIT 1) wire_selected ON TRUE
+  LEFT JOIN eii_identities eii_selected ON eii_selected.seq=r.seq AND eii_selected.identity_rank=1
+  LEFT JOIN wire_identities wire_selected ON wire_selected.seq=r.seq AND wire_selected.identity_rank=1
  )`
 
 func narrowEvidenceAnalysisJSON(alias string) string {
