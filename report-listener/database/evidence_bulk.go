@@ -120,9 +120,7 @@ func nullableEvidenceString(v sql.NullString) *string {
 	return &s
 }
 
-func loadEvidenceMetadataCore(ctx context.Context, tx *sql.Tx, ids []int) (map[int]evidenceMetadataRecord, map[int]evidenceSourceNormalizationRow, []int, error) {
-	query := `SELECT ids.seq,
- CASE WHEN m.seq IS NOT NULL THEN m.id ELSE r.id END,
+const evidenceMetadataColumns = ` CASE WHEN m.seq IS NOT NULL THEN m.id ELSE r.id END,
  CASE WHEN m.seq IS NOT NULL THEN m.public_id ELSE r.public_id END,
  DATE_FORMAT(CASE WHEN m.seq IS NOT NULL THEN m.ts ELSE r.ts END,'%Y-%m-%d %H:%i:%s.%f'),
  CASE WHEN m.seq IS NOT NULL THEN m.latitude ELSE r.latitude END,
@@ -131,15 +129,20 @@ func loadEvidenceMetadataCore(ctx context.Context, tx *sql.Tx, ids []int) (map[i
  rr.source_type,rr.source_id,COALESCE(rr.fetcher_id,''),
  CASE WHEN ev.evidence_version>0 AND ev.report_kind IN ('firsthand','coverage') THEN ev.report_kind ELSE 'unknown' END,
  COALESCE(ev.entity_relationship,'unknown'),COALESCE(ev.evidence_version,0),
- COALESCE(ev.evidence_excerpt<>'',FALSE),COALESCE(ev.reported_impact<>'',FALSE)
- FROM ` + evidenceIDsTable + `
+ COALESCE(ev.evidence_excerpt<>'',FALSE),COALESCE(ev.reported_impact<>'',FALSE)`
+
+const evidenceMetadataJoins = `
  LEFT JOIN report_metadata_projection m ON m.seq=ids.seq
  LEFT JOIN reports r ON r.seq=CASE WHEN m.seq IS NULL THEN ids.seq ELSE NULL END
  LEFT JOIN report_raw rr ON rr.report_seq=ids.seq LEFT JOIN report_evidence ev ON ev.seq=ids.seq
  LEFT JOIN report_status rs ON rs.seq=ids.seq AND rs.status IS NOT NULL AND rs.status<>'active'
- LEFT JOIN reports_owners ro ON ro.seq=ids.seq AND ro.owner IS NOT NULL AND ro.owner<>'' AND ro.is_public=FALSE
- WHERE CASE WHEN m.seq IS NOT NULL THEN m.public_id<>'' ELSE r.public_id<>'' END AND ` + PublicVisibilityWhereSQL + `
+ LEFT JOIN reports_owners ro ON ro.seq=ids.seq AND ro.owner IS NOT NULL AND ro.owner<>'' AND ro.is_public=FALSE`
+
+const evidenceMetadataVisible = `CASE WHEN m.seq IS NOT NULL THEN m.public_id<>'' ELSE r.public_id<>'' END AND ` + PublicVisibilityWhereSQL + `
  AND rs.seq IS NULL AND ro.seq IS NULL`
+
+func loadEvidenceMetadataCore(ctx context.Context, tx *sql.Tx, ids []int) (map[int]evidenceMetadataRecord, map[int]evidenceSourceNormalizationRow, []int, error) {
+	query := `SELECT ids.seq,` + evidenceMetadataColumns + ` FROM ` + evidenceIDsTable + evidenceMetadataJoins + ` WHERE ` + evidenceMetadataVisible
 	rows, err := tx.QueryContext(ctx, query, evidenceIDsJSON(ids))
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("read public evidence metadata: %w", err)
@@ -172,6 +175,75 @@ func loadEvidenceMetadataCore(ctx context.Context, tx *sql.Tx, ids []int) (map[i
 		visible = append(visible, r.Seq)
 	}
 	return records, sources, visible, rows.Err()
+}
+
+// Drive publication joins from the indexed brand range rather than streaming
+// all analysis rows to Go, encoding their IDs, then streaming metadata again.
+// Publication depends only on seq, so it filters every translation identically;
+// the existing Go ranking still chooses the exact preferred analysis per seq.
+func loadEvidenceAnalysisMetadataCore(ctx context.Context, tx *sql.Tx, f EvidenceFilter) (map[int]evidenceAnalysisCore, map[int]evidenceMetadataRecord, map[int]evidenceSourceNormalizationRow, []int, error) {
+	marks := make([]string, len(f.Brands))
+	args := []any{f.Language}
+	for i, brand := range f.Brands {
+		marks[i] = "?"
+		args = append(args, brand)
+	}
+	query := `SELECT ids.seq,ids.language,ids.created_at,ids.brand_name,ids.classification,CAST(ids.severity_level AS DOUBLE),(ids.language=?),(ids.language='en'),WEIGHT_STRING(ids.language AS CHAR(2)),DATE_FORMAT(ids.created_at,'%Y-%m-%d %H:%i:%s.%f'),` + evidenceMetadataColumns + `
+ FROM report_analysis ids FORCE INDEX (` + evidenceBrandCoreIndex + `)` + evidenceMetadataJoins + `
+ WHERE ids.brand_name IN (` + strings.Join(marks, ",") + `) AND ids.is_valid=TRUE AND ids.classification='digital' AND ids.seq IS NOT NULL AND ` + evidenceMetadataVisible
+	rows, err := tx.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("read public evidence analysis and metadata: %w", err)
+	}
+	defer rows.Close()
+	selected := map[int]evidenceAnalysisCore{}
+	records := map[int]evidenceMetadataRecord{}
+	sources := map[int]evidenceSourceNormalizationRow{}
+	// Reuse scan buffers; values stored in maps are copied, and nullable string
+	// pointers own their string value rather than pointing into these buffers.
+	var a evidenceAnalysisCore
+	var r evidenceMetadataRecord
+	var source evidenceSourceNormalizationRow
+	var lang, brand, classification, createdLiteral sql.NullString
+	var severity sql.NullFloat64
+	var reportID, ts, rawType, rawID sql.NullString
+	var quote, impact bool
+	for rows.Next() {
+		a, r, source = evidenceAnalysisCore{}, evidenceMetadataRecord{}, evidenceSourceNormalizationRow{}
+		if err := rows.Scan(&a.Record.Seq, &lang, &a.Created, &brand, &classification, &severity, &a.Requested, &a.English, &a.LanguageWeight, &createdLiteral,
+			&reportID, &r.PublicID, &ts, &r.Latitude, &r.Longitude, &r.HasOriginalMedia, &rawType, &rawID, &source.FetcherID, &r.Kind, &r.Relationship, &r.Version, &quote, &impact); err != nil {
+			return nil, nil, nil, nil, err
+		}
+		a.Record.Language, a.LanguageNull = lang.String, !lang.Valid
+		a.CreatedLiteral = nullableEvidenceString(createdLiteral)
+		a.Record.Brand, a.Record.Classification = brand.String, classification.String
+		a.Record.Severity, a.Record.SeverityNull = severity.Float64, !severity.Valid
+		seq := a.Record.Seq
+		if prior, ok := selected[seq]; ok && !preferredEvidenceAnalysis(a, prior) {
+			continue
+		}
+		selected[seq] = a
+		r.Seq = seq
+		if quote {
+			r.Excerpt = "1"
+		}
+		if impact {
+			r.Impact = "1"
+		}
+		source.Seq, source.ReportID = seq, reportID.String
+		source.ReportTS = nullableEvidenceString(ts)
+		source.RawSourceType, source.RawSourceID = nullableEvidenceString(rawType), nullableEvidenceString(rawID)
+		records[seq], sources[seq] = r, source
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, nil, nil, err
+	}
+	visible := make([]int, 0, len(selected))
+	for seq := range selected {
+		visible = append(visible, seq)
+	}
+	sort.Ints(visible)
+	return selected, records, sources, visible, nil
 }
 
 const evidenceIndexSourcesSQL = `SELECT e.seq,e.source,e.external_id,
@@ -551,14 +623,7 @@ func evidenceTextPointer(s string) *string { return &s }
 
 func loadEvidenceBrandPageBulk(ctx context.Context, tx *sql.Tx, f EvidenceFilter) (EvidenceBrandPage, error) {
 	page := EvidenceBrandPage{Reports: []models.ReportWithMinimalAnalysis{}, Overview: evidenceOverview(nil, f.asOf)}
-	analysis, ids, err := loadEvidenceAnalysisCore(ctx, tx, f)
-	if err != nil {
-		return page, err
-	}
-	if len(ids) == 0 {
-		return page, nil
-	}
-	records, sources, visible, err := loadEvidenceMetadataCore(ctx, tx, ids)
+	analysis, records, sources, visible, err := loadEvidenceAnalysisMetadataCore(ctx, tx, f)
 	if err != nil {
 		return page, err
 	}

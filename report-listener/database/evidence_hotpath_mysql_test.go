@@ -36,6 +36,7 @@ func testEvidenceMetadataBlockerParityMySQL(t *testing.T, db *sql.DB) {
 		exec(`INSERT INTO report_analysis VALUES(?,'en','blockerparity','Visibility',TRUE,'digital','2026-10-15','Original issue','Summary',0.5)`, seq)
 	}
 	for _, statement := range []string{
+		`INSERT INTO report_analysis VALUES(6200,'fr','blockerparity','French',TRUE,'digital','2026-10-16','French issue','French summary',0.9),(6200,'en','blockerparity','English newer',TRUE,'digital','2026-10-16','Newer issue','Newer summary',0.7),(6200,NULL,'blockerparity','Null language',TRUE,'digital','2026-10-17','Null issue','Null summary',NULL),(6201,'en','blockerparity','Private translation',TRUE,'digital','2026-10-16','Private issue','Private summary',0.9)`,
 		`INSERT INTO report_status VALUES(6201,'active'),(6202,NULL),(6203,'active'),(6203,'resolved'),(6204,'resolved'),(6204,'deleted'),(6205,''),(6219,'active'),(6219,NULL)`,
 		`INSERT INTO reports_owners VALUES(6206,'public-owner',TRUE),(6207,NULL,FALSE),(6208,'',FALSE),(6209,' ',FALSE),(6210,'public-owner',TRUE),(6210,'private-owner',FALSE),(6211,'private-one',FALSE),(6211,'private-two',FALSE),(6212,'unknown-publicity',NULL),(6213,'',FALSE),(6213,NULL,FALSE),(6213,'public-owner',TRUE),(6219,'public-one',TRUE),(6219,'public-two',TRUE)`,
 		`INSERT INTO report_raw VALUES(6214,'sensor','raw','fetcher','quarantine'),(6215,'sensor','raw','fetcher','shadow'),(6216,'sensor','raw','fetcher',NULL),(6217,'sensor','raw','fetcher','public')`,
@@ -76,6 +77,30 @@ func testEvidenceMetadataBlockerParityMySQL(t *testing.T, db *sql.DB) {
 				t.Fatal(rowErr)
 			}
 			records, sources, visible, err := loadEvidenceMetadataCore(context.Background(), tx, ids)
+			if err != nil {
+				t.Fatal(err)
+			}
+			filter, err := NormalizeEvidenceFilter(EvidenceFilter{BrandName: "blockerparity", Language: "en", Kind: "all", Sort: "recent", Limit: 50})
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantAnalysis, _, err := loadEvidenceAnalysisCore(context.Background(), tx, filter)
+			if err != nil {
+				t.Fatal(err)
+			}
+			combinedAnalysis, combinedRecords, combinedSources, combinedVisible, err := loadEvidenceAnalysisMetadataCore(context.Background(), tx, filter)
+			if err != nil {
+				t.Fatal(err)
+			}
+			sort.Ints(visible)
+			if !reflect.DeepEqual(combinedVisible, visible) || !reflect.DeepEqual(combinedRecords, records) || !reflect.DeepEqual(combinedSources, sources) {
+				t.Fatal("brand-driven combined stream changed publication guards or metadata/source maps")
+			}
+			for _, seq := range visible {
+				if !reflect.DeepEqual(combinedAnalysis[seq], wantAnalysis[seq]) {
+					t.Fatal("combined stream changed preferred analysis identity")
+				}
+			}
 			if err := tx.Rollback(); err != nil {
 				t.Fatal(err)
 			}
