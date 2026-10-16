@@ -22,6 +22,9 @@ func TestNarrowEvidenceRetainsOracleGroupingButDefersDisplayBodies(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if strings.Count(query, "MAX_EXECUTION_TIME(8000)") != 1 {
+		t.Fatal("narrow statement must retain the public eight-second server work bound")
+	}
 	preferred := strings.Split(query, "), metadata AS (")[0]
 	for _, field := range []string{"ra.title", "ra.summary", "ra.brand_display_name", "COALESCE(ev.classification_reason"} {
 		if strings.Contains(preferred, field) {

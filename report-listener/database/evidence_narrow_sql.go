@@ -27,6 +27,9 @@ func narrowEvidenceBrandPageQuery(f EvidenceFilter) (string, []interface{}, erro
 		return nil
 	}
 	changes := [][2]string{
+		// Bound server work as well as the client context: MySQL can otherwise
+		// continue materializing intermediate rows after the client disconnects.
+		{"SELECT sc.all_count,", fmt.Sprintf("SELECT /*+ MAX_EXECUTION_TIME(%d) */ sc.all_count,", publicDiscoveryQueryTimeout.Milliseconds())},
 		{"ra.seq,ra.language,ra.created_at,ra.brand_name,ra.brand_display_name,ra.classification,ra.title,ra.summary,", "ra.seq,ra.language,ra.created_at,ra.brand_name,'' AS brand_display_name,ra.classification,'' AS title,'' AS summary,"},
 		{"COALESCE(ev.evidence_excerpt,'') AS evidence_excerpt", "CASE WHEN COALESCE(ev.evidence_excerpt<>'',FALSE) THEN '1' ELSE '' END AS evidence_excerpt"},
 		{"COALESCE(ev.reported_impact,'') AS reported_impact", "CASE WHEN COALESCE(ev.reported_impact<>'',FALSE) THEN '1' ELSE '' END AS reported_impact"},
