@@ -588,4 +588,148 @@ func TestEvidenceSourceProjectionMySQLFixture(t *testing.T) {
 		}
 	})
 
+	t.Run("projected serving keeps warm mixed fallback and publication exact", func(t *testing.T) {
+		for _, seq := range []int{601, 602} {
+			seed(seq)
+			exec(`INSERT INTO report_analysis VALUES(?,'en','projectionprivacy','Projection',TRUE,'digital','2026-10-10','Projected report','Own observation',0.8)`, seq)
+			exec(`INSERT INTO report_evidence(seq,report_kind,evidence_excerpt,entity_relationship,evidence_version) VALUES(?,'firsthand','I observe the problem','affected',1)`, seq)
+		}
+		exec(`INSERT INTO wire_submissions_raw(submission_id,report_seq,fetcher_id,report_json,provenance_json,observed_at,submitted_at,actor_kind,channel) VALUES('privacy-601',601,'fixture-fetcher',JSON_OBJECT('digital_context',JSON_OBJECT('platform','github','source_url','https://example.test/601'),'privacy',JSON_OBJECT('contains_pii',FALSE)),JSON_OBJECT('generation_method','human_authored_public'),'2026-10-05','2026-10-06','human','web')`)
+		exec(`INSERT INTO external_ingest_index(seq,source,external_id,source_url) VALUES(602,'custom','projected-602','https://example.test/602')`)
+		filter, err := NormalizeEvidenceFilter(EvidenceFilter{BrandName: "projectionprivacy", Language: "en", Kind: "all", Sort: "recent", Limit: 12})
+		if err != nil {
+			t.Fatal(err)
+		}
+		filter.asOf = time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+		reader := &Database{db: db}
+		check := func(want int, parity bool) EvidenceBrandPage {
+			t.Helper()
+			got, err := reader.getEvidenceBrandPageProjected(ctx, filter)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if parity {
+				reference, err := reader.getEvidenceBrandPageSQL(ctx, filter)
+				if err != nil || !reflect.DeepEqual(got, reference) {
+					t.Fatalf("projected result differs from untouched SQL oracle: %v\ngot=%+v\nwant=%+v", err, got, reference)
+				}
+			}
+			if len(got.Reports) != want || got.Total != want || got.KindCounts.All != want {
+				t.Fatalf("expected%d visible independent reports, got %+v", want, got)
+			}
+			return got
+		}
+		refresh := func(ids ...int) {
+			t.Helper()
+			r, err := RefreshEvidenceSourceProjection(ctx, db, ids)
+			if err != nil || r.Computed != len(ids) || r.MissingParents != 0 {
+				t.Fatalf("refresh projected fixture: %+v %v", r, err)
+			}
+		}
+		assertPrivate := func(page EvidenceBrandPage) {
+			t.Helper()
+			for _, report := range page.Reports {
+				if report.Report.Seq == 601 {
+					if report.Evidence == nil || report.Evidence.SourceURL != nil || report.Evidence.Excerpt != nil || report.Evidence.HasOriginalMedia || len(report.Recurrence.SupportingSources) != 0 {
+						t.Fatal("stale cached source escaped live privacy redaction")
+					}
+					return
+				}
+			}
+			t.Fatal("privacy fixture report missing")
+		}
+		// One actual clean hit and one dirty miss are returned together, and a
+		// public read does not fill or clean the missed generation as a side effect.
+		refresh(601)
+		before := state(602)
+		check(2, true)
+		if state(602) != before {
+			t.Fatal("public dirty fallback mutated its generation")
+		}
+		refresh(602)
+		check(2, true)
+		// Missing, incomplete, obsolete-version and malformed date caches all
+		// fall back to the same snapshot instead of dropping or trusting a row.
+		exec(`DELETE FROM report_evidence_source_projection WHERE seq=602`)
+		check(2, true)
+		var count int
+		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM report_evidence_source_projection WHERE seq=602`).Scan(&count); err != nil || count != 0 {
+			t.Fatal("public missing fallback wrote a generation")
+		}
+		refresh(602)
+		for _, damage := range []string{`source_key=NULL`, `normalizer_version=999`, `source_timestamp='2026-10-40 12:00:00.000000'`, `source_timestamp='2026-10-10 12:00:00,123456'`} {
+			exec(`UPDATE report_evidence_source_projection SET ` + damage + ` WHERE seq=602`)
+			before := state(602)
+			check(2, true)
+			if state(602) != before {
+				t.Fatal("public malformed fallback rewrote generation flags")
+			}
+			refresh(602)
+		}
+		exec(`UPDATE external_ingest_index SET source_url='https://example.test/602-changed' WHERE source='custom' AND external_id='projected-602'`)
+		before = state(602)
+		check(2, true)
+		if state(602) != before || state(602).clean {
+			t.Fatal("dirty source fallback was missing or was silently marked clean")
+		}
+		refresh(602)
+		// These guards are live even when normalized source data is clean.
+		exec(`INSERT INTO report_raw(report_seq,visibility) VALUES(601,'quarantine')`)
+		check(1, true)
+		exec(`UPDATE report_raw SET visibility='public' WHERE report_seq=601`)
+		refresh(601)
+		check(2, true)
+		clean := state(601)
+		exec(`INSERT INTO report_status VALUES(601,'active'),(601,'resolved')`)
+		check(1, true)
+		if state(601) != clean {
+			t.Fatal("status fixture unexpectedly invalidated unrelated normalization")
+		}
+		exec(`DELETE FROM report_status WHERE seq=601`)
+		check(2, true)
+		exec(`INSERT INTO reports_owners VALUES(601,'private-owner',FALSE),(601,'public-owner',TRUE)`)
+		check(1, true)
+		if state(601) != clean {
+			t.Fatal("owner fixture unexpectedly invalidated unrelated normalization")
+		}
+		exec(`DELETE FROM reports_owners WHERE seq=601`)
+		check(2, true)
+		exec(`UPDATE reports SET public_id='   ' WHERE seq=601`)
+		check(1, true)
+		exec(`UPDATE reports SET public_id='r_601' WHERE seq=601`)
+		refresh(601)
+		check(2, true)
+		exec(`UPDATE report_evidence SET report_kind='coverage' WHERE seq=601`)
+		page := check(2, true)
+		if page.KindCounts.Coverage != 1 || page.KindCounts.Firsthand != 1 {
+			t.Fatal("cache froze live evidence kind/facets")
+		}
+		exec(`UPDATE report_evidence SET report_kind='firsthand' WHERE seq=601`)
+		// A parent privacy update invalidates its old public normalized URL.
+		exec(`UPDATE wire_submissions_raw SET report_json=JSON_SET(report_json,'$.privacy.contains_pii',CAST('true' AS JSON)) WHERE submission_id='privacy-601'`)
+		assertPrivate(check(2, true))
+		refresh(601)
+		assertPrivate(check(2, true))
+		exec(`UPDATE wire_submissions_raw SET report_json=JSON_SET(report_json,'$.privacy.contains_pii',CAST('false' AS JSON)) WHERE submission_id='privacy-601'`)
+		refresh(601)
+		check(2, true)
+		// Matching header fields remain authoritative. This intentionally differs
+		// from the raw-only oracle, so assert redaction directly in both states.
+		exec(`UPDATE wire_evidence_projection SET contains_pii=CAST('true' AS JSON) WHERE submission_id='privacy-601'`)
+		if state(601).clean {
+			t.Fatal("header privacy left cached normalization clean")
+		}
+		assertPrivate(check(2, false))
+		refresh(601)
+		assertPrivate(check(2, false))
+		// A new report remains visible immediately in an otherwise warmed cohort.
+		seed(603)
+		exec(`INSERT INTO report_analysis VALUES(603,'en','projectionprivacy','Projection',TRUE,'digital','2026-10-11','New projected report','Fresh observation',0.7)`)
+		before = state(603)
+		check(3, false)
+		if state(603) != before || state(603).clean {
+			t.Fatal("new report was omitted or public read filled its cache")
+		}
+	})
+
 }
