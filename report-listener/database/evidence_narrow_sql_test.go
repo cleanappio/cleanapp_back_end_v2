@@ -25,6 +25,9 @@ func TestNarrowEvidenceRetainsOracleGroupingButDefersDisplayBodies(t *testing.T)
 	if strings.Count(query, "MAX_EXECUTION_TIME(8000)") != 1 {
 		t.Fatal("narrow statement must retain the public eight-second server work bound")
 	}
+	if !strings.Contains(query, "FROM representatives n CROSS JOIN overview_clock c") || strings.Contains(query, "FROM normalized n CROSS JOIN overview_clock c") {
+		t.Fatal("raw overview must reuse every pre-deduplication representative row")
+	}
 	preferred := strings.Split(query, "), metadata AS (")[0]
 	for _, field := range []string{"ra.title", "ra.summary", "ra.brand_display_name", "COALESCE(ev.classification_reason"} {
 		if strings.Contains(preferred, field) {

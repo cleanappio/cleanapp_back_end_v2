@@ -25,7 +25,7 @@ full report/source metadata, typed nodes and publication guards join after the
 winning identity. Guards depend only on report sequence, so moving them after
 selection cannot change the visible report universe or its full-source overview.
 
-Only twelve scalar rank/count fields cross source deduplication, case tagging,
+Only thirteen scalar rank/count fields cross source deduplication, case tagging,
 family selection and pagination. Public identity, coordinates, source metadata,
 and selected-analysis metadata rejoin the same normalized snapshot by the chosen
 sequence after paging. The normalized source-rank window leaves exactly one row
@@ -65,3 +65,5 @@ candidate, even a normalized-prefix COUNT reached the unchanged eight-second
 server cap with two disk temporary tables. Neither local correctness checks nor
 removing those disk temporaries establishes that the entire request fits its
 deadline.
+
+Raw overview counts reuse all compact representative rows before source deduplication filtering. This preserves losing-import counts and ingestion-time windows while avoiding a separate full normalization consumer.

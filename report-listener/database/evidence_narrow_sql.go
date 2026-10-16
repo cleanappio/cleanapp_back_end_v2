@@ -41,6 +41,10 @@ func narrowEvidenceBrandPageQuery(f EvidenceFilter) (string, []interface{}, erro
 		{"ROW_NUMBER() OVER (PARTITION BY r.seq ORDER BY eii.source ASC, eii.external_id ASC, ws.submitted_at DESC) AS source_rank", "1 AS source_rank"},
 		{"FROM preferred ra JOIN metadata r ON r.seq = ra.seq", "FROM source_winners selected JOIN preferred ra ON ra.seq=selected.seq JOIN metadata r ON r.seq=selected.seq"},
 		{"SELECT normalized.*, ROW_NUMBER() OVER (PARTITION BY source_key", "SELECT " + narrowEvidenceRankColumns + ", ROW_NUMBER() OVER (PARTITION BY source_key"},
+		// Representatives still contains every source row before duplicate_rank
+		// filtering. Reuse its compact materialization for the raw overview so
+		// a second consumer does not repeat the full normalization join tree.
+		{"FROM normalized n CROSS JOIN overview_clock c", "FROM representatives n CROSS JOIN overview_clock c"},
 		{"LEFT JOIN external_ingest_index eii ON eii.seq = r.seq", `LEFT JOIN external_ingest_header_projection eii_header ON eii_header.seq=selected.seq AND eii_header.source=selected.source AND eii_header.external_id=selected.external_id
   LEFT JOIN external_ingest_index eii_fallback FORCE INDEX(PRIMARY) ON eii_fallback.source=CASE WHEN eii_header.seq IS NULL THEN selected.source ELSE NULL END AND eii_fallback.external_id=selected.external_id AND eii_fallback.seq=selected.seq`},
 		{"LEFT JOIN wire_submissions_raw ws ON ws.report_seq = r.seq", `LEFT JOIN wire_evidence_projection wire_header ON wire_header.submission_id=selected.wire_submission_id AND wire_header.report_seq=selected.seq
@@ -134,7 +138,7 @@ func narrowEvidenceBrandPageQuery(f EvidenceFilter) (string, []interface{}, erro
 
 // Kept small independently of public display/source widths. All other fields
 // are restored from the same normalized snapshot only for chosen report seqs.
-const narrowEvidenceRankColumns = "seq,source_key,evidence_version,evidence_strength,entity_relevance,severity_level,report_kind,source_account_key,observed_at,source_timestamp,ts,privacy_restricted"
+const narrowEvidenceRankColumns = "seq,source_key,evidence_version,evidence_strength,entity_relevance,severity_level,report_kind,source_account_key,observed_at,source_timestamp,ts,privacy_restricted,ingestion_time_missing"
 
 // The original source-rank order depends only on native EII identities and Wire
 // submission time. Keep that window separate from all source JSON, URLs,
