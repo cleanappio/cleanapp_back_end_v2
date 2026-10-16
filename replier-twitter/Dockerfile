@@ -1,4 +1,4 @@
-FROM rust:1.88-bullseye AS builder
+FROM rust:1.88-bookworm AS builder
 
 WORKDIR /app
 
@@ -17,7 +17,7 @@ COPY . .
 RUN cargo install --path . -j $(nproc)
 
 # Runtime stage
-FROM debian:bullseye-slim
+FROM debian:bookworm-slim
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \
