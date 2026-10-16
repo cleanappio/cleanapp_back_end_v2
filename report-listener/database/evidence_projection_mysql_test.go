@@ -2,11 +2,15 @@ package database
 
 import (
 	"context"
+	"crypto/sha1"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
 	"os"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -408,4 +412,180 @@ func TestEvidenceSourceProjectionMySQLFixture(t *testing.T) {
 			t.Fatal("nullable/zero/fractional date or source bytes lost")
 		}
 	})
+	readCached := func(seq int) evidencesourceprojection.Record {
+		t.Helper()
+		var r evidencesourceprojection.Record
+		var published, observed, ingested sql.NullString
+		q := `SELECT seq,` + strings.Join(evidencesourceprojection.Columns(), ",") + ` FROM report_evidence_source_projection WHERE seq=?`
+		if err := db.QueryRowContext(ctx, q, seq).Scan(&r.Seq, &r.SourcePlatform, &r.SourceURL, &published, &observed, &ingested, &r.IngestionTimeMissing, &r.ActorKind, &r.FetcherID, &r.PrivacyRestricted, &r.SourceKey, &r.ExternalSource, &r.IntakeChannel, &r.GenerationMethod, &r.SourceAccountKey, &r.IngestedAtNull); err != nil {
+			t.Fatal(err)
+		}
+		if published.Valid {
+			r.SourceTimestamp = &published.String
+		}
+		if observed.Valid {
+			r.ObservedAt = &observed.String
+		}
+		if ingested.Valid {
+			r.TS = &ingested.String
+		}
+		return r
+	}
+	t.Run("actual bounded refresh matches all canonical source outputs", func(t *testing.T) {
+		ids := []int{511, 512, 513, 514, 517}
+		for _, seq := range ids {
+			seed(seq)
+			exec(`INSERT INTO report_analysis VALUES(?,'en','projectionrefresh','Projection',TRUE,'digital','2026-10-10','Refresh fixture','Own observation',0.8)`, seq)
+		}
+		exec(`INSERT INTO report_raw(report_seq,source_type,source_id,fetcher_id) VALUES(511,'github','github:raw-511','raw-fetcher')`)
+		// Native SQL collation selects accented source before z; the Wire tuple
+		// still contributes author/privacy metadata to that chosen EII identity.
+		exec(`INSERT INTO external_ingest_index(seq,source,external_id,source_url,source_timestamp,created_at) VALUES(512,'z','z-512','https://example.test/loser','2026-10-01','2026-10-10'),(512,'é','é-512','https://Example.test/selected?keep=1#fragment','2026-10-02','2026-10-11')`)
+		exec(`INSERT INTO wire_submissions_raw(submission_id,report_seq,fetcher_id,report_json,provenance_json,observed_at,submitted_at,actor_kind,channel) VALUES('refresh-512',512,'fixture-fetcher',JSON_OBJECT('digital_context',JSON_OBJECT('metadata',JSON_OBJECT('author_username',9007199254740993)),'privacy',JSON_OBJECT('contains_pii',TRUE)),JSON_OBJECT('generation_method','human_authored_public'),'2026-10-05','2026-10-10','human','web')`)
+		exec(`INSERT INTO wire_submissions_raw(submission_id,report_seq,fetcher_id,report_json,provenance_json,observed_at,submitted_at,actor_kind,channel) VALUES('refresh-513-old',513,'fixture-fetcher',JSON_OBJECT('digital_context',JSON_OBJECT('platform','github','source_url','https://example.test/old')),JSON_OBJECT('generation_method','human_authored_public'),'2026-10-02','2026-10-03','human','web'),('refresh-513-new',513,'fixture-fetcher',JSON_OBJECT('digital_context',JSON_OBJECT('platform','github','source_url','https://example.test/new','metadata',JSON_OBJECT('author_username','MixedCase'))),JSON_OBJECT('generation_method','human_authored_public'),'2026-10-04','2026-10-05','human','web')`)
+		exec(`UPDATE reports SET ts=NULL WHERE seq=514`)
+		exec(`UPDATE reports SET id='reddit_t1_refreshfixture',ts='2025-09-05' WHERE seq=517`)
+		hash := sha1.Sum([]byte("reddit:t1_refreshfixture"))
+		exec(`INSERT INTO external_ingest_index(seq,source,external_id,created_at) VALUES(517,'reddit_archive',?,'2026-10-15')`, hex.EncodeToString(hash[:])[:32])
+
+		// The untouched SQL normalization CTE is independent of the cache writer
+		// and covers every output, rather than comparing two copies of its mapper.
+		tx, err := db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback()
+		cte, args := evidenceCTE(EvidenceFilter{Kind: "all"}, "ra.seq IN (511,512,513,514,517)", []interface{}{"en"})
+		rows, err := tx.QueryContext(ctx, cte+`SELECT seq,source_platform,source_url,DATE_FORMAT(source_timestamp,'%Y-%m-%d %H:%i:%s.%f'),DATE_FORMAT(observed_at,'%Y-%m-%d %H:%i:%s.%f'),DATE_FORMAT(ts,'%Y-%m-%d %H:%i:%s.%f'),ingestion_time_missing,actor_kind,fetcher_id,privacy_restricted,source_key,external_source,intake_channel,generation_method,COALESCE(source_account_key,''),ts IS NULL FROM normalized`, args...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expected := map[int]evidencesourceprojection.Record{}
+		for rows.Next() {
+			var r evidencesourceprojection.Record
+			var published, observed, ingested sql.NullString
+			if err := rows.Scan(&r.Seq, &r.SourcePlatform, &r.SourceURL, &published, &observed, &ingested, &r.IngestionTimeMissing, &r.ActorKind, &r.FetcherID, &r.PrivacyRestricted, &r.SourceKey, &r.ExternalSource, &r.IntakeChannel, &r.GenerationMethod, &r.SourceAccountKey, &r.IngestedAtNull); err != nil {
+				rows.Close()
+				t.Fatal(err)
+			}
+			if published.Valid {
+				r.SourceTimestamp = &published.String
+			}
+			if observed.Valid {
+				r.ObservedAt = &observed.String
+			}
+			if ingested.Valid {
+				r.TS = &ingested.String
+			}
+			expected[r.Seq] = r
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil || len(expected) != len(ids) {
+			t.Fatalf("canonical source oracle incomplete: count=%d error=%v", len(expected), err)
+		}
+		if err := tx.Rollback(); err != nil {
+			t.Fatal(err)
+		}
+		for replay := 0; replay < 2; replay++ {
+			result, err := RefreshEvidenceSourceProjection(ctx, db, []int{599, 514, 511, 513, 512, 517})
+			if err != nil || result.Requested != 6 || result.Computed != 5 || result.MissingParents != 1 {
+				t.Fatalf("actual refresh replay%d: %+v %v", replay, result, err)
+			}
+			for _, seq := range ids {
+				if got := readCached(seq); !reflect.DeepEqual(got, expected[seq]) || !state(seq).clean {
+					t.Fatalf("actual cache differs from canonical source normalization for seq%d: got=%+v want=%+v", seq, got, expected[seq])
+				}
+			}
+			if state(599).clean || !state(599).dirty {
+				t.Fatal("missing parent stamped clean or lost generation tombstone")
+			}
+		}
+		if readCached(512).SourcePlatform != "é" || readCached(513).SourceURL != "https://example.test/new" || !readCached(514).IngestedAtNull || !readCached(512).PrivacyRestricted {
+			t.Fatal("fixture did not exercise native winner, latest Wire, NULL ingestion and privacy")
+		}
+		before := state(512)
+		exec(`UPDATE external_ingest_index SET source_url='https://example.test/changed' WHERE source='é' AND external_id='é-512'`)
+		dirtyAfter(512, before)
+		if got := readCached(512); !reflect.DeepEqual(got, expected[512]) {
+			t.Fatal("invalidation partially rewrote the old cached result")
+		}
+		if _, err := RefreshEvidenceSourceProjection(ctx, db, []int{512}); err != nil || readCached(512).SourceURL != "https://example.test/changed" || !state(512).clean {
+			t.Fatalf("dirty source did not refresh: %v", err)
+		}
+	})
+	t.Run("actual refresh establishes snapshot only after generation lock", func(t *testing.T) {
+		seed(515)
+		exec(`INSERT INTO report_raw(report_seq,source_type,source_id) VALUES(515,'github','before')`)
+		if _, err := RefreshEvidenceSourceProjection(ctx, db, []int{515}); err != nil {
+			t.Fatal(err)
+		}
+		holder, err := db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer holder.Rollback()
+		if _, err := evidencesourceprojection.EnsureRowsAndLock(ctx, holder, []int{515}); err != nil {
+			t.Fatal(err)
+		}
+		type outcome struct {
+			result EvidenceSourceProjectionRefresh
+			err    error
+		}
+		done := make(chan outcome, 1)
+		go func() { r, e := RefreshEvidenceSourceProjection(ctx, db, []int{515}); done <- outcome{r, e} }()
+		// Observe an actual blocked cache-row lock instead of relying on sleep
+		// ordering. If a consistent read moved before the lock, it is now stale.
+		waitCtx, waitCancel := context.WithTimeout(ctx, 2*time.Second)
+		defer waitCancel()
+		ticker := time.NewTicker(10 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			var waiting int
+			err := db.QueryRowContext(waitCtx, `SELECT COUNT(*) FROM performance_schema.data_lock_waits w JOIN performance_schema.data_locks l ON l.ENGINE=w.ENGINE AND l.ENGINE_LOCK_ID=w.REQUESTING_ENGINE_LOCK_ID WHERE l.OBJECT_SCHEMA=DATABASE() AND l.OBJECT_NAME='report_evidence_source_projection'`).Scan(&waiting)
+			if err != nil {
+				t.Fatalf("fixture lock observation failed: %v", err)
+			}
+			if waiting > 0 {
+				break
+			}
+			select {
+			case r := <-done:
+				t.Fatalf("actual refresh did not wait for held generation: %+v %v", r.result, r.err)
+			case <-waitCtx.Done():
+				t.Fatal("actual refresh never reached generation lock")
+			case <-ticker.C:
+			}
+		}
+		if _, err := holder.ExecContext(ctx, `UPDATE report_raw SET source_id='after' WHERE report_seq=515`); err != nil {
+			t.Fatal(err)
+		}
+		if err := holder.Commit(); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case r := <-done:
+			if r.err != nil || r.result.Computed != 1 {
+				t.Fatalf("actual refresh after lock release: %+v %v", r.result, r.err)
+			}
+		case <-ctx.Done():
+			t.Fatal("actual refresh did not finish after generation release")
+		}
+		if got := readCached(515); got.SourceKey != "source:github:after" || !state(515).clean {
+			t.Fatalf("refresh stored pre-lock snapshot as current: %+v", got)
+		}
+	})
+	t.Run("raw latest Wire winner precedes authoritative matching header", func(t *testing.T) {
+		// submitted_at in the matching header is NOT NULL in production; test a
+		// stale date and independently test an authoritative nullable observed_at.
+		exec(`UPDATE wire_evidence_projection SET submitted_at='2026-09-01',observed_at=NULL,digital_source_url=JSON_QUOTE('https://example.test/selected-header') WHERE submission_id='refresh-513-new'`)
+		if _, err := RefreshEvidenceSourceProjection(ctx, db, []int{513}); err != nil {
+			t.Fatal(err)
+		}
+		got := readCached(513)
+		if got.SourceURL != "https://example.test/selected-header" || got.SourceTimestamp != nil || got.ObservedAt != nil || !state(513).clean {
+			t.Fatalf("stale/NULL header changed raw winner or lost authoritative fields: %+v", got)
+		}
+	})
+
 }
