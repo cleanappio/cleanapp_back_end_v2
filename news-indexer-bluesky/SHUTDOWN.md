@@ -21,3 +21,19 @@ old-runtime retirement require their own reviewed procedure.
 The process tests send both real signals during startup, active batch receipts,
 the stream's cursor-to-store section, and idle waits. They run owned local
 fixtures without database, ingestion, model or outbound-message calls.
+
+## Preserve the deployed source before replacement
+
+The repository can lag a custom production build. Before this maintenance change,
+we recovered the generation-pinned source archives behind successful Cloud Builds
+`85dabdea-6867-4eb4-899d-6446ec56549f` (the deployed indexer, analyzer and stream)
+and `c72dcd1b-31ee-4a9c-9715-cfdb00050280` (the deployed submitter). The first
+archive contained freshness, physical/photo selection and media handling that
+were missing from the repository. Those business rules were preserved while
+adding shutdown; the submitter's existing business code already matched.
+
+Activation must bind the full scanned build context and its hashes to the
+resulting image digest and selected runtime configuration. A version label or
+new build from main alone does not establish that live behavior was preserved.
+These shutdown changes do not establish that the separate report-loading issue
+has been resolved.

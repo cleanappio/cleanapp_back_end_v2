@@ -13,6 +13,10 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 #[path = "../indexer_bluesky_schema.rs"]
 mod indexer_bluesky_schema;
+#[path = "../media.rs"]
+mod media;
+#[path = "../selection.rs"]
+mod selection;
 
 /// BlueskyNow: Real-time Jetstream firehose consumer for CleanApp
 #[derive(Parser, Debug, Clone)]
@@ -881,7 +885,7 @@ async fn process_message(raw: &str, pool: &Pool) -> Result<bool> {
         static CURSOR_UPDATE_INTERVAL: std::sync::atomic::AtomicU64 =
             std::sync::atomic::AtomicU64::new(0);
         let last = CURSOR_UPDATE_INTERVAL.load(std::sync::atomic::Ordering::Relaxed);
-        if event.time_us - last > 1_000_000 {
+        if cursor_checkpoint_due(event.time_us, last) {
             // Update every ~1 second
             CURSOR_UPDATE_INTERVAL.store(event.time_us, std::sync::atomic::Ordering::Relaxed);
             update_cursor(pool, event.time_us).await?;
@@ -911,27 +915,29 @@ async fn process_message(raw: &str, pool: &Pool) -> Result<bool> {
     // Normalize to BlueskyPost
     let post = normalize_post(&event.did, commit, record)?;
 
-    // Skip very short posts (likely not useful)
-    if post.text.len() < 10 {
+    if !selection::fresh(post.created_at.as_deref(), chrono::Utc::now()) {
         return Ok(false);
     }
-
-    // Check negative keywords (spam filter)
-    let text_lower = post.text.to_lowercase();
-    for kw in NEGATIVE_KEYWORDS {
-        if text_lower.contains(kw) {
+    let embed = record.get("embed");
+    let has_images = embed.is_some_and(|e| !selection::images(e).is_empty());
+    let issue_kind = selection::kind(&post.text, has_images);
+    if issue_kind.is_none() {
+        return Ok(false);
+    }
+    if let Some(embed) = embed {
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(15))
+            .build()?;
+        let mut conn = pool.get_conn().await?;
+        let count =
+            media::store_images(&client, &mut conn, &post.uri, &post.author_did, embed).await?;
+        if issue_kind == Some(selection::IssueKind::Physical) && count == 0 {
+            return Ok(false);
+        }
+        if !has_images && selection::kind(&post.text, false).is_none() {
             return Ok(false);
         }
     }
-
-    // Check for complaint/issue indicators - this is our main filter
-    // The analyzer will determine the brand later
-    let has_complaint_indicator = COMPLAINT_KEYWORDS.iter().any(|kw| text_lower.contains(kw));
-    if !has_complaint_indicator {
-        return Ok(false);
-    }
-
-    // Store the post - analyzer_bluesky will determine brand
     store_post(pool, &post).await?;
 
     info!("📥 Complaint found: {}", truncate_text(&post.text, 80));
@@ -1016,7 +1022,7 @@ async fn store_post(pool: &Pool, post: &BlueskyPost) -> Result<()> {
             &post.author_did,
             post.author_handle.as_deref().unwrap_or(""),
             &post.text,
-            post.created_at.as_deref(),
+            source_created_at(post.created_at.as_deref()),
             &raw_json,
         ),
     )
@@ -1038,5 +1044,47 @@ fn truncate_text(text: &str, max_len: usize) -> String {
                 .collect::<String>()
                 .replace('\n', " ")
         )
+    }
+}
+
+fn cursor_checkpoint_due(event_time_us: u64, last: u64) -> bool {
+    event_time_us.saturating_sub(last) > 1_000_000
+}
+
+fn source_created_at(value: Option<&str>) -> Option<String> {
+    value
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|t| {
+            t.with_timezone(&chrono::Utc)
+                .format("%Y-%m-%d %H:%M:%S")
+                .to_string()
+        })
+}
+
+#[cfg(test)]
+mod deployed_policy_tests {
+    use super::*;
+
+    #[test]
+    fn cursor_throttle_does_not_underflow_on_reordered_or_zero_timestamps() {
+        assert!(!cursor_checkpoint_due(1, 2));
+        assert!(!cursor_checkpoint_due(0, u64::MAX));
+        assert!(!cursor_checkpoint_due(2_000_000, 1_000_000));
+        assert!(cursor_checkpoint_due(2_000_001, 1_000_000));
+        assert!(cursor_checkpoint_due(u64::MAX, 0));
+    }
+
+    #[test]
+    fn mysql_created_at_retains_deployed_utc_seconds_and_invalid_null_behavior() {
+        assert_eq!(
+            source_created_at(Some("2026-10-16T14:15:16.987654+02:00")),
+            Some("2026-10-16 12:15:16".to_owned())
+        );
+        assert_eq!(
+            source_created_at(Some("2026-10-16T00:15:16-03:00")),
+            Some("2026-10-16 03:15:16".to_owned())
+        );
+        assert_eq!(source_created_at(Some("invalid")), None);
+        assert_eq!(source_created_at(None), None);
     }
 }

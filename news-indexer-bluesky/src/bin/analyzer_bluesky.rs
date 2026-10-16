@@ -11,6 +11,8 @@ use tokio::time::sleep;
 
 #[path = "../indexer_bluesky_schema.rs"]
 mod indexer_bluesky_schema;
+#[path = "../selection.rs"]
+mod selection;
 
 #[derive(Parser, Debug, Clone)]
 struct Args {
@@ -39,10 +41,22 @@ struct GeneralConfig {
 }
 
 const PROMPT: &str = r#"
-You are classifying a Bluesky social media post for CleanApp's brand sentiment platform.
-CleanApp crowdsources feedback about SPECIFIC brands and forwards it to those brands.
-
-CRITICAL: We need SPECIFIC, IDENTIFIABLE brand names - not vague categories.
+You classify recent first-hand problem observations for CleanApp.
+Accept TWO equally important domains:
+PHYSICAL: an observed public-space problem supported by attached photos, including litter,
+illegal dumping, potholes, inaccessible or damaged sidewalks, broken lights, water leaks,
+blocked drains, pollution, damaged infrastructure, and fallen trees. A company name is NOT
+required. Photos without a problem are irrelevant. Emergency alert syndication and repeated
+status updates, resolved incidents, news, political commentary, ads and jokes are irrelevant.
+DIGITAL: a specific current broken link, bug, crash, inaccessible interface, failed login,
+checkout failure, confusing UX or concrete friction with an identifiable website/app/product.
+Images are welcome but NOT required for digital issues. General anger, wishlists, promotion,
+and vague negativity without an actionable malfunction or UX issue are irrelevant.
+Extract the actual product/site/brand when supported; never invent one. A specific target
+URL or named product can identify a digital issue even if no company brand is stated.
+Ground titles and descriptions in the original evidence. Never infer that every hazard is
+an emergency or duplicate a template title. Never invent coordinates: use explicit source
+coordinates only; retain a named location in the description for downstream geocoding.
 
 Consider the post text and any images. Return ONLY a strict JSON object:
 {
@@ -57,7 +71,7 @@ Consider the post text and any images. Return ONLY a strict JSON object:
   "longitude": number | null,
   "report_title": string,      // A short, human-friendly report title (<= 120 chars)
   "report_description": string,// A concise description suitable for a report body (<= 1000 chars)
-  "brand_display_name": string,// MUST be a specific brand (e.g., "Uber", "Discord", "Steam")
+  "brand_display_name": string,// Specific product/brand if supported; empty for public-space issues
   "brand_name": string,        // Normalized lowercase version
   "summary": string,           // Distilled gist <= 300 chars
   "language": string,
@@ -85,8 +99,8 @@ Instead, identify the SPECIFIC brand:
 - Tech: Apple, Google, Microsoft, Meta
 
 For app complaints/bugs, set classification="digital" and digital_bug_probability high.
-If not relevant to brand/service issues, set is_relevant=false.
-If you truly cannot identify a specific brand, use "Other". Reports labeled "Other" may not appear on the map.
+If no specific actionable physical or digital issue is supported, set is_relevant=false.
+For physical issues without a company, leave both brand fields empty. Do not discard them for lacking a brand.
 "#;
 
 #[tokio::main]
@@ -159,6 +173,8 @@ async fn run_once(
                FROM indexer_bluesky_post p
                LEFT JOIN indexer_bluesky_analysis a ON a.uri = p.uri
                WHERE a.uri IS NULL
+                 AND p.created_at >= UTC_TIMESTAMP() - INTERVAL 48 HOUR
+                 AND p.created_at <= UTC_TIMESTAMP() + INTERVAL 5 MINUTE
                ORDER BY p.created_at DESC
                LIMIT ?"#,
             (args.batch_size as u64,),
@@ -174,6 +190,8 @@ async fn run_once(
                    FROM indexer_bluesky_analysis a
                    JOIN indexer_bluesky_post p ON p.uri = a.uri
                    WHERE a.error IS NOT NULL
+                     AND p.created_at >= UTC_TIMESTAMP() - INTERVAL 48 HOUR
+                     AND p.created_at <= UTC_TIMESTAMP() + INTERVAL 5 MINUTE
                      AND a.updated_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 6 HOUR)
                    ORDER BY a.updated_at ASC
                    LIMIT ?"#,
@@ -219,6 +237,10 @@ async fn run_once(
         }
 
         // Build Gemini request
+        if selection::kind(&text, !images_base64.is_empty()).is_none() {
+            conn.exec_drop("INSERT INTO indexer_bluesky_analysis (uri,is_relevant,summary) VALUES (?,FALSE,'Rejected by fresh issue/photo policy') ON DUPLICATE KEY UPDATE is_relevant=FALSE,error=NULL", (&uri,)).await?;
+            continue;
+        }
         let req_body = build_gemini_request(&text, &author_handle, &lang, &images_base64);
 
         // Try API endpoints
@@ -426,4 +448,31 @@ fn extract_gemini_text(v: &JsonValue) -> Option<String> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod deployed_policy_tests {
+    use super::*;
+
+    #[test]
+    fn physical_request_keeps_photo_evidence_and_does_not_require_an_invented_brand() {
+        let request = build_gemini_request(
+            "Pothole blocking the sidewalk",
+            "observer",
+            "en",
+            &[("image/jpeg".into(), "photo-fixture".into())],
+        );
+        let parts = request["contents"][0]["parts"].as_array().unwrap();
+        let instruction = parts[0]["text"].as_str().unwrap();
+        assert!(instruction.contains("A company name is NOT"));
+        assert!(instruction
+            .contains("For physical issues without a company, leave both brand fields empty"));
+        assert!(!instruction.contains("use \"Other\""));
+        assert_eq!(parts[2]["inline_data"]["mime_type"], "image/jpeg");
+        assert_eq!(parts[2]["inline_data"]["data"], "photo-fixture");
+        assert_eq!(
+            selection::kind("Pothole blocking the sidewalk", true),
+            Some(selection::IssueKind::Physical)
+        );
+    }
 }
