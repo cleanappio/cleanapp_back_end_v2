@@ -87,9 +87,11 @@ func readBrandSummaries(ctx context.Context, t *testing.T, db *sql.DB, query str
 	return out
 }
 
-// More than 100 pending brands with distinct pending counts make the top-100
-// cutoff and order deterministic, so the rewritten query must match the legacy
-// oracle exactly, including totals that include sent and exclude private rows.
+// 101 pending brands where only brand 1 ranks below the others make the
+// top-100 cutoff deterministic, so the rewritten query must select the same
+// brands with the same totals as the legacy oracle. Totals include sent and
+// exclude private, inactive and shadow reports. The fixture stays small
+// because the legacy query rescans every pending brand's history.
 func testBrandSummaryLegacyParityMySQL(t *testing.T, db *sql.DB) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -99,7 +101,7 @@ func testBrandSummaryLegacyParityMySQL(t *testing.T, db *sql.DB) {
 			t.Fatal(err)
 		}
 	}
-	const base, brands = 200000, 103
+	const base, brands = 200000, 101
 	t.Cleanup(func() {
 		for _, table := range []string{"reports", "report_analysis", "sent_reports_emails", "report_status", "email_report_retry"} {
 			db.Exec("DELETE FROM "+table+" WHERE seq BETWEEN ? AND ?", base, base+brands*1000+999)
@@ -110,7 +112,14 @@ func testBrandSummaryLegacyParityMySQL(t *testing.T, db *sql.DB) {
 	for b := 1; b <= brands; b++ {
 		values, args := []string{}, []any{}
 		analysis, analysisArgs := []string{}, []any{}
-		for i := 1; i <= b+10; i++ {
+		count := 4
+		switch b {
+		case 1:
+			count = 2
+		case 50, 60, 70, 80:
+			count = 5
+		}
+		for i := 1; i <= count; i++ {
 			seq := base + b*1000 + i
 			values = append(values, "(?,?,'2026-10-15',NULL)")
 			args = append(args, seq, fmt.Sprintf("rpt_parity_%d", seq))
@@ -149,13 +158,13 @@ func testBrandSummaryLegacyParityMySQL(t *testing.T, db *sql.DB) {
 	for _, s := range got {
 		byBrand[s.BrandName] = s
 	}
-	for b, want := range map[int][2]int{50: {58, 59}, 60: {68, 69}, 70: {78, 79}, 80: {88, 90}, 103: {112, 113}} {
+	for b, want := range map[int][2]int{2: {3, 4}, 50: {3, 4}, 60: {3, 4}, 70: {3, 4}, 80: {3, 5}, 101: {3, 4}} {
 		s := byBrand[fmt.Sprintf("parity-brand-%03d", b)]
 		if s.NewReportCount != want[0] || s.TotalReportCount != want[1] {
 			t.Fatalf("brand %d counts = %d/%d, want %d/%d", b, s.NewReportCount, s.TotalReportCount, want[0], want[1])
 		}
 	}
-	if _, ok := byBrand["parity-brand-003"]; ok {
+	if _, ok := byBrand["parity-brand-001"]; ok {
 		t.Fatal("brand below the top-100 cutoff was selected")
 	}
 }
