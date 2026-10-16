@@ -13,7 +13,7 @@ import (
 
 // Stream chosen source scalars once. The existing normalizer handles inference,
 // using its proven native archive path or bounded SQL fallback in the same tx.
-func hybridEvidenceInputQuery(f EvidenceFilter) (string, []interface{}, error) {
+func hybridEvidenceInputQuery(f EvidenceFilter, selectedSources string) (string, []interface{}, error) {
 	query, args, err := narrowEvidenceBrandPageQuery(f)
 	if err != nil {
 		return "", nil, err
@@ -29,6 +29,10 @@ func hybridEvidenceInputQuery(f EvidenceFilter) (string, []interface{}, error) {
 		return "", nil, fmt.Errorf("hybrid evidence input scope changed")
 	}
 	prefix, joins := query[:begin+1], query[joinStart:end]
+	if strings.Count(prefix, narrowEvidenceSourceIdentitiesCTE) != 1 {
+		return "", nil, fmt.Errorf("hybrid evidence source identity scope changed")
+	}
+	prefix = strings.Replace(prefix, narrowEvidenceSourceIdentitiesCTE, hybridEvidenceChosenSourcesCTE, 1)
 	scopeArgs := 1 + len(f.Brands)
 	extraArgs := 3 // the full reader's overview clock, page limit and offset
 	if f.Kind != "all" {
@@ -55,7 +59,7 @@ func hybridEvidenceInputQuery(f EvidenceFilter) (string, []interface{}, error) {
 		columns = append(columns, "CAST("+choose("wire_header."+name, originalNodes[i], "wire_header.submission_id")+" AS JSON)")
 	}
 	query = prefix + fmt.Sprintf("\n SELECT /*+ MAX_EXECUTION_TIME(%d) SET_VAR(tmp_table_size=%d) */ ", publicDiscoveryQueryTimeout.Milliseconds(), narrowEvidenceTempTableBudgetBytes) + strings.Join(columns, ",") + " " + joins
-	return query, args[:scopeArgs], nil
+	return query, append(args[:scopeArgs:scopeArgs], selectedSources), nil
 }
 
 // Other selected analysis fields already live in the single record slice.
@@ -66,7 +70,11 @@ type hybridEvidenceAnalysisSelection struct {
 }
 
 func loadHybridEvidenceInputs(ctx context.Context, tx *sql.Tx, f EvidenceFilter) ([]evidenceRecord, []hybridEvidenceAnalysisSelection, map[int]int, []evidenceSourceNormalizationRow, error) {
-	query, args, err := hybridEvidenceInputQuery(f)
+	selectedSources, err := loadHybridEvidenceSourceChoices(ctx, tx, f)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	query, args, err := hybridEvidenceInputQuery(f, selectedSources)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}

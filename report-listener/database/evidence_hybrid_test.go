@@ -22,7 +22,7 @@ func TestHybridEvidenceReadsUnfilteredNormalizedScopeWithOnlyScopeArgs(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	query, args, err := hybridEvidenceInputQuery(f)
+	query, args, err := hybridEvidenceInputQuery(f, "[]")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,22 +30,23 @@ func TestHybridEvidenceReadsUnfilteredNormalizedScopeWithOnlyScopeArgs(t *testin
 	for _, brand := range f.Brands {
 		wantArgs = append(wantArgs, brand)
 	}
+	wantArgs = append(wantArgs, "[]")
 	if !reflect.DeepEqual(args, wantArgs) {
 		t.Fatalf("normalized scope retained non-scope parameters: %v", args)
 	}
-	for _, forbidden := range []string{"rank_input AS", "representatives AS", "family_samples AS", "family_facets AS", "scope_counts AS", "overview_clock AS", "NO_MERGE", "LIMIT ?", "WHERE report_kind", "canonical_url", " AS source_key", "STR_TO_DATE", "SHA1("} {
+	for _, forbidden := range []string{"rank_input AS", "representatives AS", "family_samples AS", "family_facets AS", "scope_counts AS", "overview_clock AS", "NO_MERGE(r)", "LATERAL", "eii_identities AS (", "wire_identities AS (", "LIMIT ?", "WHERE report_kind", "canonical_url", " AS source_key", "STR_TO_DATE", "SHA1("} {
 		if strings.Contains(query, forbidden) {
 			t.Fatalf("fused stream retained aggregation/paging/materialization: %s", forbidden)
 		}
 	}
-	for _, required := range []string{"MAX_EXECUTION_TIME(8000) SET_VAR(tmp_table_size=67108864)", "r.classification,r.severity_level,r.language,r.brand_name", "DATE_FORMAT(r.created_at", "DATE_FORMAT(r.ts", "COALESCE(r.id,'')", "eii_identities AS (", "wire_identities AS (", "wire_header.report_seq=r.seq", "CAST(CASE WHEN wire_header.submission_id IS NOT NULL THEN wire_header.contains_pii", "WHERE r.public_id <> ''"} {
+	for _, required := range []string{"MAX_EXECUTION_TIME(8000) SET_VAR(tmp_table_size=67108864)", "r.classification,r.severity_level,r.language,r.brand_name", "DATE_FORMAT(r.created_at", "DATE_FORMAT(r.ts", "COALESCE(r.id,'')", "chosen_source_ids AS (", "NO_MERGE(chosen)", "LEFT JOIN chosen_source_ids chosen ON chosen.seq=r.seq", "wire_header.report_seq=r.seq", "CAST(CASE WHEN wire_header.submission_id IS NOT NULL THEN wire_header.contains_pii", "WHERE r.public_id <> ''"} {
 		if !strings.Contains(query, required) {
 			t.Fatalf("fused stream lost normalized/null/source contract: %s", required)
 		}
 	}
 	other := f
 	other.Kind, other.Sort, other.Limit, other.Offset = "all", "recurrence", 50, 100
-	otherQuery, otherArgs, err := hybridEvidenceInputQuery(other)
+	otherQuery, otherArgs, err := hybridEvidenceInputQuery(other, "[]")
 	if err != nil || query != otherQuery || !reflect.DeepEqual(args, otherArgs) {
 		t.Fatal("kind/sort/pagination changed the full normalized report universe")
 	}
@@ -104,7 +105,7 @@ func TestHybridEvidenceGroupsFullScopeAndHydratesOnlyChosenNullableAnalyses(t *t
 	}
 	defer db.Close()
 	f, _ := NormalizeEvidenceFilter(EvidenceFilter{BrandName: "claude", Kind: "firsthand", Language: "fr", Limit: 1, asOf: time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)})
-	query, args, err := hybridEvidenceInputQuery(f)
+	query, args, err := hybridEvidenceInputQuery(f, "[]")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,6 +121,7 @@ func TestHybridEvidenceGroupsFullScopeAndHydratesOnlyChosenNullableAnalyses(t *t
 	unrelated[9], unrelated[13] = "unknown", 0
 	rows := sqlmock.NewRows(hybridTestColumns).AddRow(first...).AddRow(winner...).AddRow(unrelated...)
 	mock.ExpectBegin()
+	mock.ExpectQuery("WITH identity_scope").WillReturnRows(sqlmock.NewRows(hybridIdentityTestColumns))
 	mock.ExpectQuery(regexp.QuoteMeta(query)).WithArgs(values...).WillReturnRows(rows)
 	normalizedColumns := strings.Split("seq,platform,url,published,observed,ingested,missing,actor,fetcher,private,key,external,channel,generation,account,null_time", ",")
 	normalized := sqlmock.NewRows(normalizedColumns)
@@ -178,6 +180,7 @@ func TestHybridEvidenceRejectsPartialOrDuplicateNormalizedStreams(t *testing.T) 
 				rows.AddRow(hybridTestRow(42)...)
 			}
 			mock.ExpectBegin()
+			mock.ExpectQuery("WITH identity_scope").WillReturnRows(sqlmock.NewRows(hybridIdentityTestColumns))
 			mock.ExpectQuery("WITH preferred").WillReturnRows(rows)
 			mock.ExpectRollback()
 			page, err := (&Database{db: db}).getEvidenceBrandPageHybrid(context.Background(), EvidenceFilter{BrandName: "claude", Kind: "all"})
@@ -202,6 +205,7 @@ func TestHybridEvidenceArchiveInputsRemainNativeWithoutWireDocuments(t *testing.
 	row[5], row[6], row[8], row[14] = nil, nil, nil, true
 	row[15], row[16], row[20], row[21], row[22], row[23] = "reddit_t3_abc", "2026-03-01 00:00:00.000000", "reddit_archive", digest, nil, nil
 	mock.ExpectBegin()
+	mock.ExpectQuery("WITH identity_scope").WillReturnRows(sqlmock.NewRows(hybridIdentityTestColumns))
 	mock.ExpectQuery("WITH preferred").WillReturnRows(sqlmock.NewRows(hybridTestColumns).AddRow(row...))
 	mock.ExpectRollback()
 	tx, err := db.Begin()

@@ -7,17 +7,24 @@ reader, approximate count, early cohort limit or cache.
 
 The query constructor reuses the narrow reader's checked source-winner scope and
 the candidate's exact metadata/source joins and publication predicates. It retains
-only requested-language and brand-scope parameters. Kind, sort, offset, limit and
+only requested-language, brand-scope and selected-identity parameters. Kind, sort, offset, limit and
 overview clock never restrict the input universe. One statement streams 46
 scalar/presence columns for every visible report, including the selected Wire
 presence check and fifteen typed projected JSON nodes. SQL selects the preferred
 analysis and native-collation source identities, and applies publication guards.
 It does not infer dates or compute canonical URLs/source keys for the whole
 cohort. Evidence text remains presence flags until bounded display hydration.
-Independent source windows contain only actual EII/Wire identities matched to
-the same preferred rank1 scope. The main report scope LEFT JOINs each rank1
-result, preserving reports with no source and avoiding per-report lateral
-rematerialization. Native ordering, timestamp NULL authority and ties are unchanged.
+One unordered covered identity stream uses a shared DISTINCT valid digital brand
+sequence scope for both EII and Wire. Singleton groups need no header read or SQL
+sort. Only duplicate groups requery the native columns' ordering, retaining the
+matching Wire header's authoritative nullable timestamp and guarded same-report
+fallback. These independent chosen tuples become one JSON parameter. The fused
+report read LEFT JOINs that parameter from its full preferred-analysis metadata
+scope, preserving reports with no source. No per-report lateral read or global
+source window remains in this path. A scoped `NO_MERGE(chosen)` keeps the
+identity JSON relation materializable for an indexed sequence lookup; it does
+not materialize the wide report/header scope. Exact timestamp ties remain unspecified;
+all selected metadata and privacy nodes still bind to one coherent submission.
 
 The hybrid reuses `normalizeEvidenceSources`: its established guarded archive
 fast path and bounded MySQL fallback remain the only identity/date normalizers.
@@ -50,7 +57,8 @@ for NULL ingestion occurs after grouping; zero non-NULL timestamps remain
 distinct. Supporting source dates match the oracle's whole-second JSON format,
 while the page's own source date keeps its precision.
 
-Any incomplete or duplicate input stream, normalization failure, deadline, case/hydration error or
+Any incomplete identity stream or duplicate resolution, duplicate report input,
+normalization failure, deadline, case/hydration error or
 commit failure returns an error with no apparently exact partial page. The
 focused tests exercise scope parameters, bounded exact nullable hydration,
 full-scope overview/facets, NULL ingestion, sample precision, native archive
