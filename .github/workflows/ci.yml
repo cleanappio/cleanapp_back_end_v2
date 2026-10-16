@@ -107,6 +107,15 @@ jobs:
           go test ./database -run '^TestWire(MetaProjection|ProjectionBootstrap)MySQLFixture$' -count=1 -v
           go test ./cmd/backfill-wire-evidence -run '^TestWireAuditMySQLFixture$' -count=1 -v
 
+      - name: Check normalized source revisions and refresh locks on MySQL 8.4
+        working-directory: report-listener
+        env:
+          EVIDENCE_SOURCE_PROJECTION_TEST_DSN: "root:local-evidence-fixture@tcp(127.0.0.1:33306)/evidence_source_projection_test?parseTime=true&charset=utf8mb4"
+          MYSQL_PWD: local-evidence-fixture
+        run: |
+          docker exec -e MYSQL_PWD ${{ job.services.mysql.id }} mysql -uroot -e 'CREATE DATABASE evidence_source_projection_test;'
+          go test ./database -run '^TestEvidenceSourceProjectionMySQLFixture$' -count=1 -timeout=120s -v
+
       - name: Repair cold historical brand projections on MySQL 8.4
         working-directory: report-listener
         env:
@@ -206,6 +215,15 @@ jobs:
           docker exec -e MYSQL_PWD=local-evidence-fixture ${{ job.services.mysql.id }} mysql -uroot -e 'CREATE DATABASE wire_meta_evidence_test; CREATE DATABASE wire_projection_bootstrap_evidence_test; CREATE DATABASE wire_audit_evidence_test;'
           go test ./database -run '^TestWire(MetaProjection|ProjectionBootstrap)MySQLFixture$' -count=1 -v
           go test ./cmd/backfill-wire-evidence -run '^TestWireAuditMySQLFixture$' -count=1 -v
+      - name: Check normalized source revisions and refresh locks on MySQL 8.0
+        working-directory: report-listener
+        env:
+          EVIDENCE_SOURCE_PROJECTION_TEST_DSN: "root:local-evidence-fixture@tcp(127.0.0.1:33306)/evidence_source_projection_test?parseTime=true&charset=utf8mb4"
+          MYSQL_PWD: local-evidence-fixture
+        run: |
+          docker exec -e MYSQL_PWD ${{ job.services.mysql.id }} mysql -uroot -e 'CREATE DATABASE evidence_source_projection_test;'
+          go test ./database -run '^TestEvidenceSourceProjectionMySQLFixture$' -count=1 -timeout=120s -v
+
       - name: Repair cold historical brand projections on MySQL 8.0
         working-directory: report-listener
         env:
