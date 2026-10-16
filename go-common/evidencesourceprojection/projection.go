@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -50,7 +51,7 @@ func CleanPredicate(alias string) string {
 		panic("invalid source projection SQL alias")
 	}
 	p := alias + "."
-	terms := []string{p + "dirty=0", p + "normalizer_version=1", p + "computed_revision=" + p + "source_revision"}
+	terms := []string{p + "dirty=0", p + "normalizer_version=" + strconv.Itoa(NormalizerVersion), p + "computed_revision=" + p + "source_revision"}
 	for _, c := range append(append([]string{}, stringColumns...), boolColumns...) {
 		terms = append(terms, p+c+" IS NOT NULL")
 	}
