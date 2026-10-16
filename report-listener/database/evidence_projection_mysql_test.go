@@ -732,4 +732,81 @@ func TestEvidenceSourceProjectionMySQLFixture(t *testing.T) {
 		}
 	})
 
+	t.Run("slim projected stream hydrates warm and fresh bounded family output", func(t *testing.T) {
+		ids := make([]int, 0, 12)
+		for seq := 700; seq < 712; seq++ {
+			ids = append(ids, seq)
+			seed(seq)
+			exec(`UPDATE reports SET latitude=?,longitude=? WHERE seq=?`, float64(seq)/10, -float64(seq)/10, seq)
+			exec(`INSERT INTO report_analysis VALUES(?,'en','slimoutput','Slim',TRUE,'digital','2026-10-10',?,'Exact family output',0.8)`, seq, fmt.Sprintf("Slim report %d", seq))
+			exec(`INSERT INTO report_evidence(seq,report_kind,evidence_excerpt,entity_relationship,evidence_version) VALUES(?,'firsthand','Own observation','affected',1)`, seq)
+			exec(`INSERT INTO case_reports VALUES(?,'slim-output-family')`, seq)
+			exec(`INSERT INTO external_ingest_index(seq,source,external_id,source_url,source_timestamp) VALUES(?,'custom',?,?,?)`, seq, fmt.Sprintf("slim-%d", seq), fmt.Sprintf("https://example.test/slim/%d", seq), fmt.Sprintf("2026-10-%02d 12:00:00", seq-699))
+		}
+		// This is the second most recent source. It consumes one of the first
+		// eight slots before privacy filtering, so exactly seven samples survive.
+		exec(`INSERT INTO wire_submissions_raw(submission_id,report_seq,fetcher_id,report_json,provenance_json,observed_at,submitted_at,actor_kind,channel) VALUES('slim-private',710,'fixture-fetcher',JSON_OBJECT('digital_context',JSON_OBJECT('platform','github','source_url','https://example.test/private-710'),'privacy',JSON_OBJECT('contains_pii',TRUE)),JSON_OBJECT('generation_method','human_authored_public'),'2026-10-11 12:00:00','2026-10-11 12:00:00','human','web')`)
+		// Exercise authoritative metadata fallback for the chosen page row as
+		// well as matching metadata projections for its supporting members.
+		exec(`DELETE FROM report_metadata_projection WHERE seq=711`)
+		refresh := func(ids []int) {
+			t.Helper()
+			r, err := RefreshEvidenceSourceProjection(ctx, db, ids)
+			if err != nil || r.Computed != len(ids) || r.MissingParents != 0 {
+				t.Fatalf("warm slim family: %+v %v", r, err)
+			}
+		}
+		refresh(ids)
+		for _, seq := range ids {
+			if !state(seq).clean {
+				t.Fatal("slim family did not start from actual clean cache generations")
+			}
+		}
+		filter, err := NormalizeEvidenceFilter(EvidenceFilter{BrandName: "slimoutput", Language: "en", Kind: "all", Sort: "recent", Limit: 1})
+		if err != nil {
+			t.Fatal(err)
+		}
+		filter.asOf = time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+		reader := &Database{db: db}
+		check := func() EvidenceBrandPage {
+			t.Helper()
+			got, err := reader.getEvidenceBrandPageProjected(ctx, filter)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want, err := reader.getEvidenceBrandPageSQL(ctx, filter)
+			if err != nil || !reflect.DeepEqual(got, want) {
+				t.Fatalf("slim warm/fresh family differs from independent SQL oracle: %v\ngot=%+v\nwant=%+v", err, got, want)
+			}
+			if got.Overview.TotalReports != 12 || got.Total != 1 || got.KindCounts.All != 1 || len(got.Reports) != 1 || got.Reports[0].Report.Seq != 711 || len(got.Reports[0].Recurrence.SupportingSources) != 7 {
+				t.Fatal("full-cohort counts, representative, or first-eight-before-privacy semantics changed")
+			}
+			if got.Reports[0].Report.PublicID != "r_711" || got.Reports[0].Report.Latitude == 0 || got.Reports[0].Report.Longitude == 0 || got.Reports[0].Evidence.SourceURL == nil || *got.Reports[0].Evidence.SourceURL != "https://example.test/slim/711" {
+				t.Fatal("bounded page report/source fields were not hydrated")
+			}
+			return got
+		}
+		check() // all source generations are actual warm cache hits
+		before := state(705)
+		exec(`UPDATE external_ingest_index SET source_url='https://example.test/slim/705-fresh' WHERE source='custom' AND external_id='slim-705'`)
+		if state(705).clean || state(705).source <= before.source {
+			t.Fatal("supporting source mutation did not produce a real dirty fallback")
+		}
+		dirty := state(705)
+		got := check()
+		found := false
+		for _, sample := range got.Reports[0].Recurrence.SupportingSources {
+			if sample.SourceURL != nil && *sample.SourceURL == "https://example.test/slim/705-fresh" {
+				found = true
+			}
+		}
+		if !found || state(705) != dirty {
+			t.Fatal("late hydration replaced a fresh supporting URL or public fallback wrote the cache")
+		}
+		// A malformed clean date is also a fresh miss, despite the unchanged
+		// projection generation; its stale output-only URL must remain unused.
+		refresh([]int{705})
+		exec(`UPDATE report_evidence_source_projection SET source_timestamp='malformed',source_url='https://example.test/stale-cache-only' WHERE seq=705`)
+		check()
+	})
 }

@@ -570,23 +570,5 @@ func loadEvidenceBrandPageBulk(ctx context.Context, tx *sql.Tx, f EvidenceFilter
 }
 
 func (d *Database) GetEvidenceBrandPage(ctx context.Context, f EvidenceFilter) (EvidenceBrandPage, error) {
-	f, err := NormalizeEvidenceFilter(f)
-	if err != nil {
-		return EvidenceBrandPage{}, err
-	}
-	queryCtx, cancel := withPublicDiscoveryTimeout(ctx)
-	defer cancel()
-	tx, err := d.db.BeginTx(queryCtx, &sql.TxOptions{ReadOnly: true, Isolation: sql.LevelRepeatableRead})
-	if err != nil {
-		return EvidenceBrandPage{}, err
-	}
-	defer tx.Rollback()
-	page, err := loadEvidenceBrandPageBulk(queryCtx, tx, f)
-	if err != nil {
-		return EvidenceBrandPage{}, err
-	}
-	if err := tx.Commit(); err != nil {
-		return EvidenceBrandPage{}, err
-	}
-	return page, nil
+	return d.getEvidenceBrandPageProjected(ctx, f)
 }

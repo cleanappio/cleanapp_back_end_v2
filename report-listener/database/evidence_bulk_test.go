@@ -21,7 +21,18 @@ func TestEvidenceBulkFailureCannotReturnPartialExactCounts(t *testing.T) {
 	mock.ExpectQuery("SELECT seq,language,created_at").WillReturnRows(sqlmock.NewRows([]string{"seq", "language", "created_at", "brand_name", "classification", "severity", "requested", "english", "weight", "created_literal"}).AddRow(1, "en", time.Date(2026, 10, 14, 0, 0, 0, 0, time.UTC), "openai", "digital", 0.5, 1, 1, []byte("en"), "2026-10-14 00:00:00.000000"))
 	mock.ExpectQuery("SELECT ids.seq").WillReturnError(errors.New("metadata deadline exceeded"))
 	mock.ExpectRollback()
-	page, err := (&Database{db: db}).GetEvidenceBrandPage(context.Background(), EvidenceFilter{BrandName: "openai"})
+	f, err := NormalizeEvidenceFilter(EvidenceFilter{BrandName: "openai"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := db.BeginTx(context.Background(), &sql.TxOptions{ReadOnly: true, Isolation: sql.LevelRepeatableRead})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := loadEvidenceBrandPageBulk(context.Background(), tx, f)
+	if rollbackErr := tx.Rollback(); rollbackErr != nil {
+		t.Fatal(rollbackErr)
+	}
 	if err == nil || page.Total != 0 || len(page.Reports) != 0 {
 		t.Fatal("partial snapshot returned apparently exact counts")
 	}
