@@ -219,6 +219,21 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 	}
 
 	d := &Database{db: db}
+	checkNarrow := func(f EvidenceFilter) {
+		t.Helper()
+		f, err := NormalizeEvidenceFilter(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		actual, err := d.getEvidenceBrandPageNarrowSQL(context.Background(), f)
+		if err != nil {
+			t.Fatalf("narrow reader: %v", err)
+		}
+		reference, err := d.getEvidenceBrandPageSQL(context.Background(), f)
+		if err != nil || !reflect.DeepEqual(actual, reference) {
+			t.Fatalf("narrow/reference complete public parity differs: %v\nactual=%+v\nreference=%+v", err, actual, reference)
+		}
+	}
 	page, err := d.GetEvidenceBrandPage(context.Background(), EvidenceFilter{BrandName: "anthropic", Kind: "firsthand"})
 	if err != nil {
 		t.Fatal(err)
@@ -229,6 +244,7 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 	if page.Total != 1 || len(page.Reports) != 1 || page.KindCounts.Firsthand != 1 || page.KindCounts.Coverage != 1 || page.KindCounts.Unknown != 1 || page.KindCounts.All != 3 {
 		t.Fatalf("public family/filter counts wrong: %+v", page)
 	}
+	checkNarrow(EvidenceFilter{BrandName: "anthropic", Kind: "firsthand"})
 
 	if _, err := db.Exec(`INSERT INTO report_metadata_projection (seq,id,public_id,ts,latitude,longitude,has_original_media) SELECT seq,id,public_id,ts,latitude,longitude,LENGTH(image)>0 FROM reports WHERE MOD(seq,2)=0`); err != nil {
 		t.Fatal(err)
@@ -250,6 +266,7 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 	if !evidencePagesEqualIgnoringClock(page, partialHeader) {
 		t.Fatal("partial source header projection changed source selection, fields, dates or exact counts")
 	}
+	checkNarrow(EvidenceFilter{BrandName: "anthropic", Kind: "firsthand"})
 	var headerRows int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM external_ingest_header_projection`).Scan(&headerRows); err != nil || headerRows != 1 {
 		t.Fatal("fixture must exercise mixed projected/unprojected source keys")
@@ -266,6 +283,7 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 	if err != nil || !evidencePagesEqualIgnoringClock(page, partialWire) {
 		t.Fatalf("partial Wire projection changed exact public semantics: %v", err)
 	}
+	checkNarrow(EvidenceFilter{BrandName: "anthropic", Kind: "firsthand"})
 	var wireHeaderRows int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM wire_evidence_projection`).Scan(&wireHeaderRows); err != nil || wireHeaderRows != 1 {
 		t.Fatal("fixture must exercise mixed projected and unprojected Wire submissions")
@@ -280,6 +298,7 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 	if err != nil || !evidencePagesEqualIgnoringClock(page, mismatchedWire) {
 		t.Fatalf("stale Wire link bypassed original metadata fallback: %v", err)
 	}
+	checkNarrow(EvidenceFilter{BrandName: "anthropic", Kind: "firsthand"})
 	if _, err := wiremeta.Backfill(context.Background(), db, []int{1}); err != nil {
 		t.Fatal(err)
 	}
@@ -836,6 +855,7 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 					if !reflect.DeepEqual(actual, reference) {
 						t.Fatalf("bulk/reference parity %s/%s/%s/%d differs: actual=%+v reference=%+v", brand, kind, sortBy, offset, actual, reference)
 					}
+					checkNarrow(filter)
 				}
 			}
 		}
@@ -929,6 +949,7 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 	t.Run("PublicDetailMixedMetadataCollations", func(t *testing.T) { testPublicDetailMixedMetadataCollationsMySQL(t, db) })
 	t.Run("MetadataBlockerParity", func(t *testing.T) { testEvidenceMetadataBlockerParityMySQL(t, db) })
 	t.Run("IndexWinnerParity", func(t *testing.T) { testEvidenceIndexWinnerParityMySQL(t, db) })
+	t.Run("NarrowMalformedPublicIDs", func(t *testing.T) { testNarrowEvidenceMalformedPublicIDsMySQL(t, db) })
 }
 
 func evidencePagesEqualIgnoringClock(a, b EvidenceBrandPage) bool {
