@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -58,8 +59,10 @@ func (c *cohortCacheFixture) snapshotAt(t *testing.T, f EvidenceFilter) time.Tim
 	return element.Value.(*evidenceCohortEntry).cohort.snapshotAt
 }
 
-// parity serves the filter from the held cohort, loading it once when absent,
-// and requires the page to equal the executable SQL oracle exactly.
+// parity compares the completed-normalizer state with the SQL oracle. Pending
+// generations have a deliberately more conservative cached privacy policy and
+// are tested separately below, without running the normalizer first. Completing
+// source generations here never refreshes the held cohort or its live guards.
 func (c *cohortCacheFixture) parity(t *testing.T, f EvidenceFilter) EvidenceBrandPage {
 	t.Helper()
 	f, err := NormalizeEvidenceFilter(f)
@@ -67,6 +70,34 @@ func (c *cohortCacheFixture) parity(t *testing.T, f EvidenceFilter) EvidenceBran
 		t.Fatal(err)
 	}
 	ctx := context.Background()
+	args := make([]any, len(f.Brands))
+	for i, brand := range f.Brands {
+		args[i] = brand
+	}
+	marks := strings.TrimSuffix(strings.Repeat("?,", len(args)), ",")
+	rows, err := c.d.db.QueryContext(ctx, `SELECT DISTINCT p.seq FROM report_evidence_source_projection p JOIN reports r ON r.seq=p.seq JOIN report_analysis ra ON ra.seq=p.seq WHERE p.dirty=TRUE AND ra.brand_name IN (`+marks+`)`, args...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dirty := []int{}
+	for rows.Next() {
+		var seq int
+		if err := rows.Scan(&seq); err != nil {
+			rows.Close()
+			t.Fatal(err)
+		}
+		dirty = append(dirty, seq)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		t.Fatal(err)
+	}
+	rows.Close()
+	if len(dirty) > 0 {
+		if _, err := RefreshEvidenceSourceProjection(ctx, c.d.db, dirty); err != nil {
+			t.Fatalf("complete source generations before oracle parity: %v", err)
+		}
+	}
 	cache := c.d.evidenceCohortCache()
 	cache.mu.Lock()
 	element, held := cache.entries[evidenceCohortKey(f)]
@@ -220,6 +251,55 @@ func testProjectedEvidenceCohortCacheMySQL(t *testing.T, db *sql.DB) {
 			t.Fatalf("reverting live guards did not restore the page without a refresh: %+v != %+v", restored, before)
 		}
 		matrix(t)
+	})
+	t.Run("DirtyPrivacyBeforeWorkerWithoutCohortRefresh", func(t *testing.T) {
+		f, _ := NormalizeEvidenceFilter(all)
+		before := cached.parity(t, f)
+		snapshot := cached.snapshotAt(t, f)
+		// Mutate both a standalone page report and an existing family sample.
+		// The projection trigger only marks dirty; its old privacy flag is false.
+		for _, seq := range []int{first + 16, first + 8} {
+			exec(`INSERT INTO wire_submissions_raw(submission_id,report_seq,report_json,provenance_json,observed_at,submitted_at,extensions_json) VALUES(?,?,JSON_OBJECT('privacy',JSON_OBJECT('contains_pii',TRUE)),JSON_OBJECT(),NULL,'2026-10-15',JSON_OBJECT())`, fmt.Sprint("pending_privacy_", seq), seq)
+			var dirty, restricted bool
+			if err := db.QueryRow(`SELECT dirty,privacy_restricted FROM report_evidence_source_projection WHERE seq=?`, seq).Scan(&dirty, &restricted); err != nil || !dirty || restricted {
+				t.Fatalf("fixture must expose pending redaction before worker recomputation: dirty=%v restricted=%v err=%v", dirty, restricted, err)
+			}
+		}
+		// Deliberately do not use parity(): it completes dirty generations first.
+		after, err := cached.d.getEvidenceBrandPageProjected(ctx, f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if after.SnapshotAt == nil || !after.SnapshotAt.Equal(snapshot) || after.KindCounts != before.KindCounts || after.Total != before.Total || after.Overview.TotalReports != before.Overview.TotalReports {
+			t.Fatalf("pending source privacy changed cached membership/counts or reloaded the cohort: %+v", after)
+		}
+		found := false
+		for _, report := range after.Reports {
+			if report.Report.Seq == first+16 {
+				found = true
+				if report.Report.SourceURL != nil || report.Evidence.SourceURL != nil || report.Evidence.Excerpt != nil || report.Evidence.ReportedImpact != nil || report.Evidence.ClassificationReason != nil || report.Evidence.HasOriginalMedia || len(report.Recurrence.SupportingSources) != 0 {
+					t.Fatalf("pending privacy restriction exposed original source fields: %+v", report)
+				}
+			}
+			for _, sample := range report.Recurrence.SupportingSources {
+				if sample.Title == fmt.Sprint("Cohort ", first+8) || (sample.SourceURL != nil && *sample.SourceURL == fmt.Sprintf("https://example.test/cohort/%d", first+8)) {
+					t.Fatal("dirty privacy generation remained in public supporting samples")
+				}
+			}
+		}
+		if !found {
+			t.Fatal("restricted standalone report disappeared instead of retaining its count")
+		}
+		// Once the worker completes, the held cohort remains safe and the full
+		// exact SQL parity contract applies again, without refreshing that cohort.
+		cached.parity(t, f)
+		for _, seq := range []int{first + 16, first + 8} {
+			exec(`DELETE FROM wire_submissions_raw WHERE submission_id=?`, fmt.Sprint("pending_privacy_", seq))
+		}
+		restored := cached.parity(t, f)
+		if !reflect.DeepEqual(restored, before) || !cached.snapshotAt(t, f).Equal(snapshot) {
+			t.Fatal("normalizer completion did not restore the original cached page")
+		}
 	})
 	t.Run("PrivacyIndexMigration", func(t *testing.T) {
 		privacyIndexes := func() int {

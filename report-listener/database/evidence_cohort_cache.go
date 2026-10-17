@@ -27,7 +27,7 @@ import (
 // public identity and the source tuple are as old as the snapshot. Refreshes
 // are demand-driven, single-flight per key, bounded in number (LRU) and in
 // time, and cancelled on Stop(). The direct path is untouched while no cohort
-// is held or the cache is disabled (default).
+// is held, its snapshot has expired, or the cache is disabled (default).
 type evidenceCohortCacheConfig struct {
 	enabled          bool
 	interval, budget time.Duration
@@ -82,6 +82,7 @@ type evidenceCohortCache struct {
 	inflight   sync.WaitGroup
 	base       context.Context
 	cancel     context.CancelFunc
+	loadGate   chan struct{}
 	stopped    bool
 }
 
@@ -95,6 +96,7 @@ func (d *Database) evidenceCohortCache() *evidenceCohortCache {
 		c.entries = map[string]*list.Element{}
 		c.recent = list.New()
 		c.base, c.cancel = context.WithCancel(context.Background())
+		c.loadGate = make(chan struct{}, 1)
 		if c.load == nil {
 			c.load = d.loadEvidenceCohortSnapshot
 		}
@@ -123,7 +125,10 @@ func evidenceCohortKey(f EvidenceFilter) string {
 // lookup returns the held cohort for the filter's scope and records the demand.
 // An absent or stale entry schedules one background refresh unless one is in
 // flight, backing off or the cache is stopped; the caller falls through to the
-// direct path when nothing is held. Keys are bounded: a new key evicts the
+// direct path when nothing usable is held. A snapshot can be served for at
+// most interval+budget from its first read, including failed-refresh backoff.
+// Expired snapshots remain retained for retry bookkeeping, never for serving.
+// Keys are bounded: a new key evicts the
 // least recently requested idle cohort, and is not admitted while every held
 // cohort is refreshing.
 func (c *evidenceCohortCache) lookup(f EvidenceFilter) (evidenceCohort, bool) {
@@ -142,7 +147,7 @@ func (c *evidenceCohortCache) lookup(f EvidenceFilter) (evidenceCohort, bool) {
 		c.inflight.Add(1)
 		go c.run(entry)
 	}
-	if entry.cohort == nil {
+	if entry.cohort == nil || entry.cohort.snapshotAt.IsZero() || now.Sub(entry.cohort.snapshotAt) >= c.config.interval+c.config.budget {
 		return evidenceCohort{}, false
 	}
 	return *entry.cohort, true
@@ -177,6 +182,23 @@ func (c *evidenceCohortCache) admit(f EvidenceFilter) *evidenceCohortEntry {
 
 func (c *evidenceCohortCache) run(entry *evidenceCohortEntry) {
 	defer c.inflight.Done()
+	// Full-cohort reads share the primary database. Queue requested keys behind
+	// one cancellable slot; each read gets its own budget only after admission.
+	select {
+	case c.loadGate <- struct{}{}:
+		defer func() { <-c.loadGate }()
+	case <-c.base.Done():
+		c.mu.Lock()
+		entry.refreshing = false
+		c.mu.Unlock()
+		return
+	}
+	if c.base.Err() != nil {
+		c.mu.Lock()
+		entry.refreshing = false
+		c.mu.Unlock()
+		return
+	}
 	ctx, cancel := context.WithTimeout(c.base, c.config.budget)
 	defer cancel()
 	_ = c.refresh(ctx, entry)
@@ -291,7 +313,7 @@ func (d *Database) loadEvidenceCohortSnapshot(ctx context.Context, f EvidenceFil
 // cohort size; production measured 0 private owners, ~1.5k non-public raw rows,
 // ~1.6k inactive statuses and 0 restricted projections (2026-10-17).
 type publicationBlocklists struct {
-	inactiveStatus, nonPublicRaw, privateOwner, privacyRestricted map[int]struct{}
+	inactiveStatus, nonPublicRaw, privateOwner, privacyRestricted, dirtySources map[int]struct{}
 }
 
 func (b publicationBlocklists) blocked(seq int) bool {
@@ -301,31 +323,34 @@ func (b publicationBlocklists) blocked(seq int) bool {
 	return inactive || nonPublic || private
 }
 
-// publicationBlocklistQueries are the four set reads, in execution order. Each
-// is the exact complement of the direct statement's guard, evaluated by MySQL
+// publicationBlocklistQueries are the five set reads, in execution order. The
+// publication sets complement the direct statement's guards, evaluated by MySQL
 // under the same column collations: a non-NULL status other than 'active'
 // (report_status), a non-NULL visibility other than 'public' (the complement of
 // PublicVisibilityWhereSQL), a non-empty owner with is_public=FALSE
-// (reports_owners), and a projection with privacy_restricted=TRUE. NULL seqs
+// (reports_owners), and a projection with privacy_restricted=TRUE. Dirty source
+// generations are restricted conservatively until the worker recomputes them:
+// invalidation must never leave an old public privacy flag authoritative. NULL seqs
 // never match a correlated guard, so they are excluded. The index hints name the
 // covering indexes of the production schema; MySQL warns and scans when one is
 // absent, without changing the answer.
-func publicationBlocklistQueries() [4]string {
+func publicationBlocklistQueries() [5]string {
 	budget := "MAX_EXECUTION_TIME(" + strconv.FormatInt(int64(projectedEvidenceRequestBudget/time.Millisecond), 10) + ")"
-	return [4]string{
+	return [5]string{
 		"SELECT /*+ " + budget + " INDEX(rs idx_rs_seq_status) */ rs.seq FROM report_status rs WHERE rs.seq IS NOT NULL AND rs.status IS NOT NULL AND rs.status<>'active'",
 		"SELECT /*+ " + budget + " INDEX(rr idx_visibility) */ rr.report_seq FROM report_raw rr WHERE rr.visibility IS NOT NULL AND rr.visibility<>'public'",
 		"SELECT /*+ " + budget + " INDEX(ro idx_is_public) */ ro.seq FROM reports_owners ro WHERE ro.is_public=FALSE AND ro.seq IS NOT NULL AND ro.owner IS NOT NULL AND ro.owner<>''",
 		"SELECT /*+ " + budget + " INDEX(p " + evidencesourceprojection.PrivacyRestrictedIndex + ") */ p.seq FROM " + evidencesourceprojection.Table + " p WHERE p.privacy_restricted=TRUE",
+		"SELECT /*+ " + budget + " INDEX(p idx_dirty_seq) */ p.seq FROM " + evidencesourceprojection.Table + " p WHERE p.dirty=TRUE",
 	}
 }
 
-// loadPublicationBlocklists reads the four live blocking sets inside the
+// loadPublicationBlocklists reads the five live blocking sets inside the
 // request's read-only repeatable-read transaction and deadline. Any failure
 // fails the request closed; no partial set is ever applied.
 func loadPublicationBlocklists(ctx context.Context, tx *sql.Tx) (publicationBlocklists, error) {
 	queries := publicationBlocklistQueries()
-	sets := [4]map[int]struct{}{}
+	sets := [5]map[int]struct{}{}
 	for i, query := range queries {
 		set, err := loadEvidenceSeqSet(ctx, tx, query)
 		if err != nil {
@@ -333,7 +358,7 @@ func loadPublicationBlocklists(ctx context.Context, tx *sql.Tx) (publicationBloc
 		}
 		sets[i] = set
 	}
-	return publicationBlocklists{inactiveStatus: sets[0], nonPublicRaw: sets[1], privateOwner: sets[2], privacyRestricted: sets[3]}, nil
+	return publicationBlocklists{inactiveStatus: sets[0], nonPublicRaw: sets[1], privateOwner: sets[2], privacyRestricted: sets[3], dirtySources: sets[4]}, nil
 }
 
 func loadEvidenceSeqSet(ctx context.Context, tx *sql.Tx, query string) (map[int]struct{}, error) {
@@ -355,7 +380,8 @@ func loadEvidenceSeqSet(ctx context.Context, tx *sql.Tx, query string) (map[int]
 
 // applyPublicationBlocklists narrows a guard-free cohort to its live subset
 // before any grouping: blocked reports are dropped, and PrivacyRestricted is
-// taken from the live projection. A projection that was dirty or absent at
+// taken from the live projection, with every dirty generation restricted before
+// ranking, sample selection or hydration. A projection that was dirty or absent at
 // refresh carried its exact fresh value into the cohort; its live column may
 // still be the older generation, so a live restriction can add to that value
 // but never remove it. The shared cohort is not mutated.
@@ -366,7 +392,8 @@ func applyPublicationBlocklists(cohort evidenceCohort, b publicationBlocklists) 
 			continue
 		}
 		_, restricted := b.privacyRestricted[r.Seq]
-		r.PrivacyRestricted = restricted || (cohort.freshSources[r.Seq] && r.PrivacyRestricted)
+		_, dirty := b.dirtySources[r.Seq]
+		r.PrivacyRestricted = restricted || dirty || (cohort.freshSources[r.Seq] && r.PrivacyRestricted)
 		live = append(live, r)
 	}
 	return live

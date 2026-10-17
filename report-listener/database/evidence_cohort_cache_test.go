@@ -26,7 +26,7 @@ func cohortTestRecord(seq int) evidenceRecord {
 // family (43 wins), 44 stands alone. Only grouping inputs are present, as in a
 // loaded cohort; no publication state is held.
 func cohortTestSnapshot(f EvidenceFilter) evidenceCohort {
-	cohort := evidenceCohort{key: evidenceCohortKey(f), snapshotAt: time.Date(2026, 10, 15, 11, 0, 0, 0, time.UTC), bySeq: map[int]int{}, freshSources: map[int]bool{}, cases: map[int]evidenceCaseReference{42: {ID: "family-1"}, 43: {ID: "family-1"}}}
+	cohort := evidenceCohort{key: evidenceCohortKey(f), snapshotAt: time.Now().UTC().Truncate(time.Microsecond), bySeq: map[int]int{}, freshSources: map[int]bool{}, cases: map[int]evidenceCaseReference{42: {ID: "family-1"}, 43: {ID: "family-1"}}}
 	for i, seq := range []int{42, 43, 44} {
 		cohort.records = append(cohort.records, cohortTestRecord(seq))
 		cohort.selections = append(cohort.selections, evidenceAnalysisSelection{created: sql.NullString{String: "2026-10-15 00:00:00.000000", Valid: true}, requested: sql.NullInt64{Int64: 1, Valid: true}, english: sql.NullInt64{Valid: true}, languageWeight: []byte("fr"), createdTime: sql.NullTime{Time: time.Date(2026, 10, 15, 0, 0, 0, 0, time.UTC), Valid: true}, sourceClean: true})
@@ -125,11 +125,12 @@ func TestPublicationBlocklistQueriesAreExactGuardComplementsOverCoveringIndexes(
 	if PublicVisibilityWhereSQL != "(rr.visibility IS NULL OR rr.visibility = 'public')" {
 		t.Fatal("public visibility predicate changed; realign the raw blocklist complement")
 	}
-	want := [4]string{
+	want := [5]string{
 		"SELECT /*+ MAX_EXECUTION_TIME(8000) INDEX(rs idx_rs_seq_status) */ rs.seq FROM report_status rs WHERE rs.seq IS NOT NULL AND rs.status IS NOT NULL AND rs.status<>'active'",
 		"SELECT /*+ MAX_EXECUTION_TIME(8000) INDEX(rr idx_visibility) */ rr.report_seq FROM report_raw rr WHERE rr.visibility IS NOT NULL AND rr.visibility<>'public'",
 		"SELECT /*+ MAX_EXECUTION_TIME(8000) INDEX(ro idx_is_public) */ ro.seq FROM reports_owners ro WHERE ro.is_public=FALSE AND ro.seq IS NOT NULL AND ro.owner IS NOT NULL AND ro.owner<>''",
 		"SELECT /*+ MAX_EXECUTION_TIME(8000) INDEX(p idx_privacy_restricted) */ p.seq FROM report_evidence_source_projection p WHERE p.privacy_restricted=TRUE",
+		"SELECT /*+ MAX_EXECUTION_TIME(8000) INDEX(p idx_dirty_seq) */ p.seq FROM report_evidence_source_projection p WHERE p.dirty=TRUE",
 	}
 	if got := publicationBlocklistQueries(); got != want {
 		t.Fatalf("blocklist statements changed:\n%q", got)
@@ -150,7 +151,7 @@ func TestPublicationBlocklistQueriesAreExactGuardComplementsOverCoveringIndexes(
 	}
 }
 
-func TestLoadPublicationBlocklistsReadsFourSetsInOrderAndFailsClosed(t *testing.T) {
+func TestLoadPublicationBlocklistsReadsFiveSetsInOrderAndFailsClosed(t *testing.T) {
 	queries := publicationBlocklistQueries()
 	t.Run("complete", func(t *testing.T) {
 		db, mock, err := sqlmock.New()
@@ -163,6 +164,7 @@ func TestLoadPublicationBlocklistsReadsFourSetsInOrderAndFailsClosed(t *testing.
 		mock.ExpectQuery(regexp.QuoteMeta(queries[1])).WillReturnRows(sqlmock.NewRows([]string{"seq"}).AddRow(6))
 		mock.ExpectQuery(regexp.QuoteMeta(queries[2])).WillReturnRows(sqlmock.NewRows([]string{"seq"}).AddRow(7))
 		mock.ExpectQuery(regexp.QuoteMeta(queries[3])).WillReturnRows(sqlmock.NewRows([]string{"seq"}).AddRow(29))
+		mock.ExpectQuery(regexp.QuoteMeta(queries[4])).WillReturnRows(sqlmock.NewRows([]string{"seq"}).AddRow(30))
 		mock.ExpectRollback()
 		tx, _ := db.Begin()
 		b, err := loadPublicationBlocklists(context.Background(), tx)
@@ -174,6 +176,9 @@ func TestLoadPublicationBlocklistsReadsFourSetsInOrderAndFailsClosed(t *testing.
 		}
 		if _, restricted := b.privacyRestricted[29]; !restricted || len(b.privacyRestricted) != 1 {
 			t.Fatal("privacy set changed")
+		}
+		if _, dirty := b.dirtySources[30]; !dirty || len(b.dirtySources) != 1 {
+			t.Fatal("dirty source set changed")
 		}
 		_ = tx.Rollback()
 		if err := mock.ExpectationsWereMet(); err != nil {
@@ -226,10 +231,27 @@ func TestApplyPublicationBlocklistsDropsGuardedReportsAndTakesLivePrivacy(t *tes
 	}
 }
 
+func TestDirtyPrivacyIsAppliedBeforeSourceWinnerAndCategoryCounts(t *testing.T) {
+	firsthand, coverage := cohortTestRecord(44), cohortTestRecord(43)
+	coverage.SourceKey = firsthand.SourceKey
+	coverage.Kind = "coverage"
+	cohort := evidenceCohort{records: []evidenceRecord{firsthand, coverage}}
+	f, _ := NormalizeEvidenceFilter(EvidenceFilter{BrandName: "claude", Kind: "all"})
+	before := groupEvidenceRecords(cohort.records, nil, f)
+	live := applyPublicationBlocklists(cohort, publicationBlocklists{dirtySources: map[int]struct{}{44: {}}})
+	after := groupEvidenceRecords(live, nil, f)
+	if before.KindCounts.Firsthand != 1 || before.KindCounts.Coverage != 0 || after.KindCounts.Firsthand != 0 || after.KindCounts.Coverage != 1 || after.KindCounts.All != 1 || after.Total != 1 || after.Records[0].Seq != 43 {
+		t.Fatalf("dirty privacy did not promote the public source winner before exact category counting: before=%+v after=%+v", before, after)
+	}
+	if cohort.records[0].PrivacyRestricted {
+		t.Fatal("request-local privacy changed the held cohort")
+	}
+}
+
 func TestEvidenceCohortCacheServesLiveGuardedPageFromHeldCohort(t *testing.T) {
 	type mode struct {
 		name                    string
-		sets                    [4][]int
+		sets                    [5][]int
 		restrictedAtRefresh     []int
 		fresh                   []int
 		dirtyOutput             []int
@@ -243,14 +265,15 @@ func TestEvidenceCohortCacheServesLiveGuardedPageFromHeldCohort(t *testing.T) {
 	}
 	modes := []mode{
 		{name: "unblocked", hydrated: []int{43, 42, 44}, pageIDs: "[43,44]", reports: []int{43, 44}, firstSamples: 2, overview: 3, total: 2, firstSupportingCount: 2},
-		{name: "representative_inactive", sets: [4][]int{{43}}, hydrated: []int{44, 42}, pageIDs: "[44,42]", reports: []int{44, 42}, firstSamples: 1, overview: 2, total: 2, firstSupportingCount: 1},
+		{name: "representative_inactive", sets: [5][]int{{43}}, hydrated: []int{44, 42}, pageIDs: "[44,42]", reports: []int{44, 42}, firstSamples: 1, overview: 2, total: 2, firstSupportingCount: 1},
 		// With 42 gone, 43 and 44 are tied singleton families and sort by seq.
-		{name: "sample_private", sets: [4][]int{nil, nil, {42}}, hydrated: []int{44, 43}, pageIDs: "[44,43]", reports: []int{44, 43}, firstSamples: 1, overview: 2, total: 2, firstSupportingCount: 1},
-		{name: "singleton_shadow", sets: [4][]int{nil, {44}}, hydrated: []int{43, 42}, pageIDs: "[43]", reports: []int{43}, firstSamples: 2, overview: 2, total: 1, firstSupportingCount: 2},
-		{name: "sample_restricted_live", sets: [4][]int{nil, nil, nil, {42}}, hydrated: []int{43, 44}, pageIDs: "[43,44]", reports: []int{43, 44}, firstSamples: 1, overview: 3, total: 2, firstSupportingCount: 2},
+		{name: "sample_private", sets: [5][]int{nil, nil, {42}}, hydrated: []int{44, 43}, pageIDs: "[44,43]", reports: []int{44, 43}, firstSamples: 1, overview: 2, total: 2, firstSupportingCount: 1},
+		{name: "singleton_shadow", sets: [5][]int{nil, {44}}, hydrated: []int{43, 42}, pageIDs: "[43]", reports: []int{43}, firstSamples: 2, overview: 2, total: 1, firstSupportingCount: 2},
+		{name: "sample_restricted_live", sets: [5][]int{nil, nil, nil, {42}}, hydrated: []int{43, 44}, pageIDs: "[43,44]", reports: []int{43, 44}, firstSamples: 1, overview: 3, total: 2, firstSupportingCount: 2},
 		{name: "fresh_restriction_kept", restrictedAtRefresh: []int{44}, fresh: []int{44}, hydrated: []int{43, 42, 44}, pageIDs: "[43,44]", reports: []int{43, 44}, firstSamples: 2, overview: 3, total: 2, firstSupportingCount: 2, secondSourceURLWithheld: true},
 		{name: "clean_restriction_lifted", restrictedAtRefresh: []int{42}, hydrated: []int{43, 42, 44}, pageIDs: "[43,44]", reports: []int{43, 44}, firstSamples: 2, overview: 3, total: 2, firstSupportingCount: 2},
-		{name: "sample_dirty_after_refresh", dirtyOutput: []int{42}, hydrated: []int{43, 42, 44}, pageIDs: "[43,44]", reports: []int{43, 44}, firstSamples: 2, overview: 3, total: 2, firstSupportingCount: 2},
+		{name: "sample_dirty_after_refresh", sets: [5][]int{nil, nil, nil, nil, {42}}, hydrated: []int{43, 44}, pageIDs: "[43,44]", reports: []int{43, 44}, firstSamples: 1, overview: 3, total: 2, firstSupportingCount: 2},
+		{name: "singleton_dirty_after_refresh", sets: [5][]int{nil, nil, nil, nil, {44}}, dirtyOutput: []int{44}, hydrated: []int{43, 42, 44}, pageIDs: "[43,44]", reports: []int{43, 44}, firstSamples: 2, overview: 3, total: 2, firstSupportingCount: 2, secondSourceURLWithheld: true},
 	}
 	for _, m := range modes {
 		t.Run(m.name, func(t *testing.T) {
@@ -261,6 +284,9 @@ func TestEvidenceCohortCacheServesLiveGuardedPageFromHeldCohort(t *testing.T) {
 			defer db.Close()
 			f, _ := NormalizeEvidenceFilter(EvidenceFilter{BrandName: "claude", Kind: "firsthand", Language: "fr", Limit: 2, asOf: time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)})
 			snapshot := cohortTestSnapshot(f)
+			if m.secondSourceURLWithheld {
+				snapshot.records[snapshot.bySeq[44]].HasOriginalMedia = true
+			}
 			for _, seq := range m.restrictedAtRefresh {
 				snapshot.records[snapshot.bySeq[seq]].PrivacyRestricted = true
 			}
@@ -279,7 +305,7 @@ func TestEvidenceCohortCacheServesLiveGuardedPageFromHeldCohort(t *testing.T) {
 				t.Fatal(err)
 			}
 			mock.ExpectBegin()
-			// The four live sets precede any grouping or hydration; they take no
+			// The five live sets precede any grouping or hydration; they take no
 			// per-report arguments.
 			for i, query := range publicationBlocklistQueries() {
 				rows := sqlmock.NewRows([]string{"seq"})
@@ -339,7 +365,7 @@ func TestEvidenceCohortCacheServesLiveGuardedPageFromHeldCohort(t *testing.T) {
 			}
 			if m.secondSourceURLWithheld {
 				second := page.Reports[1]
-				if second.Evidence.SourceURL != nil || second.Evidence.Excerpt != nil || len(second.Recurrence.SupportingSources) != 0 {
+				if second.Evidence.SourceURL != nil || second.Evidence.Excerpt != nil || second.Evidence.ReportedImpact != nil || second.Evidence.ClassificationReason != nil || second.Evidence.HasOriginalMedia || len(second.Recurrence.SupportingSources) != 0 {
 					t.Fatalf("exact fresh restriction was lifted by an older live column: %+v", second)
 				}
 			}
@@ -463,8 +489,113 @@ func TestEvidenceCohortCacheKeepsPreviousCohortAfterFailedRefresh(t *testing.T) 
 	clock = clock.Add(2 * time.Second)
 	c.lookup(f)
 	c.inflight.Wait()
-	if cohort, ok := c.lookup(f); !ok || !cohort.snapshotAt.Equal(first.snapshotAt) || atomic.LoadInt32(&calls) != 3 {
-		t.Fatal("backed-off refresh did not retry, or a failure replaced the cohort")
+	if _, ok := c.lookup(f); ok || atomic.LoadInt32(&calls) != 3 {
+		t.Fatal("expired snapshot was served after a backed-off refresh failure")
+	}
+	c.mu.Lock()
+	held := c.entries[evidenceCohortKey(f)].Value.(*evidenceCohortEntry).cohort
+	c.mu.Unlock()
+	if held == nil || !held.snapshotAt.Equal(first.snapshotAt) {
+		t.Fatal("expired cohort was not retained for refresh bookkeeping")
+	}
+}
+
+func TestEvidenceCohortCacheExpiresFromSnapshotStartAtHardLimit(t *testing.T) {
+	clock := time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
+	snapshotAt := clock.Add(-time.Minute) // a refresh used its complete read budget
+	d := &Database{}
+	d.evidenceCohorts.configure(cohortTestConfig())
+	d.evidenceCohorts.now = func() time.Time { return clock }
+	var calls atomic.Int32
+	d.evidenceCohorts.load = func(_ context.Context, f EvidenceFilter, _ time.Duration) (evidenceCohort, error) {
+		if calls.Add(1) > 1 {
+			return evidenceCohort{}, errors.New("refresh failed")
+		}
+		return evidenceCohort{key: evidenceCohortKey(f), snapshotAt: snapshotAt}, nil
+	}
+	c := d.evidenceCohortCache()
+	f, _ := NormalizeEvidenceFilter(EvidenceFilter{BrandName: "google"})
+	if err := c.refreshNow(context.Background(), f); err != nil {
+		t.Fatal(err)
+	}
+	clock = clock.Add(time.Minute - time.Nanosecond)
+	if _, usable := c.lookup(f); !usable {
+		t.Fatal("snapshot expired before interval+budget")
+	}
+	clock = clock.Add(time.Nanosecond)
+	if _, usable := c.lookup(f); usable {
+		t.Fatal("snapshot served at its hard maximum age")
+	}
+	c.inflight.Wait()
+	clock = clock.Add(time.Hour)
+	if _, usable := c.lookup(f); usable {
+		t.Fatal("failed refresh extended the snapshot's hard maximum age")
+	}
+	c.inflight.Wait()
+}
+
+func TestEvidenceCohortCacheSerializesBackgroundLoadsAcrossKeys(t *testing.T) {
+	d := &Database{}
+	d.evidenceCohorts.configure(cohortTestConfig())
+	started := make(chan string, 2)
+	release := make(chan struct{})
+	var active, maximum atomic.Int32
+	d.evidenceCohorts.load = func(ctx context.Context, f EvidenceFilter, _ time.Duration) (evidenceCohort, error) {
+		n := active.Add(1)
+		defer active.Add(-1)
+		for old := maximum.Load(); n > old && !maximum.CompareAndSwap(old, n); old = maximum.Load() {
+		}
+		started <- f.BrandName
+		select {
+		case <-release:
+			return evidenceCohort{key: evidenceCohortKey(f), snapshotAt: time.Now()}, nil
+		case <-ctx.Done():
+			return evidenceCohort{}, ctx.Err()
+		}
+	}
+	c := d.evidenceCohortCache()
+	google, _ := NormalizeEvidenceFilter(EvidenceFilter{BrandName: "google"})
+	microsoft, _ := NormalizeEvidenceFilter(EvidenceFilter{BrandName: "microsoft"})
+	c.lookup(google)
+	if <-started != "google" {
+		t.Fatal("first load changed")
+	}
+	c.lookup(microsoft)
+	if active.Load() != 1 {
+		t.Fatal("second brand bypassed the background load gate")
+	}
+	release <- struct{}{}
+	if <-started != "microsoft" {
+		t.Fatal("queued brand was not loaded")
+	}
+	release <- struct{}{}
+	c.inflight.Wait()
+	if maximum.Load() != 1 {
+		t.Fatal("full-cohort reads overlapped")
+	}
+}
+
+func TestEvidenceCohortCacheStopCancelsQueuedLoadWithoutStartingIt(t *testing.T) {
+	d := &Database{}
+	d.evidenceCohorts.configure(cohortTestConfig())
+	started := make(chan struct{})
+	var calls atomic.Int32
+	d.evidenceCohorts.load = func(ctx context.Context, _ EvidenceFilter, _ time.Duration) (evidenceCohort, error) {
+		if calls.Add(1) == 1 {
+			close(started)
+		}
+		<-ctx.Done()
+		return evidenceCohort{}, ctx.Err()
+	}
+	c := d.evidenceCohortCache()
+	google, _ := NormalizeEvidenceFilter(EvidenceFilter{BrandName: "google"})
+	microsoft, _ := NormalizeEvidenceFilter(EvidenceFilter{BrandName: "microsoft"})
+	c.lookup(google)
+	<-started
+	c.lookup(microsoft)
+	c.stop()
+	if calls.Load() != 1 {
+		t.Fatal("queued cohort started a database read during shutdown")
 	}
 }
 
@@ -495,10 +626,11 @@ func TestEvidenceCohortCacheBoundsKeysByRecentDemand(t *testing.T) {
 	c.lookup(filter("alpha"))
 	c.lookup(filter("beta"))
 	<-started
-	<-started
-	if _, ok := c.lookup(filter("gamma")); ok || atomic.LoadInt32(&calls) != 2 || len(c.entries) != 2 {
+	if _, ok := c.lookup(filter("gamma")); ok || atomic.LoadInt32(&calls) != 1 || len(c.entries) != 2 {
 		t.Fatal("a third key evicted a refreshing cohort or scheduled a refresh")
 	}
+	release <- struct{}{}
+	<-started
 	close(release)
 	c.inflight.Wait()
 	atomic.StoreInt32(&blocking, 0)

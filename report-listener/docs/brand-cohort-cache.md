@@ -18,9 +18,9 @@ proves it byte for byte). Nothing kind-, sort-, limit- or offset-specific is
 cached; grouping stays request-local and pure. No trigger or table is added.
 
 **Live publication guards.** Inside the request's own read-only repeatable-read
-transaction and deadline, `loadPublicationBlocklists` reads four whole sets as
-covering index ranges, each the exact complement of a direct-statement guard
-under the same column collations:
+transaction and deadline, `loadPublicationBlocklists` reads five whole sets as
+covering index ranges. The publication complements use the direct statement's
+column collations; pending source generations are restricted conservatively:
 
 | set | statement | index |
 | --- | --- | --- |
@@ -28,41 +28,48 @@ under the same column collations:
 | non-public raw | `report_raw.visibility IS NOT NULL AND visibility<>'public'` | `idx_visibility` |
 | private owner | `reports_owners.is_public=FALSE AND owner IS NOT NULL AND owner<>''` | `idx_is_public` |
 | privacy restricted | `report_evidence_source_projection.privacy_restricted=TRUE` | `idx_privacy_restricted` (migration `0032`, online, optional) |
+| pending source generation | `report_evidence_source_projection.dirty=TRUE` | existing `idx_dirty_seq` |
 
 Their cost is proportional to the number of blocked reports in the database, not
 to the cohort: production measured 0 private owners, 1,480 shadow rows, 1,606
 inactive statuses and 0 restricted projections (2026-10-17, see
 `brand-page-read-path-decision.md` section 6). `applyPublicationBlocklists` then
-drops blocked seqs and overwrites `PrivacyRestricted` from the live projection in
-Go **before** `groupEvidenceRecords`, so `Total`, `High`/`Medium`, `KindCounts`,
+drops blocked seqs and overwrites `PrivacyRestricted` from the live projection,
+also restricting every dirty generation, in Go **before** `groupEvidenceRecords`, so `Total`, `High`/`Medium`, `KindCounts`,
 `Overview`, family representatives, the first-eight-then-privacy samples and
-media/excerpt redaction are all live and exact; the existing bounded hydration
-runs unchanged in the same transaction. The index hints are optional: MySQL warns
+media/excerpt redaction follow that live privacy policy over the cached scope.
+Dirty rows retain their membership and count, but source/family representatives
+and category counts can change when a safer source wins the existing ranking.
+The existing bounded hydration runs in the same transaction. The index hints are optional: MySQL warns
 and scans when an index is absent, with the same answer. A failed set read fails
 the request closed.
 
 **Bounded staleness (the only kind).** Brand membership (`is_valid`, brand
 re-attribution, new reports), the non-empty `public_id` identity, analyses and
-the source tuple are as old as the cohort snapshot (default ≤ 60 s plus one cohort
-read). Two consequences: a report whose projection was invalidated after the
-snapshot is hydrated from its last complete normalizer output rather than
-failing the page (the direct path's fail-closed generation check stays in force
-there), and a projection that was dirty or absent at refresh keeps its exact
-fresh privacy value unless the live column adds a restriction. Un-redaction of
-such a row, and any privacy change, becomes visible once the projection worker
-(bounded batches every 30 s) recomputes it; a `public_id` emptied after the
+the source tuple are as old as the cohort snapshot. At lookup the hard maximum
+age is refresh interval plus read budget (default 120 s), measured from the
+snapshot's first read rather than refresh completion. An expired cohort is never
+served, including during refresh failures/backoff; requests fall through to the
+direct path, whose eight-second deadline and fail-closed behavior stay intact.
+A report invalidated after the snapshot can use the last normalizer output for
+grouping, but its URL, excerpt, impact, reason, media and supporting sample are
+withheld immediately while dirty. The projection worker's completed generation
+can then lift that conservative restriction. A projection dirty or absent at
+refresh also retains any restriction established by its exact fresh fallback.
+A `public_id` emptied after the
 snapshot fails that page closed until the next refresh (0 empties measured). A
 page served this way carries `SnapshotAt` (JSON `snapshot_at`), the cohort
 snapshot time; the direct path leaves it unset.
 
 **Refresh, bounds and shutdown.** Refreshes are demand-driven: only a key that
-was requested is loaded, at most once at a time per key, in a background
-goroutine with its own budget and `MAX_EXECUTION_TIME`. An absent key means the
+was requested is loaded, at most once at a time per key. One process-wide
+cancellable slot serializes all background cohort reads; their budget starts
+after admission to that slot. Each has `MAX_EXECUTION_TIME`. An absent key means the
 direct path (unchanged) plus one scheduled first refresh; a held cohort older than
-the interval is served and refreshed. The number of held cohorts is bounded
+the interval is served and refreshed only while below the hard maximum age. The number of held cohorts is bounded
 (`EVIDENCE_BRAND_COHORT_MAX_KEYS`, LRU by request recency; refreshing cohorts are
 never evicted, and a new key is not admitted while nothing idle can be). A failed
-refresh keeps the previous cohort, backs off exponentially from the interval
+refresh retains the previous cohort for bookkeeping without extending its maximum serving age, backs off exponentially from the interval
 (floored at one second) and logs the failure class only. `Service.Stop` cancels
 in-flight refreshes and waits for them. One listener container runs in
 production, so the cache is cold after each deploy; the warm list schedules the
@@ -81,7 +88,11 @@ projection with or without it.
 "Evidence briefing (MySQL 8)"): every projected parity sub-fixture of
 `TestEvidenceMySQLFixture` also serves its matrix from a held cohort through
 `cohortCacheFixture.parity` and requires `reflect.DeepEqual` with
-`getEvidenceBrandPageSQL`. The cohort is dropped only after refresh-time data
+`getEvidenceBrandPageSQL` after the fixture completes pending source generations.
+Pending generations intentionally have a stricter cached policy than the direct
+normalizer; `DirtyPrivacyBeforeWorkerWithoutCohortRefresh` mutates privacy while
+the live projection still says unrestricted and proves URL/excerpt/media/sample
+redaction before the worker runs, without a cohort refresh. The cohort is dropped only after refresh-time data
 changes (projection backfills, analyses, alias membership); `ProjectedPublication
 BlockerParity`'s owner/status mutations, `ProjectedOptionalOwnerIndex`'s owner
 flip and `ProjectedCohortCache/LiveGuardsWithoutRefresh` (one change per guard

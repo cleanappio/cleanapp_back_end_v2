@@ -4,6 +4,16 @@ Worktree `work/cleanapp-claude-cohort-cache`, branch `claude/brand-cohort-cache`
 
 Labels: **MEASURED** = production measurements already on file (not re-run). **ESTIMATE** = arithmetic from those. **LOCAL** = run on this machine (no MySQL/Docker here; MySQL fixtures are CI-only). **CRITIC** = conclusion of one of three independent refutation passes run over this design and the code.
 
+**Integration correction (2026-10-17).** The earlier statements below are a
+historical design record. The integrated implementation adds an indexed fifth
+live set (`dirty=TRUE`), restricting pending source generations before grouping
+and hydration so privacy changes do not wait for the worker. Oracle parity is
+checked after normalizer completion; pending generations have explicit
+conservative-redaction regressions. The hard snapshot serving age is
+`refresh interval + read budget` (120 s by default), measured from snapshot
+start; refresh failure/backoff cannot extend it. All background cohort reads
+share one cancellable load slot. See `brand-cohort-cache.md` for current behavior.
+
 ## 1. Chosen approach, why, and what it costs
 
 **Cost model that fits every measured component (MEASURED → ESTIMATE).** Google's cohort is 61,184 rows; the PR 174 base query spends 0.42 s on the covering brand-index scan and then ~1 s per lookup table (metadata 1.15, raw 0.48, evidence 1.0 for only 31 matching rows, source projection 1.7, owners 0.9, status 0.25) regardless of row width. That is *pages touched × ~1 ms random read* under a buffer pool that background jobs cycle every few seconds. Any design that still does O(cohort) seq-keyed lookups per request stays at 5–7 s cold; that is why narrow SQL, hints, hash joins and SQL-side counts all failed.
