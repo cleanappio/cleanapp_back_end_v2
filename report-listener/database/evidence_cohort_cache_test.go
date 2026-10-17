@@ -35,6 +35,18 @@ func cohortTestSnapshot(f EvidenceFilter) evidenceCohort {
 	return cohort
 }
 
+// Existing unit fixtures advance fake clocks explicitly. Suppress uncontrolled
+// wall-clock ticks and always stop the cache-owned maintenance goroutine.
+func cohortTestCache(t *testing.T, d *Database) *evidenceCohortCache {
+	t.Helper()
+	if d.evidenceCohorts.maintenanceTicks == nil {
+		d.evidenceCohorts.maintenanceTicks = make(chan time.Time)
+	}
+	c := d.evidenceCohortCache()
+	t.Cleanup(c.stop)
+	return c
+}
+
 func cohortTestConfig() evidenceCohortCacheConfig {
 	return evidenceCohortCacheConfig{enabled: true, interval: time.Minute, budget: time.Minute, maxKeys: 8}
 }
@@ -67,7 +79,7 @@ func TestEvidenceCohortCacheIsDisabledByDefault(t *testing.T) {
 		atomic.AddInt32(&calls, 1)
 		return evidenceCohort{}, nil
 	}
-	c := d.evidenceCohortCache()
+	c := cohortTestCache(t, d)
 	f, _ := NormalizeEvidenceFilter(EvidenceFilter{BrandName: "claude"})
 	if _, ok := c.lookup(f); ok || c.config.enabled {
 		t.Fatal("cohort cache served without opt-in")
@@ -81,7 +93,7 @@ func TestEvidenceCohortCacheIsDisabledByDefault(t *testing.T) {
 func TestEvidenceCohortCacheFloorsDegenerateConfiguration(t *testing.T) {
 	d := &Database{}
 	d.evidenceCohorts.configure(evidenceCohortCacheConfig{enabled: true})
-	c := d.evidenceCohortCache()
+	c := cohortTestCache(t, d)
 	if c.config.interval != time.Second || c.config.budget != time.Second || c.config.maxKeys != 1 {
 		t.Fatalf("zero interval/budget/key bound were not floored: %+v", c.config)
 	}
@@ -300,7 +312,7 @@ func TestEvidenceCohortCacheServesLiveGuardedPageFromHeldCohort(t *testing.T) {
 				atomic.AddInt32(&loads, 1)
 				return snapshot, nil
 			}
-			c := d.evidenceCohortCache()
+			c := cohortTestCache(t, d)
 			if err := c.refreshNow(context.Background(), f); err != nil {
 				t.Fatal(err)
 			}
@@ -394,7 +406,7 @@ func TestEvidenceCohortCacheFailsClosedWhenABlocklistReadFails(t *testing.T) {
 	d := &Database{db: db}
 	d.evidenceCohorts.configure(cohortTestConfig())
 	d.evidenceCohorts.load = func(context.Context, EvidenceFilter, time.Duration) (evidenceCohort, error) { return snapshot, nil }
-	if err := d.evidenceCohortCache().refreshNow(context.Background(), f); err != nil {
+	if err := cohortTestCache(t, d).refreshNow(context.Background(), f); err != nil {
 		t.Fatal(err)
 	}
 	queries := publicationBlocklistQueries()
@@ -424,7 +436,7 @@ func TestEvidenceCohortCacheRefreshesOnceForConcurrentCallers(t *testing.T) {
 		}
 		return evidenceCohort{key: evidenceCohortKey(f), snapshotAt: time.Now()}, nil
 	}
-	c := d.evidenceCohortCache()
+	c := cohortTestCache(t, d)
 	f, _ := NormalizeEvidenceFilter(EvidenceFilter{BrandName: "claude", Language: "fr"})
 	var callers sync.WaitGroup
 	for i := 0; i < 8; i++ {
@@ -464,7 +476,7 @@ func TestEvidenceCohortCacheKeepsPreviousCohortAfterFailedRefresh(t *testing.T) 
 		}
 		return evidenceCohort{key: evidenceCohortKey(f), snapshotAt: clock}, nil
 	}
-	c := d.evidenceCohortCache()
+	c := cohortTestCache(t, d)
 	f, _ := NormalizeEvidenceFilter(EvidenceFilter{BrandName: "claude"})
 	c.lookup(f)
 	c.inflight.Wait()
@@ -513,7 +525,7 @@ func TestEvidenceCohortCacheExpiresFromSnapshotStartAtHardLimit(t *testing.T) {
 		}
 		return evidenceCohort{key: evidenceCohortKey(f), snapshotAt: snapshotAt}, nil
 	}
-	c := d.evidenceCohortCache()
+	c := cohortTestCache(t, d)
 	f, _ := NormalizeEvidenceFilter(EvidenceFilter{BrandName: "google"})
 	if err := c.refreshNow(context.Background(), f); err != nil {
 		t.Fatal(err)
@@ -522,6 +534,7 @@ func TestEvidenceCohortCacheExpiresFromSnapshotStartAtHardLimit(t *testing.T) {
 	if _, usable := c.lookup(f); !usable {
 		t.Fatal("snapshot expired before interval+budget")
 	}
+	c.inflight.Wait()
 	clock = clock.Add(time.Nanosecond)
 	if _, usable := c.lookup(f); usable {
 		t.Fatal("snapshot served at its hard maximum age")
@@ -553,7 +566,7 @@ func TestEvidenceCohortCacheSerializesBackgroundLoadsAcrossKeys(t *testing.T) {
 			return evidenceCohort{}, ctx.Err()
 		}
 	}
-	c := d.evidenceCohortCache()
+	c := cohortTestCache(t, d)
 	google, _ := NormalizeEvidenceFilter(EvidenceFilter{BrandName: "google"})
 	microsoft, _ := NormalizeEvidenceFilter(EvidenceFilter{BrandName: "microsoft"})
 	c.lookup(google)
@@ -587,7 +600,7 @@ func TestEvidenceCohortCacheStopCancelsQueuedLoadWithoutStartingIt(t *testing.T)
 		<-ctx.Done()
 		return evidenceCohort{}, ctx.Err()
 	}
-	c := d.evidenceCohortCache()
+	c := cohortTestCache(t, d)
 	google, _ := NormalizeEvidenceFilter(EvidenceFilter{BrandName: "google"})
 	microsoft, _ := NormalizeEvidenceFilter(EvidenceFilter{BrandName: "microsoft"})
 	c.lookup(google)
@@ -616,7 +629,7 @@ func TestEvidenceCohortCacheBoundsKeysByRecentDemand(t *testing.T) {
 		}
 		return evidenceCohort{key: evidenceCohortKey(f), snapshotAt: time.Now()}, nil
 	}
-	c := d.evidenceCohortCache()
+	c := cohortTestCache(t, d)
 	filter := func(brand string) EvidenceFilter {
 		f, _ := NormalizeEvidenceFilter(EvidenceFilter{BrandName: brand})
 		return f
@@ -663,7 +676,7 @@ func TestEvidenceCohortCacheStopCancelsRefreshesAndSchedulesNoMore(t *testing.T)
 		<-ctx.Done()
 		return evidenceCohort{}, ctx.Err()
 	}
-	c := d.evidenceCohortCache()
+	c := cohortTestCache(t, d)
 	f, _ := NormalizeEvidenceFilter(EvidenceFilter{BrandName: "claude"})
 	c.lookup(f)
 	<-started

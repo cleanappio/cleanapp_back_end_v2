@@ -25,8 +25,8 @@ import (
 // from live blocking sets read inside the request's own transaction, so counts,
 // grouping, samples and privacy are live by construction; only membership,
 // public identity and the source tuple are as old as the snapshot. Refreshes
-// are demand-driven, single-flight per key, bounded in number (LRU) and in
-// time, and cancelled on Stop(). The direct path is untouched while no cohort
+// keep bounded held keys warm, are single-flight per key, bounded in time, and
+// cancelled on Stop(). The direct path is untouched while no cohort
 // is held, its snapshot has expired, or the cache is disabled (default).
 type evidenceCohortCacheConfig struct {
 	enabled          bool
@@ -35,7 +35,7 @@ type evidenceCohortCacheConfig struct {
 	warm             []string
 }
 
-// Defaults: refresh after 60 s on demand, 60 s cohort read budget, at most 8
+// Defaults: refresh snapshots after 60 s, 60 s cohort read budget, at most 8
 // cohorts (ESTIMATE ~40 MB each for a 61k-report brand). Intervals shorter than
 // a second would make the failure backoff degenerate, so they are floored.
 func evidenceCohortCacheConfigFromEnv() evidenceCohortCacheConfig {
@@ -84,6 +84,10 @@ type evidenceCohortCache struct {
 	cancel     context.CancelFunc
 	loadGate   chan struct{}
 	stopped    bool
+	// Tests can supply controlled ticks; production owns one cache-wide ticker.
+	maintenanceTicks    <-chan time.Time
+	maintenanceDone     chan struct{}
+	maintenancePassDone chan<- struct{} // optional controlled-scheduler acknowledgment
 }
 
 func (d *Database) evidenceCohortCache() *evidenceCohortCache {
@@ -102,6 +106,10 @@ func (d *Database) evidenceCohortCache() *evidenceCohortCache {
 		}
 		if c.now == nil {
 			c.now = time.Now
+		}
+		if c.config.enabled {
+			c.maintenanceDone = make(chan struct{})
+			go c.maintain()
 		}
 	})
 	return c
@@ -142,15 +150,64 @@ func (c *evidenceCohortCache) lookup(f EvidenceFilter) (evidenceCohort, bool) {
 		return evidenceCohort{}, false
 	}
 	now := c.now()
-	if !c.stopped && (entry.cohort == nil || now.Sub(entry.refreshedAt) >= c.config.interval) && !entry.refreshing && !now.Before(entry.retryAfter) {
-		entry.refreshing = true
-		c.inflight.Add(1)
-		go c.run(entry)
-	}
+	c.scheduleDue(entry, now)
 	if entry.cohort == nil || entry.cohort.snapshotAt.IsZero() || now.Sub(entry.cohort.snapshotAt) >= c.config.interval+c.config.budget {
 		return evidenceCohort{}, false
 	}
 	return *entry.cohort, true
+}
+
+// scheduleDue is shared by requests and idle upkeep. Callers hold c.mu, so
+// Stop's stopped flag and every WaitGroup Add are ordered under the same lock.
+func (c *evidenceCohortCache) scheduleDue(entry *evidenceCohortEntry, now time.Time) {
+	if c.stopped || entry.refreshing || now.Before(entry.retryAfter) {
+		return
+	}
+	start := entry.refreshedAt
+	if entry.cohort != nil && !entry.cohort.snapshotAt.IsZero() {
+		start = entry.cohort.snapshotAt
+	}
+	if entry.cohort != nil && now.Sub(start) < c.config.interval {
+		return
+	}
+	entry.refreshing = true
+	c.inflight.Add(1)
+	go c.run(entry)
+}
+
+// One maintenance loop keeps only currently admitted keys warm. It neither
+// admits new keys nor changes request recency, and evicted keys own no timers.
+func (c *evidenceCohortCache) maintain() {
+	defer close(c.maintenanceDone)
+	ticks := c.maintenanceTicks
+	if ticks == nil {
+		ticker := time.NewTicker(min(time.Second, c.config.interval/4))
+		defer ticker.Stop()
+		ticks = ticker.C
+	}
+	for {
+		select {
+		case <-c.base.Done():
+			return
+		case _, open := <-ticks:
+			if !open {
+				return
+			}
+			c.mu.Lock()
+			now := c.now()
+			for element := c.recent.Back(); element != nil; element = element.Prev() {
+				c.scheduleDue(element.Value.(*evidenceCohortEntry), now)
+			}
+			c.mu.Unlock()
+			if c.maintenancePassDone != nil {
+				select {
+				case c.maintenancePassDone <- struct{}{}:
+				case <-c.base.Done():
+					return
+				}
+			}
+		}
+	}
 }
 
 // admit returns the entry for the filter, creating it within the key bound.
@@ -263,6 +320,9 @@ func (c *evidenceCohortCache) stop() {
 	c.mu.Unlock()
 	if cancel != nil {
 		cancel()
+	}
+	if c.maintenanceDone != nil {
+		<-c.maintenanceDone
 	}
 	c.inflight.Wait()
 }

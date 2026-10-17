@@ -61,8 +61,12 @@ snapshot fails that page closed until the next refresh (0 empties measured). A
 page served this way carries `SnapshotAt` (JSON `snapshot_at`), the cohort
 snapshot time; the direct path leaves it unset.
 
-**Refresh, bounds and shutdown.** Refreshes are demand-driven: only a key that
-was requested is loaded, at most once at a time per key. One process-wide
+**Refresh, bounds and shutdown.** Requests and the startup warm list admit keys;
+one cache-owned maintenance loop then keeps those bounded held keys warm during
+idle periods. It scans memory at least once per second, schedules a refresh once
+the snapshot age reaches the refresh interval, and leaves LRU request recency
+unchanged. Evicted keys have no timers and receive no further maintenance reads.
+Refreshes remain at most once at a time per key. One process-wide
 cancellable slot serializes all background cohort reads; their budget starts
 after admission to that slot. Each has `MAX_EXECUTION_TIME`. An absent key means the
 direct path (unchanged) plus one scheduled first refresh; a held cohort older than
@@ -70,15 +74,27 @@ the interval is served and refreshed only while below the hard maximum age. The 
 (`EVIDENCE_BRAND_COHORT_MAX_KEYS`, LRU by request recency; refreshing cohorts are
 never evicted, and a new key is not admitted while nothing idle can be). A failed
 refresh retains the previous cohort for bookkeeping without extending its maximum serving age, backs off exponentially from the interval
-(floored at one second) and logs the failure class only. `Service.Stop` cancels
-in-flight refreshes and waits for them. One listener container runs in
+(floored at one second) and logs the failure class only. Maintenance shares that
+backoff and never extends hard snapshot expiry. `Service.Stop` prevents further
+scheduling, cancels the ticker and in-flight/queued refreshes, and waits for them.
+One listener container runs in
 production, so the cache is cold after each deploy; the warm list schedules the
 first cohorts at startup.
+
+**Deployment verification.** A successful canonical source build does not prove
+that its listener image is running: an ordinary VM Compose override can still pin
+an older image. Before a partial listener release, reconcile only a stale listener
+image override with the base `:prod` image, preserve all other configuration, and
+keep a private backup. Verify both the running immutable image digest and the
+public `/api/v3/version` response's `git_sha`. The recovered release was checked
+against source `7a4675b1` after clearing such an old listener override.
 
 **Configuration / rollback.** `EVIDENCE_BRAND_COHORT_CACHE=1` enables it
 (default off; unset it to roll back, no schema change needed),
 `EVIDENCE_BRAND_COHORT_REFRESH_SEC` (default 60), `EVIDENCE_BRAND_COHORT_BUDGET_SEC`
-(default 60), `EVIDENCE_BRAND_COHORT_MAX_KEYS` (default 8; ESTIMATE ~40 MB per
+(default 60), `EVIDENCE_BRAND_COHORT_MAX_KEYS` (default 8 in code and production
+Compose; retains Microsoft/Google alongside the three routine company scopes
+without evicting one of the large brands; ESTIMATE ~40 MB per
 61k-report cohort) and `EVIDENCE_BRAND_COHORT_WARM=microsoft,google`. Release
 migration `0032_evidence_source_projection_privacy_index` adds the privacy index
 online (`ALGORITHM=INPLACE, LOCK=NONE`, bounded lock wait); `Verify` accepts the
