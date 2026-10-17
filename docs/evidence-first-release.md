@@ -85,11 +85,16 @@ never presented as affected-user totals.
 - Existing active/public visibility, ownership, quarantine, routing, and intake
   rules are preserved. Coverage and unknown reports remain accessible in explicit
   views; physical and digital share the enrichment model.
-- The projected reader keeps the inactive-status guard as `NOT EXISTS` and the
-  private-owner guard as a correlated `COUNT(*)=0`. The latter retains per-report
-  indexed owner lookups instead of materializing unrelated private owners. Its
-  `JOIN_INDEX(ro idx_is_public)` hint remains optional; an absent index does not
-  change publication semantics or require a schema migration.
+- The projected reader expresses all three publication guards as `NOT EXISTS`
+  anti-joins: inactive status, private owner, and non-public `report_raw`
+  visibility. Production measurements on 2026-10-17 found the private-owner
+  blocking set empty and the non-public raw set at 1,480 rows, while the former
+  correlated `COUNT(*)=0` owner lookup and the `report_raw` outer join cost
+  1.4–3.9 s per 61k-row cohort; the anti-join form lets the optimizer
+  materialise each set once, as it already did for `report_status`. No index
+  hint is involved; an absent index does not change publication semantics or
+  require a schema migration. The legacy SQL reader keeps its correlated
+  guards, so the MySQL parity fixtures compare the two forms directly.
 
 ## Validation record
 

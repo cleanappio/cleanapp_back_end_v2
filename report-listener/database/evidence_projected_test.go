@@ -91,7 +91,7 @@ func TestProjectedEvidenceReadsCompleteLiveScopeWithoutSourceJoins(t *testing.T)
 			t.Fatalf("output-only field remains in the full stream: %s", deferred)
 		}
 	}
-	for _, required := range []string{"COLLATE utf8mb4_bin", "WHEN m.seq IS NOT NULL", "rs.status IS NOT NULL AND rs.status<>'active'", "ro.owner IS NOT NULL AND ro.owner<>'' AND ro.is_public=FALSE", PublicVisibilityWhereSQL, "LEFT JOIN report_evidence ev", "MAX_EXECUTION_TIME(8000)", "WEIGHT_STRING(ra.language AS CHAR(2))", "ra.analysis_requested,ra.analysis_english,ra.analysis_language_weight,ra.created_at"} {
+	for _, required := range []string{"COLLATE utf8mb4_bin", "WHEN m.seq IS NOT NULL", "rs.status IS NOT NULL AND rs.status<>'active'", "ro.owner IS NOT NULL AND ro.owner<>'' AND ro.is_public=FALSE", "rr.visibility IS NOT NULL AND rr.visibility<>'public'", "LEFT JOIN report_evidence ev", "MAX_EXECUTION_TIME(8000)", "WEIGHT_STRING(ra.language AS CHAR(2))", "ra.analysis_requested,ra.analysis_english,ra.analysis_language_weight,ra.created_at"} {
 		if !strings.Contains(query, required) {
 			t.Fatalf("live publication/evidence contract missing: %s", required)
 		}
@@ -103,13 +103,19 @@ func TestProjectedEvidenceReadsCompleteLiveScopeWithoutSourceJoins(t *testing.T)
 	}
 }
 
-func TestProjectedEvidencePublicationGuardsKeepCorrelatedOwnerCountAndExactScope(t *testing.T) {
+func TestProjectedEvidencePublicationGuardsAreExistenceAntiJoinsWithExactScope(t *testing.T) {
 	f, _ := NormalizeEvidenceFilter(EvidenceFilter{BrandName: "microsoft", Language: "en"})
 	query, _ := projectedEvidenceBaseQuery(f)
-	hinted := "(SELECT /*+ JOIN_INDEX(ro idx_is_public) */ COUNT(*) FROM reports_owners ro WHERE ro.seq=ra.seq AND ro.owner IS NOT NULL AND ro.owner<>'' AND ro.is_public=FALSE)=0"
 	status := "NOT EXISTS(SELECT 1 FROM report_status rs WHERE rs.seq=ra.seq AND rs.status IS NOT NULL AND rs.status<>'active')"
-	if strings.Count(query, hinted) != 1 || strings.Count(query, "JOIN_INDEX(") != 1 || strings.Count(query, status) != 1 || strings.Count(query, "NOT EXISTS(") != 1 || strings.Count(query, "COUNT(*)") != 1 || strings.Contains(query, "ROW_NUMBER() OVER") || strings.Contains(query, "analysis_rank") || !strings.Contains(query, "WEIGHT_STRING(ra.language AS CHAR(2))") || !strings.Contains(query, "ra.analysis_requested,ra.analysis_english,ra.analysis_language_weight,ra.created_at") || !strings.Contains(query, "WHERE ra.seq IS NOT NULL") {
-		t.Fatal("correlated owner count or status existence guard changed exact blockers or preferred analysis")
+	owner := "NOT EXISTS(SELECT 1 FROM reports_owners ro WHERE ro.seq=ra.seq AND ro.owner IS NOT NULL AND ro.owner<>'' AND ro.is_public=FALSE)"
+	visibility := "NOT EXISTS(SELECT 1 FROM report_raw rr WHERE rr.report_seq=ra.seq AND rr.visibility IS NOT NULL AND rr.visibility<>'public')"
+	if strings.Count(query, status) != 1 || strings.Count(query, owner) != 1 || strings.Count(query, visibility) != 1 || strings.Count(query, "NOT EXISTS(") != 3 || strings.Contains(query, "COUNT(*)") || strings.Contains(query, "JOIN_INDEX(") || strings.Contains(query, "ROW_NUMBER() OVER") || strings.Contains(query, "analysis_rank") || !strings.Contains(query, "WEIGHT_STRING(ra.language AS CHAR(2))") || !strings.Contains(query, "ra.analysis_requested,ra.analysis_english,ra.analysis_language_weight,ra.created_at") || !strings.Contains(query, "WHERE ra.seq IS NOT NULL") {
+		t.Fatal("status, owner, or visibility existence guard changed exact blockers or preferred analysis")
+	}
+	// The visibility guard replaces the outer join on report_raw; a retained
+	// join would reinstate one primary-key lookup per cohort row.
+	if strings.Contains(query, "LEFT JOIN report_raw") || strings.Count(query, "rr.") != 3 || strings.Contains(query, PublicVisibilityWhereSQL) {
+		t.Fatal("report_raw remained joined per report instead of a single anti-join blocking set")
 	}
 	if strings.Contains(query, "FORCE INDEX (idx_is_public)") || strings.Contains(query, "NOT IN") || strings.Contains(query, "LIMIT") || !strings.Contains(query, "MAX_EXECUTION_TIME(8000)") {
 		t.Fatal("publication guards introduced a required index, NULL-unsafe membership, or cohort/deadline change")
