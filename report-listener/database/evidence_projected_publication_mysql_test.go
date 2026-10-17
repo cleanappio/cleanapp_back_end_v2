@@ -39,6 +39,10 @@ func testProjectedEvidencePublicationBlockerParityMySQL(t *testing.T, db *sql.DB
 		t.Fatalf("warm exact publication scope: %+v %v", r, err)
 	}
 	d := &Database{db: db}
+	// The held guard-free cohort is loaded once and never refreshed here: every
+	// owner, status and visibility change below must be live from the blocking
+	// sets alone, with the same oracle parity as the direct statement.
+	cached := newCohortCacheFixture(t, db)
 	clock := time.Date(2026, 10, 16, 0, 0, 0, 0, time.UTC)
 	check := func(filter EvidenceFilter, expected int) EvidenceBrandPage {
 		t.Helper()
@@ -50,6 +54,7 @@ func testProjectedEvidencePublicationBlockerParityMySQL(t *testing.T, db *sql.DB
 		if err != nil || !reflect.DeepEqual(got, want) {
 			t.Fatalf("existence guards differ from original COUNT privacy contract: %v\ngot=%+v\nwant=%+v", err, got, want)
 		}
+		cached.parity(t, filter)
 		if got.Overview.TotalReports != expected || got.KindCounts.All != expected || got.KindCounts.Firsthand != expected || got.KindCounts.Coverage != 0 || got.KindCounts.Unknown != 0 {
 			t.Fatal("NULL/mixed/duplicate/status/owner publication scope changed")
 		}

@@ -16,6 +16,11 @@ import (
 )
 
 const Table = "report_evidence_source_projection"
+
+// PrivacyRestrictedIndex lets a reader enumerate the privacy-restricted set as
+// one covering range instead of scanning the table. It changes no row and no
+// predicate: readers without it get the same answer from a full scan.
+const PrivacyRestrictedIndex = "idx_privacy_restricted"
 const NormalizerVersion = 1
 const MaxBatch = 200
 
@@ -145,7 +150,7 @@ func createTableSQL() string {
 		}
 		columns = append(columns, c+" "+typ+" NULL")
 	}
-	return "CREATE TABLE IF NOT EXISTS " + Table + " (" + strings.Join(columns, ",") + ", PRIMARY KEY(seq), KEY idx_dirty_seq(dirty,seq)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin"
+	return "CREATE TABLE IF NOT EXISTS " + Table + " (" + strings.Join(columns, ",") + ", PRIMARY KEY(seq), KEY idx_dirty_seq(dirty,seq), KEY " + PrivacyRestrictedIndex + "(privacy_restricted)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin"
 }
 
 type trigger struct{ name, table, timing, event, body string }
@@ -172,9 +177,10 @@ func triggers() []trigger {
 	return result
 }
 
-// Migrate is explicit DDL only: no base table ALTER, backfill, trigger
-// replacement, cache deletion, global setting or startup migration is performed.
-func Migrate(ctx context.Context, db *sql.DB) (retErr error) {
+// withMigrationSession runs explicit DDL on one pooled connection whose
+// metadata-lock wait is capped, so an unsupported schema fails instead of
+// queueing behind a long transaction. The previous limit is always restored.
+func withMigrationSession(ctx context.Context, db *sql.DB, run func(context.Context, *sql.Conn) error) (retErr error) {
 	conn, err := db.Conn(ctx)
 	if err != nil {
 		return err
@@ -195,28 +201,56 @@ func Migrate(ctx context.Context, db *sql.DB) (retErr error) {
 			retErr = errors.Join(retErr, fmt.Errorf("restore projection session: %w", e))
 		}
 	}()
-	if err = verifyCascadeContract(ctx, conn); err != nil {
-		return err
-	}
-	if _, err = conn.ExecContext(ctx, createTableSQL()); err != nil {
-		return fmt.Errorf("create evidence source projection: %w", err)
-	}
-	if err = verifyTable(ctx, conn); err != nil {
-		return err
-	}
-	for _, t := range triggers() {
-		exists, e := verifyTrigger(ctx, conn, t)
-		if e != nil {
-			return e
+	return run(ctx, conn)
+}
+
+// Migrate is explicit DDL only: no base table ALTER, backfill, trigger
+// replacement, cache deletion, global setting or startup migration is performed.
+func Migrate(ctx context.Context, db *sql.DB) error {
+	return withMigrationSession(ctx, db, func(ctx context.Context, conn *sql.Conn) error {
+		if err := verifyCascadeContract(ctx, conn); err != nil {
+			return err
 		}
-		if exists {
-			continue
+		if _, err := conn.ExecContext(ctx, createTableSQL()); err != nil {
+			return fmt.Errorf("create evidence source projection: %w", err)
 		}
-		if _, e = conn.ExecContext(ctx, "CREATE TRIGGER "+t.name+" "+t.timing+" "+t.event+" ON "+t.table+" FOR EACH ROW "+t.body); e != nil {
-			return fmt.Errorf("create source invalidation trigger %s: %w", t.name, e)
+		if err := verifyTable(ctx, conn); err != nil {
+			return err
 		}
-	}
-	return nil
+		for _, t := range triggers() {
+			exists, e := verifyTrigger(ctx, conn, t)
+			if e != nil {
+				return e
+			}
+			if exists {
+				continue
+			}
+			if _, e = conn.ExecContext(ctx, "CREATE TRIGGER "+t.name+" "+t.timing+" "+t.event+" ON "+t.table+" FOR EACH ROW "+t.body); e != nil {
+				return fmt.Errorf("create source invalidation trigger %s: %w", t.name, e)
+			}
+		}
+		return nil
+	})
+}
+
+// MigratePrivacyRestrictedIndex adds PrivacyRestrictedIndex online to a table
+// created before it was part of the DDL. It is a separate explicit step because
+// the service migrator records each step once. The index is additive: no row,
+// trigger, column or reader predicate changes, and Verify accepts the table with
+// or without it.
+func MigratePrivacyRestrictedIndex(ctx context.Context, db *sql.DB) error {
+	return withMigrationSession(ctx, db, func(ctx context.Context, conn *sql.Conn) error {
+		var named int
+		if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND INDEX_NAME=?`, Table, PrivacyRestrictedIndex).Scan(&named); err != nil {
+			return err
+		}
+		if named == 0 {
+			if _, err := conn.ExecContext(ctx, "ALTER TABLE "+Table+" ADD INDEX "+PrivacyRestrictedIndex+" (privacy_restricted), ALGORITHM=INPLACE, LOCK=NONE"); err != nil {
+				return fmt.Errorf("add online privacy restriction index: %w", err)
+			}
+		}
+		return verifyTable(ctx, conn)
+	})
 }
 
 // Verify is read-only readiness validation for operators and workers. It never
@@ -317,14 +351,19 @@ func verifyTable(ctx context.Context, c *sql.Conn) error {
 	if err = c.QueryRowContext(ctx, `SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?`, Table).Scan(&indexes); err != nil {
 		return err
 	}
-	var primary, dirtyIndex int
+	var primary, dirtyIndex, privacyIndex int
 	if err = c.QueryRowContext(ctx, `SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND INDEX_NAME='PRIMARY' AND NON_UNIQUE=0 AND SEQ_IN_INDEX=1 AND COLUMN_NAME='seq' AND SUB_PART IS NULL AND COLLATION='A' AND INDEX_TYPE='BTREE' AND IS_VISIBLE='YES'`, Table).Scan(&primary); err != nil {
 		return err
 	}
 	if err = c.QueryRowContext(ctx, `SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND INDEX_NAME='idx_dirty_seq' AND NON_UNIQUE=1 AND SUB_PART IS NULL AND COLLATION='A' AND INDEX_TYPE='BTREE' AND IS_VISIBLE='YES' AND ((SEQ_IN_INDEX=1 AND COLUMN_NAME='dirty') OR (SEQ_IN_INDEX=2 AND COLUMN_NAME='seq'))`, Table).Scan(&dirtyIndex); err != nil {
 		return err
 	}
-	if engine != "InnoDB" || fks != 0 || indexes != 3 || primary != 1 || dirtyIndex != 2 {
+	// The privacy index is optional: tables created before it exist until the
+	// explicit online step runs. When present it must be exactly one column.
+	if err = c.QueryRowContext(ctx, `SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND INDEX_NAME=? AND NON_UNIQUE=1 AND SEQ_IN_INDEX=1 AND COLUMN_NAME='privacy_restricted' AND SUB_PART IS NULL AND COLLATION='A' AND INDEX_TYPE='BTREE' AND IS_VISIBLE='YES'`, Table, PrivacyRestrictedIndex).Scan(&privacyIndex); err != nil {
+		return err
+	}
+	if engine != "InnoDB" || fks != 0 || primary != 1 || dirtyIndex != 2 || privacyIndex > 1 || indexes != 3+privacyIndex {
 		return errors.New("source projection has unexpected engine, foreign keys or indexes")
 	}
 	return nil

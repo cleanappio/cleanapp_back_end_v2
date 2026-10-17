@@ -28,11 +28,14 @@ func testProjectedEvidenceMalformedPublicIDsMySQL(t *testing.T, db *sql.DB) {
 	}
 	exec(`UPDATE report_metadata_projection SET public_id=NULL WHERE seq=6406`)
 	d := &Database{db: db}
+	cached := newCohortCacheFixture(t, db)
 	for _, mode := range []string{"warm", "mixed_parent_fallback"} {
 		t.Run(mode, func(t *testing.T) {
 			if mode == "mixed_parent_fallback" {
 				exec(`DELETE FROM report_metadata_projection WHERE seq BETWEEN 6400 AND 6405`)
 			}
+			// Public identity is refresh-time cohort data; each mode loads anew.
+			cached.reset()
 			f, err := NormalizeEvidenceFilter(EvidenceFilter{BrandName: "narrowidentity", Kind: "all", Limit: 50})
 			if err != nil {
 				t.Fatal(err)
@@ -45,6 +48,7 @@ func testProjectedEvidenceMalformedPublicIDsMySQL(t *testing.T, db *sql.DB) {
 			if err != nil || !reflect.DeepEqual(got, want) {
 				t.Fatalf("mixed-collation selected-ID oracle parity differs: %v", err)
 			}
+			cached.parity(t, f)
 			ids := map[int]string{}
 			for _, report := range got.Reports {
 				ids[report.Report.Seq] = report.Report.PublicID
@@ -93,6 +97,7 @@ func testProjectedEvidenceSlimRanksMySQL(t *testing.T, db *sql.DB) {
 	// from the existing first-eight sample slice, leaving seven visible samples.
 	exec(`INSERT INTO wire_submissions_raw(submission_id,report_seq,report_json,provenance_json,observed_at,submitted_at,extensions_json) VALUES('slim_private',6503,JSON_OBJECT('privacy',JSON_OBJECT('contains_pii',TRUE)),JSON_OBJECT(),NULL,'2026-10-15',JSON_OBJECT())`)
 	d := &Database{db: db}
+	cached := newCohortCacheFixture(t, db)
 	for _, kind := range []string{"all", "firsthand", "coverage", "unknown"} {
 		for _, sortBy := range []string{"signal", "recent", "recurrence"} {
 			t.Run(kind+"/"+sortBy, func(t *testing.T) {
@@ -108,6 +113,7 @@ func testProjectedEvidenceSlimRanksMySQL(t *testing.T, db *sql.DB) {
 				if err != nil || !reflect.DeepEqual(got, want) {
 					t.Fatalf("slim-rank public fields/counts/order differ from SQL oracle: %v\ngot: %+v\nwant: %+v", err, got, want)
 				}
+				cached.parity(t, f)
 				if got.Overview.TotalReports != 14 || got.KindCounts.All != 1 || got.KindCounts.Firsthand != 1 || got.KindCounts.Coverage != 1 || got.KindCounts.Unknown != 0 {
 					t.Fatalf("source dedup/case grouping/facets/overview changed: %+v", got)
 				}
@@ -186,8 +192,11 @@ func testProjectedEvidenceSourceWinnerIdentityMySQL(t *testing.T, db *sql.DB) {
 	exec(`INSERT INTO report_status VALUES(6606,'resolved')`)
 	exec(`INSERT INTO report_raw(report_seq,visibility) VALUES(6607,'shadow')`)
 	d := &Database{db: db}
+	cached := newCohortCacheFixture(t, db)
 	for _, mode := range []string{"warm", "mixed", "cold"} {
 		t.Run(mode, func(t *testing.T) {
+			// Each mode rewrites source projections: refresh-time cohort data.
+			cached.reset()
 			if mode == "mixed" {
 				exec(`DELETE FROM external_ingest_header_projection WHERE seq=6600`)
 				exec(`DELETE FROM wire_evidence_projection WHERE submission_id='source_new_6602'`)
@@ -210,6 +219,7 @@ func testProjectedEvidenceSourceWinnerIdentityMySQL(t *testing.T, db *sql.DB) {
 			if err != nil || !reflect.DeepEqual(got, want) {
 				t.Fatalf("identity-first native source/nullable projection/Wire selection differs: %v\ngot: %+v\nwant: %+v", err, got, want)
 			}
+			cached.parity(t, f)
 			if got.Total != 5 || got.KindCounts.All != 5 || got.Overview.TotalReports != 5 || len(got.Reports) != 5 {
 				t.Fatalf("source fanout or post-selection publication guards changed counts: %+v", got)
 			}
@@ -268,8 +278,11 @@ func testProjectedEvidencePreferredAnalysisStreamMySQL(t *testing.T, db *sql.DB)
 	exec(`INSERT INTO reports_owners VALUES(6706,'private-owner',FALSE)`)
 	exec(`INSERT INTO case_reports VALUES(6700,'analysis_stream_family'),(6701,'analysis_stream_family')`)
 	d := &Database{db: db}
+	cached := newCohortCacheFixture(t, db)
 	clock := time.Date(2026, 10, 16, 0, 0, 0, 0, time.UTC)
 	for _, mode := range []string{"cold", "warm", "mixed"} {
+		// Analyses and source projections change per mode: refresh-time data.
+		cached.reset()
 		if mode == "warm" {
 			result, err := RefreshEvidenceSourceProjection(context.Background(), db, ids)
 			if err != nil || result.Computed != len(ids) || result.MissingParents != 0 {
@@ -298,6 +311,7 @@ func testProjectedEvidencePreferredAnalysisStreamMySQL(t *testing.T, db *sql.DB)
 							if err != nil || !reflect.DeepEqual(got, want) {
 								t.Fatalf("native preferred tuple/full page parity changed: %v\ngot: %+v\nwant: %+v", err, got, want)
 							}
+							cached.parity(t, f)
 							if got.Overview.TotalReports != 5 || got.KindCounts.All != 4 || got.KindCounts.Firsthand != 4 || got.Total != 4 {
 								t.Fatalf("duplicate or hidden analyses changed exact counts: %+v", got)
 							}

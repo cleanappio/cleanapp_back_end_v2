@@ -309,6 +309,11 @@ type EvidenceBrandPage struct {
 	Total, High, Medium int
 	KindCounts          models.EvidenceKindCounts
 	HasMore             bool
+	// SnapshotAt is the cohort snapshot time when the page was served from a
+	// cached guard-free cohort (evidence_cohort_cache.go): membership, public
+	// identity and source tuples are as old as it, while every publication
+	// guard, count and sample is live. The direct path leaves it nil.
+	SnapshotAt *time.Time
 }
 
 // A single statement shares the scoped analysis/provenance windows between

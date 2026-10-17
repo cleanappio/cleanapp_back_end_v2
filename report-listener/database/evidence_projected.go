@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -11,11 +12,32 @@ import (
 	"report-listener/models"
 )
 
+// Public requests keep the unchanged eight-second statement budget. Only a
+// background cohort refresh (evidence_cohort_cache.go) may use a longer one.
+const projectedEvidenceRequestBudget = 8 * time.Second
+
 // Compact analysis inputs, live publication/evidence, and revision-checked
 // source values participate in the full-cohort read. Native SQL comparison keys
 // feed the existing Go analysis comparator without a window/materialization.
 // Cache misses remain exact source reads in this same snapshot.
 func projectedEvidenceBaseQuery(f EvidenceFilter) (string, []interface{}) {
+	return projectedEvidenceQuery(f, projectedEvidenceRequestBudget, true)
+}
+
+// projectedEvidenceCohortQuery is the background refresh's variant: the same
+// membership, identity, analysis, evidence and source stream under its own
+// budget, without the three live publication guards (raw visibility, inactive
+// status, private owner) and without the report_raw join that only they used.
+// Those guards are evaluated per request from live blocking sets
+// (loadPublicationBlocklists). The non-empty public identity and the brand
+// membership stay refresh-time cohort data; see docs/brand-cohort-cache.md.
+func projectedEvidenceCohortQuery(f EvidenceFilter, budget time.Duration) (string, []interface{}) {
+	return projectedEvidenceQuery(f, budget, false)
+}
+
+// The execution-time hint and the live guard block are the only text that
+// differs between the direct request statement and the cohort refresh.
+func projectedEvidenceQuery(f EvidenceFilter, budget time.Duration, livePublicationGuards bool) (string, []interface{}) {
 	marks := make([]string, len(f.Brands))
 	args := []interface{}{f.Language}
 	for i, brand := range f.Brands {
@@ -28,7 +50,7 @@ func projectedEvidenceBaseQuery(f EvidenceFilter) (string, []interface{}) {
  WEIGHT_STRING(ra.language AS CHAR(2)) AS analysis_language_weight
  FROM report_analysis ra FORCE INDEX (` + evidenceBrandCoreIndex + `)
  WHERE ra.brand_name IN (` + strings.Join(marks, ",") + `) AND ra.classification='digital' AND ra.is_valid=TRUE
- ) SELECT /*+ MAX_EXECUTION_TIME(8000) SET_VAR(tmp_table_size=67108864) */ ra.seq,
+ ) SELECT /*+ MAX_EXECUTION_TIME(` + strconv.FormatInt(int64(budget/time.Millisecond), 10) + `) SET_VAR(tmp_table_size=67108864) */ ra.seq,
  ra.classification,ra.severity_level,ra.language,ra.brand_name,DATE_FORMAT(ra.created_at,'%Y-%m-%d %H:%i:%s.%f'),
  CASE WHEN COALESCE(ev.evidence_version,0)>0 AND COALESCE(ev.report_kind,'unknown') IN ('firsthand','coverage') THEN COALESCE(ev.report_kind,'unknown') ELSE 'unknown' END,
  CASE WHEN COALESCE(ev.evidence_excerpt<>'',FALSE) THEN '1' ELSE '' END,
@@ -42,13 +64,20 @@ func projectedEvidenceBaseQuery(f EvidenceFilter) (string, []interface{}) {
  ra.analysis_requested,ra.analysis_english,ra.analysis_language_weight,ra.created_at
  FROM preferred ra
  LEFT JOIN report_metadata_projection m ON m.seq=ra.seq
- LEFT JOIN reports fallback ON fallback.seq=CASE WHEN m.seq IS NULL THEN ra.seq ELSE NULL END
- LEFT JOIN report_raw rr ON rr.report_seq=ra.seq
+ LEFT JOIN reports fallback ON fallback.seq=CASE WHEN m.seq IS NULL THEN ra.seq ELSE NULL END`
+	if livePublicationGuards {
+		query += `
+ LEFT JOIN report_raw rr ON rr.report_seq=ra.seq`
+	}
+	query += `
  LEFT JOIN report_evidence ev ON ev.seq=ra.seq
  LEFT JOIN ` + evidencesourceprojection.Table + ` p ON p.seq=ra.seq
- WHERE ra.seq IS NOT NULL AND (CASE WHEN m.seq IS NOT NULL THEN m.public_id ELSE fallback.public_id END COLLATE utf8mb4_bin)<>'' AND ` + PublicVisibilityWhereSQL + `
+ WHERE ra.seq IS NOT NULL AND (CASE WHEN m.seq IS NOT NULL THEN m.public_id ELSE fallback.public_id END COLLATE utf8mb4_bin)<>''`
+	if livePublicationGuards {
+		query += ` AND ` + PublicVisibilityWhereSQL + `
  AND NOT EXISTS(SELECT 1 FROM report_status rs WHERE rs.seq=ra.seq AND rs.status IS NOT NULL AND rs.status<>'active')
  AND (SELECT /*+ JOIN_INDEX(ro idx_is_public) */ COUNT(*) FROM reports_owners ro WHERE ro.seq=ra.seq AND ro.owner IS NOT NULL AND ro.owner<>'' AND ro.is_public=FALSE)=0`
+	}
 	return query, args
 }
 
@@ -186,6 +215,12 @@ func sourceProjectionDate(value sql.NullString) (*time.Time, bool) {
 
 func loadProjectedEvidenceBase(ctx context.Context, tx *sql.Tx, f EvidenceFilter) ([]evidenceRecord, []evidenceAnalysisSelection, map[int]int, []int, error) {
 	query, args := projectedEvidenceBaseQuery(f)
+	return loadProjectedEvidenceStream(ctx, tx, query, args)
+}
+
+// loadProjectedEvidenceStream reads one complete base statement (direct or
+// cohort refresh) into the chosen-analysis records of its scope.
+func loadProjectedEvidenceStream(ctx context.Context, tx *sql.Tx, query string, args []interface{}) ([]evidenceRecord, []evidenceAnalysisSelection, map[int]int, []int, error) {
 	rows, err := tx.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("read projected evidence base: %w", err)
@@ -257,27 +292,63 @@ func mergeEvidenceSourceRecord(r *evidenceRecord, s evidenceRecord) {
 	r.ExternalSource, r.IntakeChannel, r.GenerationMethod, r.SourceAccountKey = s.ExternalSource, s.IntakeChannel, s.GenerationMethod, s.SourceAccountKey
 }
 
+// evidenceCohort is the complete brand universe of one repeatable-read
+// snapshot: every report of the scope with a public identity, its chosen
+// analysis, its exact source tuple (projection or fresh fallback) and its
+// SQL-ordered case reference. It is independent of kind, sort, limit and
+// offset, so one cohort can answer any page of its brand scope. The direct
+// request path loads it with the live publication guards already applied; a
+// cached cohort is guard-free and is narrowed per request by live blocking
+// sets. It is never mutated after loading: guard application and grouping copy
+// records, and only the bounded output copies are hydrated.
+type evidenceCohort struct {
+	key          string
+	records      []evidenceRecord
+	selections   []evidenceAnalysisSelection
+	bySeq        map[int]int
+	freshSources map[int]bool
+	cases        map[int]evidenceCaseReference
+	snapshotAt   time.Time
+}
+
 func loadEvidenceBrandPageProjected(ctx context.Context, tx *sql.Tx, f EvidenceFilter) (EvidenceBrandPage, error) {
-	page := EvidenceBrandPage{Reports: []models.ReportWithMinimalAnalysis{}, Overview: evidenceOverview(nil, f.asOf)}
-	all, selections, bySeq, missing, err := loadProjectedEvidenceBase(ctx, tx, f)
+	query, args := projectedEvidenceBaseQuery(f)
+	cohort, err := loadProjectedEvidenceCohort(ctx, tx, f, query, args)
 	if err != nil {
 		return EvidenceBrandPage{}, err
 	}
-	if err := ctx.Err(); err != nil {
-		return EvidenceBrandPage{}, err
+	// The direct statement already applied every live guard: the whole cohort
+	// is the live set, and its own snapshot answers this request.
+	return finishProjectedEvidencePage(ctx, tx, f, cohort, cohort.records, true)
+}
+
+// loadProjectedEvidenceCohort is the expensive full-cohort part of a brand
+// page: the base stream, exact fallback for dirty sources and case references.
+// The snapshot clock is taken in Go immediately before the first consistent
+// read, so it is a lower bound of the transaction's snapshot time.
+func loadProjectedEvidenceCohort(ctx context.Context, tx *sql.Tx, f EvidenceFilter, query string, args []interface{}) (evidenceCohort, error) {
+	cohort := evidenceCohort{key: evidenceCohortKey(f), snapshotAt: time.Now().UTC().Truncate(time.Microsecond)}
+	all, selections, bySeq, missing, err := loadProjectedEvidenceStream(ctx, tx, query, args)
+	if err != nil {
+		return evidenceCohort{}, err
 	}
+	if err := ctx.Err(); err != nil {
+		return evidenceCohort{}, err
+	}
+	cohort.records, cohort.selections, cohort.bySeq = all, selections, bySeq
+	cohort.freshSources, cohort.cases = map[int]bool{}, map[int]evidenceCaseReference{}
 	if len(all) == 0 {
-		return page, nil
+		return cohort, nil
 	}
 	if len(missing) != 0 {
 		fresh, err := loadFreshEvidenceSourceRecords(ctx, tx, missing)
 		if err != nil {
-			return EvidenceBrandPage{}, err
+			return evidenceCohort{}, err
 		}
 		for _, seq := range missing {
 			source, ok := fresh[seq]
 			if !ok || source.Seq != seq {
-				return EvidenceBrandPage{}, fmt.Errorf("projected evidence fallback is incomplete")
+				return evidenceCohort{}, fmt.Errorf("projected evidence fallback is incomplete")
 			}
 			mergeEvidenceSourceRecord(&all[bySeq[seq]], source)
 		}
@@ -285,27 +356,42 @@ func loadEvidenceBrandPageProjected(ctx context.Context, tx *sql.Tx, f EvidenceF
 	// Only the bounded output rows need these source/display fields. A dirty
 	// fallback already supplied its exact source tuple, so never replace it with
 	// values from the stale projection during late hydration.
-	freshSources := make(map[int]bool, len(missing))
 	for _, seq := range missing {
-		freshSources[seq] = true
+		cohort.freshSources[seq] = true
 	}
-	return finishProjectedEvidencePage(ctx, tx, f, page, all, selections, bySeq, freshSources)
-}
-
-func finishProjectedEvidencePage(ctx context.Context, tx *sql.Tx, f EvidenceFilter, page EvidenceBrandPage, all []evidenceRecord, selections []evidenceAnalysisSelection, bySeq map[int]int, freshSources map[int]bool) (EvidenceBrandPage, error) {
 	ids := make([]int, len(all))
 	for i := range all {
 		ids[i] = all[i].Seq
 	}
-	page.Overview = evidenceOverview(all, f.asOf)
-	cases, err := loadEvidenceCaseReferences(ctx, tx, ids)
+	cohort.cases, err = loadEvidenceCaseReferences(ctx, tx, ids)
+	if err != nil {
+		return evidenceCohort{}, err
+	}
+	return cohort, nil
+}
+
+// finishProjectedEvidencePage answers one requested kind/sort/offset from the
+// live subset of a cohort: request-local grouping, then bounded hydration in
+// the same snapshot. live is the cohort's records after every publication
+// guard; requireCleanSources is the direct path's fail-closed generation check
+// (see hydrateProjectedEvidenceOutput).
+func finishProjectedEvidencePage(ctx context.Context, tx *sql.Tx, f EvidenceFilter, cohort evidenceCohort, live []evidenceRecord, requireCleanSources bool) (EvidenceBrandPage, error) {
+	grouped, chosen, err := groupProjectedEvidenceCohort(cohort, live, f)
 	if err != nil {
 		return EvidenceBrandPage{}, err
 	}
-	grouped := groupEvidenceRecords(all, cases, f)
 	if err := ctx.Err(); err != nil {
 		return EvidenceBrandPage{}, err
 	}
+	return hydrateProjectedEvidencePage(ctx, tx, f, cohort, live, grouped, chosen, requireCleanSources)
+}
+
+// groupProjectedEvidenceCohort is pure Go over the live records. It copies
+// records into the grouped page and collects the chosen analysis tuple of
+// every output row from the cohort, leaving the shared cohort untouched.
+func groupProjectedEvidenceCohort(cohort evidenceCohort, live []evidenceRecord, f EvidenceFilter) (evidenceGroupedPage, map[int]evidenceAnalysisCore, error) {
+	all, selections, bySeq := cohort.records, cohort.selections, cohort.bySeq
+	grouped := groupEvidenceRecords(live, cohort.cases, f)
 	chosen := make(map[int]evidenceAnalysisCore, len(grouped.Records)*8)
 	choose := func(seq int) error {
 		i, ok := bySeq[seq]
@@ -318,12 +404,12 @@ func finishProjectedEvidencePage(ctx context.Context, tx *sql.Tx, f EvidenceFilt
 	}
 	for _, r := range grouped.Records {
 		if err := choose(r.Seq); err != nil {
-			return EvidenceBrandPage{}, err
+			return evidenceGroupedPage{}, nil, err
 		}
 		samples := grouped.SupportingSamples[r.Seq]
 		for i := range samples {
 			if err := choose(samples[i].Seq); err != nil {
-				return EvidenceBrandPage{}, err
+				return evidenceGroupedPage{}, nil, err
 			}
 			// The SQL oracle's sample JSON formats whole seconds; the page's
 			// own source date retains its original timestamp precision.
@@ -334,7 +420,16 @@ func finishProjectedEvidencePage(ctx context.Context, tx *sql.Tx, f EvidenceFilt
 		}
 		grouped.SupportingSamples[r.Seq] = samples
 	}
-	if err := hydrateProjectedEvidenceOutput(ctx, tx, &grouped, freshSources); err != nil {
+	return grouped, chosen, nil
+}
+
+func hydrateProjectedEvidencePage(ctx context.Context, tx *sql.Tx, f EvidenceFilter, cohort evidenceCohort, live []evidenceRecord, grouped evidenceGroupedPage, chosen map[int]evidenceAnalysisCore, requireCleanSources bool) (EvidenceBrandPage, error) {
+	page := EvidenceBrandPage{Reports: []models.ReportWithMinimalAnalysis{}, Overview: evidenceOverview(nil, f.asOf)}
+	if len(live) == 0 {
+		return page, nil
+	}
+	page.Overview = evidenceOverview(live, f.asOf)
+	if err := hydrateProjectedEvidenceOutput(ctx, tx, &grouped, cohort.freshSources, requireCleanSources); err != nil {
 		return EvidenceBrandPage{}, err
 	}
 	if err := hydrateEvidenceDisplay(ctx, tx, f, chosen, &grouped); err != nil {
@@ -367,7 +462,13 @@ func finishProjectedEvidencePage(ctx context.Context, tx *sql.Tx, f EvidenceFilt
 // analysis selection. Hydrate output-only fields for the page and its first
 // eight supporting members in the same repeatable-read snapshot. No query is
 // repeated over the full cohort, and no cached value replaces fresh fallback.
-func hydrateProjectedEvidenceOutput(ctx context.Context, tx *sql.Tx, grouped *evidenceGroupedPage, freshSources map[int]bool) error {
+// requireCleanSources is the direct path's rule: its cohort and this read share
+// one snapshot, so a generation that is not clean here and was not a fresh
+// fallback is an invariant violation. A cached cohort reads here from a later
+// snapshot; a projection invalidated since the refresh still holds its last
+// complete normalizer output, which is the cohort's own bounded staleness, so
+// the cached path accepts it instead of failing the whole page.
+func hydrateProjectedEvidenceOutput(ctx context.Context, tx *sql.Tx, grouped *evidenceGroupedPage, freshSources map[int]bool, requireCleanSources bool) error {
 	ids := []int{}
 	seen := map[int]bool{}
 	add := func(seq int) {
@@ -409,7 +510,7 @@ func hydrateProjectedEvidenceOutput(ctx context.Context, tx *sql.Tx, grouped *ev
 		if err := rows.Scan(&r.Seq, &publicID, &r.Latitude, &r.Longitude, &clean, &r.SourcePlatform, &r.SourceURL, &r.ActorKind, &r.FetcherID, &r.ExternalSource, &r.IntakeChannel, &r.GenerationMethod); err != nil {
 			return err
 		}
-		if !seen[r.Seq] || !publicID.Valid || publicID.String == "" || (!clean && !freshSources[r.Seq]) {
+		if !seen[r.Seq] || !publicID.Valid || publicID.String == "" || (requireCleanSources && !clean && !freshSources[r.Seq]) {
 			return fmt.Errorf("projected evidence output identity or generation is incomplete")
 		}
 		if _, duplicate := output[r.Seq]; duplicate {
@@ -447,6 +548,9 @@ func hydrateProjectedEvidenceOutput(ctx context.Context, tx *sql.Tx, grouped *ev
 
 // Public brand pages use one read-only snapshot and the unchanged eight-second
 // deadline for live publication, exact source fallback, grouping and hydration.
+// With the opt-in cohort cache, a brand whose guard-free cohort is held in
+// memory skips the full-cohort read: inside the same deadline its page applies
+// the live blocking sets, groups the live subset and hydrates it.
 func (d *Database) getEvidenceBrandPageProjected(ctx context.Context, f EvidenceFilter) (EvidenceBrandPage, error) {
 	f, err := NormalizeEvidenceFilter(f)
 	if err != nil {
@@ -454,12 +558,18 @@ func (d *Database) getEvidenceBrandPageProjected(ctx context.Context, f Evidence
 	}
 	queryCtx, cancel := withPublicDiscoveryTimeout(ctx)
 	defer cancel()
+	cohort, cached := d.evidenceCohortCache().lookup(f)
 	tx, err := d.db.BeginTx(queryCtx, &sql.TxOptions{ReadOnly: true, Isolation: sql.LevelRepeatableRead})
 	if err != nil {
 		return EvidenceBrandPage{}, err
 	}
 	defer tx.Rollback()
-	page, err := loadEvidenceBrandPageProjected(queryCtx, tx, f)
+	var page EvidenceBrandPage
+	if cached {
+		page, err = serveProjectedEvidenceCohort(queryCtx, tx, f, cohort)
+	} else {
+		page, err = loadEvidenceBrandPageProjected(queryCtx, tx, f)
+	}
 	if err != nil {
 		return EvidenceBrandPage{}, err
 	}

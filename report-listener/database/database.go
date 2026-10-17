@@ -25,6 +25,7 @@ type Database struct {
 	sortCandidateIDs       []int
 	sortCandidatesLoadedAt time.Time
 	sortCandidatesLoading  chan struct{}
+	evidenceCohorts        evidenceCohortCache
 }
 
 // PublicVisibilityWhereSQL is a reusable predicate that excludes quarantine/shadow reports.

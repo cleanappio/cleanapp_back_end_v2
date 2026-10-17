@@ -132,7 +132,7 @@ func TestProjectedEvidenceOutputHydratesPageAndSamplesWithoutReplacingFreshSourc
 	mock.ExpectQuery("SELECT ids.seq,").WithArgs("[42,44,43]").WillReturnRows(sqlmock.NewRows(projectedOutputTestColumns).AddRow(projectedOutputTestRow(42)...).AddRow(sample...).AddRow(page...))
 	mock.ExpectRollback()
 	tx, _ := db.Begin()
-	if err := hydrateProjectedEvidenceOutput(context.Background(), tx, &grouped, map[int]bool{43: true, 44: true}); err != nil {
+	if err := hydrateProjectedEvidenceOutput(context.Background(), tx, &grouped, map[int]bool{43: true, 44: true}, true); err != nil {
 		t.Fatal(err)
 	}
 	if grouped.Records[0].PublicID != "r_test_42" || grouped.Records[0].SourceURL != "https://example.test/report/42" || grouped.SupportingSamples[43][0].SourceURL != grouped.Records[0].SourceURL {
@@ -177,7 +177,7 @@ func TestProjectedEvidenceOutputFailsClosedOnIncompleteDuplicateOrDirtyGeneratio
 			mock.ExpectRollback()
 			tx, _ := db.Begin()
 			grouped := evidenceGroupedPage{Records: []evidenceRecord{{Seq: 42}}}
-			if err := hydrateProjectedEvidenceOutput(context.Background(), tx, &grouped, nil); err == nil || grouped.Records[0].PublicID != "" {
+			if err := hydrateProjectedEvidenceOutput(context.Background(), tx, &grouped, nil, true); err == nil || grouped.Records[0].PublicID != "" {
 				t.Fatal("partial or stale output was accepted or partially applied")
 			}
 			_ = tx.Rollback()

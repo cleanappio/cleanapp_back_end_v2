@@ -225,7 +225,8 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 	if err := evidencesourceprojection.Migrate(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
-	checkProjected := func(f EvidenceFilter) {
+	cached := newCohortCacheFixture(t, db)
+	checkProjectedDirect := func(f EvidenceFilter) {
 		t.Helper()
 		f, err := NormalizeEvidenceFilter(f)
 		if err != nil {
@@ -239,6 +240,15 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 		if err != nil || !reflect.DeepEqual(actual, reference) {
 			t.Fatalf("projected/reference complete public parity differs: %v\nactual=%+v\nreference=%+v", err, actual, reference)
 		}
+	}
+	// The checks around the metadata/header/Wire projection changes below
+	// alter source tuples and identities, which are refresh-time cohort data:
+	// the held cohort is dropped before each of them is served from the cache.
+	checkProjected := func(f EvidenceFilter) {
+		t.Helper()
+		checkProjectedDirect(f)
+		cached.reset()
+		cached.parity(t, f)
 	}
 	page, err := d.GetEvidenceBrandPage(context.Background(), EvidenceFilter{BrandName: "anthropic", Kind: "firsthand"})
 	if err != nil {
@@ -335,6 +345,14 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 	}
 	if empty.Total != 0 || empty.KindCounts.All != 0 || len(empty.Reports) != 0 || empty.HasMore {
 		t.Fatalf("empty scope exposed a synthetic count row: %+v", empty)
+	}
+	// An empty offset page and an absent scope served from (empty) cohorts.
+	cached.reset()
+	if page := cached.parity(t, EvidenceFilter{BrandName: "anthropic", Kind: "firsthand", Offset: 100}); page.Total != 1 || page.KindCounts.All != 3 || len(page.Reports) != 0 || page.HasMore {
+		t.Fatalf("cached empty offset page lost exact counts: %+v", page)
+	}
+	if page := cached.parity(t, EvidenceFilter{BrandName: "absentbrand"}); page.Overview.TotalReports != 0 || page.Total != 0 || len(page.Reports) != 0 {
+		t.Fatalf("cached absent scope exposed a synthetic row: %+v", page)
 	}
 	twitter, err := d.GetEvidenceBrandPage(context.Background(), EvidenceFilter{BrandName: "anthropic", Product: "claude"})
 	if err != nil {
@@ -845,6 +863,9 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 	}
 	// The independent adapter and executable SQL reference share every public
 	// field, facet, source/family count and page boundary across mixed scopes.
+	// Evidence enrichment of report 4 above changed refresh-time cohort data;
+	// from here each scope's cohort is loaded once and serves the whole matrix.
+	cached.reset()
 	for _, brand := range []string{"anthropic", "translationtest", "archivetimetest", "identitytest", "ranktest", "privacytest", "floatboundary", "inlineuritest", "nullseverity", "orphananalysis", "absentbrand"} {
 		for _, kind := range []string{"firsthand", "coverage", "unknown", "all"} {
 			for _, sortBy := range []string{"signal", "recent", "recurrence"} {
@@ -861,7 +882,8 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 					if !reflect.DeepEqual(actual, reference) {
 						t.Fatalf("bulk/reference parity %s/%s/%s/%d differs: actual=%+v reference=%+v", brand, kind, sortBy, offset, actual, reference)
 					}
-					checkProjected(filter)
+					checkProjectedDirect(filter)
+					cached.parity(t, filter)
 				}
 			}
 		}
@@ -869,6 +891,9 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 	// Run after the historical parity matrix so these new identities do not
 	// change existing fixtures' expected totals or family representatives.
 	t.Run("ExpandedCompanyAliases", func(t *testing.T) {
+		// New alias reports join the company scopes: membership is refresh-time
+		// cohort data, so every scope below loads a fresh cohort once.
+		cached.reset()
 		seq := 2000
 		expected := map[string]map[int]bool{}
 		aliasSeq := map[string]int{}
@@ -930,6 +955,7 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 			if err != nil || !reflect.DeepEqual(page, reference) {
 				t.Fatalf("alias scope adapter/SQL counts or privacy differ: %v", err)
 			}
+			cached.parity(t, filter)
 		}
 		for _, company := range []string{"anthropic", "openai", "xai"} {
 			check(EvidenceFilter{BrandName: company}, expected[company])
@@ -959,6 +985,7 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 	t.Run("ProjectedPreferredAnalysisStream", func(t *testing.T) { testProjectedEvidencePreferredAnalysisStreamMySQL(t, db) })
 	t.Run("ProjectedPublicationBlockerParity", func(t *testing.T) { testProjectedEvidencePublicationBlockerParityMySQL(t, db) })
 	t.Run("ProjectedOptionalOwnerIndex", func(t *testing.T) { testProjectedEvidenceOptionalOwnerIndexMySQL(t, db) })
+	t.Run("ProjectedCohortCache", func(t *testing.T) { testProjectedEvidenceCohortCacheMySQL(t, db) })
 }
 
 func evidencePagesEqualIgnoringClock(a, b EvidenceBrandPage) bool {

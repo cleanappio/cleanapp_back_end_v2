@@ -111,6 +111,9 @@ func (s *Service) Start() error {
 		}
 	}()
 
+	// Opt-in brand cohort snapshots (no-op unless EVIDENCE_BRAND_COHORT_CACHE=1).
+	s.db.WarmEvidenceBrandCohorts()
+
 	// Start the broadcast loop
 	s.wg.Add(1)
 	go s.broadcastLoop()
@@ -135,6 +138,8 @@ func (s *Service) Stop() error {
 	if s.sourceRefreshCancel != nil {
 		s.sourceRefreshCancel()
 	}
+	// Cancel background brand cohort refreshes before the pool closes.
+	s.db.StopEvidenceBrandCohorts()
 
 	// Wait for goroutines to finish
 	s.wg.Wait()

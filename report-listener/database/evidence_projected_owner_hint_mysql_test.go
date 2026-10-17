@@ -118,6 +118,9 @@ func testProjectedEvidenceOptionalOwnerIndexMySQL(t *testing.T, db *sql.DB) {
 		t.Fatalf("actual warm source refresh failed: %+v %v", refresh, err)
 	}
 	d := &Database{db: db}
+	// Ownership is live blocking-set data: the held cohort is never refreshed
+	// across the table swap or the owner flip below.
+	cached := newCohortCacheFixture(t, db)
 	clock := time.Date(2026, 10, 16, 0, 0, 0, 0, time.UTC)
 	check := func(t *testing.T, filter EvidenceFilter, expected int) {
 		t.Helper()
@@ -129,6 +132,7 @@ func testProjectedEvidenceOptionalOwnerIndexMySQL(t *testing.T, db *sql.DB) {
 		if err != nil || !reflect.DeepEqual(got, want) {
 			t.Fatalf("optional owner index changed public fields/facets/privacy: %v\ngot: %+v\nwant: %+v", err, got, want)
 		}
+		cached.parity(t, filter)
 		if got.Overview.TotalReports != expected || got.KindCounts.All != expected || got.KindCounts.Firsthand != expected || got.KindCounts.Coverage != 0 || got.KindCounts.Unknown != 0 {
 			t.Fatalf("NULL/empty/duplicate/mixed owner changed exact scope: %+v", got)
 		}
