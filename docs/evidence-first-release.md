@@ -85,6 +85,11 @@ never presented as affected-user totals.
 - Existing active/public visibility, ownership, quarantine, routing, and intake
   rules are preserved. Coverage and unknown reports remain accessible in explicit
   views; physical and digital share the enrichment model.
+- The projected reader keeps the inactive-status guard as `NOT EXISTS` and the
+  private-owner guard as a correlated `COUNT(*)=0`. The latter retains per-report
+  indexed owner lookups instead of materializing unrelated private owners. Its
+  `JOIN_INDEX(ro idx_is_public)` hint remains optional; an absent index does not
+  change publication semantics or require a schema migration.
 
 ## Validation record
 

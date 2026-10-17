@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
+	"time"
 )
 
 // Runs only inside TestEvidenceMySQLFixture's guarded disposable database.
@@ -27,11 +28,14 @@ func testProjectedEvidenceMalformedPublicIDsMySQL(t *testing.T, db *sql.DB) {
 	}
 	exec(`UPDATE report_metadata_projection SET public_id=NULL WHERE seq=6406`)
 	d := &Database{db: db}
+	cached := newCohortCacheFixture(t, db)
 	for _, mode := range []string{"warm", "mixed_parent_fallback"} {
 		t.Run(mode, func(t *testing.T) {
 			if mode == "mixed_parent_fallback" {
 				exec(`DELETE FROM report_metadata_projection WHERE seq BETWEEN 6400 AND 6405`)
 			}
+			// Public identity is refresh-time cohort data; each mode loads anew.
+			cached.reset()
 			f, err := NormalizeEvidenceFilter(EvidenceFilter{BrandName: "narrowidentity", Kind: "all", Limit: 50})
 			if err != nil {
 				t.Fatal(err)
@@ -44,6 +48,7 @@ func testProjectedEvidenceMalformedPublicIDsMySQL(t *testing.T, db *sql.DB) {
 			if err != nil || !reflect.DeepEqual(got, want) {
 				t.Fatalf("mixed-collation selected-ID oracle parity differs: %v", err)
 			}
+			cached.parity(t, f)
 			ids := map[int]string{}
 			for _, report := range got.Reports {
 				ids[report.Report.Seq] = report.Report.PublicID
@@ -92,6 +97,7 @@ func testProjectedEvidenceSlimRanksMySQL(t *testing.T, db *sql.DB) {
 	// from the existing first-eight sample slice, leaving seven visible samples.
 	exec(`INSERT INTO wire_submissions_raw(submission_id,report_seq,report_json,provenance_json,observed_at,submitted_at,extensions_json) VALUES('slim_private',6503,JSON_OBJECT('privacy',JSON_OBJECT('contains_pii',TRUE)),JSON_OBJECT(),NULL,'2026-10-15',JSON_OBJECT())`)
 	d := &Database{db: db}
+	cached := newCohortCacheFixture(t, db)
 	for _, kind := range []string{"all", "firsthand", "coverage", "unknown"} {
 		for _, sortBy := range []string{"signal", "recent", "recurrence"} {
 			t.Run(kind+"/"+sortBy, func(t *testing.T) {
@@ -107,6 +113,7 @@ func testProjectedEvidenceSlimRanksMySQL(t *testing.T, db *sql.DB) {
 				if err != nil || !reflect.DeepEqual(got, want) {
 					t.Fatalf("slim-rank public fields/counts/order differ from SQL oracle: %v\ngot: %+v\nwant: %+v", err, got, want)
 				}
+				cached.parity(t, f)
 				if got.Overview.TotalReports != 14 || got.KindCounts.All != 1 || got.KindCounts.Firsthand != 1 || got.KindCounts.Coverage != 1 || got.KindCounts.Unknown != 0 {
 					t.Fatalf("source dedup/case grouping/facets/overview changed: %+v", got)
 				}
@@ -185,8 +192,11 @@ func testProjectedEvidenceSourceWinnerIdentityMySQL(t *testing.T, db *sql.DB) {
 	exec(`INSERT INTO report_status VALUES(6606,'resolved')`)
 	exec(`INSERT INTO report_raw(report_seq,visibility) VALUES(6607,'shadow')`)
 	d := &Database{db: db}
+	cached := newCohortCacheFixture(t, db)
 	for _, mode := range []string{"warm", "mixed", "cold"} {
 		t.Run(mode, func(t *testing.T) {
+			// Each mode rewrites source projections: refresh-time cohort data.
+			cached.reset()
 			if mode == "mixed" {
 				exec(`DELETE FROM external_ingest_header_projection WHERE seq=6600`)
 				exec(`DELETE FROM wire_evidence_projection WHERE submission_id='source_new_6602'`)
@@ -209,6 +219,7 @@ func testProjectedEvidenceSourceWinnerIdentityMySQL(t *testing.T, db *sql.DB) {
 			if err != nil || !reflect.DeepEqual(got, want) {
 				t.Fatalf("identity-first native source/nullable projection/Wire selection differs: %v\ngot: %+v\nwant: %+v", err, got, want)
 			}
+			cached.parity(t, f)
 			if got.Total != 5 || got.KindCounts.All != 5 || got.Overview.TotalReports != 5 || len(got.Reports) != 5 {
 				t.Fatalf("source fanout or post-selection publication guards changed counts: %+v", got)
 			}
@@ -232,5 +243,82 @@ func testProjectedEvidenceSourceWinnerIdentityMySQL(t *testing.T, db *sql.DB) {
 				}
 			}
 		})
+	}
+}
+
+func testProjectedEvidencePreferredAnalysisStreamMySQL(t *testing.T, db *sql.DB) {
+	exec := func(query string, args ...any) {
+		t.Helper()
+		if _, err := db.Exec(query, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ids := []int{}
+	for seq := 6700; seq <= 6706; seq++ {
+		ids = append(ids, seq)
+		exec(`INSERT INTO reports(seq,id,public_id,ts,latitude,longitude,image) VALUES(?,?,?,'2026-10-15',0,0,'')`, seq, fmt.Sprint("analysis_", seq), fmt.Sprint("rpt_analysis_", seq))
+		exec(`INSERT INTO report_evidence(seq,report_kind,evidence_excerpt,reported_impact,classification_reason,entity_relationship,evidence_version) VALUES(?,'firsthand','Observed','Blocked','Original','affected',1)`, seq)
+	}
+	exec(`INSERT INTO report_analysis VALUES
+ (6700,'en','analysisstream','English',TRUE,'digital','2026-10-15','English title','English summary',0.2),
+ (6700,'fr','analysisstream','French',TRUE,'digital','2026-01-01','French title','French summary',0.8),
+ (6701,'z','analysisstream','Z',TRUE,'digital','2026-10-15','Z title','Z summary',0.1),
+ (6701,'é','analysisstream','Accent',TRUE,'digital','2025-01-01','Accent title','Accent summary',0.6),
+ (6702,'fr','analysisstream','Null date',TRUE,'digital',NULL,'Null-date title','Null-date summary',0.9),
+ (6702,'fr','analysisstream','Known date',TRUE,'digital','2026-10-15','Known-date title','Known-date summary',0.3),
+ (6703,NULL,'analysisstream','Null language',TRUE,'digital','2026-10-15','Null-language title','Null-language summary',0.9),
+ (6703,'de','analysisstream','German',TRUE,'digital','2025-01-01','German title','German summary',0.4),
+ (6704,'fr','analysisstream','Null date',TRUE,'digital',NULL,'Other null-date title','Other null-date summary',0.9),
+ (6704,'fr','analysisstream','Null severity',TRUE,'digital','1980-01-01','Null-severity title','Null-severity summary',NULL),
+ (6705,'fr','analysisstream','Hidden French',TRUE,'digital','2026-10-15','Hidden title','Hidden summary',0.9),
+ (6705,'en','analysisstream','Hidden English',TRUE,'digital','2026-10-15','Hidden title','Hidden summary',0.8),
+ (6706,'fr','analysisstream','Private French',TRUE,'digital','2026-10-15','Private title','Private summary',0.9),
+ (6706,'en','analysisstream','Private English',TRUE,'digital','2026-10-15','Private title','Private summary',0.8)`)
+	exec(`INSERT INTO report_raw(report_seq,visibility) VALUES(6705,'quarantine')`)
+	exec(`INSERT INTO reports_owners VALUES(6706,'private-owner',FALSE)`)
+	exec(`INSERT INTO case_reports VALUES(6700,'analysis_stream_family'),(6701,'analysis_stream_family')`)
+	d := &Database{db: db}
+	cached := newCohortCacheFixture(t, db)
+	clock := time.Date(2026, 10, 16, 0, 0, 0, 0, time.UTC)
+	for _, mode := range []string{"cold", "warm", "mixed"} {
+		// Analyses and source projections change per mode: refresh-time data.
+		cached.reset()
+		if mode == "warm" {
+			result, err := RefreshEvidenceSourceProjection(context.Background(), db, ids)
+			if err != nil || result.Computed != len(ids) || result.MissingParents != 0 {
+				t.Fatalf("actual cache refresh failed: %+v %v", result, err)
+			}
+		}
+		if mode == "mixed" {
+			// Analysis remains live when the source tuple is already clean.
+			exec(`INSERT INTO report_analysis VALUES(6700,'fr','analysisstream','Latest French',TRUE,'digital','2026-10-16','Latest French title','Latest French summary',0.95)`)
+			exec(`UPDATE reports SET ts='2026-10-16' WHERE seq=6702`)
+			exec(`DELETE FROM report_evidence_source_projection WHERE seq=6703`)
+			exec(`UPDATE report_evidence_source_projection SET source_timestamp='malformed' WHERE seq=6704`)
+		}
+		for _, language := range []string{"fr", "en", "xx"} {
+			for _, kind := range []string{"all", "firsthand"} {
+				for _, sortBy := range []string{"recent", "signal"} {
+					for _, offset := range []int{0, 2} {
+						name := fmt.Sprintf("%s/%s/%s/%s/%d", mode, language, kind, sortBy, offset)
+						t.Run(name, func(t *testing.T) {
+							f := EvidenceFilter{BrandName: "analysisstream", Language: language, Kind: kind, Sort: sortBy, Limit: 2, Offset: offset, asOf: clock}
+							got, err := d.getEvidenceBrandPageProjected(context.Background(), f)
+							if err != nil {
+								t.Fatal(err)
+							}
+							want, err := d.getEvidenceBrandPageSQL(context.Background(), f)
+							if err != nil || !reflect.DeepEqual(got, want) {
+								t.Fatalf("native preferred tuple/full page parity changed: %v\ngot: %+v\nwant: %+v", err, got, want)
+							}
+							cached.parity(t, f)
+							if got.Overview.TotalReports != 5 || got.KindCounts.All != 4 || got.KindCounts.Firsthand != 4 || got.Total != 4 {
+								t.Fatalf("duplicate or hidden analyses changed exact counts: %+v", got)
+							}
+						})
+					}
+				}
+			}
+		}
 	}
 }

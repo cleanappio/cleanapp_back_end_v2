@@ -414,8 +414,11 @@ func hydrateEvidenceDisplay(ctx context.Context, tx *sql.Tx, f EvidenceFilter, c
 		selections = append(selections, selection)
 	}
 	payload, _ := json.Marshal(selections)
+	// Match report_analysis.severity_level's native FLOAT identity. Widening
+	// through JSON_TABLE DOUBLE can introduce a round-trip bit difference and
+	// silently miss the chosen row; adjacent native FLOATs must stay distinct.
 	rows, err := tx.QueryContext(ctx, `WITH display AS (SELECT ra.seq,ra.title,ra.summary,ra.brand_display_name,ROW_NUMBER() OVER(PARTITION BY ra.seq ORDER BY (ra.language=?) DESC,(ra.language='en') DESC,ra.language ASC,ra.created_at DESC) AS rank_no
- FROM JSON_TABLE(?, '$[*]' COLUMNS(seq INT PATH '$.seq',language VARCHAR(2) PATH '$.language',created VARCHAR(26) PATH '$.created',brand VARCHAR(255) PATH '$.Brand',classification VARCHAR(32) PATH '$.Classification',severity DOUBLE PATH '$.severity')) selected
+ FROM JSON_TABLE(?, '$[*]' COLUMNS(seq INT PATH '$.seq',language VARCHAR(2) PATH '$.language',created VARCHAR(26) PATH '$.created',brand VARCHAR(255) PATH '$.Brand',classification VARCHAR(32) PATH '$.Classification',severity FLOAT PATH '$.severity')) selected
  JOIN report_analysis ra ON ra.seq=selected.seq
  WHERE ra.is_valid=TRUE AND BINARY ra.language <=> BINARY selected.language AND BINARY DATE_FORMAT(ra.created_at,'%Y-%m-%d %H:%i:%s.%f') <=> BINARY selected.created AND BINARY ra.brand_name <=> BINARY selected.brand AND BINARY ra.classification <=> BINARY selected.classification AND CAST(ra.severity_level AS DOUBLE) <=> selected.severity)
  SELECT seq,COALESCE(title,''),COALESCE(summary,''),COALESCE(brand_display_name,'') FROM display WHERE rank_no=1`, f.Language, string(payload))
@@ -570,23 +573,5 @@ func loadEvidenceBrandPageBulk(ctx context.Context, tx *sql.Tx, f EvidenceFilter
 }
 
 func (d *Database) GetEvidenceBrandPage(ctx context.Context, f EvidenceFilter) (EvidenceBrandPage, error) {
-	f, err := NormalizeEvidenceFilter(f)
-	if err != nil {
-		return EvidenceBrandPage{}, err
-	}
-	queryCtx, cancel := withPublicDiscoveryTimeout(ctx)
-	defer cancel()
-	tx, err := d.db.BeginTx(queryCtx, &sql.TxOptions{ReadOnly: true, Isolation: sql.LevelRepeatableRead})
-	if err != nil {
-		return EvidenceBrandPage{}, err
-	}
-	defer tx.Rollback()
-	page, err := loadEvidenceBrandPageBulk(queryCtx, tx, f)
-	if err != nil {
-		return EvidenceBrandPage{}, err
-	}
-	if err := tx.Commit(); err != nil {
-		return EvidenceBrandPage{}, err
-	}
-	return page, nil
+	return d.getEvidenceBrandPageProjected(ctx, f)
 }

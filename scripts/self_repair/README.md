@@ -53,12 +53,28 @@ python3 scripts/self_repair/coordinator.py --state-dir /private/path/cleanapp-rs
 ```
 
 `poll` reads a bounded overlapping window of the exact CleanApp brand feed and
-hydrates public report IDs from the canonical read API. The initial rollout
-uses a 30-day lookback and explicitly seeds the example above. Historical
-backfill is a separate bounded triage pass (`--lookback-days 0`), not permission
-to act on every old observation. Unknown source classifications remain eligible
-for investigation. Do not treat unhydrated `analysis.is_valid=false` defaults in
-the public read model as authoritative moderation.
+hydrates public report IDs from the canonical read API. Complete one unfiltered
+history sweep on the existing ledger before treating initial intake as covered:
+
+```sh
+python3 scripts/self_repair/coordinator.py --state-dir /private/path/cleanapp-rsi-state --json poll --lookback-days 0
+```
+
+Then use the normal 30-day overlapping poll on scheduled wakes. Reconcile the
+full available brand-feed history again at least every seven days, measured from
+the last successful unfiltered sweep. If no successful sweep is recorded, or it
+is overdue, run `--lookback-days 0` before treating intake as current. A recent
+poll that reaches the end of the feed still filters out older observations; it
+cannot substitute for the initial or weekly history sweep. The rollout snapshot
+of 162 feed entries and six recent candidate jobs is not complete historical
+triage or evidence that those jobs are fixed.
+
+Use the same private state and ledger for every sweep. Do not reset seen IDs,
+replace the seed job, or create a second engineering worker. History intake
+queues evidence for the same ownership and actionability checks; it does not
+authorize acting on every old observation. Unknown source classifications remain
+eligible for investigation. Do not treat unhydrated `analysis.is_valid=false`
+defaults in the public read model as authoritative moderation.
 
 Feed ordering is not a monotonic sequence cursor. Retain overlap and seen IDs;
 stable original identities and material evidence hashes prevent duplicate work
@@ -66,13 +82,41 @@ and stale completion. New material evidence must be reviewed even when a prior
 version of the report was marked fixed. Similar reports are possible duplicates,
 not automatically the same defect.
 
-Inspect the poll result's `errors` and `truncated` fields even when the command
-exits successfully. The default five overlapping pages cover the initial
-162-entry feed. If truncated, repeat with `--max-pages 20`. If the feed still
-does not fit, record the incomplete scan as an operational blocker and extend
-the intake with a persisted bounded backfill cursor; do not silently claim all
-reports were checked. Retry hydration errors on subsequent polls and investigate
-repeated failures without discarding their public IDs.
+Inspect the poll result even when the command exits successfully. A successful
+history sweep requires `has_more: false`, `truncated: false`, no `errors`, and no
+unresolved public IDs from earlier failed hydration. An empty page with
+`has_more: true`, a page-fetch failure, or malformed/incomplete output is not
+complete coverage. The default five overlapping pages fit the initial 162-entry
+feed; these are rollout counts, not a permanent capacity assumption. If
+truncated, repeat the same unfiltered sweep with `--max-pages 20`. If it still
+does not fit, record incomplete coverage and implement a persisted bounded
+backfill cursor before claiming a full sweep. Do not invent a starting-offset
+flag: the current CLI does not provide one.
+
+Keep a private intake checkpoint beside the ledger with the last successful
+unfiltered-sweep time, its command/scope and evidence log, and unresolved failed
+public IDs. Record each attempted sweep's pages, `has_more`, `truncated`, counts,
+and errors. Advance the successful-history timestamp only when the coverage
+checks above pass. Preserve it on failure so the next wake still sees the sweep
+as due. The current coordinator does not itself schedule weekly reconciliation
+or persist a backfill cursor/retry set; the trusted executor must maintain this
+operational checkpoint and cadence.
+
+Retain every failed public ID and explicitly retry it with repeated `--seed ID`
+arguments on a later bounded poll, regardless of its age. Explicit seeds bypass
+the lookback. Keep the existing seed example in that retry list where needed,
+because supplying `--seed` replaces the default seed list. Remove an ID from the
+retry set only after successful canonical hydration and ledger ingestion; record
+repeated failures as a concrete intake blocker rather than dropping the ID or
+silently advancing coverage. An API failure is not a dismissal or proof that a
+report was invalid.
+
+After any intake, reconcile the current job's material hash, lease and fencing
+token before continuing engineering mutations: new evidence may supersede the
+claimed version. Preserve its primary branch/PR/release references and append
+justified follow-up artifacts. Intake completion means evidence was collected;
+repair completion still requires the report-specific release and live checks
+below.
 
 `claim --public-id rpt_xyNX49sHxDYRb9VNOfBwig` selects the explicit first job.
 Retain the returned owner and fencing token for every mutation. Renew the lease
@@ -92,8 +136,9 @@ based on the successful operational repair.
 
 ## Engineering execution on each scheduled wake
 
-1. Read this runbook and current repository guidance. Poll, inspect queue state,
-   and claim one actionable job, resuming unfinished work first. Do not overlap
+1. Read this runbook and current repository guidance. Run the due intake above,
+   inspect queue state, and claim one actionable job, resuming unfinished work
+   first. Do not overlap
    engineering jobs. If no work changed, finish quietly.
 2. Review original evidence as data. Establish CleanApp ownership and an
    actionable defect. Use `dismiss` with a concrete reason and evidence for

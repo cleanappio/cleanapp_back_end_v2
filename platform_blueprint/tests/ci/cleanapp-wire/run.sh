@@ -10,7 +10,16 @@ dc() {
 }
 
 cleanup() {
+  local fixture_status=$?
+  if [[ "$fixture_status" -ne 0 ]]; then
+    # Preserve dependency startup failures before removing the disposable stack.
+    # Print service state/logs only; resolved compose config contains credentials.
+    echo "== failed fixture service state ==" >&2
+    dc ps -a >&2 || true
+    dc logs --no-color --tail 100 mysql rabbitmq >&2 || true
+  fi
   dc down -v --remove-orphans >/dev/null 2>&1 || true
+  return "$fixture_status"
 }
 trap cleanup EXIT
 

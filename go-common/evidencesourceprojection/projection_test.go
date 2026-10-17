@@ -12,8 +12,11 @@ import (
 
 func TestContractHasCompleteNullableDatesAndNoParentConstraints(t *testing.T) {
 	ddl := createTableSQL()
-	if strings.Contains(ddl, "FOREIGN KEY") || strings.Contains(ddl, "DATETIME") || strings.Contains(ddl, "TIMESTAMP") || strings.Count(ddl, "LONGTEXT") != 8 || strings.Count(ddl, "VARCHAR(26)") != 3 || !strings.Contains(ddl, "KEY idx_dirty_seq(dirty,seq)") {
-		t.Fatal("projection narrowed outputs or introduced parent/date constraints")
+	if strings.Contains(ddl, "FOREIGN KEY") || strings.Contains(ddl, "DATETIME") || strings.Contains(ddl, "TIMESTAMP") || strings.Count(ddl, "LONGTEXT") != 8 || strings.Count(ddl, "VARCHAR(26)") != 3 || !strings.Contains(ddl, "KEY idx_dirty_seq(dirty,seq)") || !strings.Contains(ddl, "KEY idx_privacy_restricted(privacy_restricted)") {
+		t.Fatal("projection narrowed outputs, lost a covering key or introduced parent/date constraints")
+	}
+	if PrivacyRestrictedIndex != "idx_privacy_restricted" {
+		t.Fatal("privacy index name is part of the reader hint contract")
 	}
 	if len(Columns()) != 15 {
 		t.Fatal("wrong output count")
@@ -194,7 +197,10 @@ func TestStorePropagatesSQLError(t *testing.T) {
 func expectContract(mock sqlmock.Sqlmock) {
 	mock.ExpectQuery(`SELECT k.TABLE_NAME.*REFERENTIAL_CONSTRAINTS`).WillReturnRows(sqlmock.NewRows([]string{"table", "col", "parent", "pcol", "delete", "update"}).AddRow("report_raw", "report_seq", "reports", "seq", "CASCADE", "RESTRICT").AddRow("wire_submissions_raw", "report_seq", "reports", "seq", "SET NULL", "NO ACTION").AddRow("wire_submissions_raw", "fetcher_id", "fetchers", "fetcher_id", "CASCADE", "RESTRICT").AddRow("wire_evidence_projection", "submission_id", "wire_submissions_raw", "submission_id", "CASCADE", "CASCADE"))
 }
-func expectTable(mock sqlmock.Sqlmock) {
+
+// privacyIndexed models a table that already carries the optional online
+// privacy index (four index rows) or one created before it (three).
+func expectTable(mock sqlmock.Sqlmock, privacyIndexed bool) {
 	rows := sqlmock.NewRows([]string{"name", "type", "null", "collation", "default", "extra"}).AddRow("seq", "int", "NO", "", nil, "").AddRow("source_revision", "bigint unsigned", "NO", "", "1", "").AddRow("computed_revision", "bigint unsigned", "NO", "", "0", "").AddRow("normalizer_version", "int", "NO", "", "0", "").AddRow("dirty", "tinyint(1)", "NO", "", "1", "")
 	for _, name := range outputColumns {
 		typ, coll := "longtext", "utf8mb4_bin"
@@ -213,9 +219,14 @@ func expectTable(mock sqlmock.Sqlmock) {
 	mock.ExpectQuery(`SELECT COLUMN_NAME,COLUMN_TYPE,IS_NULLABLE`).WithArgs(Table).WillReturnRows(rows)
 	mock.ExpectQuery(`SELECT ENGINE FROM`).WithArgs(Table).WillReturnRows(sqlmock.NewRows([]string{"engine"}).AddRow("InnoDB"))
 	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE`).WithArgs(Table, Table).WillReturnRows(sqlmock.NewRows([]string{"fks"}).AddRow(0))
-	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA=DATABASE\(\) AND TABLE_NAME=\?$`).WithArgs(Table).WillReturnRows(sqlmock.NewRows([]string{"indexes"}).AddRow(3))
+	indexes, privacy := 3, 0
+	if privacyIndexed {
+		indexes, privacy = 4, 1
+	}
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA=DATABASE\(\) AND TABLE_NAME=\?$`).WithArgs(Table).WillReturnRows(sqlmock.NewRows([]string{"indexes"}).AddRow(indexes))
 	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM INFORMATION_SCHEMA.STATISTICS .*INDEX_NAME='PRIMARY'`).WithArgs(Table).WillReturnRows(sqlmock.NewRows([]string{"primary"}).AddRow(1))
 	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM INFORMATION_SCHEMA.STATISTICS .*INDEX_NAME='idx_dirty_seq'`).WithArgs(Table).WillReturnRows(sqlmock.NewRows([]string{"dirty"}).AddRow(2))
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM INFORMATION_SCHEMA.STATISTICS .*INDEX_NAME=\? AND NON_UNIQUE=1 AND SEQ_IN_INDEX=1 AND COLUMN_NAME='privacy_restricted'`).WithArgs(Table, PrivacyRestrictedIndex).WillReturnRows(sqlmock.NewRows([]string{"privacy"}).AddRow(privacy))
 }
 func expectTrigger(mock sqlmock.Sqlmock, tr trigger, exists bool, body string) {
 	rows := sqlmock.NewRows([]string{"table", "timing", "event", "body"})
@@ -235,7 +246,7 @@ func TestMigrationIsAdditiveAndIdempotentVerifyIsReadOnly(t *testing.T) {
 		m.ExpectExec(`SET SESSION lock_wait_timeout=\?`).WithArgs(5).WillReturnResult(sqlmock.NewResult(0, 0))
 		expectContract(m)
 		m.ExpectExec(`CREATE TABLE IF NOT EXISTS report_evidence_source_projection`).WillReturnResult(sqlmock.NewResult(0, 0))
-		expectTable(m)
+		expectTable(m, true)
 		for _, tr := range triggers() {
 			expectTrigger(m, tr, exists, tr.body)
 			if !exists {
@@ -247,16 +258,89 @@ func TestMigrationIsAdditiveAndIdempotentVerifyIsReadOnly(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	expectContract(m)
-	expectTable(m)
-	for _, tr := range triggers() {
-		expectTrigger(m, tr, true, tr.body)
-	}
-	if err = Verify(context.Background(), db); err != nil {
-		t.Fatal(err)
+	// Verify is read-only and accepts a table created before the privacy
+	// index as well as one that carries it.
+	for _, privacyIndexed := range []bool{false, true} {
+		expectContract(m)
+		expectTable(m, privacyIndexed)
+		for _, tr := range triggers() {
+			expectTrigger(m, tr, true, tr.body)
+		}
+		if err = Verify(context.Background(), db); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err = m.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestPrivacyIndexMigrationIsOnlineAdditiveAndIdempotent(t *testing.T) {
+	db, m, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for _, present := range []int{0, 1} {
+		m.ExpectQuery(`SELECT @@SESSION.lock_wait_timeout`).WillReturnRows(sqlmock.NewRows([]string{"wait"}).AddRow(60))
+		m.ExpectExec(`SET SESSION lock_wait_timeout=\?`).WithArgs(5).WillReturnResult(sqlmock.NewResult(0, 0))
+		m.ExpectQuery(`SELECT COUNT\(\*\) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA=DATABASE\(\) AND TABLE_NAME=\? AND INDEX_NAME=\?$`).WithArgs(Table, PrivacyRestrictedIndex).WillReturnRows(sqlmock.NewRows([]string{"named"}).AddRow(present))
+		if present == 0 {
+			// Online, additive, bounded lock wait: never a copy, rebuild or table lock.
+			m.ExpectExec(regexp.QuoteMeta("ALTER TABLE " + Table + " ADD INDEX " + PrivacyRestrictedIndex + " (privacy_restricted), ALGORITHM=INPLACE, LOCK=NONE")).WillReturnResult(sqlmock.NewResult(0, 0))
+		}
+		expectTable(m, true)
+		m.ExpectExec(`SET SESSION lock_wait_timeout=\?`).WithArgs(60).WillReturnResult(sqlmock.NewResult(0, 0))
+		if err = MigratePrivacyRestrictedIndex(context.Background(), db); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err = m.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestVerifyRejectsForeignOrMalformedProjectionIndexes(t *testing.T) {
+	for _, shape := range []struct {
+		name             string
+		indexes, privacy int
+	}{{"extra_unknown_index", 4, 0}, {"malformed_privacy_index", 5, 1}, {"duplicate_privacy_rows", 5, 2}} {
+		t.Run(shape.name, func(t *testing.T) {
+			db, m, err := sqlmock.New()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			expectContract(m)
+			rows := sqlmock.NewRows([]string{"name", "type", "null", "collation", "default", "extra"}).AddRow("seq", "int", "NO", "", nil, "").AddRow("source_revision", "bigint unsigned", "NO", "", "1", "").AddRow("computed_revision", "bigint unsigned", "NO", "", "0", "").AddRow("normalizer_version", "int", "NO", "", "0", "").AddRow("dirty", "tinyint(1)", "NO", "", "1", "")
+			for _, name := range outputColumns {
+				typ, coll := "longtext", "utf8mb4_bin"
+				for _, d := range dateColumns {
+					if d == name {
+						typ, coll = "varchar(26)", "ascii_bin"
+					}
+				}
+				for _, b := range boolColumns {
+					if b == name {
+						typ, coll = "tinyint(1)", ""
+					}
+				}
+				rows.AddRow(name, typ, "YES", coll, nil, "")
+			}
+			m.ExpectQuery(`SELECT COLUMN_NAME,COLUMN_TYPE,IS_NULLABLE`).WithArgs(Table).WillReturnRows(rows)
+			m.ExpectQuery(`SELECT ENGINE FROM`).WithArgs(Table).WillReturnRows(sqlmock.NewRows([]string{"engine"}).AddRow("InnoDB"))
+			m.ExpectQuery(`SELECT COUNT\(\*\) FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE`).WithArgs(Table, Table).WillReturnRows(sqlmock.NewRows([]string{"fks"}).AddRow(0))
+			m.ExpectQuery(`SELECT COUNT\(\*\) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA=DATABASE\(\) AND TABLE_NAME=\?$`).WithArgs(Table).WillReturnRows(sqlmock.NewRows([]string{"indexes"}).AddRow(shape.indexes))
+			m.ExpectQuery(`SELECT COUNT\(\*\) FROM INFORMATION_SCHEMA.STATISTICS .*INDEX_NAME='PRIMARY'`).WithArgs(Table).WillReturnRows(sqlmock.NewRows([]string{"primary"}).AddRow(1))
+			m.ExpectQuery(`SELECT COUNT\(\*\) FROM INFORMATION_SCHEMA.STATISTICS .*INDEX_NAME='idx_dirty_seq'`).WithArgs(Table).WillReturnRows(sqlmock.NewRows([]string{"dirty"}).AddRow(2))
+			m.ExpectQuery(`SELECT COUNT\(\*\) FROM INFORMATION_SCHEMA.STATISTICS .*COLUMN_NAME='privacy_restricted'`).WithArgs(Table, PrivacyRestrictedIndex).WillReturnRows(sqlmock.NewRows([]string{"privacy"}).AddRow(shape.privacy))
+			if err = Verify(context.Background(), db); err == nil {
+				t.Fatal("accepted a table whose index set is not PRIMARY, idx_dirty_seq and an optional one-column privacy index")
+			}
+			if err = m.ExpectationsWereMet(); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 func TestReadOnlyVerifyRejectsMissingOrForeignNamedTrigger(t *testing.T) {
@@ -266,7 +350,7 @@ func TestReadOnlyVerifyRejectsMissingOrForeignNamedTrigger(t *testing.T) {
 			t.Fatal(err)
 		}
 		expectContract(m)
-		expectTable(m)
+		expectTable(m, exists)
 		expectTrigger(m, triggers()[0], exists, "SET @unrelated=1")
 		if err = Verify(context.Background(), db); err == nil {
 			t.Fatal("accepted missing/foreign named trigger")
