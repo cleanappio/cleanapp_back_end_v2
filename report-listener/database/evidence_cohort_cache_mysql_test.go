@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -21,6 +22,15 @@ import (
 // checks must be live from the blocking sets alone.
 type cohortCacheFixture struct {
 	d *Database
+}
+
+// Print the complete synthetic public fixture fields, including pointer-backed
+// evidence and recurrence. Struct formatting otherwise hides the differing
+// field behind pointer addresses when real MySQL parity fails.
+func cohortParityDiagnostic(got, want EvidenceBrandPage) string {
+	gotJSON, gotErr := json.MarshalIndent(got, "", "  ")
+	wantJSON, wantErr := json.MarshalIndent(want, "", "  ")
+	return fmt.Sprintf("got JSON (marshal error %v):\n%s\nwant JSON (marshal error %v):\n%s", gotErr, gotJSON, wantErr, wantJSON)
 }
 
 func newCohortCacheFixture(t *testing.T, db *sql.DB) *cohortCacheFixture {
@@ -118,7 +128,7 @@ func (c *cohortCacheFixture) parity(t *testing.T, f EvidenceFilter) EvidenceBran
 	got.SnapshotAt = nil
 	want, err := c.d.getEvidenceBrandPageSQL(ctx, f)
 	if err != nil || !reflect.DeepEqual(got, want) {
-		t.Fatalf("cached cohort page differs from SQL oracle (%s/%s/%s/%s/%d): %v\ngot: %+v\nwant: %+v", f.BrandName, f.Language, f.Kind, f.Sort, f.Offset, err, got, want)
+		t.Fatalf("cached cohort page differs from SQL oracle (%s/%s/%s/%s/%d): %v\n%s", f.BrandName, f.Language, f.Kind, f.Sort, f.Offset, err, cohortParityDiagnostic(got, want))
 	}
 	return got
 }
@@ -352,7 +362,7 @@ func testProjectedEvidenceCohortCacheMySQL(t *testing.T, db *sql.DB) {
 				}
 				want, err := direct.getEvidenceBrandPageSQL(ctx, f)
 				if err != nil || !reflect.DeepEqual(got, want) {
-					t.Fatalf("direct page differs from SQL oracle: %v", err)
+					t.Fatalf("direct page differs from SQL oracle: %v\n%s", err, cohortParityDiagnostic(got, want))
 				}
 			}
 		}
