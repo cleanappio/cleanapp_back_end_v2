@@ -150,7 +150,7 @@ func testProjectedEvidenceCohortCacheMySQL(t *testing.T, db *sql.DB) {
 		// restore that native FLOAT identity before exact comparison: its DOUBLE
 		// conversion can otherwise lose one bit during the JSON round trip.
 		const seq = 7218
-		exec(`INSERT INTO reports(seq,id,public_id,ts) VALUES(?,'native_float','rpt_native_float','2026-10-15')`, seq)
+		exec(`INSERT INTO reports(seq,id,public_id,ts,latitude,longitude,image) VALUES(?,'native_float','rpt_native_float','2026-10-15',12.25,-41.5,'')`, seq)
 		for _, row := range []struct {
 			title    string
 			severity any
@@ -313,9 +313,24 @@ func testProjectedEvidenceCohortCacheMySQL(t *testing.T, db *sql.DB) {
 		f, _ := NormalizeEvidenceFilter(all)
 		before := cached.parity(t, f)
 		snapshot := cached.snapshotAt(t, f)
+		const sampleSeq = first + 2
+		publicSample, publicStandalone := false, false
+		for _, report := range before.Reports {
+			if report.Report.Seq == first+16 && report.Evidence.SourceURL != nil && report.Evidence.Excerpt != nil {
+				publicStandalone = true
+			}
+			for _, sample := range report.Recurrence.SupportingSources {
+				if sample.Title == fmt.Sprint("Cohort ", sampleSeq) && sample.SourceURL != nil {
+					publicSample = true
+				}
+			}
+		}
+		if !publicSample || !publicStandalone {
+			t.Fatalf("precondition: pending privacy must target an exposed sample and standalone source, sample=%v standalone=%v", publicSample, publicStandalone)
+		}
 		// Mutate both a standalone page report and an existing family sample.
 		// The projection trigger only marks dirty; its old privacy flag is false.
-		for _, seq := range []int{first + 16, first + 8} {
+		for _, seq := range []int{first + 16, sampleSeq} {
 			exec(`INSERT INTO wire_submissions_raw(submission_id,report_seq,report_json,provenance_json,observed_at,submitted_at,extensions_json) VALUES(?,?,JSON_OBJECT('privacy',JSON_OBJECT('contains_pii',TRUE)),JSON_OBJECT(),NULL,'2026-10-15',JSON_OBJECT())`, fmt.Sprint("pending_privacy_", seq), seq)
 			var dirty, restricted bool
 			if err := db.QueryRow(`SELECT dirty,privacy_restricted FROM report_evidence_source_projection WHERE seq=?`, seq).Scan(&dirty, &restricted); err != nil || !dirty || restricted {
@@ -339,7 +354,7 @@ func testProjectedEvidenceCohortCacheMySQL(t *testing.T, db *sql.DB) {
 				}
 			}
 			for _, sample := range report.Recurrence.SupportingSources {
-				if sample.Title == fmt.Sprint("Cohort ", first+8) || (sample.SourceURL != nil && *sample.SourceURL == fmt.Sprintf("https://example.test/cohort/%d", first+8)) {
+				if sample.Title == fmt.Sprint("Cohort ", sampleSeq) || (sample.SourceURL != nil && *sample.SourceURL == fmt.Sprintf("https://example.test/cohort/%d", sampleSeq)) {
 					t.Fatal("dirty privacy generation remained in public supporting samples")
 				}
 			}
@@ -350,7 +365,7 @@ func testProjectedEvidenceCohortCacheMySQL(t *testing.T, db *sql.DB) {
 		// Once the worker completes, the held cohort remains safe and the full
 		// exact SQL parity contract applies again, without refreshing that cohort.
 		cached.parity(t, f)
-		for _, seq := range []int{first + 16, first + 8} {
+		for _, seq := range []int{first + 16, sampleSeq} {
 			exec(`DELETE FROM wire_submissions_raw WHERE submission_id=?`, fmt.Sprint("pending_privacy_", seq))
 		}
 		restored := cached.parity(t, f)
