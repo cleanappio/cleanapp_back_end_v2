@@ -15,6 +15,15 @@ import (
 // source values participate in the full-cohort read. Native SQL comparison keys
 // feed the existing Go analysis comparator without a window/materialization.
 // Cache misses remain exact source reads in this same snapshot.
+//
+// The three publication guards (inactive status, private owner, non-public raw
+// visibility) are NOT EXISTS anti-joins rather than a correlated COUNT(*)=0 or
+// an outer join on report_raw. The optimizer may then materialise each blocking
+// set once per query (production 2026-10-17: 0 private owners, 1,480 shadow
+// raws, 1,606 inactive statuses) instead of one indexed lookup per cohort row.
+// Semantics are unchanged: report_raw has one row per report_seq (its primary
+// key), so a missing or NULL visibility passes and any other non-'public' value
+// under the column collation excludes the report, exactly as the outer join did.
 func projectedEvidenceBaseQuery(f EvidenceFilter) (string, []interface{}) {
 	marks := make([]string, len(f.Brands))
 	args := []interface{}{f.Language}
@@ -43,12 +52,12 @@ func projectedEvidenceBaseQuery(f EvidenceFilter) (string, []interface{}) {
  FROM preferred ra
  LEFT JOIN report_metadata_projection m ON m.seq=ra.seq
  LEFT JOIN reports fallback ON fallback.seq=CASE WHEN m.seq IS NULL THEN ra.seq ELSE NULL END
- LEFT JOIN report_raw rr ON rr.report_seq=ra.seq
  LEFT JOIN report_evidence ev ON ev.seq=ra.seq
  LEFT JOIN ` + evidencesourceprojection.Table + ` p ON p.seq=ra.seq
- WHERE ra.seq IS NOT NULL AND (CASE WHEN m.seq IS NOT NULL THEN m.public_id ELSE fallback.public_id END COLLATE utf8mb4_bin)<>'' AND ` + PublicVisibilityWhereSQL + `
+ WHERE ra.seq IS NOT NULL AND (CASE WHEN m.seq IS NOT NULL THEN m.public_id ELSE fallback.public_id END COLLATE utf8mb4_bin)<>''
+ AND NOT EXISTS(SELECT 1 FROM report_raw rr WHERE rr.report_seq=ra.seq AND rr.visibility IS NOT NULL AND rr.visibility<>'public')
  AND NOT EXISTS(SELECT 1 FROM report_status rs WHERE rs.seq=ra.seq AND rs.status IS NOT NULL AND rs.status<>'active')
- AND (SELECT /*+ JOIN_INDEX(ro idx_is_public) */ COUNT(*) FROM reports_owners ro WHERE ro.seq=ra.seq AND ro.owner IS NOT NULL AND ro.owner<>'' AND ro.is_public=FALSE)=0`
+ AND NOT EXISTS(SELECT 1 FROM reports_owners ro WHERE ro.seq=ra.seq AND ro.owner IS NOT NULL AND ro.owner<>'' AND ro.is_public=FALSE)`
 	return query, args
 }
 
