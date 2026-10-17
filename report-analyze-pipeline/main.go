@@ -147,16 +147,22 @@ func main() {
 
 	// Validate required configuration
 	switch cfg.LLMProvider {
+	case "claude":
+		if cfg.AnthropicAPIKey == "" {
+			log.Fatal("ANTHROPIC_API_KEY environment variable is required when ANALYZER_LLM_PROVIDER=claude")
+		}
 	case "gemini":
 		if cfg.GeminiAPIKey == "" {
 			log.Fatal("GEMINI_API_KEY environment variable is required when ANALYZER_LLM_PROVIDER=gemini")
 		}
 	case "stub":
 		// No API keys required. Intended for CI/local e2e tests.
-	default: // openai
+	case "openai":
 		if cfg.OpenAIAPIKey == "" {
 			log.Fatal("OPENAI_API_KEY environment variable is required when ANALYZER_LLM_PROVIDER=openai")
 		}
+	default:
+		log.Fatal("unsupported ANALYZER_LLM_PROVIDER")
 	}
 
 	// Validate start point is set
@@ -172,7 +178,10 @@ func main() {
 	defer db.Close()
 
 	// Initialize service
-	analysisService := service.NewService(cfg, db)
+	analysisService, err := service.NewService(cfg, db)
+	if err != nil {
+		log.Fatalf("Failed to initialize analysis provider: %v", err)
+	}
 
 	// Initialize handlers
 	handlers := handlers.NewHandlers(db, analysisService, getReportSubscriber)

@@ -66,7 +66,7 @@ type Handlers struct {
 	rabbitmqReplier   *rabbitmq.Publisher
 	rabbitmqMu        sync.Mutex
 	cfg               *config.Config
-	geminiClient      *intelligence.Client
+	answerClient      intelligence.AnswerClient
 	contactDiscoverer *caseContactDiscoverer
 	discoveryCodec    *publicdiscovery.Codec
 	pushSender        *mobilepush.Sender
@@ -104,7 +104,11 @@ func NewHandlers(
 	pub *rabbitmq.Publisher,
 	replyPub *rabbitmq.Publisher,
 ) *Handlers {
-	geminiClient := intelligence.NewClient(cfg.GeminiAPIKey, cfg.GeminiModel)
+	key, model := cfg.GeminiAPIKey, cfg.GeminiModel
+	if cfg.IntelligenceLLMProvider == "claude" {
+		key, model = cfg.AnthropicAPIKey, cfg.AnthropicModel
+	}
+	answerClient := intelligence.NewProvider(cfg.IntelligenceLLMProvider, key, model)
 	discoveryCodec, err := publicdiscovery.NewCodec(cfg.JWTSecret)
 	if err != nil {
 		panic(err)
@@ -122,7 +126,7 @@ func NewHandlers(
 		rabbitmqPublisher: publisher,
 		rabbitmqReplier:   replyPub,
 		cfg:               cfg,
-		geminiClient:      geminiClient,
+		answerClient:      answerClient,
 		contactDiscoverer: newCaseContactDiscoverer(cfg),
 		discoveryCodec:    discoveryCodec,
 		pushSender: mobilepush.NewSender(mobilepush.Config{

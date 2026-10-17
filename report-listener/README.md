@@ -284,6 +284,14 @@ The service is configured via environment variables:
 | `BROADCAST_INTERVAL` | `1s` | Broadcast frequency (e.g., `500ms`, `2s`) |
 | `LOG_LEVEL` | `info` | Log level (`debug`, `info`, `warn`, `error`) |
 
+### Intelligence provider
+
+`INTELLIGENCE_LLM_PROVIDER` selects optional answer refinement: `gemini` remains the default; `claude` uses the first-party Anthropic Messages API. With Claude selected, inject `ANTHROPIC_API_KEY` through the existing secret environment path and optionally set `ANTHROPIC_MODEL` (default `claude-haiku-5-5`). Unknown providers and a missing Claude key fail startup.
+
+Claude receives the existing evidence-grounded refinement prompts. Both fast and deep modes use the explicitly configured Claude model (default Haiku 5.5 uses disabled thinking and low effort), with at most 1,200 output tokens, an 18-second total deadline (or the caller’s shorter deadline), and at most two attempts for explicit rate-limit/server responses. Claude errors never trigger Gemini or OpenAI calls; the handler retains its existing unrefined answer behavior. Credentials use headers, and errors omit provider response bodies and key-bearing URLs.
+
+The analyzer is configured independently with `ANALYZER_LLM_PROVIDER=claude`. A release must explicitly inject the Claude variables into both services' environment allowlists; no running provider is changed by this source update. API credits/model availability require separate validation, and no database migration is needed.
+
 ## Database Schema
 
 The service listens to the `reports` and `report_analysis` tables with the following structure:

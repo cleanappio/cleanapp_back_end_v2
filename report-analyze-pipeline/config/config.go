@@ -1,6 +1,7 @@
 package config
 
 import (
+	"cleanapp-common/anthropic"
 	"cleanapp-common/appenv"
 	"fmt"
 	"strings"
@@ -27,6 +28,8 @@ type Config struct {
 	OpenAIModel       string
 	GeminiAPIKey      string
 	GeminiModel       string
+	AnthropicAPIKey   string
+	AnthropicModel    string
 	LLMProvider       string
 
 	EvidenceWorkerEnabled   bool
@@ -58,6 +61,20 @@ func (r *RabbitMQConfig) GetAMQPURL() string {
 }
 
 func Load() (*Config, error) {
+	provider := strings.ToLower(appenv.String("ANALYZER_LLM_PROVIDER", "openai"))
+	switch provider {
+	case "openai", "gemini", "claude", "stub":
+	default:
+		return nil, fmt.Errorf("unsupported ANALYZER_LLM_PROVIDER")
+	}
+	claudeKey := ""
+	if provider == "claude" {
+		var err error
+		claudeKey, err = appenv.Secret("ANTHROPIC_API_KEY", "")
+		if err != nil {
+			return nil, err
+		}
+	}
 	dbPassword, err := appenv.Secret("DB_PASSWORD", "")
 	if err != nil {
 		return nil, err
@@ -82,7 +99,9 @@ func Load() (*Config, error) {
 		OpenAIModel:             appenv.String("OPENAI_MODEL", "gpt-4o"),
 		GeminiAPIKey:            appenv.String("GEMINI_API_KEY", ""),
 		GeminiModel:             appenv.String("GEMINI_MODEL", "gemini-flash-latest"),
-		LLMProvider:             appenv.String("ANALYZER_LLM_PROVIDER", "openai"),
+		AnthropicAPIKey:         claudeKey,
+		AnthropicModel:          appenv.String("ANTHROPIC_MODEL", anthropic.DefaultModel),
+		LLMProvider:             provider,
 		EvidenceWorkerEnabled:   appenv.Bool("EVIDENCE_WORKER_ENABLED", true),
 		EvidenceWorkerBatchSize: appenv.Int("EVIDENCE_WORKER_BATCH_SIZE", 10),
 		AnalysisInterval:        appenv.Duration("ANALYSIS_INTERVAL", 30*time.Second),

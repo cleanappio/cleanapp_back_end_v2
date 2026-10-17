@@ -12,6 +12,7 @@ import (
 
 	"cleanapp-common/events"
 	"cleanapp-common/evidence"
+	"report-analyze-pipeline/claude"
 	"report-analyze-pipeline/config"
 	"report-analyze-pipeline/contacts"
 	"report-analyze-pipeline/database"
@@ -62,20 +63,37 @@ type Service struct {
 }
 
 // NewService creates a new report analysis service
-func NewService(cfg *config.Config, db *database.Database) *Service {
+func newLLMClient(cfg *config.Config) (llm.Client, error) {
 	var client llm.Client
 	switch cfg.LLMProvider {
+	case "claude":
+		if strings.TrimSpace(cfg.AnthropicAPIKey) == "" {
+			return nil, fmt.Errorf("ANTHROPIC_API_KEY is required")
+		}
+		client = claude.NewClient(cfg.AnthropicAPIKey, cfg.AnthropicModel)
 	case "gemini":
 		client = gemini.NewClient(cfg.GeminiAPIKey, cfg.GeminiModel)
 	case "stub":
 		client = stubllm.NewClient()
-	default: // openai
+	case "openai", "":
 		client = openai.NewClient(cfg.OpenAIAPIKey, cfg.OpenAIModel)
+	default:
+		return nil, fmt.Errorf("unsupported ANALYZER_LLM_PROVIDER")
+	}
+	return client, nil
+}
+
+func NewService(cfg *config.Config, db *database.Database) (*Service, error) {
+	client, err := newLLMClient(cfg)
+	if err != nil {
+		return nil, err
 	}
 	brandService := services.NewBrandService()
 	// Log selected provider and model
 	selectedModel := ""
-	if cfg.LLMProvider == "gemini" {
+	if cfg.LLMProvider == "claude" {
+		selectedModel = cfg.AnthropicModel
+	} else if cfg.LLMProvider == "gemini" {
 		selectedModel = cfg.GeminiModel
 	} else if cfg.LLMProvider == "stub" {
 		selectedModel = "stub"
@@ -113,7 +131,7 @@ func NewService(cfg *config.Config, db *database.Database) *Service {
 		contactService: contactService,
 		publisher:      publisher,
 		stopChan:       make(chan bool),
-	}
+	}, nil
 }
 
 // Start starts the analysis service
@@ -683,14 +701,14 @@ func (s *Service) enrichPhysicalReportEmails(report *database.Report, analysis *
 
 	// Step 7: Fall back to LLM re-analysis with location context if we didn't find enough
 	if locCtx != nil && locCtx.HasUsefulData() {
-		if geminiClient, ok := s.llmClient.(*gemini.Client); ok {
+		if locationClient, ok := s.llmClient.(llm.LocationAnalyzer); ok {
 			imageData, err := s.db.GetReportImage(report.Seq)
 			if err != nil {
 				log.Printf("Report %d: Failed to fetch image for LLM enrichment: %v", report.Seq, err)
 				return
 			}
 
-			geminiLocCtx := &gemini.LocationContext{
+			location := &llm.LocationContext{
 				PrimaryName:  locCtx.PrimaryName,
 				ParentOrg:    locCtx.ParentOrg,
 				Operator:     locCtx.Operator,
@@ -702,7 +720,7 @@ func (s *Service) enrichPhysicalReportEmails(report *database.Report, analysis *
 				Country:      locCtx.Address.Country,
 			}
 
-			response, err := geminiClient.AnalyzeImageWithLocation(imageData, report.Description, geminiLocCtx)
+			response, err := locationClient.AnalyzeImageWithLocation(imageData, report.Description, location)
 			if err != nil {
 				log.Printf("Report %d: Failed to re-analyze with location context: %v", report.Seq, err)
 				return

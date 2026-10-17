@@ -272,8 +272,8 @@ func (h *Handlers) QueryIntelligence(c *gin.Context) {
 	baseURL := h.cfg.IntelligenceBaseURL
 	computed := h.buildComputedResult(intent, intelCtx, question, baseURL, priorities)
 
-	if h.geminiClient != nil && h.geminiClient.Enabled() && isPro {
-		computed.AnswerMarkdown = h.maybeRefineAnswerWithGemini(c.Request.Context(), computed.AnswerMarkdown, computed.Data, question, intent, tier, qualityMode)
+	if h.answerClient != nil && h.answerClient.Enabled() && isPro {
+		computed.AnswerMarkdown = h.maybeRefineAnswer(c.Request.Context(), computed.AnswerMarkdown, computed.Data, question, intent, tier, qualityMode)
 	}
 
 	computed = applyEntitlements(tier, computed, entitlementOptions{ExportRequested: exportPromptRegex.MatchString(question)})
@@ -320,7 +320,7 @@ func (h *Handlers) ensureConcreteNonBlockedAnswer(result intelligenceComputedRes
 	return result
 }
 
-func (h *Handlers) maybeRefineAnswerWithGemini(
+func (h *Handlers) maybeRefineAnswer(
 	ctx context.Context,
 	baseAnswer string,
 	data IntelligenceResponseData,
@@ -368,7 +368,7 @@ func (h *Handlers) maybeRefineAnswerWithGemini(
 
 	queryCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
 	defer cancel()
-	refined, err := h.geminiClient.GenerateAnswerWithQuality(queryCtx, systemPrompt, b.String(), qualityMode)
+	refined, err := h.answerClient.GenerateAnswerWithQuality(queryCtx, systemPrompt, b.String(), qualityMode)
 	if err != nil {
 		return baseAnswer
 	}
