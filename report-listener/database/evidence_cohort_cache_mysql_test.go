@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"math"
 	"reflect"
 	"strings"
 	"testing"
@@ -144,6 +145,52 @@ func testProjectedEvidenceCohortCacheMySQL(t *testing.T, db *sql.DB) {
 		}
 	}
 	const first, last = 7200, 7217
+	t.Run("NativeFloatDisplayIdentity", func(t *testing.T) {
+		// FLOAT storage is widened when the cohort scans it. JSON_TABLE must
+		// restore that native FLOAT identity before exact comparison: its DOUBLE
+		// conversion can otherwise lose one bit during the JSON round trip.
+		const seq = 7218
+		exec(`INSERT INTO reports(seq,id,public_id,ts) VALUES(?,'native_float','rpt_native_float','2026-10-15')`, seq)
+		for _, row := range []struct {
+			title    string
+			severity any
+		}{
+			{"native_091", float64(float32(0.91))},
+			{"adjacent_float", float64(math.Nextafter32(float32(0.91), float32(math.Inf(1))))},
+			{"null_float", nil},
+		} {
+			exec(`INSERT INTO report_analysis VALUES(?,'en','nativefloat','Native Float',TRUE,'digital','2026-10-15',?,'Matching tuple',?)`, seq, row.title, row.severity)
+		}
+		for _, title := range []string{"native_091", "adjacent_float", "null_float"} {
+			var severity sql.NullFloat64
+			if err := db.QueryRow(`SELECT CAST(severity_level AS DOUBLE) FROM report_analysis WHERE seq=? AND title=?`, seq, title).Scan(&severity); err != nil {
+				t.Fatal(err)
+			}
+			if severity.Valid {
+				payload, _ := json.Marshal(map[string]float64{"severity": severity.Float64})
+				var widened, native float64
+				if err := db.QueryRow(`SELECT CAST(s.double_value AS DOUBLE),CAST(s.float_value AS DOUBLE) FROM JSON_TABLE(?, '$' COLUMNS(double_value DOUBLE PATH '$.severity',float_value FLOAT PATH '$.severity')) s`, string(payload)).Scan(&widened, &native); err != nil {
+					t.Fatal(err)
+				}
+				t.Logf("%s native=%.17g JSON_DOUBLE=%.17g JSON_FLOAT=%.17g", title, severity.Float64, widened, native)
+				if native != severity.Float64 {
+					t.Fatal("JSON FLOAT did not preserve the stored severity identity")
+				}
+			}
+			created := "2026-10-15 00:00:00.000000"
+			chosen := map[int]evidenceAnalysisCore{seq: {Record: evidenceRecord{Seq: seq, Language: "en", Brand: "nativefloat", Classification: "digital", Severity: severity.Float64, SeverityNull: !severity.Valid}, CreatedLiteral: &created}}
+			grouped := evidenceGroupedPage{Records: []evidenceRecord{{Seq: seq}}, SupportingSamples: map[int][]evidenceRecord{}}
+			tx, err := db.BeginTx(context.Background(), &sql.TxOptions{ReadOnly: true, Isolation: sql.LevelRepeatableRead})
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = hydrateEvidenceDisplay(context.Background(), tx, EvidenceFilter{Language: "en"}, chosen, &grouped)
+			_ = tx.Rollback()
+			if err != nil || grouped.Records[0].Title != title {
+				t.Fatalf("native nullable FLOAT selection changed for %s at %.17g (valid=%v): title=%q err=%v", title, severity.Float64, severity.Valid, grouped.Records[0].Title, err)
+			}
+		}
+	})
 	ids := []int{}
 	for seq := first; seq <= last; seq++ {
 		ids = append(ids, seq)
