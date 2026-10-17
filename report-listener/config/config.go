@@ -1,6 +1,7 @@
 package config
 
 import (
+	"cleanapp-common/anthropic"
 	"cleanapp-common/appenv"
 	"fmt"
 	"strings"
@@ -56,6 +57,9 @@ type Config struct {
 
 	GeminiAPIKey                     string
 	GeminiModel                      string
+	IntelligenceLLMProvider          string
+	AnthropicAPIKey                  string
+	AnthropicModel                   string
 	IntelligenceFreeTierMaxTurn      int
 	IntelligenceRateLimitRPS         float64
 	IntelligenceRateLimitBurst       int
@@ -99,6 +103,20 @@ type Config struct {
 }
 
 func Load() (*Config, error) {
+	provider := strings.ToLower(appenv.String("INTELLIGENCE_LLM_PROVIDER", "gemini"))
+	switch provider {
+	case "gemini", "claude":
+	default:
+		return nil, fmt.Errorf("unsupported INTELLIGENCE_LLM_PROVIDER")
+	}
+	claudeKey := ""
+	if provider == "claude" {
+		var err error
+		claudeKey, err = appenv.Secret("ANTHROPIC_API_KEY", "")
+		if err != nil {
+			return nil, err
+		}
+	}
 	dbPassword, err := appenv.Secret("DB_PASSWORD", "")
 	if err != nil {
 		return nil, err
@@ -162,6 +180,9 @@ func Load() (*Config, error) {
 
 		GeminiAPIKey:                     appenv.String("GEMINI_API_KEY", ""),
 		GeminiModel:                      appenv.String("GEMINI_MODEL", "gemini-2.5-flash"),
+		IntelligenceLLMProvider:          provider,
+		AnthropicAPIKey:                  claudeKey,
+		AnthropicModel:                   appenv.String("ANTHROPIC_MODEL", anthropic.DefaultModel),
 		IntelligenceFreeTierMaxTurn:      appenv.Int("INTELLIGENCE_FREE_MAX_TURNS", 5),
 		IntelligenceRateLimitRPS:         appenv.Float64("INTELLIGENCE_RATE_LIMIT_RPS", 0.5),
 		IntelligenceRateLimitBurst:       appenv.Int("INTELLIGENCE_RATE_LIMIT_BURST", 6),

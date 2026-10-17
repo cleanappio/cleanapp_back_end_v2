@@ -101,8 +101,8 @@ func (c *Client) GenerateAnswerWithQuality(ctx context.Context, systemPrompt, us
 	var lastErr error
 	for _, model := range models {
 		endpoints := []string{
-			fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", model, c.apiKey),
-			fmt.Sprintf("https://generativelanguage.googleapis.com/v1/models/%s:generateContent?key=%s", model, c.apiKey),
+			fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent", model),
+			fmt.Sprintf("https://generativelanguage.googleapis.com/v1/models/%s:generateContent", model),
 		}
 		for _, url := range endpoints {
 			answer, callErr := c.call(ctx, url, payload)
@@ -146,28 +146,26 @@ func (c *Client) modelsForQualityMode(mode string) []string {
 func (c *Client) call(ctx context.Context, url string, payload []byte) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("gemini request could not be created")
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-goog-api-key", c.apiKey)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("gemini transport failed")
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("gemini response could not be read")
 	}
 
 	var parsed geminiResponse
 	_ = json.Unmarshal(body, &parsed)
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		if parsed.Error != nil && parsed.Error.Message != "" {
-			return "", fmt.Errorf("gemini http %d: %s", resp.StatusCode, parsed.Error.Message)
-		}
 		return "", fmt.Errorf("gemini http %d", resp.StatusCode)
 	}
 

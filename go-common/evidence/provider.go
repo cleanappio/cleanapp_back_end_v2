@@ -2,6 +2,7 @@ package evidence
 
 import (
 	"bytes"
+	"cleanapp-common/anthropic"
 	"cleanapp-common/appenv"
 	"context"
 	"encoding/base64"
@@ -38,6 +39,9 @@ func NewOpenAIClassifier(key, model string, client *http.Client) *Provider {
 func NewGeminiClassifier(key, model string, client *http.Client) *Provider {
 	return newProvider("gemini", key, model, client)
 }
+func NewClaudeClassifier(key, model string, client *http.Client) *Provider {
+	return newProvider("claude", key, model, client)
+}
 func newProvider(kind, key, model string, client *http.Client) *Provider {
 	if client == nil {
 		client = &http.Client{Timeout: 90 * time.Second}
@@ -58,6 +62,21 @@ func (p *Provider) AnalyzeOriginalEvidence(source Original, entity string) (Fiel
 	if hasImage {
 		prompt += "\n" + ImageInstructions
 	}
+	if p.kind == "claude" {
+		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		defer cancel()
+		if err := requestLimiter.Wait(ctx); err != nil {
+			return Fields{}, fmt.Errorf("evidence request budget unavailable")
+		}
+		if !hasImage {
+			image = nil
+		}
+		text, err := anthropic.NewClient(p.key, p.model, p.http).Generate(ctx, anthropic.Input{System: prompt, Text: OriginalInput(source, entity), Image: image, MaxTokens: 2048, JSONSchema: claudeEvidenceSchema()})
+		if err != nil {
+			return Fields{}, err
+		}
+		return ParseWithMedia(text, original, hasImage)
+	}
 	var request any
 	var endpoints []string
 	if p.kind == "openai" {
@@ -67,13 +86,15 @@ func (p *Provider) AnalyzeOriginalEvidence(source Original, entity string) (Fiel
 		}
 		request = map[string]any{"model": p.model, "temperature": 0, "messages": []any{map[string]any{"role": "system", "content": prompt}, map[string]any{"role": "user", "content": content}}}
 		endpoints = []string{"https://api.openai.com/v1/chat/completions"}
-	} else {
+	} else if p.kind == "gemini" {
 		parts := []any{map[string]any{"text": prompt}, map[string]any{"text": OriginalInput(source, entity)}}
 		if hasImage {
 			parts = append(parts, map[string]any{"inline_data": map[string]any{"mime_type": mimeType, "data": base64.StdEncoding.EncodeToString(image)}})
 		}
 		request = map[string]any{"generationConfig": map[string]any{"temperature": 0}, "contents": []any{map[string]any{"role": "user", "parts": parts}}}
 		endpoints = []string{fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent", p.model), fmt.Sprintf("https://generativelanguage.googleapis.com/v1/models/%s:generateContent", p.model)}
+	} else {
+		return Fields{}, fmt.Errorf("unsupported evidence provider")
 	}
 	body, err := json.Marshal(request)
 	if err != nil {
@@ -116,6 +137,17 @@ func (p *Provider) AnalyzeOriginalEvidence(source Original, entity string) (Fiel
 		return ParseWithMedia(text, original, hasImage)
 	}
 	return Fields{}, lastErr
+}
+
+func claudeEvidenceSchema() map[string]any {
+	properties := map[string]any{}
+	keys := []string{"report_kind", "evidence_excerpt", "reported_impact", "classification_reason", "entity_relationship"}
+	for _, key := range keys {
+		properties[key] = map[string]any{"type": "string"}
+	}
+	properties["report_kind"] = map[string]any{"type": "string", "enum": []string{"firsthand", "coverage", "unknown"}}
+	properties["entity_relationship"] = map[string]any{"type": "string", "enum": []string{"affected", "dependency", "mentioned", "unknown"}}
+	return map[string]any{"type": "object", "properties": properties, "required": keys, "additionalProperties": false}
 }
 func providerText(kind string, payload []byte) (string, error) {
 	if kind == "openai" {

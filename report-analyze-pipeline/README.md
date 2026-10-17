@@ -57,11 +57,13 @@ Environment variables:
 - `DB_PASSWORD` - Database password (required outside local dev)
 - `DB_NAME` - Database name (default: cleanapp)
 - `PORT` - HTTP server port (default: 8080)
-- `ANALYZER_LLM_PROVIDER` - Model provider: `openai` (default), `gemini`, or `stub` (CI/local e2e only, no API keys)
+- `ANALYZER_LLM_PROVIDER` - Model provider: `openai` (default), `gemini`, `claude`, or `stub` (CI/local e2e only, no API keys)
 - `OPENAI_API_KEY` - OpenAI API key (required when `ANALYZER_LLM_PROVIDER=openai`)
 - `OPENAI_MODEL` - OpenAI model to use (default: gpt-4o)
 - `GEMINI_API_KEY` - Google Gemini API key (required when `ANALYZER_LLM_PROVIDER=gemini`)
 - `GEMINI_MODEL` - Gemini model to use (default: gemini-flash-latest)
+- `ANTHROPIC_API_KEY` - First-party Anthropic API key (required when `ANALYZER_LLM_PROVIDER=claude`)
+- `ANTHROPIC_MODEL` - Claude model (default: `claude-haiku-5-5`)
 - `ANALYSIS_INTERVAL` - Interval between analysis runs (default: 30s)
 - `MAX_RETRIES` - Maximum retry attempts (default: 3)
 - `ANALYSIS_PROMPT` - Custom prompt for image analysis (default: "What kind of litter or hazard can you see on this image? Please describe the litter or hazard in detail. Also, give a probability that there is a litter or hazard on a photo and a severity level from 0.0 to 1.0.")
@@ -118,6 +120,7 @@ cp .env.template .env
 # Required keys depend on provider:
 #   - ANALYZER_LLM_PROVIDER=openai → OPENAI_API_KEY
 #   - ANALYZER_LLM_PROVIDER=gemini → GEMINI_API_KEY
+#   - ANALYZER_LLM_PROVIDER=claude → ANTHROPIC_API_KEY
 #   - ANALYZER_LLM_PROVIDER=stub   → (no API keys; deterministic outputs for CI/local tests)
 # Also set DB_PASSWORD
 ```
@@ -149,6 +152,16 @@ export GEMINI_MODEL=gemini-flash-latest
 export DB_PASSWORD=your_db_password
 make run
 ```
+
+### Claude provider
+
+Set `ANALYZER_LLM_PROVIDER=claude` and inject `ANTHROPIC_API_KEY` through the existing secret environment path. `ANTHROPIC_MODEL` defaults to `claude-haiku-5-5`; model availability and API credits must be checked separately before enabling it. Requests go directly to `https://api.anthropic.com/v1/messages`, rather than Vertex AI.
+
+Claude uses the same text/image subject-attribution prompts, placeholder-image filter, location context, JSON fields, translation prompt, and original-only evidence validation as the existing analyzer. Original image bytes and MIME types are preserved for JPEG, PNG, GIF and WebP. Analysis and translation allow at most 4,096 output tokens; evidence classification allows 2,048. For the default Haiku 5.5 model, thinking is disabled and effort is low so that this budget is available for the answer. Alternate configured models retain their own defaults. Images over the first-party 10 MB base64 limit are rejected without changing the original. Each call has a 90-second total deadline and at most two HTTP attempts, retrying only explicit rate-limit/server responses. Truncated, refused, malformed or failed responses remain errors so the existing report retry path can retry them; the original report and evidence are not replaced on failure.
+
+Selecting Claude never falls back to Gemini or OpenAI, including evidence classification and location re-analysis. An unknown provider or missing Claude key fails startup. Provider response bodies and credentials are excluded from returned errors.
+
+The listener's optional intelligence refinement is configured separately: set `INTELLIGENCE_LLM_PROVIDER=claude` and inject the same secret there to avoid its legacy Gemini path. Production Compose uses explicit environment entries, so the release must add these variables to both selected services. This source change does not switch running services, migrate data, or change bulk/social worker configuration.
 
 ### Make Commands
 
