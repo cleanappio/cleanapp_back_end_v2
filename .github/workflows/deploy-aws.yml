@@ -1,0 +1,143 @@
+name: Deploy selected backend roles to AWS
+
+on:
+  workflow_dispatch:
+    inputs:
+      services:
+        description: Explicit running Compose roles, separated by spaces
+        required: true
+        type: string
+      dry_run:
+        description: Validate scope without building or contacting the host
+        type: boolean
+        default: true
+      skip_migrations:
+        description: Skip explicit migrations for a no-schema-change release
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: aws-backend-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+      AWS_REGION: us-east-2
+      AWS_EC2_SECURITY_GROUP_ID: ${{ vars.AWS_EC2_SECURITY_GROUP_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify portable and existing source-build contracts
+        run: python3 -W error -m unittest discover -s platform_blueprint/deploy/prod/vm/tests -p 'test_*.py'
+      - name: Secret scan (same pinned version as CI)
+        run: |
+          set -euo pipefail
+          VER="8.30.0"
+          curl -fsSLo "$RUNNER_TEMP/gitleaks.tgz" "https://github.com/gitleaks/gitleaks/releases/download/v${VER}/gitleaks_${VER}_linux_x64.tar.gz"
+          tar -xzf "$RUNNER_TEMP/gitleaks.tgz" -C "$RUNNER_TEMP" gitleaks
+          "$RUNNER_TEMP/gitleaks" detect --no-git --redact
+      - name: Assume security-group-scoped ingress role using GitHub OIDC
+        if: ${{ !inputs.dry_run }}
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5.1.1
+        with:
+          role-to-assume: ${{ env.AWS_DEPLOY_ROLE_ARN }}
+          role-session-name: cleanapp-backend-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-duration-seconds: 3600
+          unset-current-credentials: true
+          mask-aws-account-id: true
+      - name: Open SSH only for this runner's current IPv4
+        id: ingress_open
+        if: ${{ !inputs.dry_run }}
+        run: |
+          python3 platform_blueprint/deploy/prod/vm/aws_ci_ingress.py open \
+            --group-id "$AWS_EC2_SECURITY_GROUP_ID" \
+            --region "$AWS_REGION" \
+            --state-file "$RUNNER_TEMP/aws-ingress.json"
+      - name: Build on runner and import over pinned SSH
+        env:
+          SELECTED_SERVICES: ${{ inputs.services }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          SKIP_MIGRATIONS: ${{ inputs.skip_migrations }}
+          SOURCE_SHA: ${{ github.sha }}
+          AWS_DEPLOY_HOST: ${{ vars.AWS_DEPLOY_HOST }}
+          AWS_DEPLOY_DIR: ${{ vars.AWS_DEPLOY_DIR }}
+          AWS_COMPOSE_FILES_JSON: ${{ vars.AWS_COMPOSE_FILES_JSON }}
+          AWS_RUNTIME_ROLE_MANIFEST_JSON: ${{ vars.AWS_RUNTIME_ROLE_MANIFEST_JSON }}
+          AWS_DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.AWS_DEPLOY_SSH_PRIVATE_KEY }}
+          AWS_DEPLOY_SSH_KNOWN_HOSTS: ${{ vars.AWS_DEPLOY_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          deploy_temp="$(mktemp -d "$RUNNER_TEMP/aws-deploy.XXXXXX")"
+          trap 'rm -rf "$deploy_temp"' EXIT
+          test -n "$AWS_DEPLOY_SSH_PRIVATE_KEY"
+          test -n "$AWS_DEPLOY_SSH_KNOWN_HOSTS"
+          printf '%s\n' "$AWS_DEPLOY_SSH_PRIVATE_KEY" > "$deploy_temp/id"
+          printf '%s\n' "$AWS_DEPLOY_SSH_KNOWN_HOSTS" > "$deploy_temp/known_hosts"
+          printf '%s\n' "$AWS_RUNTIME_ROLE_MANIFEST_JSON" > "$deploy_temp/runtime.json"
+          unset AWS_DEPLOY_SSH_PRIVATE_KEY AWS_DEPLOY_SSH_KNOWN_HOSTS AWS_RUNTIME_ROLE_MANIFEST_JSON
+          unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
+          read -r -a services <<< "$SELECTED_SERVICES"
+          options=()
+          if [[ "$DRY_RUN" == true ]]; then options+=(--dry-run); fi
+          if [[ "$SKIP_MIGRATIONS" == true ]]; then options+=(--skip-migrations); fi
+          python3 platform_blueprint/deploy/prod/vm/aws_image_deploy.py \
+            --ref "$SOURCE_SHA" \
+            --runtime-manifest "$deploy_temp/runtime.json" \
+            --host "$AWS_DEPLOY_HOST" \
+            --remote-dir "$AWS_DEPLOY_DIR" \
+            --compose-files-json "$AWS_COMPOSE_FILES_JSON" \
+            --ssh-port 22 \
+            --ssh-key "$deploy_temp/id" \
+            --known-hosts "$deploy_temp/known_hosts" \
+            --output-dir "$RUNNER_TEMP/aws-deploy-evidence" \
+            "${options[@]}" "${services[@]}"
+      - name: Check temporary ingress cleanup state
+        id: ingress_state
+        if: ${{ always() && !inputs.dry_run }}
+        run: |
+          if [[ -f "$RUNNER_TEMP/aws-ingress.json" ]]; then
+            printf 'exists=true\n' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Refresh OIDC session before ingress cleanup
+        if: ${{ always() && steps.ingress_state.outputs.exists == 'true' }}
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5.1.1
+        with:
+          role-to-assume: ${{ env.AWS_DEPLOY_ROLE_ARN }}
+          role-session-name: cleanapp-backend-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-duration-seconds: 3600
+          unset-current-credentials: true
+          mask-aws-account-id: true
+      - name: Close only this run's temporary SSH ingress
+        if: ${{ always() && steps.ingress_state.outputs.exists == 'true' }}
+        run: |
+          python3 platform_blueprint/deploy/prod/vm/aws_ci_ingress.py close \
+            --group-id "$AWS_EC2_SECURITY_GROUP_ID" \
+            --region "$AWS_REGION" \
+            --state-file "$RUNNER_TEMP/aws-ingress.json"
+      - name: Retain image identity and deployment evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aws-backend-deploy-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/aws-deploy-evidence/*.json
+            ${{ runner.temp }}/aws-ingress.json
+          if-no-files-found: ignore
+          retention-days: 7
