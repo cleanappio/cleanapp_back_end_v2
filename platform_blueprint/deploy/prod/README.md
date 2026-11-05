@@ -1,5 +1,9 @@
 # Prod Deploy (Blueprint)
 
+For the portable AWS release path, use [AWS_DEPLOY.md](vm/AWS_DEPLOY.md).
+The legacy source-build/digest helpers below use GCP and must not be pointed at
+the AWS host. The AWS helper replaces only explicitly selected running roles.
+
 This directory is where the platform repo would keep prod deployment artifacts:
 - `docker-compose.yml` (single source of truth)
 - `nginx_conf_d/*.conf` (public routing)
