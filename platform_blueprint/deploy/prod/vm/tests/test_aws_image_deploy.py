@@ -2,12 +2,15 @@
 import argparse
 import hashlib
 import importlib.util
+import inspect
+import io
 import json
 import os
 from pathlib import Path
 import shlex
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -21,6 +24,25 @@ SPEC.loader.exec_module(AWS)
 
 def image_id(value):
     return "sha256:" + hashlib.sha256(value.encode()).hexdigest()
+
+
+def export_tar(configs, oci=False):
+    output = io.BytesIO()
+    entries = []
+    with tarfile.open(fileobj=output, mode="w") as archive:
+        for tag, raw in configs.items():
+            digest = hashlib.sha256(raw.encode()).hexdigest()
+            name = "blobs/sha256/" + digest if oci else digest + ".json"
+            data = raw.encode()
+            member = tarfile.TarInfo(name)
+            member.size = len(data)
+            archive.addfile(member, io.BytesIO(data))
+            entries.append({"Config": name, "RepoTags": [tag], "Layers": []})
+        data = json.dumps(entries).encode()
+        member = tarfile.TarInfo("manifest.json")
+        member.size = len(data)
+        archive.addfile(member, io.BytesIO(data))
+    return output.getvalue()
 
 
 class PortableDeployTests(unittest.TestCase):
@@ -71,12 +93,20 @@ class PortableDeployTests(unittest.TestCase):
         self.bin = self.base / "bin"
         self.bin.mkdir()
         docker = self.bin / "docker"
-        docker.write_text("#!" + sys.executable + "\nimport sys\n"
+        docker.write_text("#!" + sys.executable + "\nimport sys,json,hashlib,tarfile,io\nfrom pathlib import Path\n"
+                          + inspect.getsource(export_tar) + "\n"
                           "assert sys.argv[1:3] == ['image', 'save']\n"
-                          "sys.stdout.buffer.write(b'fixture exported images')\n")
+                          "base=Path(__file__).parent\n"
+                          "configs=json.loads((base/'configs.json').read_text())\n"
+                          "assert set(sys.argv[3:]) == set(configs)\n"
+                          "data=export_tar(configs,oci=True)\n"
+                          "(base/'last-export.tar').write_bytes(data)\n"
+                          "sys.stdout.buffer.write(data)\n")
         docker.chmod(0o755)
         self.events = []
         self.images = {}
+        self.configs = {}
+        self.containerd_runner = False
         self.builds = []
         self.corrupt_transfer = False
         self.mismatch_loaded_id = False
@@ -148,7 +178,13 @@ class PortableDeployTests(unittest.TestCase):
             tag = args[args.index("--tag") + 1]
             labels = dict(arg.split("=", 1) for index, arg in enumerate(args)
                           if index and args[index - 1] == "--label")
-            self.images[tag] = {"Id": image_id(tag), "Architecture": "amd64", "Os": "linux",
+            raw_config = json.dumps({"architecture": "amd64", "os": "linux",
+                                     "config": {"Labels": labels, "Cmd": [tag]}})
+            self.configs[tag] = raw_config
+            (self.bin / "configs.json").write_text(json.dumps(self.configs))
+            config_id = "sha256:" + hashlib.sha256(raw_config.encode()).hexdigest()
+            self.images[tag] = {"Id": image_id(tag) if self.containerd_runner else config_id,
+                                "Architecture": "amd64", "Os": "linux",
                                 "Config": {"Labels": labels}}
             return b""
         if args[:3] == ["docker", "image", "inspect"]:
@@ -167,6 +203,8 @@ class PortableDeployTests(unittest.TestCase):
             if docker[0] == "info":
                 return self.architecture
             if docker[:2] == ["image", "load"]:
+                for tag, raw_config in self.configs.items():
+                    self.images[tag]["Id"] = "sha256:" + hashlib.sha256(raw_config.encode()).hexdigest()
                 if self.mismatch_loaded_id:
                     next(iter(self.images.values()))["Id"] = image_id("wrong loaded ID")
                 return b""
@@ -227,10 +265,24 @@ class PortableDeployTests(unittest.TestCase):
         self.assertEqual(rollback["cleanapp_report_processor"], self.unselected)
         manifest = json.loads((self.base / "output/image-manifest.json").read_text())
         self.assertEqual(manifest["source_sha"], self.sha)
-        self.assertEqual(manifest["archive_sha256"], hashlib.sha256(gzip_bytes(b"fixture exported images")).hexdigest())
+        self.assertEqual(manifest["archive_sha256"], hashlib.sha256(
+            gzip_bytes((self.bin / "last-export.tar").read_bytes())).hexdigest())
         self.assertFalse((Path(manifest["release_dir"]) / "images.tar.gz").exists())
         self.assertNotIn("never export this value", json.dumps(result))
         self.assertEqual((self.repo / "report-listener/.version").read_text(), "BUILD_VERSION=1.0.42\n")
+
+    def test_containerd_runner_id_is_not_confused_with_classic_target_config_id(self):
+        self.containerd_runner = True
+        self.args.skip_migrations = True
+        result = self.execute()
+        manifest = json.loads((self.base / "output/image-manifest.json").read_text())
+        for source, images in manifest["images"].items():
+            image = images["runtime"]
+            self.assertNotEqual(image["runner_image_id"], image["image_id"])
+            expected = "sha256:" + hashlib.sha256(self.configs[image["tag"]].encode()).hexdigest()
+            self.assertEqual(image["image_id"], expected)
+        self.assertEqual(set(result["verified_running_image_ids"].values()),
+                         {image["runtime"]["image_id"] for image in manifest["images"].values()})
 
     def test_isolated_runtime_cannot_migrate_or_restart(self):
         self.isolated = True
@@ -343,6 +395,73 @@ class PortableDeployTests(unittest.TestCase):
             {"name": "cleanapp_frontend", "compose": {}}]}
         self.assertEqual(AWS.selected_roles(["cleanapp_report_analyze_human"], evidence),
                          {"cleanapp_report_analyze_human": "cleanapp_report_analyze_human"})
+
+
+class ArchiveConfigIdentityTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.path = Path(self.temporary.name) / "images.tar.gz"
+        self.sha = "a" * 40
+        self.image = {"tag": "cleanapp-aws/fixture:" + self.sha[:12],
+                      "image_id": image_id("containerd manifest"),
+                      "version": "1.0.80-aws." + self.sha[:12]}
+        self.config = {"architecture": "amd64", "os": "linux", "config": {"Labels": {
+            "org.opencontainers.image.revision": self.sha,
+            "org.opencontainers.image.version": self.image["version"]}}}
+
+    def write(self, *, config=None, tag=None, oci=False):
+        raw = json.dumps(config or self.config)
+        self.path.write_bytes(gzip_bytes(export_tar({tag or self.image["tag"]: raw}, oci)))
+        return "sha256:" + hashlib.sha256(raw.encode()).hexdigest()
+
+    def test_classic_and_containerd_exports_bind_exact_config_bytes(self):
+        for oci in (False, True):
+            with self.subTest(oci=oci):
+                expected = self.write(oci=oci)
+                self.assertEqual(AWS.archive_config_ids(self.path, [self.image], self.sha),
+                                 {self.image["tag"]: expected})
+                self.assertNotEqual(expected, self.image["image_id"])
+
+    def test_config_tampering_is_rejected_even_with_same_labels(self):
+        self.write()
+        import gzip
+        data = gzip.decompress(self.path.read_bytes()).replace(b'"amd64"', b'"arm64"')
+        self.path.write_bytes(gzip_bytes(data))
+        with self.assertRaisesRegex(ValueError, "config digest mismatch"):
+            AWS.archive_config_ids(self.path, [self.image], self.sha)
+
+    def test_wrong_tag_platform_source_and_version_are_rejected(self):
+        self.write(tag="cleanapp-aws/other:unselected")
+        with self.assertRaisesRegex(ValueError, "unexpected or duplicate export tag"):
+            AWS.archive_config_ids(self.path, [self.image], self.sha)
+        for field, value in (("architecture", "arm64"), ("os", "windows")):
+            self.write(config={**self.config, field: value})
+            with self.assertRaisesRegex(ValueError, "linux/amd64"):
+                AWS.archive_config_ids(self.path, [self.image], self.sha)
+        for field in ("org.opencontainers.image.revision", "org.opencontainers.image.version"):
+            config = json.loads(json.dumps(self.config))
+            config["config"]["Labels"][field] = "unreviewed"
+            self.write(config=config)
+            with self.assertRaisesRegex(ValueError, "source/version mismatch"):
+                AWS.archive_config_ids(self.path, [self.image], self.sha)
+
+    def test_missing_expected_tag_is_rejected(self):
+        self.write()
+        extra = {**self.image, "tag": "cleanapp-aws/missing:fixture"}
+        with self.assertRaisesRegex(ValueError, "missing expected export tag"):
+            AWS.archive_config_ids(self.path, [self.image, extra], self.sha)
+
+    def test_duplicate_archive_members_and_config_json_keys_are_rejected(self):
+        raw = json.dumps(self.config)
+        data = export_tar({self.image["tag"]: raw, "other:tag": raw})
+        self.path.write_bytes(gzip_bytes(data))
+        with self.assertRaisesRegex(ValueError, "duplicate export archive member"):
+            AWS.archive_config_ids(self.path, [self.image], self.sha)
+        raw = raw.replace('"architecture": "amd64"', '"architecture": "amd64", "architecture": "arm64"')
+        self.path.write_bytes(gzip_bytes(export_tar({self.image["tag"]: raw})))
+        with self.assertRaisesRegex(ValueError, "duplicate export metadata JSON key"):
+            AWS.archive_config_ids(self.path, [self.image], self.sha)
 
 
 def gzip_bytes(value):
