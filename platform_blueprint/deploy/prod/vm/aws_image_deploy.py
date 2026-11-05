@@ -5,6 +5,8 @@ No registry, cloud CLI, source-host default, or runtime-secret export is used.
 The internal --activate command runs on the target over pinned SSH.
 """
 import argparse
+import contextlib
+import fcntl
 from datetime import datetime, timezone
 import fnmatch
 import gzip
@@ -13,6 +15,7 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import shlex
 import shutil
 import subprocess
@@ -188,7 +191,56 @@ def checked_container(container, service, project):
     return data
 
 
+@contextlib.contextmanager
+def deployment_lock(directory):
+    """Share one stable private inode with weekly backup and cold restore."""
+    directory = Path(directory)
+    if not directory.is_absolute():
+        raise ValueError("Deployment lock parent must be absolute")
+    parent = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    descriptor = None
+    try:
+        info = os.fstat(parent)
+        if info.st_uid != os.geteuid() or info.st_mode & 0o022:
+            raise ValueError("Deployment lock parent must be deployer-owned and not publicly writable")
+        name = ".deployment-and-backup.lock"
+        descriptor = os.open(name, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600, dir_fd=parent)
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid != os.geteuid() or stat.S_IMODE(info.st_mode) != 0o600:
+            raise ValueError("Deployment lock must be a private single-link deployer-owned regular file")
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        current = os.stat(name, dir_fd=parent, follow_symlinks=False)
+        if (current.st_dev, current.st_ino) != (info.st_dev, info.st_ino):
+            raise ValueError("Deployment lock inode changed while waiting")
+        try:
+            yield
+        finally:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        os.close(parent)
+
+
+def require_active_runtime(run):
+    """A CI trigger must not bypass the one-writer migration/restore fence."""
+    isolated = "/etc/cleanapp-runtime/ISOLATED"
+    active = "/etc/cleanapp-runtime/ACTIVE"
+    run(["sudo", "-n", "test", "!", "-e", isolated])
+    run(["sudo", "-n", "test", "!", "-L", isolated])
+    run(["sudo", "-n", "test", "-f", active])
+    run(["sudo", "-n", "test", "!", "-L", active])
+
+
 def activate(manifest_path):
+    manifest_path = Path(manifest_path).resolve()
+    manifest = json.loads(manifest_path.read_text())
+    with deployment_lock(Path(manifest["remote_dir"])):
+        require_active_runtime(command)
+        return _activate_locked(manifest_path)
+
+
+def _activate_locked(manifest_path):
     manifest_path = Path(manifest_path).resolve()
     release_dir = manifest_path.parent
     archive = release_dir / "images.tar.gz"

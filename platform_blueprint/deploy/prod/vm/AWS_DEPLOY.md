@@ -195,3 +195,9 @@ Docker documents scoped activation and pull controls in
 one-off migration behavior in
 [Compose run](https://docs.docker.com/reference/cli/docker/compose/run/), and
 the [service specification](https://docs.docker.com/reference/compose-file/services/).
+
+## Backup and isolation coordination
+
+Activation takes an exclusive `fcntl.flock` on `/opt/cleanapp/deploy/.deployment-and-backup.lock`, the same stable inode used by weekly backup and cold restore. The parent must be deployer-owned and not group/world writable. The lock must remain a non-symlink, single-link regular file owned by the deployer with mode `0600`; the helper does not replace or change an existing lock. It holds the lock across runtime inspection, migrations, image pins, restart and verification, releasing it on exceptions. Runner builds and SSH archive uploads are outside this lock. Any operator rollback using the recorded manifest must acquire this same existing lock and review the database migration boundary first.
+
+The helper requires `/etc/cleanapp-runtime/ISOLATED` to be absent (including dangling symlinks) and `/etc/cleanapp-runtime/ACTIVE` to be a regular non-symlink file. Sudo must permit `test -f`, `test ! -e` and `test ! -L` checks in addition to Docker. A manual GitHub trigger cannot bypass the migration/restore one-writer fence.

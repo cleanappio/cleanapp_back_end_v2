@@ -83,6 +83,8 @@ class PortableDeployTests(unittest.TestCase):
         self.fail_migration = False
         self.fail_build = False
         self.stopped = False
+        self.active = True
+        self.isolated = False
         self.architecture = b"x86_64\n"
         self.original_command = AWS.command
         self.args = argparse.Namespace(ref=self.sha, runtime_manifest=str(self.evidence),
@@ -151,6 +153,12 @@ class PortableDeployTests(unittest.TestCase):
             return b""
         if args[:3] == ["docker", "image", "inspect"]:
             return json.dumps([self.images[args[-1]]]).encode()
+        if args[:3] == ["sudo", "-n", "test"] and args[-1].startswith("/etc/cleanapp-runtime/"):
+            if args[-1].endswith("ISOLATED") and self.isolated:
+                raise RuntimeError("fixture runtime is isolated")
+            if args[3] == "-f" and args[-1].endswith("ACTIVE") and not self.active:
+                raise RuntimeError("fixture runtime is not active")
+            return b""
         if args[:4] == ["sudo", "-n", "test", "-f"]:
             self.assertTrue(Path(args[-1]).exists())
             return b""
@@ -223,6 +231,18 @@ class PortableDeployTests(unittest.TestCase):
         self.assertFalse((Path(manifest["release_dir"]) / "images.tar.gz").exists())
         self.assertNotIn("never export this value", json.dumps(result))
         self.assertEqual((self.repo / "report-listener/.version").read_text(), "BUILD_VERSION=1.0.42\n")
+
+    def test_isolated_runtime_cannot_migrate_or_restart(self):
+        self.isolated = True
+        with self.assertRaisesRegex(RuntimeError, "isolated"):
+            self.execute()
+        self.assert_no_activation()
+
+    def test_inactive_runtime_cannot_migrate_or_restart(self):
+        self.active = False
+        with self.assertRaisesRegex(RuntimeError, "not active"):
+            self.execute()
+        self.assert_no_activation()
 
     def test_dry_run_uses_exact_ref_and_never_contacts_docker_or_ssh(self):
         self.args.dry_run = True
