@@ -568,8 +568,12 @@ func (s *EmailService) ProcessBrandlessPhysicalReports(limit int) error {
 
 // brandSummaryQuery selects the 100 brands with the most pending reports, then
 // counts each selected brand's public total. The correlated total is evaluated
-// only for those output rows, not for every brand with a pending report, so a
-// cycle no longer rescans every brand's full public history.
+// only for those output rows, not for every brand with a pending report.
+//
+// Pending reports are found first from the covering brand index, so a cycle
+// no longer reads every English analysis row (about 1.7 GB on production)
+// only to discard reports that were already sent. Wide analysis columns are
+// read by primary key for pending reports alone.
 func brandSummaryQuery() string {
 	return `
 		SELECT
@@ -587,28 +591,32 @@ func brandSummaryQuery() string {
 			s.classification,
 			s.inferred_contact_emails
 		FROM (
-			SELECT
+			SELECT /*+ NO_MERGE(pending) */
 				ra.brand_name,
 				COALESCE(ra.brand_display_name, ra.brand_name) as brand_display_name,
 				COUNT(*) as new_count,
-				GROUP_CONCAT(CONCAT(r.seq, ':') ORDER BY r.seq DESC) as seqs,
-				MAX(r.seq) as latest_seq,
+				GROUP_CONCAT(CONCAT(pending.seq, ':') ORDER BY pending.seq DESC) as seqs,
+				MAX(pending.seq) as latest_seq,
 				MAX(ra.classification) as classification,
 				MAX(ra.inferred_contact_emails) as inferred_contact_emails
-			FROM reports r
-			INNER JOIN report_analysis ra ON r.seq = ra.seq
-			LEFT JOIN report_raw rr ON r.seq = rr.report_seq
-			LEFT JOIN sent_reports_emails sre ON r.seq = sre.seq
-			LEFT JOIN email_report_retry erry ON r.seq = erry.seq
-			WHERE sre.seq IS NULL
-			  AND ra.brand_name != ''
-			  AND ra.is_valid = TRUE
-			  AND ra.language = 'en'
-			  AND (rr.visibility IS NULL OR rr.visibility = 'public')
-			  AND ` + notificationPublicStateSQL("r") + `
-			  AND (erry.seq IS NULL OR erry.next_attempt_at <= NOW())
-			AND (erry.reason IS NULL OR erry.reason <> 'notification_receipt_pending')
-			AND ` + genericCompanyExclusionSQL("ra.brand_name") + `
+			FROM (
+				SELECT /*+ INDEX(pra ` + brandCoreIndex + `) */ r.seq
+				FROM report_analysis pra
+				INNER JOIN reports r ON r.seq = pra.seq
+				LEFT JOIN report_raw rr ON r.seq = rr.report_seq
+				LEFT JOIN sent_reports_emails sre ON r.seq = sre.seq
+				LEFT JOIN email_report_retry erry ON r.seq = erry.seq
+				WHERE sre.seq IS NULL
+				  AND pra.brand_name != ''
+				  AND pra.is_valid = TRUE
+				  AND pra.language = 'en'
+				  AND (rr.visibility IS NULL OR rr.visibility = 'public')
+				  AND ` + notificationPublicStateSQL("r") + `
+				  AND (erry.seq IS NULL OR erry.next_attempt_at <= NOW())
+				AND (erry.reason IS NULL OR erry.reason <> 'notification_receipt_pending')
+				AND ` + genericCompanyExclusionSQL("pra.brand_name") + `
+			) pending
+			INNER JOIN report_analysis ra ON ra.seq = pending.seq
 			GROUP BY ra.brand_name, ra.brand_display_name
 			ORDER BY new_count DESC
 			LIMIT 100
@@ -616,6 +624,11 @@ func brandSummaryQuery() string {
 		ORDER BY s.new_count DESC
 	`
 }
+
+// brandCoreIndex covers brand_name, is_valid, seq and language, so pending
+// selection never touches wide report_analysis rows. An absent index only
+// makes the optimizer hint inert; results are unchanged.
+const brandCoreIndex = "idx_ra_brand_valid_class_core"
 
 // getUnprocessedReportsByBrand gets unprocessed reports grouped by brand for aggregate notifications
 func (s *EmailService) getUnprocessedReportsByBrand(ctx context.Context) ([]models.BrandReportSummary, error) {
