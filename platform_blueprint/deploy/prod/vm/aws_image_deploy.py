@@ -158,6 +158,71 @@ def build_image(context, dockerfile, tag, sha, version, build_time):
     return {"tag": tag, "image_id": data["Id"], "version": version}
 
 
+def archive_config_ids(path, images, source_sha):
+    """Bind exported tags to config-byte digests, independent of runner store IDs.
+
+    Docker's containerd store can report a manifest/index digest as .Id, while
+    the production classic store identifies the same image by its config JSON.
+    Never substitute labels for identity: hash the exact exported config bytes.
+    """
+    expected = {item["tag"]: item for item in images}
+    require(bool(expected) and len(expected) == len(images), "empty or duplicate expected export tag")
+    result = {}
+
+    def document(raw):
+        def unique(pairs):
+            value = {}
+            for key, item in pairs:
+                require(key not in value, "duplicate export metadata JSON key")
+                value[key] = item
+            return value
+        return json.loads(raw, object_pairs_hook=unique)
+
+    with tarfile.open(path, "r:gz") as archive:
+        members = archive.getmembers()
+        by_name = {member.name: member for member in members}
+        require(len(by_name) == len(members), "duplicate export archive member")
+
+        def metadata(name):
+            member = by_name.get(name)
+            require(member is not None and member.isfile() and 0 < member.size <= 10 * 1024 * 1024,
+                    "missing or invalid export metadata")
+            return archive.extractfile(member).read()
+
+        manifest = document(metadata("manifest.json"))
+        require(isinstance(manifest, list) and bool(manifest), "invalid Docker-save manifest")
+        for entry in manifest:
+            require(isinstance(entry, dict), "invalid Docker-save manifest entry")
+            tags = entry.get("RepoTags")
+            require(isinstance(tags, list) and bool(tags) and all(isinstance(tag, str) for tag in tags)
+                    and len(tags) == len(set(tags)),
+                    "ambiguous export tags")
+            require(all(tag in expected and tag not in result for tag in tags),
+                    "unexpected or duplicate export tag")
+            config_name = entry.get("Config")
+            require(isinstance(config_name, str) and re.fullmatch(
+                r"(?:[a-f0-9]{64}\.json|blobs/sha256/[a-f0-9]{64})", config_name),
+                "invalid export config path")
+            raw = metadata(config_name)
+            digest = hashlib.sha256(raw).hexdigest()
+            require(config_name in (digest + ".json", "blobs/sha256/" + digest),
+                    "export config digest mismatch")
+            config = document(raw)
+            require(isinstance(config, dict) and config.get("os") == "linux"
+                    and config.get("architecture") == "amd64",
+                    "exported config must be linux/amd64")
+            runtime = config.get("config")
+            labels = runtime.get("Labels") if isinstance(runtime, dict) else None
+            require(isinstance(labels, dict), "missing export config labels")
+            for tag in tags:
+                require(labels.get("org.opencontainers.image.revision") == source_sha
+                        and labels.get("org.opencontainers.image.version") == expected[tag]["version"],
+                        "export config source/version mismatch")
+                result[tag] = "sha256:" + digest
+        require(set(result) == set(expected), "missing expected export tag")
+    return result
+
+
 def compose_base(remote_dir, files):
     require(isinstance(files, list) and bool(files), "explicit Compose file list is required")
     for name in files:
@@ -280,6 +345,10 @@ def _activate_locked(manifest_path):
         with archive.open("rb") as stream:
             checksum = hashlib.file_digest(stream, "sha256").hexdigest()
         require(checksum == manifest["archive_sha256"], "transferred image archive checksum mismatch")
+        items = [item for image in manifest["images"].values() for item in image.values()]
+        config_ids = archive_config_ids(archive, items, manifest["source_sha"])
+        require(all(config_ids[item["tag"]] == item["image_id"] for item in items),
+                "exported config ID differs from release manifest")
         command(["sudo", "-n", "docker", "image", "load", "--input", archive])
         for image in manifest["images"].values():
             for item in (image["runtime"], image.get("migration")):
@@ -396,6 +465,11 @@ def deploy(args):
                 save.stdout.close()
                 code = save.wait()
             require(code == 0, "docker image save failed")
+        items = [item for image in images.values() for item in image.values()]
+        config_ids = archive_config_ids(archive_path, items, sha)
+        for item in items:
+            item["runner_image_id"] = item["image_id"]
+            item["image_id"] = config_ids[item["tag"]]
         with archive_path.open("rb") as stream:
             manifest["archive_sha256"] = hashlib.file_digest(stream, "sha256").hexdigest()
         release_dir = str(Path(args.remote_dir) / ".aws-releases" / (sha[:12] + "-" + uuid.uuid4().hex[:12]))

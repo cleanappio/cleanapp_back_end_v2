@@ -58,6 +58,17 @@ also checks the target's current running state, Compose project/service labels,
 and container names before importing or activating anything. A stopped or
 missing selected role fails closed.
 
+Image identities come from the SHA256 of the exact config bytes referenced by
+the exported Docker-save manifest, bound to exactly the selected build tags,
+linux/amd64 and the expected source/version labels. `runner_image_id` preserves
+the runner's original store-specific ID for audit. A containerd runner can
+report a manifest/index digest while the current classic production store uses
+the config digest; see [Docker's image stores](https://docs.docker.com/engine/storage/containerd/)
+and [Moby's explanation of differing image IDs](https://github.com/moby/moby/issues/48401).
+The target rechecks the archive/config binding, then requires imported and
+running image IDs to equal the verified config digest exactly. An incompatible
+target image store fails closed before pins or selected containers change.
+
 The target needs Python 3.11+, Docker Engine and current Compose v2 supporting
 `config --format json`, `up --wait`, `--pull never` and `pull_policy: never`.
 The deployment identity needs noninteractive `sudo docker` and `sudo test -f`
