@@ -608,7 +608,7 @@ func (d *Database) AttachPublicEvidence(ctx context.Context, reports []*models.R
 		placeholders[i] = "?"
 	}
 	cte, args := evidenceCTE(EvidenceFilter{Kind: "all"}, "ra.seq IN ("+strings.Join(placeholders, ",")+")", args)
-	query := cte + `SELECT seq,public_id,COALESCE(ts,CAST('1970-01-01 00:00:00' AS DATETIME)),latitude,longitude,title,summary,classification,severity_level,language,brand_name,brand_display_name,
+	query := cte + `SELECT seq,public_id,COALESCE(ts,CAST('1970-01-01 00:00:00' AS DATETIME)),latitude,longitude,title,COALESCE(summary,''),classification,severity_level,language,brand_name,brand_display_name,
  report_kind,COALESCE(evidence_excerpt,''),COALESCE(reported_impact,''),COALESCE(classification_reason,''),COALESCE(entity_relationship,'unknown'),evidence_version,
  source_platform,source_url,source_timestamp,observed_at,actor_kind,fetcher_id,privacy_restricted,source_key,1,NULL,1,has_original_media,external_source,intake_channel,generation_method,COALESCE(source_account_key,''),source_key,1,CASE WHEN source_account_key IS NULL THEN NULL ELSE 1 END,0,JSON_ARRAY(),observed_at,source_timestamp,ingestion_time_missing,(ts IS NULL) FROM normalized`
 	queryCtx, cancel := withPublicDiscoveryTimeout(ctx)
