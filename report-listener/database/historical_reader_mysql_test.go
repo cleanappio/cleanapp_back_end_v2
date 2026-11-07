@@ -219,4 +219,5 @@ func TestHistoricalReaderMySQLFixture(t *testing.T) {
 	if err != nil || len(quiet) != 1 || quiet[0].Report.Seq != 1 {
 		t.Fatalf("notification suppression must survive reader fix: %+v error=%v", quiet, err)
 	}
+	t.Run("LargeJPEGHeaderFallback", func(t *testing.T) { testEvidenceImageHeadersMySQL(t, ctx, db) })
 }

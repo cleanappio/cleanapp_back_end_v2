@@ -1,11 +1,15 @@
 package database
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"image"
+	"io"
 	"net"
 	"net/url"
 	"regexp"
@@ -674,8 +678,9 @@ func attachPublicDetailProjection(report *models.ReportWithAnalysis, r evidenceR
 	}
 }
 
-// Decode only the bounded selected-page image headers, never report blobs across
-// the brand corpus. Old 1x1 ingestion placeholders are not evidence previews.
+// Decode only bounded selected-page headers. Some original JPEGs have large APP
+// metadata before their dimensions; expand only a truncated JPEG prefix. Keep
+// every read subject to the same live publication guards and request budget.
 type evidenceQueryer interface {
 	QueryContext(context.Context, string, ...interface{}) (*sql.Rows, error)
 }
@@ -685,20 +690,57 @@ func loadEvidenceImageValidity(ctx context.Context, reader evidenceQueryer, seqs
 	if len(seqs) == 0 {
 		return valid, nil
 	}
-	placeholders, args := buildIntInClause(seqs)
-	query := fmt.Sprintf(`SELECT r.seq, SUBSTRING(r.image,1,65536) FROM reports r LEFT JOIN report_raw rr ON rr.report_seq=r.seq WHERE r.seq IN (%s) AND %s AND (SELECT COUNT(*) FROM report_status rs WHERE rs.seq=r.seq AND rs.status IS NOT NULL AND rs.status<>'active')=0 AND (SELECT COUNT(*) FROM reports_owners ro WHERE ro.seq=r.seq AND ro.owner IS NOT NULL AND ro.owner<>'' AND ro.is_public=FALSE)=0`, placeholders, PublicVisibilityWhereSQL)
-	rows, err := reader.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
+	if len(seqs) > 100 {
+		return nil, fmt.Errorf("evidence image header batch exceeds 100 reports")
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var seq int
-		var header []byte
-		if err := rows.Scan(&seq, &header); err != nil {
+	selected := make([]int, 0, len(seqs))
+	seen := make(map[int]bool, len(seqs))
+	for _, seq := range seqs {
+		if !seen[seq] {
+			seen[seq] = true
+			selected = append(selected, seq)
+		}
+	}
+	queryCtx, cancel := withPublicDiscoveryTimeout(ctx)
+	defer cancel()
+	const maxHeaderBytes = 128 << 20
+	remaining := maxHeaderBytes
+	for _, prefixBytes := range []int{64 << 10, 512 << 10, 2 << 20} {
+		if len(selected)*prefixBytes > remaining {
+			return nil, fmt.Errorf("evidence image header read exceeds 128 MiB budget")
+		}
+		placeholders, args := buildIntInClause(selected)
+		query := fmt.Sprintf(`SELECT /*+ MAX_EXECUTION_TIME(3000) */ r.seq, SUBSTRING(r.image,1,%d) FROM reports r LEFT JOIN report_raw rr ON rr.report_seq=r.seq WHERE r.seq IN (%s) AND %s AND (SELECT COUNT(*) FROM report_status rs WHERE rs.seq=r.seq AND rs.status IS NOT NULL AND rs.status<>'active')=0 AND (SELECT COUNT(*) FROM reports_owners ro WHERE ro.seq=r.seq AND ro.owner IS NOT NULL AND ro.owner<>'' AND ro.is_public=FALSE)=0`, prefixBytes, placeholders, PublicVisibilityWhereSQL)
+		rows, err := reader.QueryContext(queryCtx, query, args...)
+		if err != nil {
 			return nil, err
 		}
-		valid[seq] = evidence.ValidOriginalImage(header)
+		next := []int{}
+		for rows.Next() {
+			var seq int
+			var header []byte
+			if err := rows.Scan(&seq, &header); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			remaining -= len(header)
+			valid[seq] = evidence.ValidOriginalImage(header)
+			if !valid[seq] && len(header) == prefixBytes && len(header) >= 3 && header[0] == 0xff && header[1] == 0xd8 && header[2] == 0xff {
+				_, _, decodeErr := image.DecodeConfig(bytes.NewReader(header))
+				if errors.Is(decodeErr, io.ErrUnexpectedEOF) || errors.Is(decodeErr, io.EOF) {
+					next = append(next, seq)
+				}
+			}
+		}
+		readErr := rows.Err()
+		rows.Close()
+		if readErr != nil {
+			return nil, readErr
+		}
+		if len(next) == 0 {
+			break
+		}
+		selected = next
 	}
-	return valid, rows.Err()
+	return valid, nil
 }
