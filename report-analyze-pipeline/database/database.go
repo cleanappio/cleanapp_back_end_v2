@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"cleanapp-common/effectpolicy"
 	"cleanapp-common/evidence"
 
 	"report-analyze-pipeline/config"
@@ -146,6 +147,7 @@ func (d *Database) GetUnanalyzedReports(cfg *config.Config, limit int) ([]Report
 	LEFT JOIN digital_share_reports dsr ON dsr.report_seq = r.seq
 	LEFT JOIN report_details rd ON rd.seq = r.seq
 	WHERE r.seq NOT IN(SELECT seq FROM report_analysis) AND r.seq > ?
+	AND ` + effectpolicy.AllowSQL("r", "seq", effectpolicy.Analysis) + `
 	ORDER BY r.seq ASC
 	LIMIT ?`
 	// query := `

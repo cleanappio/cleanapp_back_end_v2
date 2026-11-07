@@ -1,6 +1,7 @@
 package database
 
 import (
+	"cleanapp-common/effectpolicy"
 	"context"
 	"crypto/rand"
 	"database/sql"
@@ -108,7 +109,7 @@ func (d *Database) refreshSortableReportIDs(ctx context.Context) (ids []int, err
 	}()
 
 	rows, err := d.db.QueryContext(ctx, `SELECT DISTINCT seq FROM report_analysis
-  WHERE classification = 'physical' AND is_valid = TRUE ORDER BY seq`)
+  WHERE classification = 'physical' AND is_valid = TRUE AND `+effectpolicy.AllowSQL("report_analysis", "seq", effectpolicy.Rewards)+` ORDER BY seq`)
 	if err != nil {
 		return nil, fmt.Errorf("load sortable report IDs: %w", err)
 	}
@@ -173,7 +174,7 @@ func (d *Database) GetNextSortableReport(ctx context.Context, sorterID string, e
 
 func (d *Database) getSortableCandidate(ctx context.Context, sorterID string, ids []int) (*models.SortableReport, error) {
 
-	const candidateQuery = `
+	candidateQuery := `
 		SELECT DISTINCT
 			r.seq,
 			r.public_id,
@@ -208,6 +209,7 @@ func (d *Database) getSortableCandidate(ctx context.Context, sorterID string, id
 		)
 		AND (rs.status IS NULL OR rs.status = 'active')
 		AND ` + PublicVisibilityWhereSQL + `
+		AND ` + effectpolicy.AllowSQL("r", "seq", effectpolicy.Rewards) + `
 		AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE)
 		AND r.id <> ?
 		AND NOT EXISTS (
@@ -266,7 +268,7 @@ func (d *Database) getSortableCandidate(ctx context.Context, sorterID string, id
 }
 
 func (d *Database) validateSortTarget(ctx context.Context, tx *sql.Tx, sorterID string, reportSeq int) error {
-	const query = `
+	query := `
 		SELECT r.id
 		FROM reports r
 		LEFT JOIN report_raw rr ON rr.report_seq = r.seq
@@ -282,6 +284,7 @@ func (d *Database) validateSortTarget(ctx context.Context, tx *sql.Tx, sorterID 
 		)
 		AND (rs.status IS NULL OR rs.status = 'active')
 		AND ` + PublicVisibilityWhereSQL + `
+		AND ` + effectpolicy.AllowSQL("r", "seq", effectpolicy.Rewards) + `
 		AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE)
 		LIMIT 1
 	`

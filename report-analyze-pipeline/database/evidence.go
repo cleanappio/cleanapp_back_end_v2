@@ -1,6 +1,7 @@
 package database
 
 import (
+	"cleanapp-common/effectpolicy"
 	"cleanapp-common/evidence"
 	"context"
 	"fmt"
@@ -18,10 +19,10 @@ const evidenceChunksPerPoll = 4
 // CASE keeps completed evidence outside analysis/source lookups. Explicit
 // sequence bounds contain at most 500 positions and PRIMARY descending order
 // avoids materializing/sorting the entire 50000-position worker window.
-const pendingEvidenceChunkQuery = `SELECT /*+ MAX_EXECUTION_TIME(8000) */ r.seq,
+var pendingEvidenceChunkQuery = `SELECT /*+ MAX_EXECUTION_TIME(8000) */ r.seq,
  (SELECT COALESCE(MAX(brand_name), '') FROM report_analysis WHERE seq = r.seq)
  FROM reports r FORCE INDEX (PRIMARY) LEFT JOIN report_evidence ev ON ev.seq = r.seq
- WHERE r.seq > ? AND r.seq <= ?
+ WHERE r.seq > ? AND r.seq <= ? AND ` + effectpolicy.AllowSQL("r", "seq", effectpolicy.Analysis) + `
  AND CASE WHEN COALESCE(ev.evidence_version, 0) = 0 THEN
    (SELECT 1 FROM report_analysis ra WHERE ra.seq = r.seq LIMIT 1) IS NOT NULL
    AND (r.ts >= UTC_TIMESTAMP() - INTERVAL 1 DAY

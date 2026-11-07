@@ -15,7 +15,7 @@ func TestEvidenceStoreMigrationUpgradesLegacyAppliedColumnStep(t *testing.T) {
 	defer db.Close()
 	mock.ExpectExec(`CREATE TABLE IF NOT EXISTS go_schema_migrations`).WillReturnResult(sqlmock.NewResult(0, 0))
 	steps := sqlmock.NewRows([]string{"step_id"})
-	for _, id := range []string{"0001_report_analysis_table", "0002_report_analysis_columns_and_indexes", "0003_osm_cache_table", "0004_brand_contacts_table", "0005_seed_known_contacts", "0006_report_evidence"} {
+	for _, id := range []string{"0001_report_analysis_table", "0002_report_analysis_columns_and_indexes", "0003_osm_cache_table", "0004_brand_contacts_table", "0005_seed_known_contacts", "0006_report_evidence", "0008_report_side_effect_policy"} {
 		steps.AddRow(id)
 	}
 	mock.ExpectQuery(`SELECT step_id FROM go_schema_migrations WHERE service_name = \?`).WithArgs("report-analyze-pipeline").WillReturnRows(steps)

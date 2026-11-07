@@ -1,6 +1,7 @@
 package database
 
 import (
+	"cleanapp-common/effectpolicy"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -146,6 +147,7 @@ func (d *Database) GetReportPushDevices(ctx context.Context, reportSeq int) ([]m
 		  AND rps.notification_kind = 'delivery'
 		  AND mpd.notifications_enabled = TRUE
 		  AND mpd.status = 'active'
+		  AND `+effectpolicy.AllowSQL("rps", "report_seq", effectpolicy.Notifications)+`
 		ORDER BY mpd.updated_at DESC
 	`, reportSeq)
 	if err != nil {

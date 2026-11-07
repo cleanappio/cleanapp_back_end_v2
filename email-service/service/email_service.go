@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"cleanapp-common/effectpolicy"
 	"cleanapp-common/httpx"
 	"email-service/config"
 	"email-service/email"
@@ -869,6 +870,12 @@ func (s *EmailService) ProcessBrandNotifications() error {
 func (s *EmailService) processReport(ctx context.Context, report models.Report) error {
 	if s.config.DryRun {
 		log.Info("DRY RUN: automatic processing skipped without changes; use --notification-plan for a read-only company plan")
+		return nil
+	}
+	if suppressed, err := effectpolicy.Suppressed(ctx, s.db, report.Seq, effectpolicy.Email); err != nil {
+		return err
+	} else if suppressed {
+		// Historical suppression is not a successful delivery/processed receipt.
 		return nil
 	}
 	// Get analysis data for this report

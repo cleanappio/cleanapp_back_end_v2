@@ -1,6 +1,7 @@
 package database
 
 import (
+	"cleanapp-common/effectpolicy"
 	"context"
 	"database/sql"
 	"fmt"
@@ -266,9 +267,10 @@ func (d *Database) GetReportsSince(ctx context.Context, sinceSeq int) ([]models.
 		AND (rs.status IS NULL OR rs.status = 'active')
 		AND ra.is_valid = TRUE
 		AND %s
+		AND %s
 		AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE)
 		ORDER BY r.seq ASC
-	`, PublicVisibilityWhereSQL)
+	`, PublicVisibilityWhereSQL, effectpolicy.AllowSQL("r", "seq", effectpolicy.Notifications))
 
 	reportRows, err := d.db.QueryContext(ctx, reportsQuery, sinceSeq)
 	if err != nil {

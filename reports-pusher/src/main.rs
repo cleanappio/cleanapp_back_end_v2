@@ -112,6 +112,11 @@ async fn run_once(rr: &mut RequestRegistratorServiceClient<Channel>, pool: &mysq
         FROM reports r
         LEFT JOIN reports_pushed p ON p.report_seq = r.seq
         WHERE p.report_seq IS NULL
+        AND NOT EXISTS (
+            SELECT 1 FROM report_side_effect_policy effects
+            WHERE effects.report_seq=r.seq
+              AND (COALESCE(effects.policy_version,0)<>1 OR COALESCE(effects.suppress_rewards,TRUE)<>FALSE)
+        )
         ORDER BY r.seq ASC
         LIMIT 50
         "#,
@@ -177,4 +182,4 @@ async fn run_once(rr: &mut RequestRegistratorServiceClient<Channel>, pool: &mysq
     }
 
     Ok(())
-} 
+}

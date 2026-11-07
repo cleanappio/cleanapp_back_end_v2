@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"cleanapp-common/effectpolicy"
 	"cleanapp-common/events"
 	"context"
 	"database/sql"
@@ -120,6 +121,13 @@ func (h *Handlers) InternalPromoteReport(c *gin.Context) {
 }
 
 func (h *Handlers) publishAnalysedFromDB(ctx context.Context, seq int) error {
+	for _, effect := range []effectpolicy.Effect{effectpolicy.Routing, effectpolicy.Notifications} {
+		if blocked, err := h.db.SideEffectSuppressed(ctx, seq, effect); err != nil {
+			return err
+		} else if blocked {
+			return fmt.Errorf("report publication side effects are suppressed")
+		}
+	}
 	pub, err := h.ensureRabbitMQPublisher()
 	if err != nil {
 		return fmt.Errorf("rabbitmq publisher not connected: %w", err)
