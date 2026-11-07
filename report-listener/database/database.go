@@ -312,10 +312,10 @@ func (d *Database) GetReportsSince(ctx context.Context, sinceSeq int) ([]models.
 	// Then, get all analyses for these reports
 	analysesQuery := `
 		SELECT 
-			ra.seq, ra.source, ra.analysis_text,
+			ra.seq, ra.source, COALESCE(ra.analysis_text, ''),
 			ra.title, ra.description, ra.brand_name, ra.brand_display_name,
-			ra.litter_probability, ra.hazard_probability, ra.digital_bug_probability,
-			ra.severity_level, ra.summary, ra.language, ra.classification, ra.created_at
+			COALESCE(ra.litter_probability, 0), COALESCE(ra.hazard_probability, 0), ra.digital_bug_probability,
+			ra.severity_level, COALESCE(ra.summary, ''), ra.language, ra.classification, ra.created_at
 		FROM report_analysis ra
 		WHERE ra.seq > ?
 		ORDER BY ra.seq ASC, ra.language ASC`
@@ -611,10 +611,10 @@ func (d *Database) getLastNAnalyzedReports(ctx context.Context, limit int, class
 	// Then, get all analyses for these reports
 	analysesQuery := `
 		SELECT 
-			ra.seq, ra.source, ra.analysis_text,
+			ra.seq, ra.source, COALESCE(ra.analysis_text, ''),
 			ra.title, ra.description, ra.brand_name, ra.brand_display_name,
-			ra.litter_probability, ra.hazard_probability, ra.digital_bug_probability,
-			ra.severity_level, ra.summary, ra.language, ra.classification, ra.created_at
+			COALESCE(ra.litter_probability, 0), COALESCE(ra.hazard_probability, 0), ra.digital_bug_probability,
+			ra.severity_level, COALESCE(ra.summary, ''), ra.language, ra.classification, ra.created_at
 		FROM report_analysis ra
 		WHERE ra.seq > ?
 		ORDER BY ra.seq DESC, ra.language ASC
@@ -919,10 +919,10 @@ func (d *Database) SearchReports(ctx context.Context, searchQuery string, classi
 	// Get full analyses for these reports
 	analysesQuery := fmt.Sprintf(`
 		SELECT 
-			ra.seq, ra.source, ra.analysis_text,
+			ra.seq, ra.source, COALESCE(ra.analysis_text, ''),
 			ra.title, ra.description, ra.brand_name, ra.brand_display_name,
-			ra.litter_probability, ra.hazard_probability, ra.digital_bug_probability,
-			ra.severity_level, ra.summary, ra.language, ra.classification, ra.created_at
+			COALESCE(ra.litter_probability, 0), COALESCE(ra.hazard_probability, 0), ra.digital_bug_probability,
+			ra.severity_level, COALESCE(ra.summary, ''), ra.language, ra.classification, ra.created_at
 		FROM report_analysis ra
 		WHERE ra.seq IN (%s)
 		ORDER BY ra.seq DESC, ra.language ASC
@@ -1031,10 +1031,10 @@ func (d *Database) GetReportBySeq(ctx context.Context, seq int) (*models.ReportW
 	// Then, get all analyses for this report
 	analysesQuery := `
 		SELECT 
-			ra.seq, ra.source, ra.analysis_text, NULL as analysis_image,
+			ra.seq, ra.source, COALESCE(ra.analysis_text, ''), NULL as analysis_image,
 			ra.title, ra.description, ra.brand_name, ra.brand_display_name,
-			ra.litter_probability, ra.hazard_probability, ra.digital_bug_probability,
-			ra.severity_level, ra.summary, ra.language, ra.classification,
+			COALESCE(ra.litter_probability, 0), COALESCE(ra.hazard_probability, 0), ra.digital_bug_probability,
+			ra.severity_level, COALESCE(ra.summary, ''), ra.language, ra.classification,
 			COALESCE(ra.inferred_contact_emails, ''), ra.created_at
 		FROM report_analysis ra
 		WHERE ra.seq = ?
@@ -1143,10 +1143,10 @@ func (d *Database) GetReportsBySeqs(ctx context.Context, seqs []int) ([]models.R
 	inClause, args = buildIntInClause(reportSeqs)
 	analysesQuery := fmt.Sprintf(`
 		SELECT 
-			ra.seq, ra.source, ra.analysis_text, NULL as analysis_image,
+			ra.seq, ra.source, COALESCE(ra.analysis_text, ''), NULL as analysis_image,
 			ra.title, ra.description, ra.brand_name, ra.brand_display_name,
-			ra.litter_probability, ra.hazard_probability, ra.digital_bug_probability,
-			ra.severity_level, ra.summary, ra.language, ra.classification,
+			COALESCE(ra.litter_probability, 0), COALESCE(ra.hazard_probability, 0), ra.digital_bug_probability,
+			ra.severity_level, COALESCE(ra.summary, ''), ra.language, ra.classification,
 			COALESCE(ra.inferred_contact_emails, ''), ra.created_at
 		FROM report_analysis ra
 		WHERE ra.seq IN (%s)
@@ -1244,10 +1244,10 @@ func (d *Database) GetReportByPublicID(ctx context.Context, publicID string) (*m
 
 	analysesQuery := `
 		SELECT
-			ra.seq, ra.source, ra.analysis_text, NULL as analysis_image,
+			ra.seq, ra.source, COALESCE(ra.analysis_text, ''), NULL as analysis_image,
 			ra.title, ra.description, ra.brand_name, ra.brand_display_name,
-			ra.litter_probability, ra.hazard_probability, ra.digital_bug_probability,
-			ra.severity_level, ra.summary, ra.language, ra.classification,
+			COALESCE(ra.litter_probability, 0), COALESCE(ra.hazard_probability, 0), ra.digital_bug_probability,
+			ra.severity_level, COALESCE(ra.summary, ''), ra.language, ra.classification,
 			COALESCE(ra.inferred_contact_emails, ''), ra.created_at
 		FROM report_analysis ra
 		WHERE ra.seq = ?
@@ -1409,8 +1409,8 @@ func (d *Database) GetLastNReportsByID(ctx context.Context, reportID string, lim
 		SELECT 
 			ra.seq, ra.source,
 			ra.title, COALESCE(NULLIF(ra.description, ''), NULLIF(ra.summary, ''), ''), ra.brand_name, ra.brand_display_name,
-			ra.litter_probability, ra.hazard_probability, ra.digital_bug_probability,	
-			ra.severity_level, ra.summary, ra.language, ra.classification, ra.is_valid,
+			COALESCE(ra.litter_probability, 0), COALESCE(ra.hazard_probability, 0), ra.digital_bug_probability,
+			ra.severity_level, COALESCE(ra.summary, ''), ra.language, ra.classification, ra.is_valid,
 			ra.created_at
 		FROM report_analysis ra
 		WHERE ra.seq IN (%s)
@@ -1563,10 +1563,10 @@ func (d *Database) GetReportsByLatLng(ctx context.Context, latitude, longitude f
 	// Then, get all analyses for these reports
 	analysesQuery := fmt.Sprintf(`
 		SELECT 
-			ra.seq, ra.source, ra.analysis_text,
+			ra.seq, ra.source, COALESCE(ra.analysis_text, ''),
 			ra.title, ra.description, ra.brand_name, ra.brand_display_name,
-			ra.litter_probability, ra.hazard_probability, ra.digital_bug_probability,
-			ra.severity_level, ra.summary, ra.language, ra.classification, ra.created_at
+			COALESCE(ra.litter_probability, 0), COALESCE(ra.hazard_probability, 0), ra.digital_bug_probability,
+			ra.severity_level, COALESCE(ra.summary, ''), ra.language, ra.classification, ra.created_at
 		FROM report_analysis ra
 		WHERE ra.seq IN (%s)
 		ORDER BY ra.seq DESC, ra.language ASC
@@ -1782,10 +1782,10 @@ func (d *Database) GetReportsByGeometry(ctx context.Context, geometryJSON string
 
 	analysesQuery := fmt.Sprintf(`
 		SELECT
-			ra.seq, ra.source, ra.analysis_text,
+			ra.seq, ra.source, COALESCE(ra.analysis_text, ''),
 			ra.title, ra.description, ra.brand_name, ra.brand_display_name,
-			ra.litter_probability, ra.hazard_probability, ra.digital_bug_probability,
-			ra.severity_level, ra.summary, ra.language, ra.classification, ra.created_at
+			COALESCE(ra.litter_probability, 0), COALESCE(ra.hazard_probability, 0), ra.digital_bug_probability,
+			ra.severity_level, COALESCE(ra.summary, ''), ra.language, ra.classification, ra.created_at
 		FROM report_analysis ra
 		WHERE ra.seq IN (%s)
 		ORDER BY ra.seq DESC, ra.language ASC
@@ -1978,10 +1978,10 @@ func (d *Database) GetReportsByBrandName(ctx context.Context, brandName string, 
 	// Then, get all analyses for these reports
 	analysesQuery := fmt.Sprintf(`
 		SELECT 
-			ra.seq, ra.source, ra.analysis_text, ra.analysis_image,
+			ra.seq, ra.source, COALESCE(ra.analysis_text, ''), ra.analysis_image,
 			ra.title, ra.description, ra.brand_name, ra.brand_display_name,
-			ra.litter_probability, ra.hazard_probability, ra.digital_bug_probability,
-			ra.severity_level, ra.summary, ra.language, ra.classification, ra.created_at
+			COALESCE(ra.litter_probability, 0), COALESCE(ra.hazard_probability, 0), ra.digital_bug_probability,
+			ra.severity_level, COALESCE(ra.summary, ''), ra.language, ra.classification, ra.created_at
 		FROM report_analysis ra
 		WHERE ra.seq IN (%s)
 		ORDER BY ra.seq DESC, ra.language ASC
