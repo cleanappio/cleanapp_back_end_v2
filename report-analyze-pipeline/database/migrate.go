@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 
+	"cleanapp-common/effectpolicy"
 	"cleanapp-common/evidence"
 	"cleanapp-common/migrator"
 	"report-analyze-pipeline/contacts"
@@ -20,6 +21,7 @@ func RunMigrations(ctx context.Context, db *sql.DB) error {
 		// Environments that applied the former column-based 0006 still need the
 		// separate table. The shared create-only migration is safe to repeat.
 		{ID: "0007_report_evidence_store", Description: "ensure separate per-report evidence storage", Up: evidence.Migrate},
+		{ID: "0008_report_side_effect_policy", Description: "separate historical reports from outbound effects", Up: effectpolicy.Migrate},
 	})
 }
 

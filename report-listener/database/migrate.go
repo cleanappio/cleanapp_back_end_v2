@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 
+	"cleanapp-common/effectpolicy"
 	"cleanapp-common/eiiheader"
 	"cleanapp-common/evidence"
 	"cleanapp-common/evidencesourceprojection"
@@ -48,6 +49,7 @@ func RunMigrations(ctx context.Context, db *sql.DB) error {
 		{ID: "0030_report_email_delivery_events", Description: "create append-only report email notification history", Up: ensureReportEmailDeliveryEvents},
 		{ID: "0031_evidence_source_projection", Description: "create versioned normalized source projection and invalidation triggers", Up: evidencesourceprojection.Migrate},
 		{ID: "0032_evidence_source_projection_privacy_index", Description: "add online privacy_restricted index so brand readers enumerate the restricted set as one covering range", Up: evidencesourceprojection.MigratePrivacyRestrictedIndex},
+		{ID: "0033_report_side_effect_policy", Description: "create explicit historical report side-effect controls", Up: effectpolicy.Migrate},
 	})
 }
 

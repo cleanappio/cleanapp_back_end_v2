@@ -1,6 +1,7 @@
 package service
 
 import (
+	"cleanapp-common/effectpolicy"
 	"cleanapp-common/evidence"
 	"context"
 	"log"
@@ -113,6 +114,14 @@ func (s *Service) processEvidenceBatchWithContext(ctx context.Context) evidenceB
 		case <-ctx.Done():
 			return evidenceBatchFound
 		default:
+		}
+		blocked, policyErr := s.reportEffectSuppressed(ctx, item.Seq, effectpolicy.Analysis)
+		if policyErr != nil {
+			log.Printf("Evidence worker seq=%d: policy unavailable; skipping enrichment", item.Seq)
+			continue
+		}
+		if blocked {
+			continue
 		}
 		original, err := evidence.LoadOriginal(ctx, s.db.GetDB(), item.Seq)
 		fields := evidence.Unknown("Stored original could not be resolved.")

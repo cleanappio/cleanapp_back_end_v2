@@ -40,6 +40,13 @@ func (h *EmailServiceHandler) HandleSendCaseEscalation(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "at least one recipient is required"})
 		return
 	}
+	if blocked, err := h.emailService.CaseNotificationSuppressed(c.Request.Context(), req.CaseID); err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "notification policy unavailable"})
+		return
+	} else if blocked {
+		c.JSON(http.StatusConflict, gin.H{"error": "case contains reports with suppressed notifications"})
+		return
+	}
 
 	recipients := make([]service.CaseEscalationRecipient, 0, len(req.Recipients))
 	for _, recipient := range req.Recipients {

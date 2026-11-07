@@ -1,6 +1,7 @@
 package service
 
 import (
+	"cleanapp-common/effectpolicy"
 	"context"
 	"database/sql"
 	"errors"
@@ -52,7 +53,8 @@ func notificationMySQLFixture(t *testing.T) *sql.DB {
 	}
 	t.Cleanup(func() { db.Close() })
 	ddl := []string{
-		`CREATE TABLE reports(seq INT PRIMARY KEY,public_id VARCHAR(32),ts DATETIME,image BLOB)`,
+		`CREATE TABLE reports(seq INT PRIMARY KEY,public_id VARCHAR(32),ts DATETIME,image BLOB,id VARCHAR(255) NOT NULL DEFAULT '',latitude DOUBLE DEFAULT 1,longitude DOUBLE DEFAULT 1)`,
+		strings.Replace(effectpolicy.CreateTableSQL, "CREATE TABLE IF NOT EXISTS ", "CREATE TABLE ", 1),
 		`CREATE TABLE report_analysis(seq INT PRIMARY KEY,language VARCHAR(8),brand_name VARCHAR(100),brand_display_name VARCHAR(100),title TEXT,summary TEXT,classification VARCHAR(32),inferred_contact_emails TEXT,is_valid BOOLEAN)`,
 		`CREATE TABLE report_raw(report_seq INT PRIMARY KEY,visibility VARCHAR(32))`,
 		`CREATE TABLE report_status(seq INT PRIMARY KEY,status VARCHAR(32))`,

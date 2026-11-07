@@ -1,12 +1,24 @@
 package service
 
 import (
+	"cleanapp-common/effectpolicy"
 	"context"
 	"strings"
 	"time"
 
 	"github.com/apex/log"
 )
+
+// CaseNotificationSuppressed is checked at the transport-facing API boundary,
+// including calls that bypass report candidate selection.
+func (s *EmailService) CaseNotificationSuppressed(ctx context.Context, caseID string) (bool, error) {
+	for _, effect := range []effectpolicy.Effect{effectpolicy.Email, effectpolicy.Notifications, effectpolicy.Routing} {
+		if blocked, err := effectpolicy.CaseSuppressed(ctx, s.db, caseID, effect); err != nil || blocked {
+			return true, err
+		}
+	}
+	return false, nil
+}
 
 type CaseEscalationRecipient struct {
 	TargetID       *int64 `json:"target_id,omitempty"`

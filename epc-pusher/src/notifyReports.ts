@@ -144,7 +144,13 @@ async function processReport(db: mysql.Connection, report: any) {
 async function getNextReportToProcess(db: Queryable, startReportSeq: number) {
 
   const filters = buildFilters()
-  const where = ['seq >= ?']
+  const where = ['seq >= ?', `NOT EXISTS (
+    SELECT 1 FROM report_side_effect_policy effects
+    WHERE effects.report_seq=report_analysis.seq
+      AND (COALESCE(effects.policy_version,0)<>1
+        OR COALESCE(effects.suppress_notifications,TRUE)<>FALSE
+        OR COALESCE(effects.suppress_routing,TRUE)<>FALSE)
+  )`]
   const params: any[] = [startReportSeq]
 
   if (filters.onlyValid) {

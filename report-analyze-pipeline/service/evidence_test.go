@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"cleanapp-common/effectpolicy"
 	"cleanapp-common/events"
 	"cleanapp-common/evidence"
 	"github.com/DATA-DOG/go-sqlmock"
@@ -36,9 +37,17 @@ type analysisStore struct {
 	publishedMarkers int
 	pendingContext   context.Context
 	pendingErr       error
+	policy           map[effectpolicy.Effect]bool
+	policyErr        error
 }
 
 func (d *analysisStore) GetDB() *sql.DB { return d.sqlDB }
+func (d *analysisStore) SideEffectSuppressed(_ context.Context, _ int, effect effectpolicy.Effect) (bool, error) {
+	if d.policyErr != nil {
+		return true, d.policyErr
+	}
+	return d.policy[effect], nil
+}
 func (d *analysisStore) LockReportAnalysis(context.Context, int) (*database.ReportAnalysisLock, bool, error) {
 	return &database.ReportAnalysisLock{}, false, nil
 }

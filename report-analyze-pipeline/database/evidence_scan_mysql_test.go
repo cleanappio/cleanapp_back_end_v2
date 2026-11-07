@@ -46,6 +46,7 @@ func TestEvidenceCursorMySQLBoundedScansAndFullWindowRecall(t *testing.T) {
 		`CREATE TABLE report_analysis(seq INT,language VARCHAR(2),brand_name VARCHAR(64),INDEX seq_index(seq))`,
 		`CREATE TABLE wire_submissions_raw(report_seq INT,created_at DATETIME,INDEX report_seq_index(report_seq))`,
 		`CREATE TABLE external_ingest_index(seq INT,created_at DATETIME,INDEX seq_index(seq))`,
+		`CREATE TABLE report_side_effect_policy(report_seq INT PRIMARY KEY,policy_version INT NOT NULL DEFAULT 1,suppress_analysis BOOLEAN NOT NULL DEFAULT TRUE)`,
 	} {
 		if _, err := db.Exec(statement); err != nil {
 			t.Fatal("fixture requires empty local database")
@@ -53,7 +54,7 @@ func TestEvidenceCursorMySQLBoundedScansAndFullWindowRecall(t *testing.T) {
 		created = append(created, strings.Split(strings.Fields(statement)[2], "(")[0])
 	}
 	// CREATE column syntax above has no space before '('; retain explicit names.
-	created = []string{"reports", "report_analysis", "wire_submissions_raw", "external_ingest_index"}
+	created = []string{"reports", "report_analysis", "wire_submissions_raw", "external_ingest_index", "report_side_effect_policy"}
 	var existing int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='report_evidence'`).Scan(&existing); err != nil || existing != 0 {
 		t.Fatal("fixture refuses preexisting evidence table")

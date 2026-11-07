@@ -144,7 +144,7 @@ func (h *Handlers) SubmitDigitalShare(c *gin.Context) {
 	}
 
 	if receipt.ReportID > 0 && !receipt.IdempotencyReplay && strings.TrimSpace(payload.ReporterID) != "" {
-		if err := h.db.IncrementReporterDailyKITNs(c.Request.Context(), payload.ReporterID); err != nil {
+		if err := h.db.IncrementReporterDailyKITNs(c.Request.Context(), payload.ReporterID, receipt.ReportID); err != nil {
 			log.Printf("warn: failed to increment KITNs for digital share %d (%s): %v", receipt.ReportID, payload.ReporterID, err)
 		}
 	}

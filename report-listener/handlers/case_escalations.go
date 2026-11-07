@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"cleanapp-common/effectpolicy"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -619,6 +620,13 @@ func parseTaskIDParam(raw string) (int64, error) {
 }
 
 func (h *Handlers) sendCaseEscalation(c *gin.Context, caseID, body, subject string, targets []models.CaseEscalationTarget, ccRecipients []internalCaseEscalationRecipient) ([]internalCaseEscalationSendResult, error) {
+	for _, effect := range []effectpolicy.Effect{effectpolicy.Email, effectpolicy.Notifications, effectpolicy.Routing} {
+		if blocked, err := h.db.CaseSideEffectSuppressed(c.Request.Context(), caseID, effect); err != nil {
+			return nil, err
+		} else if blocked {
+			return nil, fmt.Errorf("case contains reports with suppressed notification side effects")
+		}
+	}
 	recipients := make([]internalCaseEscalationRecipient, 0, len(targets)+len(ccRecipients))
 	for _, target := range targets {
 		if strings.TrimSpace(target.Email) == "" {

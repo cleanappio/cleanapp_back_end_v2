@@ -427,7 +427,7 @@ func (h *Handlers) SubmitHumanReportV1(c *gin.Context) {
 		}
 	}
 	if channel != humanChannelWeb && receipt.ReportID > 0 && !receipt.IdempotencyReplay && strings.TrimSpace(req.ReporterID) != "" {
-		if err := h.db.IncrementReporterDailyKITNs(c.Request.Context(), req.ReporterID); err != nil {
+		if err := h.db.IncrementReporterDailyKITNs(c.Request.Context(), req.ReporterID, receipt.ReportID); err != nil {
 			log.Printf("warn: failed to increment KITNs for human report %d (%s): %v", receipt.ReportID, req.ReporterID, err)
 		}
 	}

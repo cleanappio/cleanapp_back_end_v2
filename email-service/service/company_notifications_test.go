@@ -589,6 +589,7 @@ func TestGenericDailyBudgetFailureCannotSend(t *testing.T) {
 func TestProcessReportDoesNotMarkHeldInferredNotificationProcessed(t *testing.T) {
 	db, mock, _ := sqlmock.New()
 	defer db.Close()
+	mock.ExpectQuery(`SELECT policy_version, suppress_email FROM report_side_effect_policy`).WithArgs(int64(10)).WillReturnRows(sqlmock.NewRows([]string{"policy_version", "suppress_email"}))
 	mock.ExpectQuery(`(?s)SELECT seq, source, title, description.*FROM report_analysis`).WithArgs(10).WillReturnRows(sqlmock.NewRows([]string{"seq", "source", "title", "description", "brand", "display", "litter", "hazard", "severity", "emails", "classification", "legal"}).AddRow(10, "fixture", "Issue", "Description", "", "", 0.0, 0.0, 0.5, "a@company.com", "digital", ""))
 	expectIndividualPrior(mock, "a@company.com", 0)
 	expectIndividualOptOut(mock, "a@company.com", 0)

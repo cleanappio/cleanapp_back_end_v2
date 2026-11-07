@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"cleanapp-common/effectpolicy"
 	"cleanapp-common/events"
 	"cleanapp-common/evidence"
 	"report-analyze-pipeline/claude"
@@ -30,6 +31,7 @@ import (
 // analysis/routing and allow failure paths to be exercised without live services.
 type analysisDatabase interface {
 	GetDB() *sql.DB
+	SideEffectSuppressed(context.Context, int, effectpolicy.Effect) (bool, error)
 	LockReportAnalysis(context.Context, int) (*database.ReportAnalysisLock, bool, error)
 	GetReportBySeq(int) (*database.Report, error)
 	GetReportImage(int) ([]byte, error)
@@ -159,6 +161,19 @@ func (s *Service) Stop() {
 
 // publishAnalyzedReport publishes a report with its analysis to RabbitMQ.
 func (s *Service) publishAnalyzedReport(report *database.Report, analyses []*database.ReportAnalysis) error {
+	if report == nil {
+		return fmt.Errorf("cannot publish a nil report")
+	}
+	for _, effect := range []effectpolicy.Effect{effectpolicy.Notifications, effectpolicy.Routing, effectpolicy.Rewards} {
+		blocked, err := s.reportEffectSuppressed(context.Background(), report.Seq, effect)
+		if err != nil {
+			return err
+		}
+		if blocked {
+			log.Printf("Report %d: analysed event suppressed by historical import policy", report.Seq)
+			return nil
+		}
+	}
 	if s.publisher == nil {
 		log.Printf("RabbitMQ publisher not available, skipping publish for report %d", report.Seq)
 		return fmt.Errorf("analysis publisher unavailable")
@@ -221,6 +236,14 @@ func (s *Service) publishAnalyzedReport(report *database.Report, analyses []*dat
 func (s *Service) AnalyzeReport(report *database.Report) error {
 	if report == nil {
 		return fmt.Errorf("cannot analyze a nil report")
+	}
+	blocked, err := s.reportEffectSuppressed(context.Background(), report.Seq, effectpolicy.Analysis)
+	if err != nil {
+		return err
+	}
+	if blocked {
+		log.Printf("Report %d: analysis suppressed by historical import policy", report.Seq)
+		return nil
 	}
 	lockCtx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
 	analysisLock, alreadyPublished, err := s.db.LockReportAnalysis(lockCtx, report.Seq)
@@ -450,6 +473,18 @@ func (s *Service) AnalyzeReport(report *database.Report) error {
 	}
 
 	return nil
+}
+
+// A policy failure never authorizes provider calls or outbound events. Checking
+// again at publication also protects reports whose policy changed during work.
+func (s *Service) reportEffectSuppressed(ctx context.Context, seq int, effect effectpolicy.Effect) (bool, error) {
+	policyCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	blocked, err := s.db.SideEffectSuppressed(policyCtx, seq, effect)
+	if err != nil {
+		return true, fmt.Errorf("check report %d %s policy: %w", seq, effect, err)
+	}
+	return blocked, nil
 }
 
 func canPublishHumanWebAnalysis(analysis *database.ReportAnalysis, original evidence.Original) bool {

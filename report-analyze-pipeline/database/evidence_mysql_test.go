@@ -68,6 +68,7 @@ func TestPendingEvidenceMySQLBoundedRecentImports(t *testing.T) {
 		`CREATE TABLE report_analysis (seq INT, language VARCHAR(2), brand_name VARCHAR(64), INDEX seq_index(seq))`,
 		`CREATE TABLE wire_submissions_raw (report_seq INT, created_at DATETIME, INDEX report_seq_index(report_seq))`,
 		`CREATE TABLE external_ingest_index (seq INT, created_at DATETIME, INDEX seq_index(seq))`,
+		`CREATE TABLE report_side_effect_policy (report_seq INT PRIMARY KEY, policy_version INT NOT NULL DEFAULT 1, suppress_analysis BOOLEAN NOT NULL DEFAULT TRUE)`,
 	}
 	created := []string{}
 	defer func() {
@@ -190,6 +191,7 @@ func TestPendingEvidenceMySQLCompletedRowsAvoidSourceLookups(t *testing.T) {
 		`CREATE TABLE report_analysis (seq INT, language VARCHAR(2), brand_name VARCHAR(64), INDEX seq_index(seq))`,
 		`CREATE TABLE wire_submissions_raw (report_seq INT, created_at DATETIME, INDEX report_seq_index(report_seq))`,
 		`CREATE TABLE external_ingest_index (seq INT, created_at DATETIME, INDEX seq_index(seq))`,
+		`CREATE TABLE report_side_effect_policy (report_seq INT PRIMARY KEY, policy_version INT NOT NULL DEFAULT 1, suppress_analysis BOOLEAN NOT NULL DEFAULT TRUE)`,
 	} {
 		if _, err := db.Exec(statement); err != nil {
 			t.Fatal("fixture requires an empty local test database")

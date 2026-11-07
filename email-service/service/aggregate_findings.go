@@ -1,6 +1,7 @@
 package service
 
 import (
+	"cleanapp-common/effectpolicy"
 	"context"
 	"database/sql"
 	"fmt"
@@ -35,7 +36,10 @@ func parseCompleteReportSeqs(value string) []int64 {
 // fixed at call sites, never supplied by callers.
 func notificationPublicStateSQL(alias string) string {
 	return `NOT EXISTS (SELECT 1 FROM report_status ns WHERE ns.seq=` + alias + `.seq AND ns.status IS NOT NULL AND ns.status<>'active')
-		AND (SELECT /*+ JOIN_INDEX(nowner idx_is_public) */ COUNT(*) FROM reports_owners nowner WHERE nowner.seq=` + alias + `.seq AND nowner.owner IS NOT NULL AND nowner.owner<>'' AND nowner.is_public=FALSE)=0`
+		AND (SELECT /*+ JOIN_INDEX(nowner idx_is_public) */ COUNT(*) FROM reports_owners nowner WHERE nowner.seq=` + alias + `.seq AND nowner.owner IS NOT NULL AND nowner.owner<>'' AND nowner.is_public=FALSE)=0
+		AND ` + effectpolicy.AllowSQL(alias, "seq", effectpolicy.Email) + `
+		AND ` + effectpolicy.AllowSQL(alias, "seq", effectpolicy.Notifications) + `
+		AND ` + effectpolicy.AllowSQL(alias, "seq", effectpolicy.Routing)
 }
 
 // getAggregateFindings only considers the current pending batch. It cannot

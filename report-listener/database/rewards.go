@@ -1,6 +1,7 @@
 package database
 
 import (
+	"cleanapp-common/effectpolicy"
 	"context"
 	"fmt"
 	"strings"
@@ -8,7 +9,7 @@ import (
 
 // IncrementReporterDailyKITNs preserves the legacy mobile reward behavior for
 // wallet-backed human submissions that now enter through the canonical ingest path.
-func (d *Database) IncrementReporterDailyKITNs(ctx context.Context, reporterID string) error {
+func (d *Database) IncrementReporterDailyKITNs(ctx context.Context, reporterID string, reportSeq int) error {
 	reporterID = strings.TrimSpace(reporterID)
 	if reporterID == "" {
 		return nil
@@ -19,6 +20,11 @@ func (d *Database) IncrementReporterDailyKITNs(ctx context.Context, reporterID s
 		return fmt.Errorf("begin reward tx: %w", err)
 	}
 	defer tx.Rollback()
+	if blocked, err := effectpolicy.Suppressed(ctx, tx, int64(reportSeq), effectpolicy.Rewards); err != nil {
+		return err
+	} else if blocked {
+		return nil
+	}
 
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE users

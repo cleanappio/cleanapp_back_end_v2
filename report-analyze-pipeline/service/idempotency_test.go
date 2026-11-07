@@ -34,6 +34,11 @@ func TestAnalyzeReportPublishedReplaySkipsAllProcessing(t *testing.T) {
 		t.Fatal("cannot reach disposable test database")
 	}
 	defer db.Close()
+	// A policy lookup precedes the replay marker. No policy row preserves the
+	// ordinary replay path without requiring a reports table or provider.
+	if _, err := db.GetDB().Exec(`CREATE TABLE IF NOT EXISTS report_side_effect_policy (report_seq INT PRIMARY KEY, policy_version INT NOT NULL DEFAULT 1, suppress_analysis BOOLEAN NOT NULL DEFAULT TRUE)`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.GetDB().Exec(`CREATE TABLE IF NOT EXISTS report_raw (report_seq INT PRIMARY KEY, visibility VARCHAR(16) NOT NULL DEFAULT 'public', analysed_published_at TIMESTAMP NULL)`); err != nil {
 		t.Fatal(err)
 	}

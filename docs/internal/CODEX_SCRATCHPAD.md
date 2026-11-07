@@ -308,3 +308,9 @@ Next time:
 - The existing hook used unsupported `gitleaks detect --staged` flags. Use the
   supported `gitleaks git --pre-commit --staged --redact` command with the
   repository's current gitleaks version; preserve the mandatory staged scan.
+
+### 2026-11-07 (DataUnion historical import side-effect controls)
+
+- A defined query and a polling-sounding environment variable do not prove a live polling loop. Trace callers and service startup; the current normal analyzer is RabbitMQ-driven, while its optional evidence worker polls separately.
+- Historical publication and permission to send/route/pay are separate. Additive per-report policy rows must commit atomically with recovered reports; final sender/publisher checks fail closed, while ordinary reports without policy rows retain their behavior. Do not create fake sent-email, successful push or payout markers to mute a historical cohort.
+- An inactive fetcher and false routing/reward administrative flags are insufficient when consumers do not read them. Audit direct API side effects, DB polling, live broadcasts, push dispatch, balance updates and host schedulers independently. Tests and release verification run on isolated AWS compute for this recovery.
