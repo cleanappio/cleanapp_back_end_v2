@@ -1,0 +1,6 @@
+__pycache__/
+*.py[cod]
+*.zip
+*.env
+*.sqlite*
+.venv/

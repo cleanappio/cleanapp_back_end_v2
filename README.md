@@ -22,6 +22,7 @@ Topical implementation guides:
 - CleanApp Wire: [`docs/cleanapp-wire.md`](./docs/cleanapp-wire.md)
 - Security hardening: [`docs/security-hardening-2026-03-11.md`](./docs/security-hardening-2026-03-11.md)
 - Contact discovery: [`docs/case-contact-discovery-2026-03-11.md`](./docs/case-contact-discovery-2026-03-11.md)
+- Password-gated physical data licensing preview: [`tools/data_licensing/preview/README.md`](./tools/data_licensing/preview/README.md)
 
 ## Standard Commands
 

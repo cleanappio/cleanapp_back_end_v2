@@ -1,0 +1,8 @@
+*
+!server.py
+!static/
+!static/*
+!requirements.txt
+!Dockerfile
+!brand/
+!brand/logo.png
