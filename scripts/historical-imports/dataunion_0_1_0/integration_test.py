@@ -34,8 +34,8 @@ def fixtures(directory):
     media=directory/'media';media.mkdir();rows=[]
     for index,source in enumerate(('cleanapp','litterbux')):
         ident='fake-test-'+str(index);photo=png(255 if index==0 else 0,0,255 if index==1 else 0);sha=hashlib.sha256(photo).hexdigest();path=media/(sha+'.png');path.write_bytes(photo)
-        utc=dt.datetime(2023,7,4,3,52,48,191301+index,tzinfo=dt.timezone.utc);lat,lng=(0.0,12.3456789012345) if index==0 else (45.1234567890123,-123.456789012345)
-        original={'_id':ident,'_rev':'1-fake','source':source,'type':'image','image_path':'data/fake/'+ident+'.png','uploaded_at':utc.timestamp(),'uploaded_by':'fake-account-'+str(index),'annotations':[{'type':'Location','latitude':lat,'longitude':lng}]}
+        utc=dt.datetime(2023,7,4,3,52,48,191301+index,tzinfo=dt.timezone.utc);lat,lng=(0.0,-117.76090240184755) if index==0 else (45.1234567890123,-123.456789012345)
+        original={'_id':ident,'_rev':'1-fake','source':source,'type':'image','image_path':'data/fake/'+ident+'.png','uploaded_at':utc.timestamp(),'uploaded_by':'fake-account-'+str(index),'annotations':[{'type':'Location','latitude':lat,'longitude':lng},{'type':'Tag','value':'first'},{'type':'Tag','value':'second'}]}
         row={'source_key':data.SOURCE+'/metadata/'+ident,'version_label':'0.1.0','legacy_database':'metadata','legacy_id':ident,'legacy_source':source,'legacy_record_type':'image','legacy_uploader_reference':data.SOURCE+'/uploader/fake-account-'+str(index),'uploaded_at_raw':utc.timestamp(),'uploaded_at_utc':utc.isoformat().replace('+00:00','Z'),'location':{'selected':{'latitude':lat,'longitude':lng},'conflicting':False},'image_path':original['image_path'],'image':{'sha256':sha,'format':'PNG','bytes':len(photo),'zip_member':original['image_path'],'exact_photo_join':True,'structural_image_valid':True,'media_locator':str(path)},'review_issues':[],'eligible_projection':True,'original_record':{'legacy_database':'metadata','doc':original}}
         rows.append(row)
     return rows,media
@@ -82,11 +82,23 @@ def main():
                 except ValueError as e:assert 'native reporter/time/location' in str(e)
             assert db.scalar('SELECT COUNT(*) FROM reports')=='2';db.query('UPDATE reports SET latitude=0 WHERE seq=1')
         results.extend(['rollback_refuses_new_ownership_claim','rollback_refuses_changed_native_location'])
+        with mysql() as db:
+            stored_original=json.loads(bytes.fromhex(db.scalar('SELECT HEX(original_record_json) FROM historical_report_import_ledger WHERE source_id='+data.sql_string('metadata/'+rows[0]['legacy_id']))).decode())
+            original_lng=rows[0]['original_record']['doc']['annotations'][0]['longitude'];stored_lng=stored_original['doc']['annotations'][0]['longitude']
+            assert original_lng!=stored_lng and abs(original_lng-stored_lng)==2**-46
+        results.append('known_one_ulp_json_double_roundtrip_drift_is_reproduced')
         run_import(d,rows,media)
         with mysql() as db:assert db.scalar('SELECT COUNT(*) FROM reports')=='2'
-        results.append('replay_adds_no_reports')
+        results.append('native_json_replay_adds_no_reports_despite_one_ulp_transport_drift')
         changed=copy.deepcopy(rows);changed[0]['original_record']['doc']['_rev']='2-changed'
         run_import(d,changed,media,expect_error='Changed source payload');results.append('changed_source_payload_refused')
+        changed=copy.deepcopy(rows);changed[0]['original_record']['doc']['added_key']='changed'
+        run_import(d,changed,media,expect_error='Changed source payload');results.append('changed_source_object_key_refused')
+        changed=copy.deepcopy(rows);annotations=changed[0]['original_record']['doc']['annotations'];annotations[1],annotations[2]=annotations[2],annotations[1]
+        run_import(d,changed,media,expect_error='Changed source payload');results.append('changed_source_array_order_refused')
+        changed=copy.deepcopy(rows);changed[0]['original_record']['doc']['annotations'][0]['longitude']+=0.001;changed[0]['location']['selected']['longitude']+=0.001
+        run_import(d,changed,media,expect_error='Changed source payload');results.append('meaningful_source_gps_change_refused')
+        with mysql() as db:assert db.scalar('SELECT COUNT(*) FROM reports')=='2';assert db.scalar('SELECT COUNT(*) FROM historical_report_import_ledger')=='2'
         reset()
         with mysql() as db:
             db.query("INSERT INTO reports(public_id,ts,id,team,latitude,longitude,image) VALUES('existing','2024-01-15 10:11:12','existing-user',0,12,13,"+data.sql_bytes((media/(rows[0]['image']['sha256']+'.png')).read_bytes())+');')
