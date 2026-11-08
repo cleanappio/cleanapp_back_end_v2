@@ -207,12 +207,12 @@ class AuthState:
                 self.sessions.pop(hashlib.sha256(token.encode()).hexdigest(), None)
 
 
-LOGIN_STYLE = 'body{margin:0;background:#f4f6ef;color:#21382a;font:15px system-ui,sans-serif;display:grid;min-height:100svh;place-items:center}main{width:min(360px,80vw);padding:50px 0}h1{font-size:43px;letter-spacing:-2px;margin:0 0 40px}h1 span{color:#256345}h2{font-size:21px;font-weight:550;margin:0 0 12px}p{font-size:13px;line-height:1.7;color:#667463}label{display:block;font-size:12px;margin:35px 0 10px}input{box-sizing:border-box;width:100%;border:0;border-bottom:1px solid #9eaf99;background:transparent;padding:12px 2px;font:16px system-ui;color:#21382a}button{margin-top:25px;background:#235b40;color:white;border:0;padding:13px 21px;font:13px system-ui;cursor:pointer}input:focus-visible,button:focus-visible{outline:2px solid #235b40;outline-offset:4px}.error{color:#8c4737;min-height:23px}'
+LOGIN_STYLE = 'body{margin:0;background:#f4f6ef;color:#21382a;font:15px system-ui,sans-serif;display:grid;min-height:100svh;place-items:center}main{width:min(360px,80vw);padding:50px 0}.brand-logo{display:block;width:160px;height:auto;max-height:140px;object-fit:contain;margin:0 0 34px}h2{font-size:21px;font-weight:550;margin:0 0 12px}p{font-size:13px;line-height:1.7;color:#667463}label{display:block;font-size:12px;margin:35px 0 10px}input{box-sizing:border-box;width:100%;border:0;border-bottom:1px solid #9eaf99;background:transparent;padding:12px 2px;font:16px system-ui;color:#21382a}button{margin-top:25px;background:#235b40;color:white;border:0;padding:13px 21px;font:13px system-ui;cursor:pointer}input:focus-visible,button:focus-visible{outline:2px solid #235b40;outline-offset:4px}.error{color:#8c4737;min-height:23px}'
 LOGIN_STYLE_HASH = base64.b64encode(hashlib.sha256(LOGIN_STYLE.encode()).digest()).decode()
 
 
 def login_page(error=''):
-    return HTMLResponse('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>CleanApp · Private evaluation</title><style>' + LOGIN_STYLE + '</style><main><h1>CleanApp<span>.</span></h1><h2>Private image evaluation</h2><p>500 original physical-world images and their existing source-labeled annotations.</p><form action="/grepped/login" method="post"><label for="password">Access password</label><input id="password" name="password" type="password" autocomplete="current-password" required maxlength="256" autofocus><p class="error" role="status">' + error + '</p><button type="submit">Open evaluation →</button></form></main></html>')
+    return HTMLResponse('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>CleanApp · Private evaluation</title><style>' + LOGIN_STYLE + '</style><main><img class="brand-logo" src="/grepped/brand/logo.png" alt="CleanApp"><h2>Private image evaluation</h2><p>500 original physical-world images and their existing source-labeled annotations.</p><form action="/grepped/login" method="post"><label for="password">Access password</label><input id="password" name="password" type="password" autocomplete="current-password" required maxlength="256" autofocus><p class="error" role="status">' + error + '</p><button type="submit">Open evaluation →</button></form></main></html>')
 
 
 def create_app(cfg: Config, *, clock=time.monotonic):
@@ -238,6 +238,8 @@ def create_app(cfg: Config, *, clock=time.monotonic):
             response = Response('Invalid host', status_code=403)
         elif request.method in ('POST', 'PUT', 'DELETE', 'PATCH') and request.headers.get('origin') != cfg.public_origin:
             response = Response('Origin mismatch', status_code=403)
+        elif path == PREFIX + '/brand/logo.png' and request.method in ('GET', 'HEAD'):
+            response = await call_next(request)
         elif path == PREFIX + '/login' and request.method in ('GET', 'HEAD', 'POST'):
             response = await call_next(request)
         elif not auth.valid(request.cookies.get(COOKIE)):
@@ -249,6 +251,10 @@ def create_app(cfg: Config, *, clock=time.monotonic):
             'X-Frame-Options': 'DENY', 'X-Robots-Tag': 'noindex, nofollow, noarchive',
             'Content-Security-Policy': "default-src 'none'; img-src 'self'; style-src 'self' 'sha256-" + LOGIN_STYLE_HASH + "'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"})
         return response
+
+    @app.api_route(PREFIX + '/brand/logo.png', methods=['GET', 'HEAD'])
+    def brand_logo():
+        return FileResponse(ROOT / 'brand/logo.png', media_type='image/png')
 
     @app.get(PREFIX + '/login')
     def login_get(request: Request):

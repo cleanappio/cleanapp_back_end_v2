@@ -83,6 +83,24 @@ class PreviewSecurityTests(unittest.TestCase):
         self.assertEqual(logout.status_code,403)
         self.assertEqual(self.client.get('/grepped/api/items').status_code,200)
 
+    def test_official_logo_is_only_public_asset_exception(self):
+        logo_path=Path(__file__).resolve().parents[1]/'brand/logo.png'
+        expected=logo_path.read_bytes()
+        self.assertEqual(hashlib.sha256(expected).hexdigest(),'ea7375a10b10ece64604712d9266bbc831270a02acbc805cde05979639f57c96')
+        for method in ['GET','HEAD']:
+            response=self.client.request(method,'/grepped/brand/logo.png')
+            self.assertEqual(response.status_code,200)
+            self.assertEqual(response.headers['content-type'],'image/png')
+            self.assertEqual(response.headers['referrer-policy'],'same-origin')
+            self.assertEqual(response.content,expected if method=='GET' else b'')
+        for path in ['/grepped/brand/other.png','/grepped/brand/','/grepped/static/app.js',
+                     '/grepped/api/items','/grepped/media/CA-0001']:
+            self.assertEqual(self.client.get(path).status_code,401,path)
+        self.assertEqual(self.client.post('/grepped/brand/logo.png',headers={'Origin':'https://cleanapp.io'}).status_code,401)
+        login=self.client.get('/grepped/login')
+        self.assertIn('src="/grepped/brand/logo.png" alt="CleanApp"',login.text)
+        self.assertNotIn('CleanApp<span>.</span>',login.text)
+
     def test_cookie_flags_opacity_and_logout_revocation(self):
         response=self.login()
         self.assertEqual(response.status_code,303)
