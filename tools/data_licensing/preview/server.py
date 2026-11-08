@@ -245,7 +245,7 @@ def create_app(cfg: Config, *, clock=time.monotonic):
         else:
             response = await call_next(request)
         response.headers.update({'Cache-Control': 'no-store, private', 'Pragma': 'no-cache',
-            'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer',
+            'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'same-origin',
             'X-Frame-Options': 'DENY', 'X-Robots-Tag': 'noindex, nofollow, noarchive',
             'Content-Security-Policy': "default-src 'none'; img-src 'self'; style-src 'self' 'sha256-" + LOGIN_STYLE_HASH + "'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"})
         return response

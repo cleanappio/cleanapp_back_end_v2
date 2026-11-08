@@ -67,6 +67,22 @@ class PreviewSecurityTests(unittest.TestCase):
         self.assertEqual(login.status_code,200)
         self.assertNotIn('test-only-evaluation-password',login.text)
 
+    def test_html_form_policy_preserves_same_origin_without_relaxing_csrf(self):
+        page=self.client.get('/grepped/login')
+        self.assertEqual(page.headers['referrer-policy'],'same-origin')
+        # Browsers may send Origin:null for no-referrer HTML form POSTs.
+        # Keep null/missing/cross-site origins rejected; fix the page policy instead.
+        for origin in ['null','https://evil.example']:
+            response=self.client.post('/grepped/login',data={'password':'test-only-evaluation-password'},
+                                      headers={'Origin':origin},follow_redirects=False)
+            self.assertEqual(response.status_code,403)
+        self.assertEqual(self.login().status_code,303)
+        app_page=self.client.get('/grepped/')
+        self.assertEqual(app_page.headers['referrer-policy'],'same-origin')
+        logout=self.client.post('/grepped/logout',headers={'Origin':'https://evil.example'},follow_redirects=False)
+        self.assertEqual(logout.status_code,403)
+        self.assertEqual(self.client.get('/grepped/api/items').status_code,200)
+
     def test_cookie_flags_opacity_and_logout_revocation(self):
         response=self.login()
         self.assertEqual(response.status_code,303)
