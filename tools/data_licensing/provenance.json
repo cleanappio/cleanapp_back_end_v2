@@ -1,0 +1,34 @@
+{
+  "schema": "cleanapp-data-licensing-algorithm-provenance-v1",
+  "reference_date": "2026-11-08",
+  "profile": "review500-20261108-v1",
+  "source_code_refs": [
+    {
+      "name": "build_sample500.py",
+      "sha256": "7115744242786adce2f8f75c258fae0006c68290b541c7e9a4d354b4a597de23"
+    },
+    {
+      "name": "build_annotation_resolution_ledgers.py",
+      "sha256": "757777430da26a05a0ab287142bf3b1bdb15d3f3e416e15f1dd86685928bb971"
+    },
+    {
+      "name": "text_rules.py",
+      "sha256": "00bee05ab55ac795c4d9ad8bf369e7fc5ca8e962e3acc02cf438e5476766bd55"
+    }
+  ],
+  "preserved_behavior": [
+    "Default category quotas, technical/text gates, scores, diversity penalties, cap relaxations and quota adjustment behavior",
+    "Saved source/hash roles, typed hold separation, narrow explicit reason retirement and manual urgency correction",
+    "Private metadata golden parity: 500 selected original report IDs in the same order"
+  ],
+  "hardening_changes": [
+    "Global raw-original SHA de-duplication",
+    "Finite insufficient-pool failure",
+    "Fail closed without a complete current hold snapshot",
+    "Explicit current-source/review binding requirements",
+    "Atomic output publication and local-copy hash/symlink guards"
+  ],
+  "private_data_embedded": false,
+  "new_vision_or_model_calls": false,
+  "automatic_DB_apply_or_upload": false
+}
