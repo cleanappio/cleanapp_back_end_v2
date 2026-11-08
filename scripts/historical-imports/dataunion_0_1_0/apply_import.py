@@ -36,13 +36,18 @@ def expected_schema(db):
 
 def check_existing(db,row):
     info=row['_import'];key=sql_string(info['source_id']);ns=sql_string(SOURCE)
-    result=db.query('SELECT disposition,COALESCE(report_seq,0),photo_sha256,recorded_report_seq,HEX(original_record_json),HEX(normalized_record_json) FROM historical_report_import_ledger WHERE source_namespace='+ns+' AND source_id='+key)
+    clean={k:v for k,v in row.items() if k!='_import'}
+    # Compare the exact source under MySQL's native JSON representation. JSON
+    # DOUBLE serialization can shift a Python round-trip by one ULP; no numeric
+    # tolerance is used, and changed keys/strings/array order still fail closed.
+    result=db.query('SELECT disposition,COALESCE(report_seq,0),photo_sha256,recorded_report_seq,'+
+        'original_record_json=CAST('+sql_string(canonical(row['original_record']))+' AS JSON),'+
+        'normalized_record_json=CAST('+sql_string(canonical(clean))+' AS JSON)'+
+        ' FROM historical_report_import_ledger WHERE source_namespace='+ns+' AND source_id='+key)
     if result:
-        disposition,seq,sha,recorded,original_hex,normalized_hex=result[0].split('\t')
+        disposition,seq,sha,recorded,original_equal,normalized_equal=result[0].split('\t')
         if len(result)!=1 or sha!=info['photo_sha256'] or not int(seq):raise ValueError('Conflicting/deleted import ledger identity; no resurrection')
-        retained_original=json.loads(bytes.fromhex(original_hex).decode())
-        retained_normalized=json.loads(bytes.fromhex(normalized_hex).decode())
-        if retained_original!=row['original_record'] or retained_normalized!={k:v for k,v in row.items() if k!='_import'}:
+        if original_equal!='1' or normalized_equal!='1':
             raise ValueError('Changed source payload under an existing source identity')
         return {'disposition':disposition,'seq':int(seq),'basis':'existing_import_ledger'}
     existing=db.query('SELECT rr.report_seq,LOWER(SHA2(r.image,256)) FROM report_raw rr JOIN reports r ON r.seq=rr.report_seq WHERE rr.fetcher_id='+ns+' AND rr.source_id='+key)
