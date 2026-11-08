@@ -64,6 +64,16 @@ The product is not just a reporting inbox. The core loop is:
 - `/Users/anon16/Downloads/cleanapp_back_end_v2/report-listener/main.go`
 - `/Users/anon16/Downloads/cleanapp_back_end_v2/report-listener-v4/src/main.rs`
 
+### Dataset evidence and licensing review
+
+The durable saved-evidence sorter and review-set selector are in
+[`tools/data_licensing/`](../../tools/data_licensing/README.md). Start there before
+rebuilding a data-cleanup or licensing-sample workflow. The named 500-image
+profile is configurable for future qualified database exports; typed review
+holds are not global junk verdicts, and unchanged-byte verification is not a
+privacy, scene-truth or licensing certification. The tool has no production
+write, model or upload client.
+
 ## Current strategic posture
 
 - defect-general, not physical-only
