@@ -82,3 +82,8 @@ Before changing the system, ask:
 3. Does this improve routing quality?
 4. Does this preserve explainability?
 5. Does this help CleanApp learn from outcomes?
+
+## Where to read next
+
+- Notification outcomes (what happens after a report is sent, and the phased plan to track it): `docs/architecture/notification-outcomes.md`
+
