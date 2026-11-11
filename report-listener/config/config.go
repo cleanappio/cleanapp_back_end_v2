@@ -17,6 +17,11 @@ type Config struct {
 	DBName     string
 	JWTSecret  string
 
+	// ReplyTokenSecret verifies /r/<token> notification links (the same
+	// secret email-service signs them with). Empty disables view recording:
+	// links then redirect to the home page and record nothing.
+	ReplyTokenSecret string
+
 	Port                              string
 	RequestBodyLimitBytes             int64
 	AllowedOrigins                    []string
@@ -140,6 +145,8 @@ func Load() (*Config, error) {
 		DBPassword: dbPassword,
 		DBName:     appenv.String("DB_NAME", "cleanapp"),
 		JWTSecret:  jwtSecret,
+
+		ReplyTokenSecret: appenv.String("REPLY_TOKEN_SECRET", ""),
 
 		Port:                              appenv.String("PORT", "8080"),
 		RequestBodyLimitBytes:             appenv.Int64("REQUEST_BODY_LIMIT_BYTES", 2*1024*1024),

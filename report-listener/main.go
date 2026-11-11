@@ -601,6 +601,11 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 		})
 	})
 	router.GET("/version", versionHandler)
+	// Tracked report links from notification emails. Served at the root and
+	// under /api/v3 so the public site can forward www.cleanapp.io/r/<token>.
+	viewLinkLimit := edge.RateLimitMiddleware(edge.RateLimitConfig{RPS: cfg.PublicDetailRateLimitRPS, Burst: cfg.PublicDetailRateLimitBurst})
+	router.GET("/r/:token", viewLinkLimit, h.FollowNotificationLink)
+	api.GET("/r/:token", viewLinkLimit, h.FollowNotificationLink)
 	router.POST("/api/reports/digital-share", h.SubmitDigitalShare)
 
 	return router

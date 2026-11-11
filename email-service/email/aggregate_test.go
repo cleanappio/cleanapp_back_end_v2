@@ -93,7 +93,12 @@ func TestAggregateBoundsDetailedReportsLinksAndAttachments(t *testing.T) {
 		t.Fatalf("reply address set without one on the summary: %q", m.ReplyTo)
 	}
 	summary.ReplyTo = "info+r.0123456789abcdef.abcdefghijklmnop@cleanapp.io"
+	summary.ReportLinks = map[int64]string{1: "https://www.cleanapp.io/r/tracked-one"}
 	m := workspaceEmailSender(&recordingWorkspace{}).aggregateMessage("support@company.com", summary, "https://cleanapp.io/opt-out")
+	// Report 1 uses its tracked link everywhere; report 2 keeps the public one.
+	if !strings.Contains(m.HTML, `href="https://www.cleanapp.io/r/tracked-one"`) || strings.Contains(m.HTML, "/report/rpt_1\"") || !strings.Contains(m.HTML, "/report/rpt_2\"") || !strings.Contains(m.Text, "https://www.cleanapp.io/r/tracked-one") {
+		t.Fatal("tracked link not applied to exactly the mapped report")
+	}
 	if m.ReplyTo != summary.ReplyTo {
 		t.Fatalf("reply address lost: %q", m.ReplyTo)
 	}

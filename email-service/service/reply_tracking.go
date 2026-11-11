@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"strings"
 	"time"
 
 	"cleanapp-common/mailreply"
@@ -69,6 +70,26 @@ func (s *EmailService) prepareReplyTracking(summary *models.BrandReportSummary) 
 	}
 	summary.ReplyTo = address
 	return id
+}
+
+// prepareViewLinks replaces each report link with a signed /r/<token> link
+// (phase 2). It does nothing without a notification ID, so it can never be
+// active without reply tracking. A report whose token cannot be built keeps
+// its plain public link.
+func (s *EmailService) prepareViewLinks(summary *models.BrandReportSummary, id string) {
+	if id == "" || !s.config.ViewTrackingEnabled || !strings.HasPrefix(s.config.ViewLinkBaseURL, "https://") {
+		return
+	}
+	links := make(map[int64]string, len(summary.ReportSeqs))
+	for _, seq := range summary.ReportSeqs {
+		token, err := mailreply.LinkToken(id, seq, []byte(s.config.ReplyTokenSecret))
+		if err != nil {
+			log.Warnf("View link skipped for one report: %v", err)
+			continue
+		}
+		links[seq] = s.config.ViewLinkBaseURL + token
+	}
+	summary.ReportLinks = links
 }
 
 // recordNotificationMessage stores which reports an accepted email carried.

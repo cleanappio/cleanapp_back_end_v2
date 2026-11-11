@@ -617,6 +617,7 @@ func (s *EmailService) processCompanyPlan(ctx context.Context, plan CompanyNotif
 		return nil
 	}
 	notificationID := s.prepareReplyTracking(&summary)
+	s.prepareViewLinks(&summary, notificationID)
 	results := s.email.SendAggregateEmailsWithResults([]string{recipient}, &summary, s.config.OptOutURL)
 	if len(results) != 1 {
 		return fmt.Errorf("company sender returned no per-recipient result")
