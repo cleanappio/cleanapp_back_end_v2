@@ -58,6 +58,14 @@ type Config struct {
 	ReplyTrackingEnabled bool
 	ReplyTokenSecret     string
 	ReplyMailbox         string
+
+	// View tracking (same document, phase 2). Off by default and only
+	// effective together with reply tracking, because a view is recorded
+	// against a notification ID. Report links in company notifications
+	// become ViewLinkBaseURL + signed token; the report-listener endpoint
+	// records the view and redirects to the public report.
+	ViewTrackingEnabled bool
+	ViewLinkBaseURL     string
 }
 
 func Load() (*Config, error) {
@@ -115,6 +123,12 @@ func Load() (*Config, error) {
 		// replies cannot be matched, so tracking stays off and says why.
 		log.Error("REPLY_TRACKING_ENABLED is set but REPLY_TOKEN_SECRET is missing or shorter than 16 bytes; reply tracking is off")
 		cfg.ReplyTrackingEnabled = false
+	}
+	cfg.ViewLinkBaseURL = appenv.String("VIEW_LINK_BASE_URL", "https://www.cleanapp.io/r/")
+	cfg.ViewTrackingEnabled = appenv.Bool("VIEW_TRACKING_ENABLED", false)
+	if cfg.ViewTrackingEnabled && !cfg.ReplyTrackingEnabled {
+		log.Error("VIEW_TRACKING_ENABLED needs working reply tracking (REPLY_TRACKING_ENABLED and REPLY_TOKEN_SECRET); view tracking is off")
+		cfg.ViewTrackingEnabled = false
 	}
 	maxDaily, err := strconv.Atoi(appenv.String("MAX_DAILY_EMAILS_PER_BRAND", "10"))
 	if err != nil || maxDaily <= 0 {

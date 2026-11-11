@@ -110,8 +110,14 @@ bytes, each verified company notification carries a signed
 recorded in `notification_messages` and `notification_message_reports` so a
 later reply or bounce can be matched to the exact reports it concerns.
 Tracking never blocks a send: without a usable secret it stays off and logs
-one error. Design, status and enable steps:
-`docs/architecture/notification-outcomes.md`.
+one error.
+
+With `VIEW_TRACKING_ENABLED=true` as well, report links in those notices
+become `https://www.cleanapp.io/r/<signed token>`; following one records a
+`viewed` outcome and redirects to the public report. Do not turn this on
+before the site and `report-listener` answer `/r/<token>`.
+
+Design, status and enable steps: `docs/architecture/notification-outcomes.md`.
 
 ### General and area notifications
 

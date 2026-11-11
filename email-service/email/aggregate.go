@@ -118,6 +118,10 @@ func (e *EmailSender) aggregateView(recipient string, summary *models.BrandRepor
 		if link == "" {
 			continue
 		}
+		// A tracked link only ever replaces a valid public link, never creates one.
+		if tracked := summary.ReportLinks[report.Seq]; tracked != "" {
+			link = tracked
+		}
 		domain := "Physical"
 		if report.Classification == "digital" {
 			domain = "Digital"

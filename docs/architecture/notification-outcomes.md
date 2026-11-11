@@ -173,9 +173,16 @@ https://www.cleanapp.io/r/<link token>
 ```
 
 The endpoint records a `viewed` outcome and redirects to the public report
-page. It records at most one view per notification per hour, ignores obvious
-link scanners (requests within two seconds of send, or with a known scanner
-user agent), and never sets a cookie. No tracking pixel is used: support desks
+page. It records at most one view per notification and report per hour,
+ignores obvious link scanners (requests within two seconds of send, or with a
+known scanner user agent), and never sets a cookie or stores an IP address.
+It always redirects: an invalid token, an unknown notification or a report
+that is no longer public goes to the home page and records nothing.
+
+The token is `<notification id>.<report seq in base 36>.<signature>`, built
+by `mailreply.LinkToken` and verified by `mailreply.ParseLinkToken`. It uses
+the reply secret under a different label, so one signature cannot stand in
+for the other. No tracking pixel is used: support desks
 strip them and they overstate attention.
 
 ### 4.6 Escalation on silence
@@ -277,7 +284,8 @@ must not be routed to companies.
 | 0 Reply library | done | #196 | not applicable (library only) |
 | 1a Reply addresses and `notification_messages` | code merged, flag off | this PR | see deploy log; `REPLY_TRACKING_ENABLED` unset |
 | 1b Inbox worker | blocked on mailbox access (section 10) | | |
-| 2 to 6 | not started | | |
+| 2 Viewed links | code merged, flag off | PR after #197, plus the site forward in `cleanapp-frontend` | `VIEW_TRACKING_ENABLED` unset |
+| 3 to 6 | not started | | |
 
 ### What 1a changed
 
@@ -318,6 +326,38 @@ must not be routed to companies.
 Turning it on before the inbox worker exists is harmless and useful: replies
 still arrive in `info@cleanapp.io` exactly as today, and the mapping needed
 to match them later starts accumulating.
+
+### What 2 changed
+
+- `go-common/mailreply/link.go`: `LinkToken` and `ParseLinkToken`.
+- `email-service`: `prepareViewLinks` (in `service/reply_tracking.go`) fills
+  `BrandReportSummary.ReportLinks`; the company template uses a tracked link
+  wherever it would have used the public report link. Config:
+
+  | Variable | Default | Meaning |
+  | --- | --- | --- |
+  | `VIEW_TRACKING_ENABLED` | `false` | Use tracked links in company notifications. Needs reply tracking on. |
+  | `VIEW_LINK_BASE_URL` | `https://www.cleanapp.io/r/` | Prefix of a tracked link. Must be HTTPS. |
+
+- `report-listener`: `GET /r/:token` and `GET /api/v3/r/:token`
+  (`handlers/notification_links.go`), backed by
+  `database.RecordNotificationView`. It reads `REPLY_TOKEN_SECRET`; without
+  it every link redirects to the home page and nothing is recorded.
+- A `viewed` row in `notify_outcomes` looks like: `subject_kind='report'`,
+  `subject_ref=<public id>`, `endpoint_key=<recipient address>`,
+  `source_type='notification_link'`, `source_ref=<notification id>`.
+
+### Turning 2 on
+
+Order matters, because a tracked link that nothing answers is a broken link
+in a company's inbox:
+
+1. `cleanapp-frontend` forwards `www.cleanapp.io/r/<token>` to the
+   report-listener endpoint, and that is deployed.
+2. `report-listener` is deployed with `REPLY_TOKEN_SECRET` set to the same
+   value as `email-service`.
+3. Check by hand: `https://www.cleanapp.io/r/x` redirects to the home page.
+4. Only then set `VIEW_TRACKING_ENABLED=true` on `email-service`.
 
 ## 10. Mailbox access: steps for a Workspace super admin
 

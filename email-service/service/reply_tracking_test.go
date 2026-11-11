@@ -88,3 +88,32 @@ func TestReplyTrackingWithUnusableSecretSendsWithoutReplyAddress(t *testing.T) {
 		t.Fatalf("unusable secret must disable tracking for the send: id=%q replyTo=%q", id, summary.ReplyTo)
 	}
 }
+
+func TestViewLinksNeedNotificationIDAndFlagAndVerify(t *testing.T) {
+	cfg := &config.Config{ReplyTrackingEnabled: true, ReplyMailbox: "info@cleanapp.io", ReplyTokenSecret: testReplySecret, ViewLinkBaseURL: "https://www.cleanapp.io/r/"}
+	s := &EmailService{config: cfg}
+	summary := models.BrandReportSummary{ReportSeqs: []int64{41, 42}}
+	s.prepareViewLinks(&summary, "0123456789abcdef")
+	if summary.ReportLinks != nil {
+		t.Fatal("view links added with the flag off")
+	}
+	cfg.ViewTrackingEnabled = true
+	s.prepareViewLinks(&summary, "")
+	if summary.ReportLinks != nil {
+		t.Fatal("view links added without a notification ID")
+	}
+	cfg.ViewLinkBaseURL = "http://insecure.example/r/"
+	s.prepareViewLinks(&summary, "0123456789abcdef")
+	if summary.ReportLinks != nil {
+		t.Fatal("view links added for a non-HTTPS base URL")
+	}
+	cfg.ViewLinkBaseURL = "https://www.cleanapp.io/r/"
+	s.prepareViewLinks(&summary, "0123456789abcdef")
+	for _, seq := range []int64{41, 42} {
+		token := strings.TrimPrefix(summary.ReportLinks[seq], "https://www.cleanapp.io/r/")
+		id, got, ok := mailreply.ParseLinkToken(token, []byte(testReplySecret))
+		if !ok || id != "0123456789abcdef" || got != seq {
+			t.Fatalf("link for report %d does not verify: %q", seq, summary.ReportLinks[seq])
+		}
+	}
+}

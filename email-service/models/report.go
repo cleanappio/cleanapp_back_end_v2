@@ -46,6 +46,10 @@ type BrandReportSummary struct {
 	// ReplyTo, when set, is the signed per-notification reply address for the
 	// email built from this summary. Empty means replies go to the sender.
 	ReplyTo string `json:"-"`
+	// ReportLinks, when set, maps a report seq to the link the email should
+	// use for it (a tracked /r/<token> link). Reports without an entry keep
+	// their plain public URL.
+	ReportLinks map[int64]string `json:"-"`
 }
 
 // BrandReportFinding keeps original evidence separate from the generated summary.

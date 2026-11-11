@@ -98,3 +98,41 @@ func TestClassify(t *testing.T) {
 		}
 	}
 }
+
+func TestLinkTokenRoundTripAndRejections(t *testing.T) {
+	token, err := LinkToken("n7f3k2m9q4x1", 1341233, secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, seq, ok := ParseLinkToken(token, secret)
+	if !ok || id != "n7f3k2m9q4x1" || seq != 1341233 {
+		t.Fatalf("round trip failed: %q %d %v", id, seq, ok)
+	}
+	parts := strings.Split(token, ".")
+	otherSeq, _ := LinkToken("n7f3k2m9q4x1", 1341234, secret)
+	replyAddr, _ := Address("info@cleanapp.io", "n7f3k2m9q4x1", secret)
+	replySig := strings.Split(strings.Split(replyAddr, "@")[0], ".")[2]
+	for name, bad := range map[string]string{
+		"empty":                    "",
+		"tampered seq":             parts[0] + "." + strings.Split(otherSeq, ".")[1] + "." + parts[2],
+		"tampered id":              "zzzzzzzz0000." + parts[1] + "." + parts[2],
+		"reply signature replayed": parts[0] + "." + parts[1] + "." + replySig,
+		"non-canonical seq":        parts[0] + ".0" + parts[1] + "." + parts[2],
+		"upper-case seq":           parts[0] + "." + strings.ToUpper(parts[1]) + "." + parts[2],
+		"extra part":               token + ".x",
+		"oversized":                token + strings.Repeat("a", 100),
+	} {
+		if _, _, ok := ParseLinkToken(bad, secret); ok {
+			t.Errorf("%s: accepted %q", name, bad)
+		}
+	}
+	if _, _, ok := ParseLinkToken(token, []byte("ffffffffffffffffffffffffffffffff")); ok {
+		t.Error("token verified under another secret")
+	}
+	if _, err := LinkToken("n7f3k2m9q4x1", 0, secret); err == nil {
+		t.Error("zero seq accepted")
+	}
+	if _, err := LinkToken("n7f3k2m9q4x1", 1, []byte("short")); err == nil {
+		t.Error("short secret accepted")
+	}
+}
