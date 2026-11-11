@@ -285,7 +285,10 @@ must not be routed to companies.
 | 1a Reply addresses and `notification_messages` | code merged, flag off | this PR | see deploy log; `REPLY_TRACKING_ENABLED` unset |
 | 1b Inbox worker | blocked on mailbox access (section 10) | | |
 | 2 Viewed links | code merged, flag off | PR after #197, plus the site forward in `cleanapp-frontend` | `VIEW_TRACKING_ENABLED` unset |
-| 3 to 6 | not started | | |
+| 3 Timeline | code merged, no flag (empty until outcomes exist) | PR after phase 2, plus `ReceiptStatus` in `cleanapp-frontend` | see deploy log |
+| 4 Merge by issue | not started | | |
+| 5 Escalation on silence | not started (needs outcomes from 1b and 2) | | |
+| 6 Route coverage | not started | | |
 
 ### What 1a changed
 
@@ -358,6 +361,25 @@ in a company's inbox:
    value as `email-service`.
 3. Check by hand: `https://www.cleanapp.io/r/x` redirects to the home page.
 4. Only then set `VIEW_TRACKING_ENABLED=true` on `email-service`.
+
+### What 3 changed
+
+- `report-listener/database/report_outcome_timeline.go`:
+  `ReportOutcomeTimeline(publicID)` reads `notify_outcomes` for the report
+  and returns the public outcome types in time order. Repeats collapse into
+  the first occurrence with a `count`. The published types are an allowlist
+  (`publicOutcomeTypes`); anything else stays internal.
+- The notification summary (`GET /api/v3/reports/notifications/by-public-id`
+  and the summary embedded in the public report) gains
+  `timeline: [{type, at, count, ticket_ref?}]`. It is always a list. Only the
+  ticket reference is read from `evidence_json`, and only if it looks like
+  one (24 characters at most; letters, digits, `-`, `#`).
+- `cleanapp-frontend`: `ReceiptStatus` lists the timeline under "Sent to";
+  labels live in `src/lib/report-notifications.ts` (`outcomeLabel`).
+- No flag: with no outcome rows the timeline is empty and nothing changes on
+  screen. It fills as phases 1b and 2 start recording.
+- The per-recipient log (`/notifications/full/...`) is unchanged and still
+  requires a subscription. The reporter's own outcome is in the free summary.
 
 ## 10. Mailbox access: steps for a Workspace super admin
 
