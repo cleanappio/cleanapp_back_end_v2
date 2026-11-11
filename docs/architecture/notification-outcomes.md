@@ -282,10 +282,10 @@ must not be routed to companies.
 | Phase | State | PR | Deployed |
 | --- | --- | --- | --- |
 | 0 Reply library | done | #196 | not applicable (library only) |
-| 1a Reply addresses and `notification_messages` | code merged, flag off | this PR | see deploy log; `REPLY_TRACKING_ENABLED` unset |
+| 1a Reply addresses and `notification_messages` | code merged, flag off | #197 | not yet deployed; `REPLY_TRACKING_ENABLED` unset |
 | 1b Inbox worker | blocked on mailbox access (section 10) | | |
-| 2 Viewed links | code merged, flag off | PR after #197, plus the site forward in `cleanapp-frontend` | `VIEW_TRACKING_ENABLED` unset |
-| 3 Timeline | code merged, no flag (empty until outcomes exist) | PR after phase 2, plus `ReceiptStatus` in `cleanapp-frontend` | see deploy log |
+| 2 Viewed links | code merged, flag off | #198, plus the site forward in `cleanapp-frontend` #58 | `VIEW_TRACKING_ENABLED` unset |
+| 3 Timeline | code merged, no flag (empty until outcomes exist) | #199, plus `ReceiptStatus` in `cleanapp-frontend` #59 | not yet deployed |
 | 4 Merge by issue | not started | | |
 | 5 Escalation on silence | not started (needs outcomes from 1b and 2) | | |
 | 6 Route coverage | not started | | |
