@@ -156,3 +156,24 @@ Why:
 Consequence:
 
 - endpoint memory and notify outcomes are first-class data
+
+## 2026-11-11: Outcomes are recorded from evidence that comes back, never inferred from a send
+
+Decision:
+
+- each notification gets a signed reply address and per-recipient report links
+- inbound mail is read and classified as bounce, acknowledgement, out-of-office, unsubscribe or reply
+- "delivered" is never claimed; "viewed" means a tracked link was followed
+- notifications are grouped by case and continued in one thread, not sent as separate cold emails
+- silence after a waiting period is recorded as `no_response` and can trigger the next route
+
+Why:
+
+- on 2026-11-11 the outcome tables held 7 rows against about 400 emails sent in 30 days, so outcome learning had no input
+- reporters could see that a notification was sent and nothing after it
+
+Consequence:
+
+- `docs/architecture/notification-outcomes.md` is the plan and status record; each phase ships behind a flag that defaults off
+- reading the `info@cleanapp.io` inbox needs credentials a Workspace admin must create
+
