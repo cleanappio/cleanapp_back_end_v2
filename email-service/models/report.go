@@ -43,6 +43,9 @@ type BrandReportSummary struct {
 	ReportSeqs            []int64              `json:"report_seqs"`             // Seqs of reports to mark as processed
 	LatestReportSeq       int64                `json:"latest_report_seq"`       // Most recent report seq
 	Reports               []BrandReportFinding `json:"reports,omitempty"`
+	// ReplyTo, when set, is the signed per-notification reply address for the
+	// email built from this summary. Empty means replies go to the sender.
+	ReplyTo string `json:"-"`
 }
 
 // BrandReportFinding keeps original evidence separate from the generated summary.

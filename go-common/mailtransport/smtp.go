@@ -27,9 +27,13 @@ type Config struct {
 }
 
 type Message struct {
-	FromName    string
-	FromEmail   string
-	To          []string
+	FromName  string
+	FromEmail string
+	To        []string
+	// ReplyTo is an optional bare address written as the Reply-To header.
+	// Notifications use it to carry a signed per-message address (see
+	// go-common/mailreply) so replies and bounces can be matched to a send.
+	ReplyTo     string
 	Subject     string
 	Text        string
 	HTML        string

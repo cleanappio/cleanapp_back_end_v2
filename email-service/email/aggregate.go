@@ -296,6 +296,7 @@ func (e *EmailSender) aggregateMessage(recipient string, summary *models.BrandRe
 	// The template is static and all values are strings, numbers or booleans.
 	_ = aggregateHTML.Execute(&html, v)
 	message := e.message(recipient, v.Subject, body.String(), html.String())
+	message.ReplyTo = summary.ReplyTo
 	for _, r := range summary.Reports {
 		for _, view := range v.Reports {
 			if view.Seq == r.Seq && view.HasPreview {

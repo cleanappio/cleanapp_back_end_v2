@@ -1724,6 +1724,12 @@ func verifyAndCreateTables(db *sql.DB) error {
 		log.Info("email_report_retry table already exists")
 	}
 
+	for _, statement := range notificationMessageTablesSQL {
+		if _, err := db.ExecContext(ctx, statement); err != nil {
+			return fmt.Errorf("failed to create notification message tables: %w", err)
+		}
+	}
+
 	// Verify that required tables exist
 	requiredTables := []string{"reports", "area_index", "areas", "contact_emails", "report_analysis"}
 	for _, tableName := range requiredTables {

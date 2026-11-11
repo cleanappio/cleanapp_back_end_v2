@@ -89,7 +89,14 @@ func TestAggregateBoundsDetailedReportsLinksAndAttachments(t *testing.T) {
 	for i := 1; i <= 25; i++ {
 		summary.Reports = append(summary.Reports, models.BrandReportFinding{Seq: int64(i), PublicID: fmt.Sprintf("rpt_%d", i), Title: fmt.Sprintf("Issue %d", i), OriginalExcerpt: fmt.Sprintf("Original quote %d", i), Classification: "digital", Image: []byte("already prepared preview")})
 	}
+	if m := workspaceEmailSender(&recordingWorkspace{}).aggregateMessage("support@company.com", summary, "https://cleanapp.io/opt-out"); m.ReplyTo != "" {
+		t.Fatalf("reply address set without one on the summary: %q", m.ReplyTo)
+	}
+	summary.ReplyTo = "info+r.0123456789abcdef.abcdefghijklmnop@cleanapp.io"
 	m := workspaceEmailSender(&recordingWorkspace{}).aggregateMessage("support@company.com", summary, "https://cleanapp.io/opt-out")
+	if m.ReplyTo != summary.ReplyTo {
+		t.Fatalf("reply address lost: %q", m.ReplyTo)
+	}
 	if len(m.Attachments) != 3 {
 		t.Fatalf("got %d previews", len(m.Attachments))
 	}

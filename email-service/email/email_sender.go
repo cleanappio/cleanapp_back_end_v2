@@ -123,6 +123,9 @@ func sendGridMessage(message mailtransport.Message) *mail.SGMailV3 {
 	result := mail.NewV3Mail()
 	result.SetFrom(mail.NewEmail(message.FromName, message.FromEmail))
 	result.Subject = message.Subject
+	if message.ReplyTo != "" {
+		result.SetReplyTo(mail.NewEmail("", message.ReplyTo))
+	}
 	personalization := mail.NewPersonalization()
 	for _, recipient := range message.To {
 		personalization.AddTos(mail.NewEmail(recipient, recipient))

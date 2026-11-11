@@ -102,6 +102,17 @@ delivery ledger before a report can be marked processed. A receipt persistence
 failure quarantines the batch for operator recovery instead of repeating an
 accepted email. Processing markers alone must never be treated as proof of mail.
 
+### Reply tracking (off by default)
+
+With `REPLY_TRACKING_ENABLED=true` and a `REPLY_TOKEN_SECRET` of at least 16
+bytes, each verified company notification carries a signed
+`Reply-To: info+r.<id>.<signature>@cleanapp.io`, and each accepted send is
+recorded in `notification_messages` and `notification_message_reports` so a
+later reply or bounce can be matched to the exact reports it concerns.
+Tracking never blocks a send: without a usable secret it stays off and logs
+one error. Design, status and enable steps:
+`docs/architecture/notification-outcomes.md`.
+
 ### General and area notifications
 
 The service follows the same logic as the original `sendAffectedPolygonsEmails()` function:

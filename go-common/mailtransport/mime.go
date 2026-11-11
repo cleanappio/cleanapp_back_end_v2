@@ -29,6 +29,12 @@ func encodeMessage(message Message) ([]byte, string, string, []string, error) {
 	if err := headerValue(message.FromName); err != nil {
 		return nil, "", "", nil, fmt.Errorf("invalid FromName: %w", err)
 	}
+	replyTo := ""
+	if message.ReplyTo != "" {
+		if replyTo, err = emailAddress(message.ReplyTo); err != nil {
+			return nil, "", "", nil, fmt.Errorf("invalid ReplyTo: %w", err)
+		}
+	}
 	if err := headerValue(message.Subject); err != nil {
 		return nil, "", "", nil, fmt.Errorf("invalid Subject: %w", err)
 	}
@@ -100,6 +106,9 @@ func encodeMessage(message Message) ([]byte, string, string, []string, error) {
 	var wire bytes.Buffer
 	writeHeader(&wire, "From", (&mail.Address{Name: message.FromName, Address: from}).String())
 	writeHeader(&wire, "To", strings.Join(toHeaders, ", "))
+	if replyTo != "" {
+		writeHeader(&wire, "Reply-To", replyTo)
+	}
 	writeHeader(&wire, "Subject", mime.QEncoding.Encode("UTF-8", message.Subject))
 	writeHeader(&wire, "Date", time.Now().Format(time.RFC1123Z))
 	writeHeader(&wire, "Message-ID", id)

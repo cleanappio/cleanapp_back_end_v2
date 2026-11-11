@@ -508,6 +508,7 @@ func TestMessageValidation(t *testing.T) {
 		"name injection":                func(m *Message) { m.FromName = "CleanApp\r\nBcc: victim@example.com" },
 		"subject injection":             func(m *Message) { m.Subject = "Subject\r\nBcc: victim@example.com" },
 		"recipient injection":           func(m *Message) { m.To = []string{"recipient@example.com\r\nDATA"} },
+		"reply-to injection":            func(m *Message) { m.ReplyTo = "info+r.x@cleanapp.io\r\nBcc: victim@example.com" },
 		"no recipients":                 func(m *Message) { m.To = nil },
 		"SMTPUTF8 recipient":            func(m *Message) { m.To = []string{"café@example.com"} },
 		"attachment filename injection": func(m *Message) { m.Attachments = []Attachment{{Filename: "report\r\nBcc:x", Data: []byte("x")}} },
@@ -526,5 +527,32 @@ func TestMessageValidation(t *testing.T) {
 				t.Fatal("invalid message accepted")
 			}
 		})
+	}
+}
+
+func TestReplyToHeaderIsWrittenOnlyWhenSet(t *testing.T) {
+	message := basicMessage()
+	wire, _, _, _, err := encodeMessage(message)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(wire, []byte("Reply-To")) {
+		t.Fatal("Reply-To written for a message without one")
+	}
+	message.ReplyTo = "info+r.0123456789abcdef.abcdefghijklmnop@cleanapp.io"
+	wire, _, _, recipients, err := encodeMessage(message)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := mail.ReadMessage(bytes.NewReader(wire))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Header.Get("Reply-To") != message.ReplyTo {
+		t.Fatalf("Reply-To = %q", parsed.Header.Get("Reply-To"))
+	}
+	// Reply-To is a header only; it must never become an envelope recipient.
+	if len(recipients) != 1 || recipients[0] != "recipient@example.com" {
+		t.Fatalf("envelope recipients changed: %v", recipients)
 	}
 }
