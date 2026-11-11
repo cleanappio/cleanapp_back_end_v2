@@ -64,7 +64,7 @@ These constrain every phase. They restate existing rules for this area.
 4. **Fail closed.** Missing secret, unreadable mailbox or unparseable message
    means no outcome is recorded, not a guessed one.
 5. **Reporters see their own outcome for free.** Organization dashboards are
-   the paid surface (product decision pending, see section 7).
+   the paid surface. Decided by Boris on 2026-11-11 (section 7).
 6. **Respect the recipient.** Opt-outs, throttles and daily caps apply to
    follow-ups and escalations exactly as to first notices.
 
@@ -110,6 +110,13 @@ notification. `go-common/mailreply` implements this:
 The package is pure functions with table-driven tests
 (`go-common/mailreply/mailreply_test.go`). It performs no I/O.
 
+**Bounces do not use Reply-To.** A delivery failure is returned to the
+envelope sender (`info@cleanapp.io`), not to the Reply-To address. It still
+lands in the same mailbox, and it is matched by the original `Message-ID`
+that the bounce quotes, which is why `notification_messages` stores
+`provider_message_id`. Replies, auto-acknowledgements and out-of-office
+messages do use Reply-To and are matched by the signed address.
+
 A new table maps the ID to what was sent:
 
 ```
@@ -131,14 +138,15 @@ reads `info@cleanapp.io`, and for each new message:
 
 1. Finds a valid notification ID (`mailreply.FindID`), or falls back to an exact
    `In-Reply-To` / `References` match against `provider_message_id`.
-   No match: label the message `cleanapp/unmatched` and stop.
+   No match: record the mailbox message ID as `unmatched` and stop.
 2. Classifies it (`mailreply.Classify`).
 3. Writes one `notify_outcomes` row per report the notification carried, and
    updates `contact_endpoint_memory` through the existing
    `recordNotifyOutcomeAndMemory` path.
 4. For `unsubscribe`, calls the existing opt-out path.
-5. Labels the message `cleanapp/processed` so it is handled once. Processing is
-   idempotent on the mailbox message ID.
+5. Records the mailbox message ID in `inbox_messages` so it is handled once.
+   Processing is idempotent on that ID. The worker never writes to the
+   mailbox (no labels, no read marks), so it needs read-only access.
 
 Mailbox access is the one thing this needs from a human: see section 7.
 
@@ -231,20 +239,25 @@ independent and can run in parallel with 1.
   not by who sent it, and why `replied` is never shown as "the company
   answered" without the sender domain matching the recipient's.
 - Link tokens are single-purpose and reveal nothing about the reporter.
-- The inbox worker needs read and label access to one mailbox. It must not have
-  send permission; sending stays with the relay.
+- The inbox worker needs read-only access to one mailbox. It must not have
+  send or modify permission; sending stays with the relay.
 - The secret for reply and link tokens lives with the other runtime secrets and
   is never logged. Rotating it invalidates old reply addresses, so rotation
   keeps the previous secret valid for 90 days.
 
 ## 7. Decisions needed from a human
 
-1. **Mailbox access.** The inbox worker needs to read `info@cleanapp.io`.
-   Options: a Google Workspace service account with domain-wide delegation
-   limited to Gmail read and label scopes for that one user (recommended), or
-   an app password over IMAP. A Workspace admin has to create either.
-2. **Paywall.** Whether the reporter's own notification history stays behind
-   "For subscribers". Principle 5 assumes it does not.
+1. **Mailbox access. Open: needs a Workspace super admin.** The inbox worker
+   needs to read `info@cleanapp.io`. Options: a Google Workspace service
+   account with domain-wide delegation limited to the Gmail read-only scope
+   for that one user (recommended), or an app password over IMAP. Exact steps
+   are in section 10. An agent must not do this: it creates a credential and
+   changes domain security settings, so a human does it and stores the key
+   with the other runtime secrets.
+2. **Paywall. Decided 2026-11-11 (Boris): yes, free.** A reporter sees the
+   outcome of their own report without paying. Phase 3 puts the timeline on
+   the receipt and removes the "For subscribers" gate for the reporter's own
+   report. Organization dashboards stay paid.
 3. **Waiting period** before `no_response`: default 5 working days.
 4. **Which brands** get verified routes first. Default: top 25 by firsthand
    report count over the last 90 days.
@@ -261,5 +274,76 @@ must not be routed to companies.
 
 | Phase | State | PR | Deployed |
 | --- | --- | --- | --- |
-| 0 Reply library | in the PR that adds this document | see git history | not applicable (library only) |
-| 1 to 6 | not started | | |
+| 0 Reply library | done | #196 | not applicable (library only) |
+| 1a Reply addresses and `notification_messages` | code merged, flag off | this PR | see deploy log; `REPLY_TRACKING_ENABLED` unset |
+| 1b Inbox worker | blocked on mailbox access (section 10) | | |
+| 2 to 6 | not started | | |
+
+### What 1a changed
+
+- `go-common/mailtransport`: `Message.ReplyTo`, written as a `Reply-To`
+  header, validated like every other address (bare ASCII address, no control
+  characters). It is never an envelope recipient.
+- `email-service/service/reply_tracking.go`: `prepareReplyTracking` creates
+  the notification ID and signed address; `recordNotificationMessage` writes
+  `notification_messages` and `notification_message_reports` after the
+  transport accepts the email. Both are called from `processCompanyPlan` only
+  (the verified company path). Inferred-contact and individual sends are
+  unchanged.
+- `email-service/service/email_service.go`: `RunMigrations` creates the two
+  tables (`CREATE TABLE IF NOT EXISTS`, safe to re-run).
+- Config (`email-service/config/config.go`):
+
+  | Variable | Default | Meaning |
+  | --- | --- | --- |
+  | `REPLY_TRACKING_ENABLED` | `false` | Adds the signed Reply-To and records each accepted send. |
+  | `REPLY_TOKEN_SECRET` | none | HMAC secret, at least 16 bytes. Never logged. |
+  | `REPLY_MAILBOX` | `info@cleanapp.io` | Mailbox the plus-address is built on. |
+
+  If the flag is on and the secret is missing or too short, the service logs
+  one error, keeps tracking off and sends normally. Tracking can never stop
+  or fail a notification.
+
+### Turning 1a on
+
+1. Generate a secret (`openssl rand -hex 32`) and store it as
+   `REPLY_TOKEN_SECRET` with the other email-service secrets. Do not commit
+   it and do not print it.
+2. Set `REPLY_TRACKING_ENABLED=true` and release through the AWS deploy
+   workflow.
+3. Check: the next company notification has a `Reply-To` of the form
+   `info+r.<16 hex>.<16 chars>@cleanapp.io`, and
+   `SELECT COUNT(*) FROM notification_messages` goes up by one per email.
+
+Turning it on before the inbox worker exists is harmless and useful: replies
+still arrive in `info@cleanapp.io` exactly as today, and the mapping needed
+to match them later starts accumulating.
+
+## 10. Mailbox access: steps for a Workspace super admin
+
+Recommended option, about ten minutes. The result is a JSON key that can
+read mail, and nothing else, through the one scope below.
+
+1. Google Cloud console, project of your choice (or a new one named
+   `cleanapp-inbox`): enable the **Gmail API**.
+2. IAM and Admin, Service Accounts: create `cleanapp-inbox-reader`. Grant it
+   no project roles. Create a JSON key and download it.
+3. Copy the service account's **Unique ID** (a number, the OAuth client ID).
+4. Google Admin console, Security, Access and data control, API controls,
+   Manage domain-wide delegation, Add new. Client ID: the number from step 3.
+   Scope, exactly one:
+   `https://www.googleapis.com/auth/gmail.readonly`
+   (Do not add `gmail.modify`, `gmail.send` or `https://mail.google.com/`:
+   each of those can send or change mail. Read-only is enough because the
+   worker keeps its "already processed" state in the database, not in Gmail
+   labels.)
+5. Put the JSON key on the production host as a mounted secret file and set
+   `INBOX_CREDENTIALS_FILE` to its path and `INBOX_USER=info@cleanapp.io`.
+   Never paste the key into chat, a PR or a log.
+
+Domain-wide delegation lets the service account act as any user it names
+within those scopes; the worker names only `INBOX_USER`. If that is not
+acceptable, use the alternative: turn on 2-Step Verification for
+`info@cleanapp.io`, create an **app password**, and provide it as
+`INBOX_IMAP_PASSWORD_FILE`. That credential is broader (full IMAP access to
+the mailbox) but limited to one user.

@@ -8,6 +8,8 @@ import (
 
 	"cleanapp-common/appenv"
 	"cleanapp-common/mailtransport"
+
+	"github.com/apex/log"
 )
 
 type Config struct {
@@ -48,6 +50,14 @@ type Config struct {
 	RateLimitBurst     int
 	InternalAdminToken string
 	ReportListenerURL  string
+
+	// Reply tracking (docs/architecture/notification-outcomes.md, phase 1).
+	// Off by default. When on, company notifications carry a signed
+	// Reply-To address and each accepted send is recorded in
+	// notification_messages so a later reply or bounce can be matched to it.
+	ReplyTrackingEnabled bool
+	ReplyTokenSecret     string
+	ReplyMailbox         string
 }
 
 func Load() (*Config, error) {
@@ -97,6 +107,15 @@ func Load() (*Config, error) {
 	}
 	cfg.CompanyNotificationInterval = companyInterval
 	cfg.DryRun = appenv.Bool("EMAIL_DRY_RUN", false)
+	cfg.ReplyMailbox = appenv.String("REPLY_MAILBOX", "info@cleanapp.io")
+	cfg.ReplyTokenSecret = appenv.String("REPLY_TOKEN_SECRET", "")
+	cfg.ReplyTrackingEnabled = appenv.Bool("REPLY_TRACKING_ENABLED", false)
+	if cfg.ReplyTrackingEnabled && len(cfg.ReplyTokenSecret) < 16 {
+		// A missing secret must never stop notifications; it only means
+		// replies cannot be matched, so tracking stays off and says why.
+		log.Error("REPLY_TRACKING_ENABLED is set but REPLY_TOKEN_SECRET is missing or shorter than 16 bytes; reply tracking is off")
+		cfg.ReplyTrackingEnabled = false
+	}
 	maxDaily, err := strconv.Atoi(appenv.String("MAX_DAILY_EMAILS_PER_BRAND", "10"))
 	if err != nil || maxDaily <= 0 {
 		maxDaily = 10

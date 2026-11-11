@@ -616,6 +616,7 @@ func (s *EmailService) processCompanyPlan(ctx context.Context, plan CompanyNotif
 	if daily >= max {
 		return nil
 	}
+	notificationID := s.prepareReplyTracking(&summary)
 	results := s.email.SendAggregateEmailsWithResults([]string{recipient}, &summary, s.config.OptOutURL)
 	if len(results) != 1 {
 		return fmt.Errorf("company sender returned no per-recipient result")
@@ -646,6 +647,7 @@ func (s *EmailService) processCompanyPlan(ctx context.Context, plan CompanyNotif
 		s.scheduleReportsRetry(ctx, summary.ReportSeqs, retryReasonReceiptPending, time.Now().Add(24*time.Hour))
 		return fmt.Errorf("accepted company notification receipt failed; batch quarantined: %w", receiptErr)
 	}
+	s.recordNotificationMessage(ctx, notificationID, plan.route.CompanyKey, recipient, result, summary.ReportSeqs)
 	for _, seq := range summary.ReportSeqs {
 		if err := s.markReportAsProcessed(ctx, seq); err != nil {
 			log.Warnf("Company report processed marker failed: %v", err)

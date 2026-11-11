@@ -177,3 +177,27 @@ Consequence:
 - `docs/architecture/notification-outcomes.md` is the plan and status record; each phase ships behind a flag that defaults off
 - reading the `info@cleanapp.io` inbox needs credentials a Workspace admin must create
 
+
+## 2026-11-11: Reporters see the outcome of their own report for free
+
+Decision (Boris):
+
+- the person who filed a report sees where it was sent and what came back without paying
+- organization dashboards remain the paid surface
+
+Why:
+
+- the receipt is the proof that the feedback loop works; hiding it from the person who closed the loop defeats the product
+
+## 2026-11-11: The inbox worker gets read-only mailbox access and keeps its own state
+
+Decision:
+
+- the worker reads `info@cleanapp.io` with the `gmail.readonly` scope only
+- "already processed" is stored in the database, not as Gmail labels
+
+Why:
+
+- every Gmail scope that can apply a label can also send or alter mail; a reader that cannot write cannot be turned into a sender
+
+Details: `docs/architecture/notification-outcomes.md`.
