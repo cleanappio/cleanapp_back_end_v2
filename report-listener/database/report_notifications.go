@@ -129,6 +129,7 @@ func buildReportNotificationHistory(receipts []notificationReceipt) *models.Repo
 		ReportNotificationSummary: models.ReportNotificationSummary{
 			State: "none_recorded", HistoryComplete: len(receipts) > 0, FullLogRequiresSubscription: true,
 			PreviewRecipients: []string{}, Events: []models.ReportNotificationEvent{}, ContentKind: "notification",
+			Timeline: []models.ReportOutcomeEvent{},
 		},
 		Recipients: []models.ReportNotificationRecipient{},
 	}
@@ -192,5 +193,5 @@ func buildReportNotificationHistory(receipts []notificationReceipt) *models.Repo
 }
 
 func UnavailableNotificationSummary() *models.ReportNotificationSummary {
-	return &models.ReportNotificationSummary{State: "unavailable", FullLogRequiresSubscription: true, PreviewRecipients: []string{}, Events: []models.ReportNotificationEvent{}, ContentKind: "notification"}
+	return &models.ReportNotificationSummary{State: "unavailable", FullLogRequiresSubscription: true, PreviewRecipients: []string{}, Events: []models.ReportNotificationEvent{}, ContentKind: "notification", Timeline: []models.ReportOutcomeEvent{}}
 }

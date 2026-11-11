@@ -28,6 +28,20 @@ type ReportNotificationSummary struct {
 	FullLogRequiresSubscription bool                      `json:"full_log_requires_subscription"`
 	ContentKind                 string                    `json:"content_kind"`
 	Events                      []ReportNotificationEvent `json:"events"`
+	// Timeline is what came back after sending, oldest first. Always a list
+	// (possibly empty); free for everyone. See ReportOutcomeEvent.
+	Timeline []ReportOutcomeEvent `json:"timeline"`
+}
+
+// ReportOutcomeEvent is one recorded outcome of notifying someone about a
+// report: viewed, acknowledged, replied, bounced, no_response, fixed or
+// out_of_office. It carries no message text, sender or recipient. Count is
+// how many times the same outcome was recorded; At is the first time.
+type ReportOutcomeEvent struct {
+	Type      string    `json:"type"`
+	At        time.Time `json:"at"`
+	Count     int       `json:"count"`
+	TicketRef string    `json:"ticket_ref,omitempty"`
 }
 
 type ReportNotificationRecipient struct {
