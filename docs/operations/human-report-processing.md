@@ -101,5 +101,17 @@ complaint or confusion is `firsthand` even if brief or phrased as opinion;
 the stricter standard. The analyzer's validity check and the publication gate
 are unchanged.
 
+First deploy result (2026-11-12, replaying both held reports through
+`report.raw.human`): the "stuck in review" report published; the Grok/Tesla
+report was still `unknown` because the classifier kept applying the base
+"concrete malfunction" test to an opinion-phrased report. The rules were then
+rewritten to say explicitly that they replace the base definitions for direct
+submissions, with that report as the worked example.
+
+Replaying a held report after a prompt change (it is re-analyzed because
+`analysed_published_at` is still NULL): publish `{"seq": <seq>}` to exchange
+`cleanapp-exchange` with routing key `report.raw.human`, as
+`platform_blueprint/ops/watchdog/vm/golden_path.sh` does for the bulk key.
+
 Still open: reports that are legitimately held have no review path. Either
 build one or change the receipt wording so it does not promise a review.
