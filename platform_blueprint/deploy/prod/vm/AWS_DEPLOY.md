@@ -190,6 +190,37 @@ the reviewed rollback pins in the backend image override before a later reboot.
 Database schema changes are not automatically reversed; verify compatibility
 and use the independent verified data backup if database recovery is required.
 
+### How the one-off migration container is defined
+
+A migration runs as `docker compose run` on the live service definition, so it
+gets the same environment, secrets and mounts as the service. The helper
+writes a per-release `migration.yml` override that replaces only what a
+run-once container must not inherit (`migration_override` in
+`aws_image_deploy.py`):
+
+- **Networks** are replaced with `!override`: same memberships, empty endpoint
+  options. Without this the migration asks for the live container's fixed
+  address and fails with "Address already in use".
+- **User** is `0:0`. The migration image is a bare Alpine image and does not
+  contain the runtime account ("unable to find user ...").
+- **Restart policy and health check** are turned off; working directory is `/`.
+
+Do not solve a migration start-up failure by editing `compose-target.json`,
+stopping the live container or skipping migrations.
+
+### When a migration fails
+
+The raw output can contain connection strings, so it is never sent to CI. It
+is kept on the target in the release directory as `migration-<source>.log`
+(owner-only). The workflow log shows one safe line, for example:
+
+    ERROR: activation on the target failed (exit 1): migration for
+    cleanapp_email_service failed (exit 1); raw output kept privately on the
+    target at /opt/cleanapp/deploy/.aws-releases/<release>/migration-email-service.log
+
+Read that file on the host as the deployment user. First seen 2026-11-11
+(run 43100509659): both failures above, before any SQL ran.
+
 ## Local validation
 
 ```bash

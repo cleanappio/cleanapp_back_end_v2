@@ -111,6 +111,7 @@ class PortableDeployTests(unittest.TestCase):
         self.corrupt_transfer = False
         self.mismatch_loaded_id = False
         self.fail_migration = False
+        self.migration_overrides = {}
         self.fail_build = False
         self.stopped = False
         self.active = True
@@ -217,16 +218,24 @@ class PortableDeployTests(unittest.TestCase):
                                "com.docker.compose.project": "fixture"}}}]).encode()
             if docker[0] == "compose":
                 if docker[-3:] == ["config", "--format", "json"]:
+                    # Like production: a fixed address the live container holds,
+                    # a runtime user the migration image lacks, mounts and secrets.
                     return json.dumps({"name": "fixture", "services": {
-                        s: {"container_name": s, "environment": {"SECRET_FIXTURE": "never export this value"}}
+                        s: {"container_name": s, "environment": {"SECRET_FIXTURE": "never export this value"},
+                            "user": "appuser", "restart": "unless-stopped",
+                            "volumes": [{"type": "bind", "source": "/private/key.json", "target": "/run/secrets/key.json"}],
+                            "networks": {"default": {"ipv4_address": "172.19.0.6", "aliases": [s]},
+                                         "metrics": None}}
                         for s in self.previous}}).encode()
                 if "run" in docker:
                     self.assertIn("--no-deps", docker)
                     self.assertEqual(docker[docker.index("--pull") + 1], "never")
                     self.assertEqual(docker[docker.index("--entrypoint") + 1], "/cleanapp-migrate")
-                    migration = json.loads((Path(docker[docker.index("--project-directory") + 1]) /
-                        ".aws-releases" / self.release_name() / "migration.yml").read_text())
-                    self.assertEqual(migration["services"][docker[-1]]["command"], [])
+                    self.assertEqual(kwargs["failure"], "migration for " + docker[-1])
+                    self.assertEqual(Path(kwargs["private_log"]).parent.name, self.release_name())
+                    migration = (Path(docker[docker.index("--project-directory") + 1]) /
+                        ".aws-releases" / self.release_name() / "migration.yml").read_text()
+                    self.migration_overrides[docker[-1]] = migration
                     if self.fail_migration:
                         raise RuntimeError("fixture migration failed")
                     return b""
@@ -373,6 +382,56 @@ class PortableDeployTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "loaded image ID"):
             self.execute()
         self.assert_no_activation()
+
+    def test_migration_container_drops_runtime_only_settings_and_keeps_the_rest(self):
+        self.execute()
+        self.assertEqual(sorted(self.migration_overrides), sorted(self.args.services))
+        for service, text in self.migration_overrides.items():
+            lines = text.splitlines()
+            # Root in the bare migration image, not the runtime account.
+            self.assertIn('    user: "0:0"', lines)
+            self.assertIn('    restart: "no"', lines)
+            self.assertIn("      disable: true", lines)
+            self.assertIn("    command: []", lines)
+            # Same network memberships, replaced rather than merged, with no
+            # endpoint options: no fixed address, no production alias.
+            start = lines.index("    networks: !override")
+            self.assertEqual(lines[start + 1:], ['      "default": {}', '      "metrics": {}'])
+            self.assertNotIn("172.19.0.6", text)
+            self.assertNotIn("aliases", text)
+            # Environment and mounts are inherited by leaving them out of the
+            # override; secret values never reach the file.
+            for inherited in ("environment", "volumes", "SECRET_FIXTURE", "never export", "key.json"):
+                self.assertNotIn(inherited, text)
+
+    def test_migration_override_rejects_an_unexpected_network_key(self):
+        with self.assertRaises(ValueError):
+            AWS.migration_override("cleanapp_email_service", image_id("m"), {"networks": {"x: {}\n  evil": {}}})
+        # A service with no declared networks gets no networks key at all.
+        self.assertNotIn("networks", AWS.migration_override("cleanapp_email_service", image_id("m"), {}))
+
+    def test_failure_output_stays_private_and_only_helper_errors_are_relayed(self):
+        log = self.base / "private.log"
+        with self.assertRaises(RuntimeError) as raised:
+            self.original_command([sys.executable, "-c",
+                "import sys; print('dsn user:hunter2@tcp(db)'); print('ERROR: also secret', file=sys.stderr); sys.exit(3)"],
+                failure="migration for cleanapp_email_service", private_log=log)
+        message = str(raised.exception)
+        self.assertIn("migration for cleanapp_email_service failed (exit 3)", message)
+        self.assertIn(str(log), message)
+        self.assertNotIn("hunter2", message)
+        self.assertNotIn("also secret", message)
+        self.assertIn(b"hunter2", log.read_bytes())
+        self.assertEqual(log.stat().st_mode & 0o777, 0o600)
+        with self.assertRaises(RuntimeError) as raised:
+            self.original_command([sys.executable, "-c",
+                "import sys; print('noise password=x', file=sys.stderr); print('ERROR: migration for r failed (exit 1)', file=sys.stderr); sys.exit(1)"],
+                failure="activation on the target", relay_helper_error=True)
+        self.assertEqual(str(raised.exception),
+            "activation on the target failed (exit 1): migration for r failed (exit 1)")
+        with self.assertRaises(RuntimeError) as raised:
+            self.original_command([sys.executable, "-c", "import sys; print('password=x', file=sys.stderr); sys.exit(2)"])
+        self.assertNotIn("password", str(raised.exception))
 
     def test_migration_failure_preserves_existing_pins_and_never_restarts(self):
         self.fail_migration = True
