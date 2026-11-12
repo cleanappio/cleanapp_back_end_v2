@@ -66,14 +66,69 @@ def require(condition, message):
         raise ValueError(message)
 
 
-def command(args, **kwargs):
+def command(args, private_log=None, failure=None, relay_helper_error=False, **kwargs):
     # Capture rather than print inspect/config/migration output, which can
     # contain runtime secrets or a connection string on an error path.
+    #
+    # private_log: on failure, keep the raw output in this owner-only file on
+    #   the machine that ran the command, and name only its path in the error.
+    # failure: a safe description (role and stage) to use instead of argv[0].
+    # relay_helper_error: the command is this helper running on the target; on
+    #   failure, repeat its own final "ERROR: ..." line. Those lines are written
+    #   by this file and never contain command output or environment values.
     result = subprocess.run([str(a) for a in args], stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE, **kwargs)
     if result.returncode:
-        raise RuntimeError(f"{args[0]} command failed (exit {result.returncode}); inspect privately on the host")
+        message = f"{failure or str(args[0]) + ' command'} failed (exit {result.returncode})"
+        if private_log is not None:
+            private_log = Path(private_log)
+            descriptor = os.open(private_log, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(result.stdout + b"\n--- stderr ---\n" + result.stderr)
+            raise RuntimeError(f"{message}; raw output kept privately on the target at {private_log}")
+        if relay_helper_error:
+            relayed = [line[len("ERROR: "):] for line in result.stderr.decode("utf-8", "replace").splitlines()
+                       if line.startswith("ERROR: ")]
+            if relayed and relayed[-1].isprintable():
+                raise RuntimeError(f"{message}: {relayed[-1][:400]}")
+        raise RuntimeError(f"{message}; inspect privately on the host")
     return result.stdout
+
+
+NETWORK_KEY = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,62}\Z")
+
+
+def migration_override(service, image_id, resolved_service):
+    """Compose override (YAML text) for the one-off migration container.
+
+    The migration reuses the live service definition so it gets the same
+    environment, secrets and mounts. Three runtime-only settings must not be
+    inherited, because each one stops the container from starting:
+
+    - a fixed network address: the live container already holds it
+      ("Address already in use");
+    - the runtime user: the migration image is a bare Alpine image without
+      that account ("unable to find user");
+    - health check and restart policy: meaningless for a run-once command.
+
+    Networks are replaced, not merged: `!override` keeps the same network
+    memberships (so the database is reachable) with empty endpoint options,
+    which means a dynamic address and no production aliases. A plain mapping
+    would merge with the inherited one and keep the fixed address. JSON cannot
+    carry the tag, so this file is written as YAML by hand; every scalar is a
+    JSON string, which is also valid YAML.
+    """
+    lines = ["services:", f"  {json.dumps(service)}:", f"    image: {json.dumps(image_id)}",
+             "    pull_policy: never", '    user: "0:0"', "    working_dir: /", "    command: []",
+             '    restart: "no"', "    healthcheck:", "      disable: true"]
+    networks = sorted(resolved_service.get("networks") or [])
+    for name in networks:
+        require(isinstance(name, str) and NETWORK_KEY.match(name),
+                f"unexpected network key in target Compose: {service}")
+    if networks:
+        lines.append("    networks: !override")
+        lines += [f"      {json.dumps(name)}: {{}}" for name in networks]
+    return "\n".join(lines) + "\n"
 
 
 def write_json(path, value):
@@ -369,11 +424,13 @@ def _activate_locked(manifest_path):
             if source in migrated or not image.get("migration"):
                 continue
             migrated.add(source)
-            migration_override = release_dir / "migration.yml"
-            write_json(migration_override, {"services": {service: {
-                "image": image["migration"]["image_id"], "pull_policy": "never", "command": []}}})
-            command([*base, "-f", migration_override, "run", "--rm", "--no-deps", "--pull", "never",
-                     "--entrypoint", "/cleanapp-migrate", service], cwd=remote_dir)
+            override_path = release_dir / "migration.yml"
+            override_path.write_text(migration_override(
+                service, image["migration"]["image_id"], resolved["services"][service]))
+            command([*base, "-f", override_path, "run", "--rm", "--no-deps", "--pull", "never",
+                     "--entrypoint", "/cleanapp-migrate", service], cwd=remote_dir,
+                    failure=f"migration for {service}",
+                    private_log=release_dir / f"migration-{source}.log")
         pins = {"services": {**old_pins["services"], **{
             s: {"image": manifest["images"][SOURCES[s]]["runtime"]["image_id"], "pull_policy": "never"}
             for s in services}}}
@@ -483,7 +540,8 @@ def deploy(args):
                 with local.open("rb") as stream:
                     command([*ssh, "umask 077; cat > " + shlex.quote(release_dir + "/" + remote_name)], stdin=stream)
             raw = command([*ssh, shlex.join(["python3", release_dir + "/aws_image_deploy.py",
-                                            "--activate", release_dir + "/manifest.json"])])
+                                            "--activate", release_dir + "/manifest.json"])],
+                          failure="activation on the target", relay_helper_error=True)
         finally:
             try:
                 command([*ssh, shlex.join(["rm", "-f", release_dir + "/images.tar.gz"])])
