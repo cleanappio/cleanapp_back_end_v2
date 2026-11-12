@@ -56,12 +56,9 @@ func (p *Provider) AnalyzeEvidenceImage(image []byte, original, entity string) (
 }
 func (p *Provider) AnalyzeOriginalEvidence(source Original, entity string) (Fields, error) {
 	image, original := source.Image, source.Text
-	prompt := Prompt
 	mimeType := http.DetectContentType(image)
 	hasImage := ValidOriginalImage(image)
-	if hasImage {
-		prompt += "\n" + ImageInstructions
-	}
+	prompt := SystemPrompt(source, hasImage)
 	if p.kind == "claude" {
 		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 		defer cancel()
