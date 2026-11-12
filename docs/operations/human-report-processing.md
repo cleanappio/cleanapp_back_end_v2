@@ -66,3 +66,40 @@ The listener-only canonical build/pin rollout deployed commit `4bfa9c60917463021
 At 12:30:10 UTC the submitter's natural retry succeeded: 100 submitted/accepted, 99 recognized existing reports, zero rejected, and no HTTP failures after rollout. One new report completed bulk analysis/publication in 12 seconds, with a 12.286-second handler duration. The 99 duplicates are idempotent acknowledgements of previously stored batch items, not additional report/publication records. Both analyzer queues were empty with one consumer each at the 12:30:58 check, and all three Prometheus targets/eight rules were healthy. The existing submitter database selector still takes approximately 3–4 minutes before building a batch; no submitter restart was used to force verification.
 
 The exact previously failing input was received at 12:30:09 UTC and analyzed/published at 12:30:21 UTC. Its full Wire description remains 339 bytes (including the source URL), while the legacy projection is 254 valid UTF-8 bytes. The 12:30 watchdog run finished honestly `OK`, with its previous failure cleared. The fixed 787-record raw cohort remained unchanged after both deployments; the final Brussels notification check still found zero delivery rows or duplicate recipient groups.
+
+## "Under review" on a web report: what it means and the 2026-11-12 fix
+
+A web report is published only when the analyzer returns a valid report with
+`report_kind = firsthand` (`canPublishHumanWebAnalysis` in
+`report-analyze-pipeline/service/service.go`). Anything else stays at
+`visibility = shadow`, and the receipt says "Your report is under review".
+**Nobody reviews that queue today**, so for the reporter "under review" means
+"not published".
+
+How to see why a report was held (read-only):
+
+```sql
+SELECT ev.report_kind, ev.entity_relationship, ev.classification_reason, rr.visibility
+FROM wire_submission_receipts w
+JOIN report_raw rr ON rr.report_seq = w.report_seq
+LEFT JOIN report_evidence ev ON ev.seq = w.report_seq
+WHERE w.receipt_id = '<receipt id>';
+```
+
+On 2026-11-12 two of Boris's web reports were held as `unknown`: an opinion
+with a screenshot ("Grok contradicts Tesla's own AI") and a complaint about
+CleanApp itself ("my report is stuck in review"). Nothing was broken; the
+evidence prompt applied the standard written for collected social posts
+("is this the poster's own experience or a repost?") to text a person had
+typed into our own form.
+
+Fix: `go-common/evidence` adds `DirectSubmissionInstructions` when the
+original is a direct human submission (`Original.DirectSubmission()`, set from
+retained ingress metadata, never from the text). For those, a stated problem,
+complaint or confusion is `firsthand` even if brief or phrased as opinion;
+`unknown` is reserved for text that describes no problem. Collected posts keep
+the stricter standard. The analyzer's validity check and the publication gate
+are unchanged.
+
+Still open: reports that are legitimately held have no review path. Either
+build one or change the receipt wording so it does not promise a review.
