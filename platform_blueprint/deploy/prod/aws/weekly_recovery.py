@@ -112,9 +112,9 @@ def config_paths(snapshot,reviewed,folder,runtime_files):
 def image_artifact(store,bid,snapshot):
     ids=sorted({value['Image'] for value in snapshot['containers']})
     for image in ids:runtime.image_tag(image)
-    key='weekly/artifacts/'+bid+'/images.tar.gz'
-    record=b.pipeline_upload(store,key,['docker','image','save',*ids],['gzip','-1','-c']);record['data_key']=key
-    proof=verify_image_object(store,record,ids);receipt=b.verified_record('images',key,record,proof);receipt['image_ids']=ids
+    object_path='weekly/artifacts/'+bid+'/images.tar.gz'
+    record=b.pipeline_upload(store,object_path,['docker','image','save',*ids],['gzip','-1','-c']);record['data_key']=object_path
+    proof=verify_image_object(store,record,ids);receipt=b.verified_record('images',object_path,record,proof);receipt['image_ids']=ids
     marker='weekly/artifacts/'+bid+'/images.verified.json'
     # Small verified metadata lives beside its unique artifact; no shared/deduped object.
     receipt['manifest_key']=marker;store.put_json(marker,receipt);b.require(store.get_json(marker)==receipt,'Image artifact marker roundtrip failed')
@@ -163,15 +163,15 @@ def configuration_artifact(store,bid,roots,folder):
         for root in roots:command+=['--root',root]
         b.quiet_run(command);_,entries=b.read_filesystem_manifest(manifest,roots)
         scope.write_bytes(b''.join(root.lstrip('/').encode()+b'\0' for root in roots));scope.chmod(0o600)
-        key='weekly/artifacts/'+bid+'/configuration.tar.zst'
-        record=b.pipeline_upload(store,key,b.archive_command(roots,scope),['zstd','--quiet','--stdout','--threads=2','-3']);record['data_key']=key
+        object_path='weekly/artifacts/'+bid+'/configuration.tar.zst'
+        record=b.pipeline_upload(store,object_path,b.archive_command(roots,scope),['zstd','--quiet','--stdout','--threads=2','-3']);record['data_key']=object_path
         proof=b.verify_object(store,record,'precutover_cold',entries)
-        receipt=b.verified_record('configuration',key,record,proof);receipt.update(archive_format='tar.zst',roots=roots)
-        mkey='weekly/artifacts/'+bid+'/configuration-filesystem-manifest.jsonl';sha,size=b.digest_file(manifest)
-        with manifest.open('rb') as stream:head=store.upload(mkey,stream)
+        receipt=b.verified_record('configuration',object_path,record,proof);receipt.update(archive_format='tar.zst',roots=roots)
+        manifest_path='weekly/artifacts/'+bid+'/configuration-filesystem-manifest.jsonl';sha,size=b.digest_file(manifest)
+        with manifest.open('rb') as stream:head=store.upload(manifest_path,stream)
         b.require(head['bytes']==size and head.get('encryption')=='AES256','Config filesystem manifest upload differs')
-        b.verify_object(store,{'data_key':mkey,'sha256':sha,'bytes':size,'version_id':head.get('version_id')},'configuration')
-        receipt.update(filesystem_manifest_key=mkey,filesystem_manifest_sha256=sha,filesystem_manifest_bytes=size,filesystem_manifest_version_id=head.get('version_id'))
+        b.verify_object(store,{'data_key':manifest_path,'sha256':sha,'bytes':size,'version_id':head.get('version_id')},'configuration')
+        receipt.update(filesystem_manifest_key=manifest_path,filesystem_manifest_sha256=sha,filesystem_manifest_bytes=size,filesystem_manifest_version_id=head.get('version_id'))
         marker='weekly/artifacts/'+bid+'/configuration.verified.json';receipt['manifest_key']=marker;store.put_json(marker,receipt);b.require(store.get_json(marker)==receipt,'Config artifact marker roundtrip failed')
         return receipt
 
