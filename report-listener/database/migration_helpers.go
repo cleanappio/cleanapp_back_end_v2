@@ -1317,17 +1317,6 @@ func ensureUnifiedDefectRoutingTables(ctx context.Context, db *sql.DB) error {
 			KEY idx_notify_execution_tasks_subject (subject_kind, subject_ref, task_status, wave_number),
 			KEY idx_notify_execution_tasks_target (target_id)
 		) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
-		// Photos 2 to 4 of a report. The first photo stays in reports.image so
-		// every existing reader keeps working. Rows are written once, in the
-		// transaction that creates the report. docs/operations/report-photos.md
-		`CREATE TABLE IF NOT EXISTS report_extra_images (
-			seq INT NOT NULL,
-			position TINYINT UNSIGNED NOT NULL,
-			image MEDIUMBLOB NOT NULL,
-			sha256 CHAR(64) NOT NULL,
-			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			PRIMARY KEY (seq, position)
-		) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
 		`CREATE TABLE IF NOT EXISTS notify_outcomes (
 			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 			subject_kind VARCHAR(16) NOT NULL,
@@ -1543,5 +1532,27 @@ func ensureMobilePushDeliveryTables(ctx context.Context, db *sql.DB) error {
 		return fmt.Errorf("failed to backfill mobile_push_devices.push_token_hash: %w", err)
 	}
 
+	return nil
+}
+
+// ensureReportExtraImagesTable creates the table for photos 2 to 4 of a
+// report. The first photo stays in reports.image so every existing reader
+// keeps working. Rows are written once, in the transaction that creates the
+// report. docs/operations/report-photos.md
+//
+// This is its own migration step on purpose. Steps run once per database and
+// are recorded by ID: adding a statement to a step that has already run (as
+// was first done here, inside 0018) changes nothing in production.
+func ensureReportExtraImagesTable(ctx context.Context, db *sql.DB) error {
+	if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS report_extra_images (
+		seq INT NOT NULL,
+		position TINYINT UNSIGNED NOT NULL,
+		image MEDIUMBLOB NOT NULL,
+		sha256 CHAR(64) NOT NULL,
+		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (seq, position)
+	) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`); err != nil {
+		return fmt.Errorf("failed to create report_extra_images table: %w", err)
+	}
 	return nil
 }
