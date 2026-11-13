@@ -571,6 +571,11 @@ func (h *Handlers) processCleanAppWireSubmissionInternalWithHook(
 		if existing.MaterialHash == materialHash {
 			resp := h.cleanAppWireReceiptRecordToResponse(receipt, existing.SubmissionQuality)
 			resp.IdempotencyReplay = true
+			if isPublicAgentAuth(auth) && !receipt.RejectionCode.Valid {
+				// A confirmed enqueue is durable. Replaying the same public intent
+				// only reads its receipt; it never amplifies broker/analysis work.
+				return resp, http.StatusOK
+			}
 			if wireDefersQueueUntilReceipt(auth) && resp.ReportID > 0 {
 				// A durable receipt may precede a failed queue publish. Retry the
 				// same report, never insert another; completed analysis replays are

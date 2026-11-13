@@ -243,11 +243,10 @@ func (h *Handlers) SubmitPublicAgentReportV1(c *gin.Context) {
 			publicAgentBusy(c, "intake is unavailable; retry the same source_id")
 			return
 		}
-
-	}
-	if err := h.db.EnsurePublicAgentActor(c.Request.Context(), publicAgentActor); err != nil {
-		publicAgentBusy(c, "intake is unavailable; retry the same source_id")
-		return
+		if err := h.db.EnsurePublicAgentActor(c.Request.Context(), publicAgentActor); err != nil {
+			publicAgentBusy(c, "intake is unavailable; retry the same source_id")
+			return
+		}
 	}
 	auth := cleanAppWireAuthContext{FetcherID: publicAgentActor, Status: "active", Tier: 0, ActorKind: "machine", Channel: publicAgentChannel, AuthMethod: "anonymous_public", RiskScore: 0.5}
 	receipt, code := h.processCleanAppWireSubmissionInternal(c.Request.Context(), auth, sub, c.ClientIP(), c.GetHeader("User-Agent"), c.GetHeader("X-Request-Id"), publicAgentPath)

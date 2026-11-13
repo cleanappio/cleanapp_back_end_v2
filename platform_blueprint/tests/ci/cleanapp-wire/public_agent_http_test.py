@@ -86,6 +86,9 @@ elif args.phase == "atomic-fail":
 elif args.phase == "atomic-recover":
     state["atomic_receipt"] = accepted(state["atomic_body"])
 elif args.phase == "queue-fail":
+    # A confirmed intent is read-only even while the broker is unavailable.
+    confirmed = accepted(state["first_body"])
+    assert confirmed["receipt_id"] == state["first_receipt"]["receipt_id"] and confirmed["idempotency_replay"] is True
     state["queue_body"] = {"description": "Synthetic broker outage fixture", "source_id": str(uuid.uuid4())}
     receipt = accepted(state["queue_body"], status=503)
     assert receipt["processing_status"] == "pending_retry"
