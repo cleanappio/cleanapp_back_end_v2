@@ -2,9 +2,10 @@
 
 Production-grade CleanApp CLI (thin wrapper around the CleanApp API).
 
-Wire status:
-- machine-originated submission flows are Wire-native by default
-- auth identity uses CleanApp Wire agent identity where available
+Submission paths:
+
+- first reports use public intake for private review without an API key
+- approved integration credentials use CleanApp Wire identity and envelopes
 - legacy `report-id` lookup still falls back to the v3 report listener API
 
 - npm package name: `@cleanapp/cli`
