@@ -59,6 +59,26 @@ export function eligibility(config: Config): {sql: string, params: string[]} {
   return {sql: clauses.join(' AND '), params}
 }
 
+// JSON_TABLE materializes the already bounded source IDs before any expensive
+// eligibility or language ordering. STRAIGHT_JOIN keeps those IDs as the driver
+// and performs indexed seq lookups, rather than sorting the entire valid cohort.
+export function analysisForCandidates(config: Config, ids: number[], onlyMissing = false): {sql: string, params: (string | number)[]} {
+  if (!ids.length || ids.some(seq => !Number.isSafeInteger(seq) || seq < 1)) {
+    throw new Error('Invalid bounded EPC source candidates')
+  }
+  const filter = eligibility(config)
+  const missing = onlyMissing ? ` AND NOT EXISTS (SELECT 1 FROM epc_outbox o
+    WHERE o.event_key=CONCAT(?,':report:',a.seq))` : ''
+  return {
+    sql: `SELECT STRAIGHT_JOIN a.seq,a.brand_name,a.language
+      FROM JSON_TABLE(?, '$[*]' COLUMNS(seq BIGINT UNSIGNED PATH '$' ERROR ON EMPTY ERROR ON ERROR)) candidates
+      JOIN report_analysis a ON a.seq=candidates.seq
+      WHERE ${filter.sql}${missing}
+      ORDER BY a.seq ASC,(a.language='en') DESC,a.language ASC`,
+    params: [JSON.stringify(ids), ...filter.params, ...(onlyMissing ? [config.namespace] : [])],
+  }
+}
+
 export class MysqlNotificationStore implements NotificationStore {
   private templateId = 0
   private render: Handlebars.TemplateDelegate
@@ -142,8 +162,28 @@ export class MysqlNotificationStore implements NotificationStore {
     return true
   }
 
+  private async sourceWindow(after: number, limit: number): Promise<number[]> {
+    const [rows] = await this.db.query<RowDataPacket[]>(
+      'SELECT DISTINCT seq FROM report_analysis WHERE seq>? ORDER BY seq LIMIT ?', [after, limit])
+    return rows.map(row => Number(row.seq))
+  }
+
+  private async preferredCandidates(ids: number[], onlyMissing = false): Promise<Report[]> {
+    if (!ids.length) return []
+    const query = analysisForCandidates(this.config, ids, onlyMissing)
+    const [rows] = await this.db.query<Report[]>(query.sql, query.params)
+    const seen = new Set<number>()
+    // The bounded SQL sorts eligible English first, then language ascending.
+    // One report event gets exactly that first eligible analysis per sequence.
+    return rows.filter(row => {
+      const seq = Number(row.seq)
+      if (seen.has(seq)) return false
+      seen.add(seq)
+      return true
+    })
+  }
+
   async queueNextReport(): Promise<boolean> {
-    const filter = eligibility(this.config)
     return this.inTransaction(async () => {
       const [cursors] = await this.db.query<RowDataPacket[]>(
         'SELECT last_report_seq,rescan_report_seq FROM epc_report_cursors WHERE campaign=? AND source_namespace=? FOR UPDATE',
@@ -151,40 +191,33 @@ export class MysqlNotificationStore implements NotificationStore {
       const cursor = Math.max(Number(cursors[0]?.last_report_seq), this.config.startSeq - 1)
       const rescan = Math.max(Number(cursors[0]?.rescan_report_seq), this.config.startSeq - 1)
       if (!Number.isSafeInteger(cursor) || !Number.isSafeInteger(rescan)) throw new Error('Invalid EPC source cursor')
-      const [forward] = await this.db.query<Report[]>(
-        `SELECT a.seq,a.brand_name,a.language FROM report_analysis a
-         WHERE a.seq>? AND ${filter.sql}
-         ORDER BY a.seq ASC,(a.language='en') DESC,a.language ASC LIMIT ?`,
-        [cursor, ...filter.params, this.config.scanBatchSize])
-      for (const report of forward) await this.queueReport(report)
-      const nextCursor = forward.length ? Number(forward[forward.length - 1]!.seq) : cursor
 
-      // A separate bounded sequence walk repeatedly covers earlier analyses.
-      // Late analysis, newly valid reports and changed publication permissions
-      // therefore do not disappear behind the monotonic forward cursor.
-      const [window] = await this.db.query<RowDataPacket[]>(
-        'SELECT DISTINCT seq FROM report_analysis WHERE seq>? ORDER BY seq LIMIT ?',
-        [rescan, this.config.rescanWindowSize])
+      // Bound source IDs BEFORE filtering/ordering by eligible language. This
+      // advances through invalid-only windows and avoids a full valid-cohort
+      // filesort even when no eligible report can be found near this cursor.
+      const forwardWindow = await this.sourceWindow(cursor, this.config.scanBatchSize)
+      const forward = await this.preferredCandidates(forwardWindow)
+      for (const report of forward) await this.queueReport(report)
+      const nextCursor = forwardWindow.length ? forwardWindow[forwardWindow.length - 1]! : cursor
+
+      // Repeated bounded source windows also cover late analyses and reports
+      // which become valid/public below the forward cursor. The same exact
+      // candidate-driven join protects this rescan from optimizer range drift.
+      const window = await this.sourceWindow(rescan, this.config.rescanWindowSize)
       let nextRescan = this.config.startSeq - 1
       let queued = false
       if (window.length) {
-        const upper = Number(window[window.length - 1]!.seq)
-        const [earlier] = await this.db.query<Report[]>(
-          `SELECT a.seq,a.brand_name,a.language FROM report_analysis a
-           WHERE a.seq>? AND a.seq<=? AND ${filter.sql}
-             AND NOT EXISTS (SELECT 1 FROM epc_outbox o
-               WHERE o.event_key=CONCAT(?,':report:',a.seq))
-           ORDER BY a.seq ASC,(a.language='en') DESC,a.language ASC LIMIT ?`,
-          [rescan, upper, ...filter.params, this.config.namespace, this.config.scanBatchSize])
-        for (const report of earlier) queued = await this.queueReport(report) || queued
-        nextRescan = earlier.length === this.config.scanBatchSize
-          ? Number(earlier[earlier.length - 1]!.seq) : upper
+        const earlier = await this.preferredCandidates(window, true)
+        const batch = earlier.slice(0, this.config.scanBatchSize)
+        for (const report of batch) queued = await this.queueReport(report) || queued
+        nextRescan = earlier.length > batch.length
+          ? Number(batch[batch.length - 1]!.seq) : window[window.length - 1]!
       }
       // Intent and both source cursors commit together. Imported outbox IDs
       // and legacy sequence maxima never initialize either production cursor.
       await this.db.query(`UPDATE epc_report_cursors SET last_report_seq=?,rescan_report_seq=?
         WHERE campaign=? AND source_namespace=?`, [nextCursor, nextRescan, CAMPAIGN, this.config.namespace])
-      return forward.length > 0 || queued
+      return forwardWindow.length > 0 || queued
     })
   }
 

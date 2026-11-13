@@ -198,6 +198,30 @@ test('MySQL migration, cumulative receipts and durable worker lifecycle', {skip:
     await cooldownWorker.tick()
     const [longKey]=await db.query<RowDataPacket[]>(`SELECT CHAR_LENGTH(c.\`key\`) AS n,o.status FROM epc_outbox o JOIN epc_contracts c ON c.id=o.contract_id WHERE o.event_key='prod:report:102'`)
     assert.equal(Number(longKey[0]!.n),270); assert.equal(longKey[0]!.status,'sent')
+    // Invalid-only source windows must advance without an unbounded search for
+    // an eligible row. A later rescan recovers a newly valid older analysis.
+    await store.close(); store=undefined
+    await db.query(`INSERT INTO report_analysis(seq,brand_name,is_valid) VALUES
+      (200,'apple',FALSE),(201,'apple',FALSE),(202,'apple',TRUE),(203,'apple',TRUE);
+      INSERT INTO report_analysis(seq,language,brand_name) VALUES (202,'fr','wrong-language');`)
+    const boundedConfig=loadConfig({EPC_SOURCE_NAMESPACE:'bounded-forward',EPC_REPORTS_START_SEQ:'200',
+      EPC_DISPATCH:'true',EPC_SCAN_BATCH_SIZE:'2',EPC_RESCAN_WINDOW_SIZE:'2'})
+    store=new MysqlNotificationStore(db as PoolConnection,boundedConfig,template,derive)
+    await store.initialize()
+    assert.equal(await store.queueNextReport(),true)
+    const [invalidWindow]=await db.query<RowDataPacket[]>(`SELECT last_report_seq FROM epc_report_cursors WHERE source_namespace='bounded-forward'`)
+    assert.equal(Number(invalidWindow[0]!.last_report_seq),201)
+    const [emptyBatch]=await db.query<RowDataPacket[]>(`SELECT id FROM epc_outbox WHERE source_namespace='bounded-forward'`)
+    assert.equal(emptyBatch.length,0)
+    await store.queueNextReport()
+    const [validWindow]=await db.query<RowDataPacket[]>(`SELECT source_report_seq,metadata FROM epc_outbox WHERE source_namespace='bounded-forward' ORDER BY source_report_seq`)
+    assert.deepEqual(validWindow.map(r=>Number(r.source_report_seq)),[202,203])
+    assert.equal(validWindow[0]!.metadata.report_language,'en')
+    assert.equal(validWindow[0]!.metadata.report_brand,'apple')
+    await db.query('UPDATE report_analysis SET is_valid=TRUE WHERE seq=200')
+    await store.queueNextReport(); await store.queueNextReport()
+    const [lateWindow]=await db.query<RowDataPacket[]>(`SELECT source_report_seq FROM epc_outbox WHERE source_namespace='bounded-forward' ORDER BY source_report_seq`)
+    assert.deepEqual(lateWindow.map(r=>Number(r.source_report_seq)),[200,202,203])
     await script(db,migration)
     const [legacy] = await db.query<RowDataPacket[]>('SELECT metadata,source_namespace,status FROM epc_outbox WHERE id=500')
     assert.equal(legacy[0]!.source_namespace,'legacy-dev'); assert.equal(legacy[0]!.status,'sent')
