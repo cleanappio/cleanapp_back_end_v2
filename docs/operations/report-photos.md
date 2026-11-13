@@ -49,8 +49,14 @@ report_extra_images (seq, position 1..3, image MEDIUMBLOB, sha256, created_at)
 PRIMARY KEY (seq, position)
 ```
 
-Created by the report-listener migration and present in `db/init.sql`. Rows
-are written once and never updated.
+Created by report-listener migration `0034_report_extra_images` and present
+in `db/init.sql`. Rows are written once and never updated.
+
+Lesson from the first deploy (2026-11-13): the table was first added as one
+more statement inside migration `0018`, which production had already run, so
+nothing was created. Migration steps run once per database and are recorded
+by ID. **A schema change always needs a new step ID**; never edit a step that
+has shipped.
 
 ## Not changed
 
