@@ -1,39 +1,75 @@
-name: Publish @cleanapp/cli
+name: Read-only npm credential diagnostic
 
 on:
   workflow_dispatch:
-  push:
-    tags:
-      - "v*"
 
 permissions:
   contents: read
 
 jobs:
-  publish:
+  diagnostic:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: cli/cleanapp
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
           registry-url: "https://registry.npmjs.org"
 
-      - name: Install
-        run: npm ci
-
-      - name: Test
-        run: npm test
-
-      - name: Build
-        run: npm run build
-
-      - name: Publish
+      - name: Read-only existing credential identity
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import subprocess
+          import tempfile
 
+          if not os.environ.get("NODE_AUTH_TOKEN"):
+              print(json.dumps({"authenticated": False, "code": "MISSING_TOKEN"}))
+              raise SystemExit(1)
+          with tempfile.TemporaryDirectory(prefix="npm-whoami-", dir=os.environ["RUNNER_TEMP"]) as temporary:
+              try:
+                  result = subprocess.run(
+                      ["npm", "whoami", "--json", "--registry=https://registry.npmjs.org", "--loglevel=error"],
+                      capture_output=True, text=True, timeout=45,
+                  )
+              except subprocess.TimeoutExpired:
+                  print(json.dumps({"authenticated": False, "code": "TIMEOUT"}))
+                  raise SystemExit(1)
+              for name, value in [("stdout", result.stdout), ("stderr", result.stderr)]:
+                  path = Path(temporary) / name
+                  descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                  with os.fdopen(descriptor, "w") as target:
+                      target.write(value)
+              if result.returncode == 0:
+                  account = result.stdout.strip()
+                  try:
+                      decoded = json.loads(account)
+                      account = decoded if isinstance(decoded, str) else decoded.get("username", "")
+                  except (ValueError, AttributeError):
+                      pass
+                  if (re.fullmatch(r"[a-zA-Z0-9._-]{1,64}", account)
+                          and account != os.environ["NODE_AUTH_TOKEN"]):
+                      print(json.dumps({"authenticated": True, "account": account}))
+                      raise SystemExit(0)
+                  print(json.dumps({"authenticated": False, "code": "UNEXPECTED_IDENTITY_RESPONSE"}))
+                  raise SystemExit(1)
+              code = None
+              for value in (result.stdout, result.stderr):
+                  try:
+                      parsed = json.loads(value)
+                      candidate = parsed.get("error", {}).get("code", "")
+                      if re.fullmatch(r"E[A-Z0-9_]+", candidate):
+                          code = candidate
+                  except (ValueError, AttributeError):
+                      pass
+                  match = re.search(r"(?:npm error code|npm ERR! code)\s+(E[A-Z0-9_]+)", value)
+                  if match:
+                      code = match.group(1)
+              print(json.dumps({"authenticated": False, "code": code or "AUTH_FAILED"}))
+              raise SystemExit(1)
+          PY
