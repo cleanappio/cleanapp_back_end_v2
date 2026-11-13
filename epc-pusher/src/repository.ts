@@ -153,11 +153,17 @@ export class MysqlNotificationStore implements NotificationStore {
       report_seq: Number(report.seq), source_namespace: this.config.namespace,
       report_brand: brand, report_language: report.language,
     }
+    let dispatch = this.config.dispatch
+    if (dispatch && this.config.existingChatsOnly) {
+      const [receipts] = await this.db.query<RowDataPacket[]>(
+        "SELECT id FROM epc_outbox WHERE contract_id=? AND status='sent' LIMIT 1", [contract.id])
+      dispatch = receipts.length > 0
+    }
     await this.db.query(`INSERT INTO epc_outbox
       (campaign,contract_id,metadata,status,sent_message_template_id,event_key,
        source_namespace,source_report_seq,message_body,next_attempt_at)
       VALUES (?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(3))`,
-    [CAMPAIGN, contract.id, JSON.stringify(metadata), this.config.dispatch ? 'pending' : 'held',
+    [CAMPAIGN, contract.id, JSON.stringify(metadata), dispatch ? 'pending' : 'held',
       this.templateId, eventKey, this.config.namespace, Number(report.seq), message])
     return true
   }
@@ -223,6 +229,10 @@ export class MysqlNotificationStore implements NotificationStore {
 
   async claimNextNotification(): Promise<PendingNotification | undefined> {
     const filter = eligibility(this.config)
+    // LIMIT prevents semijoin materialization of the entire cumulative outbox.
+    const recipient = this.config.existingChatsOnly ? ` AND (
+      SELECT receipt.id FROM epc_outbox receipt
+      WHERE receipt.contract_id=o.contract_id AND receipt.status='sent' LIMIT 1) IS NOT NULL` : ''
     return this.inTransaction(async () => {
       const [limits] = await this.db.query<RowDataPacket[]>(`SELECT
         COALESCE(dispatch_not_before>UTC_TIMESTAMP(3),FALSE) AS cooling
@@ -238,6 +248,7 @@ export class MysqlNotificationStore implements NotificationStore {
         WHERE o.source_namespace=? AND o.campaign=? AND o.status IN ('pending','held')
           AND o.source_report_seq>=?
           AND (o.next_attempt_at IS NULL OR o.next_attempt_at<=UTC_TIMESTAMP(3))
+          ${recipient}
         ORDER BY o.id LIMIT 1 FOR UPDATE`, [this.config.namespace, CAMPAIGN, this.config.startSeq])
       const row = rows[0]
       if (!row) return undefined

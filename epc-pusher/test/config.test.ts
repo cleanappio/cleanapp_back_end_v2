@@ -10,6 +10,8 @@ test('source identity never aliases a legacy sequence with a production sequence
   assert.notEqual(reportEventKey('legacy-dev', 73434), reportEventKey('prod', 73434))
   assert.equal(loadConfig({}).startSeq, 1)
   assert.equal(loadConfig({}).dispatch, false)
+  assert.equal(loadConfig({}).existingChatsOnly, false)
+  assert.equal(loadConfig({EPC_EXISTING_CHATS_ONLY:'true'}).existingChatsOnly, true)
   assert.throws(() => loadConfig({EPC_SOURCE_NAMESPACE: 'prod;bad'}))
   assert.throws(() => loadConfig({EPC_SEND_INTERVAL_MS: '1'}))
   assert.throws(() => loadConfig({EPC_REPORTS_START_SEQ: 'not-a-number'}))

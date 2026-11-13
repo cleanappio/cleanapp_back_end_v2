@@ -2,6 +2,7 @@ export interface Config {
   namespace: string
   startSeq: number
   dispatch: boolean
+  existingChatsOnly: boolean
   onlyValid: boolean
   language?: string
   source?: string
@@ -34,6 +35,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     namespace,
     startSeq: integer('EPC_REPORTS_START_SEQ', 1, 1),
     dispatch: truthy(env.EPC_DISPATCH),
+    existingChatsOnly: truthy(env.EPC_EXISTING_CHATS_ONLY),
     onlyValid: env.EPC_ONLY_VALID === undefined || truthy(env.EPC_ONLY_VALID),
     language: env.EPC_FILTER_LANGUAGE?.trim() || undefined,
     source: env.EPC_FILTER_SOURCE?.trim() || undefined,

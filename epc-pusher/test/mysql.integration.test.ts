@@ -262,6 +262,36 @@ test('MySQL migration, cumulative receipts and durable worker lifecycle', {skip:
       assert.equal(limitedReceipt[0]!.blockscan_message_id,'900000001')
     } finally {await limitedStore.close().catch(()=>{})}
     await limitedDb.end(); limitedDb=undefined
+    // Existing-conversation mode may queue a new destination for later, but
+    // cannot claim it until explicitly disabled. Historical Apple remains live.
+    await store.close(); store=undefined
+    await db.query(`INSERT INTO report_analysis(seq,brand_name) VALUES
+      (400,'brand-new-recipient-fixture'),(401,'apple')`)
+    const chatsConfig=loadConfig({EPC_SOURCE_NAMESPACE:'existing-chats',EPC_REPORTS_START_SEQ:'400',
+      EPC_DISPATCH:'true',EPC_EXISTING_CHATS_ONLY:'true'})
+    store=new MysqlNotificationStore(db as PoolConnection,chatsConfig,template,derive)
+    await store.initialize(); await store.queueNextReport()
+    const [chatQueue]=await db.query<RowDataPacket[]>(`SELECT id,source_report_seq,status FROM epc_outbox
+      WHERE source_namespace='existing-chats' ORDER BY source_report_seq`)
+    assert.deepEqual(chatQueue.map(row=>[Number(row.source_report_seq),row.status]),[[400,'held'],[401,'pending']])
+    const knownChat=await store.claimNextNotification()
+    assert.ok(knownChat,'an existing historical Apple conversation must remain claimable')
+    assert.equal(knownChat.id,chatQueue[1]!.id); assert.equal(knownChat.address,legacyAddress)
+    await store.markSent(knownChat.id,'900000002')
+    assert.equal(await store.claimNextNotification(),undefined,'the new recipient must never be claimed in existing-only mode')
+    const [heldChat]=await db.query<RowDataPacket[]>('SELECT status,attempt_count FROM epc_outbox WHERE id=?',[chatQueue[0]!.id])
+    assert.equal(heldChat[0]!.status,'held'); assert.equal(Number(heldChat[0]!.attempt_count),0)
+    await store.close(); store=undefined
+    store=new MysqlNotificationStore(db as PoolConnection,
+      loadConfig({EPC_SOURCE_NAMESPACE:'existing-chats',EPC_REPORTS_START_SEQ:'400',
+        EPC_DISPATCH:'true',EPC_EXISTING_CHATS_ONLY:'false'}),template,derive)
+    await store.initialize()
+    const releasedChat=await store.claimNextNotification()
+    assert.ok(releasedChat,'explicitly disabling the flag must release the original held intent')
+    assert.equal(releasedChat.id,chatQueue[0]!.id); assert.notEqual(releasedChat.address,legacyAddress)
+    await store.markSent(releasedChat.id,'900000003')
+    const [releasedReceipt]=await db.query<RowDataPacket[]>('SELECT status,blockscan_message_id FROM epc_outbox WHERE id=?',[releasedChat.id])
+    assert.equal(releasedReceipt[0]!.status,'sent'); assert.equal(releasedReceipt[0]!.blockscan_message_id,'900000003')
     await script(db,migration)
     const [legacy] = await db.query<RowDataPacket[]>('SELECT metadata,source_namespace,status FROM epc_outbox WHERE id=500')
     assert.equal(legacy[0]!.source_namespace,'legacy-dev'); assert.equal(legacy[0]!.status,'sent')
