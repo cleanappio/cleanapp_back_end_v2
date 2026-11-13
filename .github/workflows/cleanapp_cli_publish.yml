@@ -11,7 +11,7 @@ on:
         description: Exact reviewed CLI version
         type: string
         required: true
-        default: "0.2.0"
+        default: "0.2.1"
       publish:
         description: Publish the tested tarball using the configured npm trusted publisher
         type: boolean

@@ -24,14 +24,21 @@ Use the [official publisher setup and allowed-actions instructions](https://docs
 
 1. Merge the reviewed release workflow and package metadata into `main`.
 2. Record that exact main SHA and verify the CLI version in `package.json`, both lockfile locations and `src/version.ts`.
-3. Dispatch the workflow on `main` with that full `reviewed_sha` and `expected_version` (currently `0.2.0`). Keep `publish=false` for a preparation-only run.
+3. Dispatch the workflow on `main` with that full `reviewed_sha` and `expected_version`. Keep `publish=false` for a preparation-only run.
 4. Inspect the retained `cleanapp-cli-VERSION-SHA` artifact and `release-evidence.json`, including its source, package name/version and tarball SHA-256.
 5. For the intended release, dispatch with the same reviewed main SHA/version and `publish=true` after the owner configuration matches the table. The workflow publishes its tested packed tarball, with no `NPM_TOKEN` or `NODE_AUTH_TOKEN` fallback.
 
 If main advances, select/review the new main SHA or the guard stops the run; it never checks out an older input while claiming a newer workflow identity. Publication is serialized, and a version already present on npm remains immutable under npm's existing rules. No branch/tag push automatically publishes a package.
 
-## Interim GitHub tarball
+## Published 0.2.0 and immutable GitHub alternative
 
-While npm 0.2.0 is unavailable, use the live MCP/public HTTP entry at https://www.cleanapp.io/agents. The tested 0.2.0 fallback tarball is prepared for a GitHub release named `cleanapp-cli-v0.2.0`, asset `cleanapp-cli-0.2.0.tgz`, on this backend repository. Root publishes that reviewed release/asset separately. Its digest and source are recorded alongside the prepared tarball; do not label npm `latest` 0.1.1 as having 0.2.0's no-key behavior.
+Version 0.2.0 was published to npm on 2026-11-13 using GitHub OIDC in [release run 43506788456](https://github.com/cleanappio/cleanapp_back_end_v2/actions/runs/43506788456), from source `7dc2b37872ba20a7390d227efab33ead1b59fcf4`. Its registry metadata, downloaded tarball and provenance were verified. The no-key first-report path is available in 0.2.0 and later. The CLI README installs the latest published version with `npm install --prefix ./.cleanapp-cli @cleanapp/cli`.
 
-After the asset is live, the CLI README provides a direct local-prefix npm installation URL. No global/root install or new authentication flow is needed for the fallback.
+The published [GitHub release `cleanapp-cli-v0.2.0`](https://github.com/cleanappio/cleanapp_back_end_v2/releases/tag/cleanapp-cli-v0.2.0) and its asset `cleanapp-cli-0.2.0.tgz` remain an available fixed alternative. Preserve that reviewed asset and digest when publishing later patches; do not overwrite or relabel it.
+
+These are separate reviewed archives with distinct digests:
+
+- npm 0.2.0 tarball SHA-256: `9dd1b92d1ee3a562d5da4ac08b6e3b8990ec9bd9eda33519b60bca5dc7b10047`.
+- GitHub 0.2.0 asset SHA-256: `2cb8f8569017b00d04a61ad6d6102c007b56075a9c14a9a369712fc36a0003d9`.
+
+For each future publication, verify the registry against that publication run's `release-evidence.json`, rather than assuming its bytes match the GitHub alternative. Both installation routes support a local prefix without root or a global install.

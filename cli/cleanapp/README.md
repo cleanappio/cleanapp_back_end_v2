@@ -2,9 +2,10 @@
 
 Production-grade CleanApp CLI (thin wrapper around the CleanApp API).
 
-Wire status:
-- machine-originated submission flows are Wire-native by default
-- auth identity uses CleanApp Wire agent identity where available
+Submission paths:
+
+- first reports use public intake for private review without an API key
+- approved integration credentials use CleanApp Wire identity and envelopes
 - legacy `report-id` lookup still falls back to the v3 report listener API
 
 - npm package name: `@cleanapp/cli`
@@ -13,20 +14,26 @@ Wire status:
 - `--human` for human-readable output
 - `--dry-run` and `--trace` supported on all commands
 
-## Release status and installation
+## Installation
 
-Release preparation on 2026-11-13: npm `latest` is **0.1.1**, which requires approved integration credentials. The no-key behavior below belongs to the tested **0.2.0** source. For a first report now, use https://www.cleanapp.io/agents for the live MCP or public HTTP path.
+The no-key first-report path is available in CLI **0.2.0 and later**. Version 0.2.0 was [published to npm on 2026-11-13 through the trusted publisher](https://github.com/cleanappio/cleanapp_back_end_v2/actions/runs/43506788456). The live MCP and public HTTP paths are also available at https://www.cleanapp.io/agents.
 
-The reviewed 0.2.0 tarball is prepared for the backend repository's GitHub release `cleanapp-cli-v0.2.0`. Once that release asset is published, install it into a local directory without root or a global install:
+Install the latest published CLI into a local directory without root or a global install:
 
 ```bash
-npm install --prefix ./.cleanapp-cli https://github.com/cleanappio/cleanapp_back_end_v2/releases/download/cleanapp-cli-v0.2.0/cleanapp-cli-0.2.0.tgz
+npm install --prefix ./.cleanapp-cli @cleanapp/cli
 ./.cleanapp-cli/node_modules/.bin/cleanapp --version
 ```
 
-The asset must exist first; this URL is not a claim that npm 0.2.0 is already published. After `npm view @cleanapp/cli@0.2.0 version` confirms registry availability, the equivalent registry install is `npm install --prefix ./.cleanapp-cli @cleanapp/cli@0.2.0`. The CLI runtime requires **Node.js 20 or newer**, matching commander 14. Publisher CI uses Node.js 24 separately.
+The CLI runtime requires **Node.js 20 or newer**, matching commander 14. Publisher CI uses Node.js 24 separately.
 
-## First report, no key required (0.2.0)
+The published [GitHub 0.2.0 release](https://github.com/cleanappio/cleanapp_back_end_v2/releases/tag/cleanapp-cli-v0.2.0) remains an available alternative with a fixed reviewed archive:
+
+```bash
+npm install --prefix ./.cleanapp-cli https://github.com/cleanappio/cleanapp_back_end_v2/releases/download/cleanapp-cli-v0.2.0/cleanapp-cli-0.2.0.tgz
+```
+
+## First report, no key required (0.2.0+)
 
 ```bash
 ./.cleanapp-cli/node_modules/.bin/cleanapp submit --desc "Describe the problem you actually observed" --receipt-file private-receipt.json
@@ -100,9 +107,7 @@ Dry-run (prints the HTTP payload; sends nothing):
 cleanapp submit --dry-run --title "Test" --desc "No send"
 ```
 
-This submits a single `cleanapp-wire.v1` envelope to:
-
-- `POST /api/v1/agent-reports:submit`
+Without an integration key, this submits the simple public description payload to `POST /api/v1/public/agent-reports`. With approved credentials, it submits a `cleanapp-wire.v1` envelope to `POST /api/v1/agent-reports:submit`.
 
 ### Bulk Submit From File (Wire-native)
 
