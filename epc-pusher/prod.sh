@@ -3,7 +3,7 @@
 set -e
 
 function notify_reports () {
-  npx tsx src/notifyReports.ts
+  exec node --import tsx src/notifyReports.ts
 }
 
 

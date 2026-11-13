@@ -19,6 +19,9 @@ test('MySQL migration, cumulative receipts and durable worker lifecycle', {skip:
   const db = await mysql.createConnection(options)
   const name = `epc_worker_test_${randomUUID().replaceAll('-', '')}`
   let store: MysqlNotificationStore | undefined
+  let limitedDb: mysql.Connection | undefined
+  const limitedUser = `epc_fixture_${randomUUID().replaceAll('-', '').slice(0, 16)}`
+  let limitedCreated = false
   const migration = readFileSync(new URL('../../db/patches/20261113_epc_cumulative_dispatch.sql', import.meta.url), 'utf8')
   const template = readFileSync(new URL('../lib/templates/report_notification.tpl', import.meta.url), 'utf8')
   const legacyAddress = '0x863BA6CD3EeAe109f6fD68DfBa10A0501Ce023Cd'
@@ -222,11 +225,50 @@ test('MySQL migration, cumulative receipts and durable worker lifecycle', {skip:
     await store.queueNextReport(); await store.queueNextReport()
     const [lateWindow]=await db.query<RowDataPacket[]>(`SELECT source_report_seq FROM epc_outbox WHERE source_namespace='bounded-forward' ORDER BY source_report_seq`)
     assert.deepEqual(lateWindow.map(r=>Number(r.source_report_seq)),[200,202,203])
+    // Exercise the real production privilege boundary: the worker may read
+    // and insert contract mappings, but must never need UPDATE to claim a notice.
+    const limitedPassword=randomUUID()
+    await db.query(`CREATE USER ?@'%' IDENTIFIED BY ?`,[limitedUser,limitedPassword])
+    limitedCreated=true
+    const sourceColumns: Record<string,string[]> = {
+      reports:['seq','public_id'], report_analysis:['seq','brand_name','language','is_valid','source'],
+      report_side_effect_policy:['report_seq','policy_version','suppress_notifications','suppress_routing'],
+      report_raw:['report_seq','visibility'], report_status:['seq','status'], reports_owners:['seq','owner','is_public'],
+      wire_submissions_raw:['report_seq','submission_id','submitted_at','report_json'],
+      wire_evidence_projection:['submission_id','report_seq','contains_pii','requires_redaction'],
+    }
+    for (const [table,columns] of Object.entries(sourceColumns)) {
+      await db.query(`GRANT SELECT (${columns.map(column=>mysql.escapeId(column)).join(',')}) ON ${mysql.escapeId(name)}.${mysql.escapeId(table)} TO ?@'%'`,[limitedUser])
+    }
+    for (const [table,privileges] of Object.entries({epc_campaigns:'SELECT,INSERT,UPDATE',epc_contracts:'SELECT,INSERT',
+      epc_sent_message_templates_read_only:'SELECT,INSERT',epc_outbox:'SELECT,INSERT,UPDATE',epc_report_cursors:'SELECT,INSERT,UPDATE'})) {
+      await db.query(`GRANT ${privileges} ON ${mysql.escapeId(name)}.${mysql.escapeId(table)} TO ?@'%'`,[limitedUser])
+    }
+    await db.query(`INSERT INTO report_analysis(seq,brand_name) VALUES (300,'apple')`)
+    limitedDb=await mysql.createConnection({...options,user:limitedUser,password:limitedPassword,database:name})
+    await assert.rejects(limitedDb.query('UPDATE epc_contracts SET address=address WHERE id=1103'),
+      (error: unknown)=>typeof error==='object' && error!==null && 'code' in error && error.code==='ER_TABLEACCESS_DENIED_ERROR')
+    const limitedStore=new MysqlNotificationStore(limitedDb as PoolConnection,
+      loadConfig({EPC_SOURCE_NAMESPACE:'limited-grants',EPC_REPORTS_START_SEQ:'300',EPC_DISPATCH:'true'}),template,derive)
+    try {
+      await limitedStore.initialize()
+      await limitedStore.queueNextReport()
+      const claimed=await limitedStore.claimNextNotification()
+      assert.ok(claimed,'the least-privilege account must claim the queued outbox row')
+      assert.equal(claimed.address,legacyAddress)
+      await limitedStore.markSent(claimed.id,'900000001')
+      const [limitedReceipt]=await limitedDb.query<RowDataPacket[]>('SELECT status,blockscan_message_id FROM epc_outbox WHERE id=?',[claimed.id])
+      assert.equal(limitedReceipt[0]!.status,'sent')
+      assert.equal(limitedReceipt[0]!.blockscan_message_id,'900000001')
+    } finally {await limitedStore.close().catch(()=>{})}
+    await limitedDb.end(); limitedDb=undefined
     await script(db,migration)
     const [legacy] = await db.query<RowDataPacket[]>('SELECT metadata,source_namespace,status FROM epc_outbox WHERE id=500')
     assert.equal(legacy[0]!.source_namespace,'legacy-dev'); assert.equal(legacy[0]!.status,'sent')
     assert.equal(legacy[0]!.metadata.report_seq,9000)
   } finally {
+    if (limitedDb) await limitedDb.end()
+    if (limitedCreated) await db.query(`DROP USER IF EXISTS ?@'%'`,[limitedUser])
     if (store) await store.close().catch(() => {})
     await db.query(`DROP DATABASE IF EXISTS ${name}`); await db.end()
   }
