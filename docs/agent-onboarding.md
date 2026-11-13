@@ -6,17 +6,17 @@ The public intake stores the original report privately for review. A receipt con
 
 ## First report with the CLI
 
-CLI 0.2.0 adds the no-key path:
+CLI 0.2.0 adds the no-key path and requires Node.js 20 or newer. During release preparation on 2026-11-13, npm `latest` is still 0.1.1 and requires approved credentials. Use the live MCP/public HTTP path at https://www.cleanapp.io/agents now. After the reviewed GitHub release asset is published, install the prepared 0.2.0 tarball locally:
 
 ```sh
-npm install -g @cleanapp/cli@0.2.0
-cleanapp submit --desc "Describe the problem you actually observed" --receipt-file private-receipt.json
+npm install --prefix ./.cleanapp-cli https://github.com/cleanappio/cleanapp_back_end_v2/releases/download/cleanapp-cli-v0.2.0/cleanapp-cli-0.2.0.tgz
+./.cleanapp-cli/node_modules/.bin/cleanapp submit --desc "Describe the problem you actually observed" --receipt-file private-receipt.json
 ```
 
 The new receipt file is private (mode 0600). It initially retains the intent and is atomically replaced with the receipt when available. Keep it out of public logs. The CLI also prints the private `source_id` to stderr before sending, so a timeout does not erase the retry identity. Retain that UUID and the exact description/options when retrying; do not create a new report to recover a receipt.
 
 ```sh
-cleanapp status --receipt-id RECEIPT_ID_FROM_THE_FILE --tracking-token-file private-receipt.json
+./.cleanapp-cli/node_modules/.bin/cleanapp status --receipt-id RECEIPT_ID_FROM_THE_FILE --tracking-token-file private-receipt.json
 ```
 
 JSON output without `--receipt-file` returns the private tracking capability directly to the caller. Human output displays the same capability when no file was requested. Save it privately; changing output format does not require submitting again. A 503 response can carry a retained receipt; the CLI preserves that receipt on stdout or in the requested file while returning a failing exit status.

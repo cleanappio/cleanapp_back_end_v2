@@ -16,7 +16,7 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "scripts": {
     "check-name": "npm view @cleanapp/cli",
@@ -35,5 +35,10 @@
     "tsup": "^8.4.0",
     "typescript": "^5.7.3",
     "vitest": "^3.0.5"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cleanappio/cleanapp_back_end_v2.git",
+    "directory": "cli/cleanapp"
   }
 }

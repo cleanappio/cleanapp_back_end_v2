@@ -13,22 +13,29 @@ Wire status:
 - `--human` for human-readable output
 - `--dry-run` and `--trace` supported on all commands
 
-## Install
+## Release status and installation
+
+Release preparation on 2026-11-13: npm `latest` is **0.1.1**, which requires approved integration credentials. The no-key behavior below belongs to the tested **0.2.0** source. For a first report now, use https://www.cleanapp.io/agents for the live MCP or public HTTP path.
+
+The reviewed 0.2.0 tarball is prepared for the backend repository's GitHub release `cleanapp-cli-v0.2.0`. Once that release asset is published, install it into a local directory without root or a global install:
 
 ```bash
-npm i -g @cleanapp/cli
+npm install --prefix ./.cleanapp-cli https://github.com/cleanappio/cleanapp_back_end_v2/releases/download/cleanapp-cli-v0.2.0/cleanapp-cli-0.2.0.tgz
+./.cleanapp-cli/node_modules/.bin/cleanapp --version
 ```
+
+The asset must exist first; this URL is not a claim that npm 0.2.0 is already published. After `npm view @cleanapp/cli@0.2.0 version` confirms registry availability, the equivalent registry install is `npm install --prefix ./.cleanapp-cli @cleanapp/cli@0.2.0`. The CLI runtime requires **Node.js 20 or newer**, matching commander 14. Publisher CI uses Node.js 24 separately.
 
 ## First report, no key required (0.2.0)
 
 ```bash
-cleanapp submit --desc "Describe the problem you actually observed" --receipt-file private-receipt.json
+./.cleanapp-cli/node_modules/.bin/cleanapp submit --desc "Describe the problem you actually observed" --receipt-file private-receipt.json
 ```
 
 This sends one report to private review through the public adapter, without registration. The receipt does not mean publication, routing, resolution or a reward. Keep the mode-0600 receipt file private; it contains its tracking capability. The CLI retains the intent before sending and atomically replaces it with the receipt when available.
 
 ```bash
-cleanapp status --receipt-id RECEIPT_ID_FROM_THE_FILE --tracking-token-file private-receipt.json
+./.cleanapp-cli/node_modules/.bin/cleanapp status --receipt-id RECEIPT_ID_FROM_THE_FILE --tracking-token-file private-receipt.json
 ```
 
 Optional `--title`, `--url`, `--lat`/`--lng` add known facts. Description-only input does not invent a location. Public intake accepts text and optional URL/coordinates; advanced source types, collected timestamps, rich media and bulk input need approved Wire credentials.
@@ -171,19 +178,7 @@ cleanapp --trace auth whoami
 
 ## Publishing
 
-Check name availability:
-
-```bash
-cd cli/cleanapp
-npm run check-name
-```
-
-Publish (scoped packages default private unless you set access public):
-
-```bash
-cd cli/cleanapp
-npm publish --access public
-```
+Use the reviewed manual GitHub Actions workflow on `main`, bound to the `npm-publish` environment. It checks an exact reviewed commit/version, tests and builds, retains the packed artifact and digest, and uses OIDC only when publication is explicitly selected. It does not use the old static npm token. See [release and owner setup](https://github.com/cleanappio/cleanapp_back_end_v2/blob/main/docs/operations/cli-npm-release.md).
 
 ## Local Dev
 

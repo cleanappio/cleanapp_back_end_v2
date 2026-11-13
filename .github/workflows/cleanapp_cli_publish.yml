@@ -2,26 +2,69 @@ name: Publish @cleanapp/cli
 
 on:
   workflow_dispatch:
-  push:
-    tags:
-      - "v*"
+    inputs:
+      reviewed_sha:
+        description: Exact reviewed main commit SHA (40 lowercase hexadecimal characters)
+        type: string
+        required: true
+      expected_version:
+        description: Exact reviewed CLI version
+        type: string
+        required: true
+        default: "0.2.0"
+      publish:
+        description: Publish the tested tarball using the configured npm trusted publisher
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
+concurrency:
+  group: cleanapp-cli-npm-release
+  cancel-in-progress: false
+
 jobs:
   publish:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'cleanappio/cleanapp_back_end_v2'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write
     defaults:
       run:
         working-directory: cli/cleanapp
+    env:
+      REVIEWED_SHA: ${{ inputs.reviewed_sha }}
+      EXPECTED_VERSION: ${{ inputs.expected_version }}
+      NPM_CONFIG_REGISTRY: https://registry.npmjs.org
+      NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/cleanapp-cli-release.npmrc
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
         with:
-          node-version: "20"
-          registry-url: "https://registry.npmjs.org"
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Verify reviewed source and version
+        working-directory: .
+        run: python3 scripts/ci/verify_cli_release.py --reviewed-sha "$REVIEWED_SHA" --expected-version "$EXPECTED_VERSION"
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+          # Do not generate an _authToken placeholder: npm exchanges GitHub OIDC
+          # directly; no registry-url, NODE_AUTH_TOKEN, or NPM_TOKEN is used.
+
+      - name: Use a supported pinned npm client
+        run: |
+          touch "$NPM_CONFIG_USERCONFIG"
+          npm install --prefix "$RUNNER_TEMP/cli-npm" --no-save --no-package-lock --ignore-scripts npm@11.21.0
+          printf '%s\n' "$RUNNER_TEMP/cli-npm/node_modules/.bin" >> "$GITHUB_PATH"
+          node --version
+          "$RUNNER_TEMP/cli-npm/node_modules/.bin/npm" --version
 
       - name: Install
         run: npm ci
@@ -32,8 +75,40 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public
+      - name: Pack the tested release and record its exact identity
+        run: |
+          python3 ../../scripts/ci/verify_cli_release.py --reviewed-sha "$REVIEWED_SHA" --expected-version "$EXPECTED_VERSION"
+          mkdir -p "$RUNNER_TEMP/cli-package"
+          npm pack --ignore-scripts --json --pack-destination "$RUNNER_TEMP/cli-package" > "$RUNNER_TEMP/cli-pack.json"
+          python3 - <<'PY'
+          import hashlib, json, os, tarfile
+          from pathlib import Path
+          package_dir = Path(os.environ["RUNNER_TEMP"]) / "cli-package"
+          packed = json.loads((Path(os.environ["RUNNER_TEMP"]) / "cli-pack.json").read_text())[0]
+          expected = os.environ["EXPECTED_VERSION"]
+          filename = "cleanapp-cli-" + expected + ".tgz"
+          if packed["filename"] != filename:
+              raise SystemExit("packed filename does not match reviewed version")
+          tarball = package_dir / filename
+          with tarfile.open(tarball) as archive:
+              package = json.load(archive.extractfile("package/package.json"))
+          if package["name"] != "@cleanapp/cli" or package["version"] != expected:
+              raise SystemExit("packed package identity differs from reviewed release")
+          evidence = {"package": package["name"], "version": expected, "source_sha": os.environ["REVIEWED_SHA"],
+                      "tarball": filename, "sha256": hashlib.sha256(tarball.read_bytes()).hexdigest(),
+                      "integrity": packed["integrity"], "shasum": packed["shasum"]}
+          (package_dir / "release-evidence.json").write_text(json.dumps(evidence, indent=2) + "\n")
+          print(json.dumps(evidence, indent=2))
+          PY
 
+      - name: Retain the tested tarball and release identity
+        uses: actions/upload-artifact@v4
+        with:
+          name: cleanapp-cli-${{ inputs.expected_version }}-${{ github.sha }}
+          path: ${{ runner.temp }}/cli-package/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish the exact tested tarball using GitHub OIDC
+        if: inputs.publish
+        run: npm publish "$RUNNER_TEMP/cli-package/cleanapp-cli-${EXPECTED_VERSION}.tgz" --ignore-scripts --access public --registry https://registry.npmjs.org
