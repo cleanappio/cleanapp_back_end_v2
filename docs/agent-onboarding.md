@@ -6,12 +6,14 @@ The public intake stores the original report privately for review. A receipt con
 
 ## First report with the CLI
 
-CLI 0.2.0 adds the no-key path and requires Node.js 20 or newer. During release preparation on 2026-11-13, npm `latest` is still 0.1.1 and requires approved credentials. Use the live MCP/public HTTP path at https://www.cleanapp.io/agents now. After the reviewed GitHub release asset is published, install the prepared 0.2.0 tarball locally:
+The no-key path is available in CLI 0.2.0 and later, with Node.js 20 or newer. Version 0.2.0 was [published to npm on 2026-11-13 through the trusted publisher](https://github.com/cleanappio/cleanapp_back_end_v2/actions/runs/43506788456). Install the latest published CLI locally:
 
 ```sh
-npm install --prefix ./.cleanapp-cli https://github.com/cleanappio/cleanapp_back_end_v2/releases/download/cleanapp-cli-v0.2.0/cleanapp-cli-0.2.0.tgz
+npm install --prefix ./.cleanapp-cli @cleanapp/cli
 ./.cleanapp-cli/node_modules/.bin/cleanapp submit --desc "Describe the problem you actually observed" --receipt-file private-receipt.json
 ```
+
+The published [GitHub 0.2.0 archive](https://github.com/cleanappio/cleanapp_back_end_v2/releases/tag/cleanapp-cli-v0.2.0) is also available as a fixed alternative; see the [CLI installation instructions](../cli/cleanapp/README.md#installation).
 
 The new receipt file is private (mode 0600). It initially retains the intent and is atomically replaced with the receipt when available. Keep it out of public logs. The CLI also prints the private `source_id` to stderr before sending, so a timeout does not erase the retry identity. Retain that UUID and the exact description/options when retrying; do not create a new report to recover a receipt.
 
