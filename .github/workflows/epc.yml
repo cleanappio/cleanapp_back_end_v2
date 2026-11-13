@@ -1,0 +1,62 @@
+name: EPC cumulative dispatch
+
+on:
+  pull_request:
+    paths:
+      - 'epc-pusher/**'
+      - 'db/patches/*epc*'
+      - 'platform_blueprint/deploy/prod/aws/**'
+      - '.github/workflows/epc.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'epc-pusher/**'
+      - 'db/patches/*epc*'
+      - 'platform_blueprint/deploy/prod/aws/**'
+      - '.github/workflows/epc.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  epc:
+    name: EPC worker, history import and AWS registration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mysql:
+        image: mysql:8.0.44
+        env:
+          MYSQL_ROOT_PASSWORD: epc-local-fixture
+          MYSQL_ROOT_HOST: '%'
+          MYSQL_DATABASE: epc_test
+        ports:
+          - 33316:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost --password=epc-local-fixture"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      EPC_TEST_DB_URL: mysql://root:epc-local-fixture@127.0.0.1:33316/epc_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install locked worker dependencies
+        working-directory: epc-pusher
+        run: corepack yarn install --frozen-lockfile
+      - name: Check worker types and delivery behavior on MySQL
+        working-directory: epc-pusher
+        run: |
+          npm run check
+          npm test
+          npm run test:integration
+      - name: Check idempotent historical import
+        run: python3 -m unittest discover -s epc-pusher/tools -p 'test_*.py' -v
+      - name: Check isolated AWS registration and rollback
+        run: python3 -m unittest discover -s platform_blueprint/deploy/prod/aws/tests -p 'test_*.py' -v

@@ -1,0 +1,18 @@
+{
+  "captured_from": "AWS production",
+  "captured_on": "2026-11-13",
+  "files": {
+    "runtime_boot.py": {
+      "installed_path": "/opt/cleanapp/host-runtime/runtime_boot.py",
+      "production_sha256": "b7764f246340ad7a345b4cdc43b8f91081504437fe1c119c5c4361f810f844c4"
+    },
+    "native_restart_policy.py": {
+      "installed_path": "/opt/cleanapp/host-runtime/native_restart_policy.py",
+      "production_sha256": "7e580a31bf9b739e3a414275e6e42bd5d7662261ba013a0ee97f629a43710c00"
+    },
+    "weekly_recovery.py": {
+      "installed_path": "/usr/local/lib/cleanapp-backup/weekly_recovery.py",
+      "production_sha256": "e194a8b9ac038486c4d3471f1b158abb8f5fef6b524f675bb16bb30b864787ea"
+    }
+  }
+}
