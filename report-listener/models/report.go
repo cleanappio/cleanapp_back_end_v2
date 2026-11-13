@@ -6,16 +6,20 @@ import (
 
 // Report represents a report from the reports table
 type Report struct {
-	Seq             int        `json:"seq" db:"seq"`
-	PublicID        string     `json:"public_id" db:"public_id"`
-	Timestamp       time.Time  `json:"timestamp" db:"ts"`
-	ID              string     `json:"id" db:"id"`
-	Team            int        `json:"team" db:"team"`
-	Latitude        float64    `json:"latitude" db:"latitude"`
-	Longitude       float64    `json:"longitude" db:"longitude"`
-	X               float64    `json:"x" db:"x"`
-	Y               float64    `json:"y" db:"y"`
-	Image           []byte     `json:"image,omitempty" db:"image"`
+	Seq       int       `json:"seq" db:"seq"`
+	PublicID  string    `json:"public_id" db:"public_id"`
+	Timestamp time.Time `json:"timestamp" db:"ts"`
+	ID        string    `json:"id" db:"id"`
+	Team      int       `json:"team" db:"team"`
+	Latitude  float64   `json:"latitude" db:"latitude"`
+	Longitude float64   `json:"longitude" db:"longitude"`
+	X         float64   `json:"x" db:"x"`
+	Y         float64   `json:"y" db:"y"`
+	Image     []byte    `json:"image,omitempty" db:"image"`
+	// ExtraImageCount is how many further photos (0 to 3) the report has. Set
+	// only on single-report detail; fetch each from the raw image endpoint
+	// with index=1..N.
+	ExtraImageCount int        `json:"extra_image_count,omitempty" db:"-"`
 	ActionID        *string    `json:"action_id,omitempty" db:"action_id"`
 	Description     *string    `json:"description,omitempty" db:"description"`
 	LastEmailSentAt *time.Time `json:"last_email_sent_at" db:"last_email_sent_at"`

@@ -206,3 +206,76 @@ func TestWebQueueUsesExistingHumanLaneWithoutInventedCoordinates(t *testing.T) {
 		t.Fatal("failed queue publish acknowledged")
 	}
 }
+
+func TestHumanWebAcceptsUpToFourPhotosAndRejectsTheRest(t *testing.T) {
+	photo := func() []byte { return webImage(t, "jpeg", 64, 64) }
+	ok := humanReportSubmissionRequest{Image: photo(), ExtraImages: [][]byte{photo(), webImage(t, "png", 32, 32), photo()}}
+	if err := validateHumanWebSubmission(ok); err != nil {
+		t.Fatalf("four photos rejected: %v", err)
+	}
+	// Noise does not compress, so two of these are ~1 MiB each: each passes the
+	// per-photo limit, together they exceed the per-report limit.
+	big := image.NewRGBA(image.Rect(0, 0, 1500, 1500))
+	seed := uint32(1)
+	for i := range big.Pix {
+		seed = seed*1664525 + 1013904223
+		big.Pix[i] = byte(seed >> 24)
+	}
+	var bigJPEG bytes.Buffer
+	if err := jpeg.Encode(&bigJPEG, big, &jpeg.Options{Quality: 50}); err != nil {
+		t.Fatal(err)
+	}
+	if n := bigJPEG.Len(); n > maxHumanWebImageBytes || 2*n <= maxHumanWebTotalImageBytes {
+		t.Fatalf("fixture is %d bytes; it must fit one photo but not two", n)
+	}
+	for name, req := range map[string]humanReportSubmissionRequest{
+		"five photos":              {Image: photo(), ExtraImages: [][]byte{photo(), photo(), photo(), photo()}},
+		"extras without a first":   {Annotation: "see photos", ExtraImages: [][]byte{photo()}},
+		"one extra is not a photo": {Image: photo(), ExtraImages: [][]byte{photo(), []byte("not an image")}},
+		"one extra is empty":       {Image: photo(), ExtraImages: [][]byte{{}}},
+		"together too large":       {Image: bigJPEG.Bytes(), ExtraImages: [][]byte{bigJPEG.Bytes()}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if validateHumanWebSubmission(req) == nil {
+				t.Fatal("invalid photo set accepted")
+			}
+		})
+	}
+}
+
+func TestHumanWebExtraPhotosReachTheWireItemAndChangeIdentity(t *testing.T) {
+	first, second := webImage(t, "jpeg", 64, 64), webImage(t, "png", 32, 32)
+	one := humanReportSubmissionRequest{Channel: humanChannelWeb, Annotation: "broken", Image: first}
+	two := one
+	two.ExtraImages = [][]byte{second}
+
+	sub := buildHumanWireSubmission(two, "human")
+	item := cleanAppWireIngestCoreItemFromSubmission(sub)
+	if len(item.ExtraImagesBase64) != 1 {
+		t.Fatalf("extra photos lost on the way to storage: %d", len(item.ExtraImagesBase64))
+	}
+	decoded, err := decodeWireInlineBytes(item.ExtraImagesBase64[0])
+	if err != nil || !bytes.Equal(decoded, second) {
+		t.Fatal("extra photo bytes changed")
+	}
+	if len(sub.Report.EvidenceBundle) != 2 {
+		t.Fatalf("evidence bundle has %d entries, want one per photo", len(sub.Report.EvidenceBundle))
+	}
+	// The same extension survives a JSON round trip (the stored form).
+	raw, _ := json.Marshal(sub)
+	var stored cleanAppWireSubmission
+	if err := json.Unmarshal(raw, &stored); err != nil {
+		t.Fatal(err)
+	}
+	if got := cleanAppWireExtraImagesBase64(stored); len(got) != 1 || got[0] != item.ExtraImagesBase64[0] {
+		t.Fatal("extra photos not readable after a JSON round trip")
+	}
+	// A single-photo report has no extension, and adding a photo is a
+	// different report for idempotency purposes.
+	if _, present := buildHumanWireSubmission(one, "human").Extensions[wireExtraImagesExtension]; present {
+		t.Fatal("single-photo report carries the extra-images extension")
+	}
+	if syntheticHumanSourceID("human", one) == syntheticHumanSourceID("human", two) {
+		t.Fatal("adding a photo did not change the material identity")
+	}
+}

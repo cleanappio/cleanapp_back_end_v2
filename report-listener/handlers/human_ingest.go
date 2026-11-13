@@ -31,6 +31,11 @@ const (
 	maxHumanWebImageBytes      = 1024 * 1024
 	maxHumanWebImageDimension  = 4096
 	maxHumanWebImagePixels     = 16 * 1024 * 1024
+	// A report carries at most four photos: the primary image plus three more.
+	maxHumanWebExtraImages = 3
+	// All photos of one report together. The whole request, base64 included,
+	// must fit the 2 MiB limit that nginx and the listener both enforce.
+	maxHumanWebTotalImageBytes = 1536 * 1024
 )
 
 // One submit limiter shared by all aliases; a client-supplied session is
@@ -51,8 +56,11 @@ type humanReportSubmissionRequest struct {
 	X          float64  `json:"x,omitempty"`
 	Y          float64  `json:"y,omitempty"`
 	Image      []byte   `json:"image,omitempty"`
-	ActionID   string   `json:"action_id,omitempty"`
-	Annotation string   `json:"annotation,omitempty"`
+	// ExtraImages are further photos of the same report, in the order the
+	// reporter added them. Web only; needs Image; see docs/operations/report-photos.md.
+	ExtraImages [][]byte `json:"extra_images,omitempty"`
+	ActionID    string   `json:"action_id,omitempty"`
+	Annotation  string   `json:"annotation,omitempty"`
 }
 
 type humanReportReceiptResponse struct {
@@ -103,6 +111,8 @@ func syntheticHumanSourceID(prefix string, req humanReportSubmissionRequest) str
 		ActionID   string   `json:"action_id,omitempty"`
 		Annotation string   `json:"annotation,omitempty"`
 		ImageHash  string   `json:"image_hash,omitempty"`
+		// Omitted when empty, so single-photo reports keep their existing identity.
+		ExtraImageHashes []string `json:"extra_image_hashes,omitempty"`
 	}{
 		Channel:    normalizeHumanChannel(req.Channel),
 		ReporterID: strings.TrimSpace(req.ReporterID),
@@ -119,6 +129,10 @@ func syntheticHumanSourceID(prefix string, req humanReportSubmissionRequest) str
 	if len(req.Image) > 0 {
 		sum := sha256.Sum256(req.Image)
 		fingerprint.ImageHash = hex.EncodeToString(sum[:])
+	}
+	for _, extra := range req.ExtraImages {
+		sum := sha256.Sum256(extra)
+		fingerprint.ExtraImageHashes = append(fingerprint.ExtraImageHashes, hex.EncodeToString(sum[:]))
 	}
 	payload, _ := json.Marshal(fingerprint)
 	sum := sha256.Sum256(payload)
@@ -184,12 +198,37 @@ func validateHumanWebSubmission(req humanReportSubmissionRequest) error {
 		return fmt.Errorf("add a description or an image")
 	}
 	if len(req.Image) == 0 {
+		if len(req.ExtraImages) > 0 {
+			return fmt.Errorf("extra images need a first image")
+		}
 		return nil
 	}
-	if len(req.Image) > maxHumanWebImageBytes {
+	if len(req.ExtraImages) > maxHumanWebExtraImages {
+		return fmt.Errorf("add at most 4 images")
+	}
+	total := 0
+	for _, photo := range append([][]byte{req.Image}, req.ExtraImages...) {
+		if err := validateHumanWebImage(photo); err != nil {
+			return err
+		}
+		total += len(photo)
+	}
+	if total > maxHumanWebTotalImageBytes {
+		return fmt.Errorf("images together must be at most 1.5 MiB")
+	}
+	return nil
+}
+
+// validateHumanWebImage applies the same rule to every photo of a report:
+// a complete, decodable JPEG or PNG within the size and dimension limits.
+func validateHumanWebImage(photo []byte) error {
+	if len(photo) == 0 {
+		return fmt.Errorf("image must not be empty")
+	}
+	if len(photo) > maxHumanWebImageBytes {
 		return fmt.Errorf("image must be at most 1 MiB")
 	}
-	cfg, format, err := image.DecodeConfig(bytes.NewReader(req.Image))
+	cfg, format, err := image.DecodeConfig(bytes.NewReader(photo))
 	if err != nil || (format != "jpeg" && format != "png") {
 		return fmt.Errorf("image must be a valid JPEG or PNG")
 	}
@@ -197,7 +236,7 @@ func validateHumanWebSubmission(req humanReportSubmissionRequest) error {
 		return fmt.Errorf("image dimensions exceed 4096 pixels or 16 megapixels")
 	}
 	// A valid header alone does not establish a decodable, complete image.
-	if _, _, err := image.Decode(bytes.NewReader(req.Image)); err != nil {
+	if _, _, err := image.Decode(bytes.NewReader(photo)); err != nil {
 		return fmt.Errorf("image must be a complete JPEG or PNG")
 	}
 	return nil
@@ -301,6 +340,28 @@ func buildHumanWireSubmission(req humanReportSubmissionRequest, sourcePrefix str
 				MIMEType:   "application/octet-stream",
 				CapturedAt: observedAt,
 			},
+		}
+		extras := make([]string, 0, len(req.ExtraImages))
+		for i, extra := range req.ExtraImages {
+			extras = append(extras, base64.StdEncoding.EncodeToString(extra))
+			sum := sha256.Sum256(extra)
+			sub.Report.EvidenceBundle = append(sub.Report.EvidenceBundle, struct {
+				EvidenceID string `json:"evidence_id,omitempty"`
+				Type       string `json:"type"`
+				URI        string `json:"uri,omitempty"`
+				SHA256     string `json:"sha256,omitempty"`
+				MIMEType   string `json:"mime_type,omitempty"`
+				CapturedAt string `json:"captured_at,omitempty"`
+			}{
+				EvidenceID: fmt.Sprintf("inline-image-%d", i+2),
+				Type:       "inline_image",
+				SHA256:     hex.EncodeToString(sum[:]),
+				MIMEType:   "application/octet-stream",
+				CapturedAt: observedAt,
+			})
+		}
+		if len(extras) > 0 {
+			sub.Extensions[wireExtraImagesExtension] = extras
 		}
 	}
 	return sub

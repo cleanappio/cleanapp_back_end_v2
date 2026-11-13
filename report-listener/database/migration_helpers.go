@@ -1317,6 +1317,17 @@ func ensureUnifiedDefectRoutingTables(ctx context.Context, db *sql.DB) error {
 			KEY idx_notify_execution_tasks_subject (subject_kind, subject_ref, task_status, wave_number),
 			KEY idx_notify_execution_tasks_target (target_id)
 		) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
+		// Photos 2 to 4 of a report. The first photo stays in reports.image so
+		// every existing reader keeps working. Rows are written once, in the
+		// transaction that creates the report. docs/operations/report-photos.md
+		`CREATE TABLE IF NOT EXISTS report_extra_images (
+			seq INT NOT NULL,
+			position TINYINT UNSIGNED NOT NULL,
+			image MEDIUMBLOB NOT NULL,
+			sha256 CHAR(64) NOT NULL,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (seq, position)
+		) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`,
 		`CREATE TABLE IF NOT EXISTS notify_outcomes (
 			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 			subject_kind VARCHAR(16) NOT NULL,

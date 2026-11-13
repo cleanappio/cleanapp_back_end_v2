@@ -72,6 +72,17 @@ CREATE TABLE IF NOT EXISTS reports(
   INDEX latitude_index (latitude),
   INDEX longitude_index (longitude)
 );
+
+-- Photos 2 to 4 of a report; the first stays in reports.image.
+-- See docs/operations/report-photos.md.
+CREATE TABLE IF NOT EXISTS report_extra_images(
+  seq INT NOT NULL,
+  position TINYINT UNSIGNED NOT NULL,
+  image MEDIUMBLOB NOT NULL,
+  sha256 CHAR(64) NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (seq, position)
+);
 SHOW TABLES;
 DESCRIBE TABLE reports;
 SHOW COLUMNS FROM reports;

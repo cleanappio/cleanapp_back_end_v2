@@ -107,6 +107,30 @@ func (h *Handlers) GetRawImageByPublicID(c *gin.Context) {
 		return
 	}
 
+	// index=1..3 selects one of the report's further photos; absent or 0 is
+	// the first photo, as before.
+	if raw := strings.TrimSpace(c.Query("index")); raw != "" && raw != "0" {
+		position, err := strconv.Atoi(raw)
+		if err != nil || position < 1 || position > 3 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid index parameter"})
+			return
+		}
+		extra, err := h.db.GetExtraImageByPublicID(c.Request.Context(), publicID, position)
+		if err != nil {
+			log.Printf("Failed to get image %d for report public_id %s: %v", position, publicID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve image"})
+			return
+		}
+		if len(extra) == 0 {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Image not found"})
+			return
+		}
+		contentType := detectImageContentType(extra)
+		c.Header("Content-Length", strconv.Itoa(len(extra)))
+		c.Data(http.StatusOK, contentType, extra)
+		return
+	}
+
 	imageData, err := h.db.GetImageByPublicID(c.Request.Context(), publicID)
 	if err != nil {
 		log.Printf("Failed to get image for report public_id %s: %v", publicID, err)
