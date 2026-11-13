@@ -188,6 +188,47 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual({path: path.read_bytes() for path in files_before}, files_before)
         self.assertEqual(json.loads((Path(second['receipt']) / 'manifest.json').read_text())['state'], 'applied')
 
+    def assert_changed_pin_blocks_rollback(self, created=False):
+        backend = self.host / 'backend-pins.json'; frontend = self.host / 'frontend-pins.json'
+        deploy.write_file(backend, deploy.json_bytes({'services': {}}))
+        with mock.patch.object(deploy, 'PINS', [backend, frontend]):
+            result = deploy.apply(IMAGE, self.env)
+            folder = Path(result['receipt'])
+            manifest = json.loads((folder / 'manifest.json').read_text())
+            self.assertTrue(manifest['pin_guards'][str(backend)]['exists'])
+            self.assertFalse(manifest['pin_guards'][str(frontend)]['exists'])
+            changed = frontend if created else backend
+            deploy.write_file(changed, deploy.json_bytes({'services': {roles.EPC_SERVICE: {'image': IMAGE}}}))
+            files_before = {Path(row['path']): Path(row['path']).read_bytes() for row in manifest['files']}
+            pin_before = changed.read_bytes(); receipt_before = (folder / 'manifest.json').read_bytes()
+            with mock.patch.object(deploy, 'remove_epc') as stop, mock.patch.object(deploy, 'write_file') as write:
+                with self.assertRaisesRegex(ValueError, 'CI image pins changed'): deploy.rollback(folder)
+                stop.assert_not_called(); write.assert_not_called()
+            self.assertTrue(self.epc_running)
+            self.assertEqual({path: path.read_bytes() for path in files_before}, files_before)
+            self.assertEqual(changed.read_bytes(), pin_before)
+            self.assertEqual((folder / 'manifest.json').read_bytes(), receipt_before)
+
+    def test_changed_ci_pin_refuses_rollback_with_zero_mutations(self):
+        self.assert_changed_pin_blocks_rollback()
+
+    def test_previously_absent_ci_pin_refuses_rollback_after_creation(self):
+        self.assert_changed_pin_blocks_rollback(created=True)
+
+    def test_completed_rollback_replay_allows_unrelated_ci_pin_changes(self):
+        pin = self.host / 'backend-pins.json'
+        deploy.write_file(pin, deploy.json_bytes({'services': {}}))
+        with mock.patch.object(deploy, 'PINS', [pin]):
+            result = deploy.apply(IMAGE, self.env)
+            deploy.rollback(Path(result['receipt']))
+            deploy.write_file(pin, deploy.json_bytes({'services': {'cleanapp_frontend': {'image': IMAGE}}}))
+            changed = pin.read_bytes()
+            with mock.patch.object(deploy, 'remove_epc') as stop, mock.patch.object(deploy, 'write_file') as write:
+                replay = deploy.rollback(Path(result['receipt']))
+                self.assertTrue(replay['already_rolled_back'])
+                stop.assert_not_called(); write.assert_not_called()
+            self.assertEqual(pin.read_bytes(), changed)
+
     def test_replay_rejects_missing_backup_scope_registration(self):
         deploy.apply(IMAGE, self.env)
         deploy.write_file(self.scope, deploy.json_bytes({'required': ['/original'], 'optional': []}))
