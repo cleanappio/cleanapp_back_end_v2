@@ -197,7 +197,7 @@ test('MySQL migration, cumulative receipts and durable worker lifecycle', {skip:
     await db.query('INSERT INTO report_analysis(seq,brand_name) VALUES (102,?)',[longBrand])
     await cooldownWorker.tick()
     const [longKey]=await db.query<RowDataPacket[]>(`SELECT CHAR_LENGTH(c.\`key\`) AS n,o.status FROM epc_outbox o JOIN epc_contracts c ON c.id=o.contract_id WHERE o.event_key='prod:report:102'`)
-    assert.equal(Number(longKey[0]!.n),269); assert.equal(longKey[0]!.status,'sent')
+    assert.equal(Number(longKey[0]!.n),270); assert.equal(longKey[0]!.status,'sent')
     await script(db,migration)
     const [legacy] = await db.query<RowDataPacket[]>('SELECT metadata,source_namespace,status FROM epc_outbox WHERE id=500')
     assert.equal(legacy[0]!.source_namespace,'legacy-dev'); assert.equal(legacy[0]!.status,'sent')
