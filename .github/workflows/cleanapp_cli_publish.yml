@@ -40,7 +40,6 @@ jobs:
       REVIEWED_SHA: ${{ inputs.reviewed_sha }}
       EXPECTED_VERSION: ${{ inputs.expected_version }}
       NPM_CONFIG_REGISTRY: https://registry.npmjs.org
-      NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/cleanapp-cli-release.npmrc
     steps:
       - uses: actions/checkout@v4
         with:
@@ -60,6 +59,8 @@ jobs:
 
       - name: Use a supported pinned npm client
         run: |
+          export NPM_CONFIG_USERCONFIG="$RUNNER_TEMP/cleanapp-cli-release.npmrc"
+          printf 'NPM_CONFIG_USERCONFIG=%s\n' "$NPM_CONFIG_USERCONFIG" >> "$GITHUB_ENV"
           touch "$NPM_CONFIG_USERCONFIG"
           npm install --prefix "$RUNNER_TEMP/cli-npm" --no-save --no-package-lock --ignore-scripts npm@11.21.0
           printf '%s\n' "$RUNNER_TEMP/cli-npm/node_modules/.bin" >> "$GITHUB_PATH"
