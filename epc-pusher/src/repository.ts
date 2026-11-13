@@ -230,8 +230,11 @@ export class MysqlNotificationStore implements NotificationStore {
       [CAMPAIGN, this.config.namespace])
       if (!limits[0]) throw new Error('Missing EPC dispatch cursor')
       if (Number(limits[0].cooling)) return undefined
-      const [rows] = await this.db.query<QueuedRow[]>(`SELECT o.*,c.address FROM epc_outbox o
-        JOIN epc_contracts c ON c.id=o.contract_id
+      // The locking read must cover only outbox rows. A joined FOR UPDATE also
+      // locks contracts and requires UPDATE there, despite only reading address.
+      const [rows] = await this.db.query<QueuedRow[]>(`SELECT o.*,
+        (SELECT c.address FROM epc_contracts c WHERE c.id=o.contract_id) AS address
+        FROM epc_outbox o
         WHERE o.source_namespace=? AND o.campaign=? AND o.status IN ('pending','held')
           AND o.source_report_seq>=?
           AND (o.next_attempt_at IS NULL OR o.next_attempt_at<=UTC_TIMESTAMP(3))
