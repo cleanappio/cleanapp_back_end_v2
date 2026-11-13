@@ -369,3 +369,5 @@ jobs:
           npm run build
       - name: OpenClaw public and approved intake tests
         run: python3 -m unittest discover -s openclaw/cleanapp_ingest_skill -p 'test_*.py'
+      - name: Manual npm release source and version guards
+        run: python3 -m unittest discover -s scripts/ci -p 'test_verify_cli_release.py'
