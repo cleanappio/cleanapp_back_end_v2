@@ -43,6 +43,7 @@ SOURCES = {
     "cleanapp_pipelines": "docker_pipelines",
     "cleanapp_email_fetcher": "email-fetcher",
     "cleanapp_email_service": "email-service",
+    "cleanapp_epc_pusher": "epc-pusher",
     "cleanapp_report_analyze_human": "report-analyze-pipeline",
     "cleanapp_report_renderer_service": "report-fast-renderer",
     "cleanapp_report_listener": "report-listener",

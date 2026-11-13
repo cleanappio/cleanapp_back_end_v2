@@ -1,41 +1,74 @@
-
 const API_URL = 'https://chatapi.blockscan.com/v1/api'
 
-
-
-export async function sendChat(address: string, msg: string) {
-  const apikey = (process.env.BLOCKSCAN_CHAT_API_KEY || '').trim()
-  if (!apikey) {
-    console.warn('Blockscan API key missing at send time')
-    throw 'blockscan apikey missing'
+export class BlockscanError extends Error {
+  constructor(
+    readonly code: string,
+    readonly outcome: 'retryable' | 'permanent' | 'uncertain',
+    readonly retryAfterMs?: number,
+  ) {
+    // Provider response bodies and credentials must never enter logs/errors.
+    super(code)
+    this.name = 'BlockscanError'
   }
-  const apikeyPreview = `${apikey.slice(0, 4)}...${apikey.slice(-4)}`
-  console.log(`Blockscan send: key_len=${apikey.length} key_preview=${apikeyPreview} to=${address}`)
-
-  let params = {
-    method: "sendchat",
-    apikey,
-    to: address,
-    msg,
-    replytoid: "0"
-  }
-
-  let r = await fetch(API_URL, {
-    method: "POST",
-    body: new URLSearchParams(params)
-  })
-
-  if (r.status != 200) {
-    console.error("blockscan sendchat method got non 200 response:", r)
-    throw "blockscan sendchat api error"
-  }
-
-  let data = await r.json()
-  if (data.message != "OK") {
-    console.error("blockscan sendchat strange response:", data)
-    throw "blockscan sendchat api error"
-  }
-
-  return data.result
 }
 
+export interface SendOptions {
+  apiKey?: string
+  timeoutMs?: number
+  fetch?: typeof fetch
+}
+
+export async function sendChat(address: string, msg: string, options: SendOptions = {}): Promise<string> {
+  const apikey = (options.apiKey ?? process.env.BLOCKSCAN_CHAT_API_KEY ?? '').trim()
+  if (!apikey) throw new BlockscanError('blockscan_key_missing', 'permanent')
+  let response: Response
+  try {
+    response = await (options.fetch ?? fetch)(API_URL, {
+      method: 'POST',
+      headers: {'User-Agent': 'CleanApp-EPC/1.1 (+https://cleanapp.io)'},
+      body: new URLSearchParams({method: 'sendchat', apikey, to: address, msg, replytoid: '0'}),
+      signal: AbortSignal.timeout(options.timeoutMs ?? 30_000),
+    })
+  } catch {
+    // A connection failure/timeout may follow provider acceptance.
+    throw new BlockscanError('blockscan_transport_uncertain', 'uncertain')
+  }
+  if (response.status === 429) {
+    const header = response.headers.get('retry-after')
+    const delay = header && /^\d+$/.test(header)
+      ? Number(header) * 1_000
+      : header ? Math.max(0, Date.parse(header) - Date.now()) : undefined
+    throw new BlockscanError('blockscan_rate_limited', 'retryable', Number.isFinite(delay) ? delay : undefined)
+  }
+  if ([400, 401, 403, 404, 422].includes(response.status)) {
+    throw new BlockscanError(`blockscan_http_${response.status}`, 'permanent')
+  }
+  if (response.status !== 200) {
+    throw new BlockscanError(`blockscan_http_${response.status}_uncertain`, 'uncertain')
+  }
+  let data: {status?: unknown, message?: unknown, result?: unknown}
+  try {
+    const parsed: unknown = await response.json()
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Invalid acknowledgment')
+    data = parsed as typeof data
+  } catch {
+    throw new BlockscanError('blockscan_response_uncertain', 'uncertain')
+  }
+  if (data.status === 0 || data.status === '0') {
+    const rejection = `${typeof data.message === 'string' ? data.message : ''} ${typeof data.result === 'string' ? data.result : ''}`
+    if (/rate.?limit|too many|temporar|busy/i.test(rejection)) {
+      throw new BlockscanError('blockscan_rejected_retryable', 'retryable')
+    }
+    throw new BlockscanError('blockscan_rejected', 'permanent')
+  }
+  if ((data.status !== 1 && data.status !== '1') || data.message !== 'OK') {
+    throw new BlockscanError('blockscan_acknowledgment_uncertain', 'uncertain')
+  }
+  const messageId = String(data.result)
+  if ((typeof data.result !== 'string' && typeof data.result !== 'number')
+      || (typeof data.result === 'number' && !Number.isSafeInteger(data.result))
+      || !/^[1-9][0-9]{0,127}$/.test(messageId)) {
+    throw new BlockscanError('blockscan_acknowledgment_uncertain', 'uncertain')
+  }
+  return messageId
+}
