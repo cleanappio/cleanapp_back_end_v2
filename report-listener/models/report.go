@@ -16,8 +16,10 @@ type Report struct {
 	X         float64   `json:"x" db:"x"`
 	Y         float64   `json:"y" db:"y"`
 	Image     []byte    `json:"image,omitempty" db:"image"`
-	// ExtraImages are photos 2 to 4, in order. Set only on single-report detail.
-	ExtraImages     [][]byte   `json:"extra_images,omitempty" db:"-"`
+	// ExtraImageCount is how many further photos (0 to 3) the report has. Set
+	// only on single-report detail; fetch each from the raw image endpoint
+	// with index=1..N.
+	ExtraImageCount int        `json:"extra_image_count,omitempty" db:"-"`
 	ActionID        *string    `json:"action_id,omitempty" db:"action_id"`
 	Description     *string    `json:"description,omitempty" db:"description"`
 	LastEmailSentAt *time.Time `json:"last_email_sent_at" db:"last_email_sent_at"`

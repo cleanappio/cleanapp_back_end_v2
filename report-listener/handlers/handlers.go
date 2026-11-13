@@ -1003,14 +1003,15 @@ func (h *Handlers) GetReportByPublicID(c *gin.Context) {
 		return
 	}
 	h.attachPublicNotificationSummary(c.Request.Context(), reportWithAnalysis)
-	// Further photos share the first photo's visibility: the report was just
-	// read under the public rules. Best effort; the report is still served.
+	// How many further photos there are; the bytes are served by the raw
+	// image endpoint (index=1..N), which applies the media rules itself.
+	// Best effort: a failed count just means the page shows one photo.
 	if len(reportWithAnalysis.Report.Image) > 0 {
-		extras, err := h.db.ReportExtraImages(c.Request.Context(), reportWithAnalysis.Report.Seq)
+		count, err := h.db.ReportExtraImageCount(c.Request.Context(), reportWithAnalysis.Report.Seq)
 		if err != nil {
-			log.Printf("warn: extra images unavailable for report %s: %v", publicID, err)
+			log.Printf("warn: extra image count unavailable for report %s: %v", publicID, err)
 		}
-		reportWithAnalysis.Report.ExtraImages = extras
+		reportWithAnalysis.Report.ExtraImageCount = count
 	}
 	c.JSON(http.StatusOK, reportWithAnalysis)
 }

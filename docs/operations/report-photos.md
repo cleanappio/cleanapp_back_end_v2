@@ -34,10 +34,13 @@ their own table.
    analysis and the evidence classifier. It is never stored or shown. If the
    extra photos cannot be read or laid out, analysis proceeds on the first
    photo and logs why. The location pass still looks at the first photo only.
-5. **Public report** (`GET /api/v3/reports/by-public-id`). The response gains
-   `report.extra_images` (base64, in order) when there are any. They are
-   returned only with a report that was just read under the public
-   visibility rules, and only when it has a first photo.
+5. **Public report**. `GET /api/v3/reports/by-public-id` gains
+   `report.extra_image_count` (0 to 3). The photos themselves come from the
+   existing raw image endpoint with an index:
+   `GET /api/v3/reports/rawimage/by-public-id?public_id=...&index=1` (to 3).
+   Without `index` it returns the first photo as before. An indexed photo is
+   served under exactly the first photo's rules: the report must be publicly
+   visible and its media not withheld for privacy.
 
 ## Table
 
