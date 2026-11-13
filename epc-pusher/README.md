@@ -84,6 +84,12 @@ scanning, every rescan wrap, and claims of already queued events. Raising it ski
 lower report sequences; lowering it lets bounded rescans cover the newly included
 earlier range without replacing existing receipts.
 
+If Blockscan accepts established conversations but rejects new recipients, set
+`EPC_EXISTING_CHATS_ONLY=true`. Dispatch then requires a previous successful
+receipt for the stored destination. Other new notices remain held in the same
+cumulative outbox. The default is false; clearing this setting after resolving
+the provider restriction releases held notices without replaying sent events.
+
 ## Dispatch and recovery
 
 An advisory database lock permits one worker per source namespace. The worker

@@ -41,7 +41,7 @@ async function main(): Promise<void> {
     const worker = new Worker(store, config, (address, message) =>
       sendChat(address, message, {timeoutMs: config.requestTimeoutMs}))
     await worker.initialize()
-    console.log(`EPC worker ready namespace=${config.namespace} dispatch=${config.dispatch}`)
+    console.log(`EPC worker ready namespace=${config.namespace} dispatch=${config.dispatch} existingChatsOnly=${config.existingChatsOnly}`)
     while (!stopping) {
       const active = await worker.tick()
       if (!active) await new Promise(resolve => setTimeout(resolve, config.pollMs))
