@@ -45,7 +45,8 @@ def request(method, route, body=None, token=None, headers=None):
 
 def accepted(body, status=200):
     code, result, headers = request("POST", path, body)
-    assert code == status, ("unexpected submit status", code, list(result))
+    # Error codes are useful diagnostics; receipt/token values stay private.
+    assert code == status, ("unexpected submit status", code, result.get("processing_status"), [item.get("code") for item in result.get("errors", [])])
     assert headers.get("Cache-Control") == "no-store"
     assert result["publication_status"] == "private" and result["status"] == "quarantined"
     assert isinstance(result["idempotency_replay"], bool)

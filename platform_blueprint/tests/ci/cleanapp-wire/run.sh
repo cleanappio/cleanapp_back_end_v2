@@ -40,6 +40,22 @@ wait_http_200() {
   return 1
 }
 
+wait_rabbit_amqp_ready() {
+  # Compose's ping health check only proves the Erlang node is reachable.
+  # After a restart it can pass while RabbitMQ is still booting its AMQP
+  # listener. Assert the dependency we actually need before testing recovery.
+  for _ in $(seq 1 30); do
+    if dc exec -T rabbitmq rabbitmq-diagnostics -q check_running >/dev/null 2>&1 &&
+      dc exec -T rabbitmq rabbitmq-diagnostics -q check_port_listener 5672 >/dev/null 2>&1 &&
+      dc exec -T rabbitmq rabbitmq-diagnostics -q check_port_connectivity >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  echo "RabbitMQ application/AMQP listener did not become ready" >&2
+  return 1
+}
+
 mysql_query() {
   local sql="$1"
   dc exec -T mysql mysql -uroot -proot cleanapp -N -e "$sql"
@@ -281,6 +297,7 @@ echo "== durable private receipt survives broker failure and recovers the same i
 dc stop rabbitmq
 python3 "$PUBLIC_AGENT_TEST" --state-file "$PUBLIC_AGENT_STATE" --phase queue-fail
 dc up -d --wait rabbitmq
+wait_rabbit_amqp_ready
 python3 "$PUBLIC_AGENT_TEST" --state-file "$PUBLIC_AGENT_STATE" --phase queue-recover
 [[ "$(mysql_query "SELECT COUNT(*) FROM wire_submissions_raw WHERE fetcher_id='public-agent-anonymous-v1';")" == "6" ]]
 
