@@ -92,8 +92,12 @@ An exact template is reused; new notices store their rendered body with encoded
 brand URL components. The production cursor is independent of legacy receipt
 IDs and legacy report sequences.
 
-Each tick commits a bounded forward queue batch plus a bounded rescan of earlier
-source sequences. The rescan wraps at the configured sequence floor, so late analysis and reports
+Each tick first reads at most `EPC_SCAN_BATCH_SIZE` forward sequence IDs through
+the ordered sequence index. Eligibility and preferred-language sorting then run
+only on those materialized IDs through indexed point lookups. Forward progress
+commits through the source window even if every analysis in it is invalid or
+private. The bounded rescan uses the same candidate-driven join for at most
+`EPC_RESCAN_WINDOW_SIZE` earlier source sequence IDs. The rescan wraps at the configured sequence floor, so late analysis and reports
 that
 later become valid/public are picked up below the forward cursor. Unique event
 keys deduplicate repeated scans and verified legacy aliases across namespaces.
