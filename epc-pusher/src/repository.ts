@@ -229,8 +229,10 @@ export class MysqlNotificationStore implements NotificationStore {
 
   async claimNextNotification(): Promise<PendingNotification | undefined> {
     const filter = eligibility(this.config)
-    const recipient = this.config.existingChatsOnly ? ` AND EXISTS (
-      SELECT 1 FROM epc_outbox receipt WHERE receipt.contract_id=o.contract_id AND receipt.status='sent')` : ''
+    // LIMIT prevents semijoin materialization of the entire cumulative outbox.
+    const recipient = this.config.existingChatsOnly ? ` AND (
+      SELECT receipt.id FROM epc_outbox receipt
+      WHERE receipt.contract_id=o.contract_id AND receipt.status='sent' LIMIT 1) IS NOT NULL` : ''
     return this.inTransaction(async () => {
       const [limits] = await this.db.query<RowDataPacket[]>(`SELECT
         COALESCE(dispatch_not_before>UTC_TIMESTAMP(3),FALSE) AS cooling
