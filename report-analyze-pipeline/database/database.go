@@ -268,6 +268,25 @@ func (d *Database) GetReportImage(seq int) ([]byte, error) {
 	return image, nil
 }
 
+// GetReportExtraImages returns photos 2 to 4 of a report, in order
+// (report_extra_images; written by report-listener). Most reports have none.
+func (d *Database) GetReportExtraImages(seq int) ([][]byte, error) {
+	rows, err := d.db.Query(`SELECT image FROM report_extra_images WHERE seq = ? ORDER BY position LIMIT 3`, seq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch extra images for report %d: %w", seq, err)
+	}
+	defer rows.Close()
+	var images [][]byte
+	for rows.Next() {
+		var image []byte
+		if err := rows.Scan(&image); err != nil {
+			return nil, fmt.Errorf("failed to read extra image for report %d: %w", seq, err)
+		}
+		images = append(images, image)
+	}
+	return images, rows.Err()
+}
+
 // SaveAnalysis saves the analysis result to the database
 func (d *Database) SaveAnalysis(analysis *ReportAnalysis) error {
 	analysis.ReportKind = evidence.NormalizeKind(analysis.ReportKind)

@@ -53,6 +53,7 @@ func (d *analysisStore) LockReportAnalysis(context.Context, int) (*database.Repo
 }
 func (d *analysisStore) GetReportBySeq(int) (*database.Report, error) { return d.report, nil }
 func (d *analysisStore) GetReportImage(int) ([]byte, error)           { return nil, nil }
+func (d *analysisStore) GetReportExtraImages(int) ([][]byte, error)   { return nil, nil }
 func (d *analysisStore) SaveAnalysis(a *database.ReportAnalysis) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()

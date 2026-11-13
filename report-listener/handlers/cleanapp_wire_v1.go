@@ -232,8 +232,10 @@ type cleanAppWireIngestCoreItem struct {
 	AgentVersion string
 	SourceType   string
 	ImageBase64  string
-	Tags         []string
-	Media        []cleanAppWireIngestCoreMedia
+	// ExtraImagesBase64 are photos 2 to 4 of the same report (report_extra_images).
+	ExtraImagesBase64 []string
+	Tags              []string
+	Media             []cleanAppWireIngestCoreMedia
 }
 
 type cleanAppWireIngestCoreResult struct {
@@ -729,15 +731,16 @@ func (h *Handlers) processCleanAppWireSubmissionInternalWithHook(
 
 func cleanAppWireIngestCoreItemFromSubmission(sub cleanAppWireSubmission) cleanAppWireIngestCoreItem {
 	item := cleanAppWireIngestCoreItem{
-		SourceID:     sub.SourceID,
-		Title:        sub.Report.Title,
-		Description:  cleanAppWireDescription(sub),
-		CollectedAt:  chooseObservedAt(sub),
-		AgentID:      sub.Agent.AgentID,
-		AgentVersion: sub.Agent.SoftwareVersion,
-		SourceType:   cleanAppWireSourceType(sub),
-		ImageBase64:  cleanAppWireInlineImageBase64(sub),
-		Tags:         append([]string(nil), sub.Report.Tags...),
+		SourceID:          sub.SourceID,
+		Title:             sub.Report.Title,
+		Description:       cleanAppWireDescription(sub),
+		CollectedAt:       chooseObservedAt(sub),
+		AgentID:           sub.Agent.AgentID,
+		AgentVersion:      sub.Agent.SoftwareVersion,
+		SourceType:        cleanAppWireSourceType(sub),
+		ImageBase64:       cleanAppWireInlineImageBase64(sub),
+		ExtraImagesBase64: cleanAppWireExtraImagesBase64(sub),
+		Tags:              append([]string(nil), sub.Report.Tags...),
 	}
 	if sub.Report.Location != nil {
 		item.Lat = &sub.Report.Location.Lat
@@ -1050,6 +1053,31 @@ func cleanAppWireInlineImageBase64(sub cleanAppWireSubmission) string {
 	return ""
 }
 
+// wireExtraImagesExtension carries photos 2 to 4 of a report as base64
+// strings. Only the human web intake writes it today.
+const wireExtraImagesExtension = "extra_images_base64"
+
+// wireMaxExtraImages bounds the extension for every Wire source.
+const wireMaxExtraImages = 3
+
+func cleanAppWireExtraImagesBase64(sub cleanAppWireSubmission) []string {
+	if sub.Extensions == nil {
+		return nil
+	}
+	var out []string
+	switch values := sub.Extensions[wireExtraImagesExtension].(type) {
+	case []string: // built in-process by the human intake
+		out = append(out, values...)
+	case []any: // decoded from JSON
+		for _, value := range values {
+			if s, ok := value.(string); ok {
+				out = append(out, s)
+			}
+		}
+	}
+	return out
+}
+
 func decodeWireInlineBytes(raw string) ([]byte, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -1242,6 +1270,19 @@ func (h *Handlers) cleanAppWireIngestCore(
 		}
 		img = decoded
 	}
+	var extraImages [][]byte
+	if len(item.ExtraImagesBase64) > 0 {
+		if len(img) == 0 || len(item.ExtraImagesBase64) > wireMaxExtraImages {
+			return cleanAppWireIngestCoreResult{}, "INVALID_EXTRA_IMAGES", http.StatusBadRequest
+		}
+		for _, raw := range item.ExtraImagesBase64 {
+			decoded, err := decodeWireInlineBytes(raw)
+			if err != nil || len(decoded) == 0 || len(decoded) > maxHumanWebImageBytes {
+				return cleanAppWireIngestCoreResult{}, "INVALID_EXTRA_IMAGES", http.StatusBadRequest
+			}
+			extraImages = append(extraImages, decoded)
+		}
+	}
 
 	tx, err := h.db.DB().BeginTx(ctx, nil)
 	if err != nil {
@@ -1272,6 +1313,18 @@ func (h *Handlers) cleanAppWireIngestCore(
 	}
 	firstID, _ := res.LastInsertId()
 	seq := int(firstID)
+
+	// Same transaction as the report: a report never exists with only some
+	// of its photos.
+	for i, extra := range extraImages {
+		sum := sha256.Sum256(extra)
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO report_extra_images (seq, position, image, sha256) VALUES (?, ?, ?, ?)",
+			seq, i+1, extra, hex.EncodeToString(sum[:]),
+		); err != nil {
+			return cleanAppWireIngestCoreResult{}, "REPORT_EXTRA_IMAGE_INSERT_FAILED", http.StatusInternalServerError
+		}
+	}
 
 	_, err = tx.ExecContext(ctx,
 		`INSERT INTO report_raw (
