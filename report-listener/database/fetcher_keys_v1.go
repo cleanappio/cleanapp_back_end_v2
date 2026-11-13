@@ -5,9 +5,13 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 )
+
+// ErrQuotaExceeded distinguishes a configured capacity limit from a database failure.
+var ErrQuotaExceeded = errors.New("quota exceeded")
 
 // FetcherV1 represents a fetcher (submitter) for the v1 public ingest surface.
 // It reuses the legacy `fetchers` table (token_hash/active) but treats status/tier/caps as canonical.
@@ -279,63 +283,61 @@ func (d *Database) GetUsageV1(ctx context.Context, fetcherID, keyID string, now 
 	return minuteUsed, dayUsed, nil
 }
 
+// QuotaBudgetV1 is a durable capacity bucket. Caps <=0 preserve the legacy
+// unlimited convention; public intake always supplies positive caps.
+type QuotaBudgetV1 struct {
+	FetcherID, KeyID       string
+	PerMinuteCap, DailyCap int
+}
+
 // ConsumeQuotaV1 atomically checks and increments per-minute and daily quotas.
-// caps <= 0 are treated as "unlimited".
-func (d *Database) ConsumeQuotaV1(ctx context.Context, fetcherID, keyID string, now time.Time, items int, perMinuteCap int, dailyCap int) error {
-	if items <= 0 {
+func (d *Database) ConsumeQuotaV1(ctx context.Context, fetcherID, keyID string, now time.Time, items, perMinuteCap, dailyCap int) error {
+	return d.ConsumeQuotaBudgetsV1(ctx, []QuotaBudgetV1{{fetcherID, keyID, perMinuteCap, dailyCap}}, now, items)
+}
+
+// ConsumeQuotaBudgetsV1 reserves all budgets together. Public intake locks its
+// global bucket first: failed/over-limit attempts create no persistent IP rows
+// and cannot partially consume another budget. All callers use the same order.
+func (d *Database) ConsumeQuotaBudgetsV1(ctx context.Context, budgets []QuotaBudgetV1, now time.Time, items int) error {
+	if items <= 0 || len(budgets) == 0 {
 		return nil
 	}
-
 	minBucket := now.UTC().Truncate(time.Minute)
 	dayBucket := now.UTC().Truncate(24 * time.Hour)
-
 	tx, err := d.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback()
-
-	ensureRow := func(q string, args ...interface{}) error {
-		_, err := tx.ExecContext(ctx, q, args...)
-		return err
+	for _, budget := range budgets {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO fetcher_usage_minute (fetcher_id,key_id,bucket_minute,items) VALUES (?,?,?,0) ON DUPLICATE KEY UPDATE items=items`, budget.FetcherID, budget.KeyID, minBucket); err != nil {
+			return fmt.Errorf("ensure minute bucket: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO fetcher_usage_daily (fetcher_id,key_id,bucket_date,items) VALUES (?,?,?,0) ON DUPLICATE KEY UPDATE items=items`, budget.FetcherID, budget.KeyID, dayBucket); err != nil {
+			return fmt.Errorf("ensure day bucket: %w", err)
+		}
+		var minUsed, dayUsed int
+		if err := tx.QueryRowContext(ctx, `SELECT items FROM fetcher_usage_minute WHERE fetcher_id=? AND key_id=? AND bucket_minute=? FOR UPDATE`, budget.FetcherID, budget.KeyID, minBucket).Scan(&minUsed); err != nil {
+			return fmt.Errorf("lock minute bucket: %w", err)
+		}
+		if err := tx.QueryRowContext(ctx, `SELECT items FROM fetcher_usage_daily WHERE fetcher_id=? AND key_id=? AND bucket_date=? FOR UPDATE`, budget.FetcherID, budget.KeyID, dayBucket).Scan(&dayUsed); err != nil {
+			return fmt.Errorf("lock day bucket: %w", err)
+		}
+		if budget.PerMinuteCap > 0 && minUsed+items > budget.PerMinuteCap {
+			return fmt.Errorf("per-minute %w", ErrQuotaExceeded)
+		}
+		if budget.DailyCap > 0 && dayUsed+items > budget.DailyCap {
+			return fmt.Errorf("daily %w", ErrQuotaExceeded)
+		}
 	}
-
-	// Ensure rows exist for locking.
-	if err := ensureRow(`INSERT INTO fetcher_usage_minute (fetcher_id, key_id, bucket_minute, items) VALUES (?, ?, ?, 0)
-		ON DUPLICATE KEY UPDATE items = items`, fetcherID, keyID, minBucket); err != nil {
-		return fmt.Errorf("ensure minute bucket: %w", err)
+	for _, budget := range budgets {
+		if _, err := tx.ExecContext(ctx, `UPDATE fetcher_usage_minute SET items=items+? WHERE fetcher_id=? AND key_id=? AND bucket_minute=?`, items, budget.FetcherID, budget.KeyID, minBucket); err != nil {
+			return fmt.Errorf("inc minute bucket: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE fetcher_usage_daily SET items=items+? WHERE fetcher_id=? AND key_id=? AND bucket_date=?`, items, budget.FetcherID, budget.KeyID, dayBucket); err != nil {
+			return fmt.Errorf("inc day bucket: %w", err)
+		}
 	}
-	if err := ensureRow(`INSERT INTO fetcher_usage_daily (fetcher_id, key_id, bucket_date, items) VALUES (?, ?, ?, 0)
-		ON DUPLICATE KEY UPDATE items = items`, fetcherID, keyID, dayBucket); err != nil {
-		return fmt.Errorf("ensure day bucket: %w", err)
-	}
-
-	var minUsed, dayUsed int
-	if err := tx.QueryRowContext(ctx, `SELECT items FROM fetcher_usage_minute WHERE fetcher_id=? AND key_id=? AND bucket_minute=? FOR UPDATE`,
-		fetcherID, keyID, minBucket).Scan(&minUsed); err != nil {
-		return fmt.Errorf("lock minute bucket: %w", err)
-	}
-	if err := tx.QueryRowContext(ctx, `SELECT items FROM fetcher_usage_daily WHERE fetcher_id=? AND key_id=? AND bucket_date=? FOR UPDATE`,
-		fetcherID, keyID, dayBucket).Scan(&dayUsed); err != nil {
-		return fmt.Errorf("lock day bucket: %w", err)
-	}
-
-	if perMinuteCap > 0 && minUsed+items > perMinuteCap {
-		return fmt.Errorf("per-minute quota exceeded")
-	}
-	if dailyCap > 0 && dayUsed+items > dailyCap {
-		return fmt.Errorf("daily quota exceeded")
-	}
-
-	if _, err := tx.ExecContext(ctx, `UPDATE fetcher_usage_minute SET items = items + ? WHERE fetcher_id=? AND key_id=? AND bucket_minute=?`,
-		items, fetcherID, keyID, minBucket); err != nil {
-		return fmt.Errorf("inc minute bucket: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE fetcher_usage_daily SET items = items + ? WHERE fetcher_id=? AND key_id=? AND bucket_date=?`,
-		items, fetcherID, keyID, dayBucket); err != nil {
-		return fmt.Errorf("inc day bucket: %w", err)
-	}
-
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit quota tx: %w", err)
 	}

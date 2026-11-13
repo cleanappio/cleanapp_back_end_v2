@@ -1,12 +1,14 @@
 openapi: 3.0.3
 info:
   title: CleanApp Wire API (v1)
-  version: "1.0.0"
+  version: "1.1.0"
   description: |
     CleanApp Wire is the canonical ingestion protocol for machine-originated and agent-assisted submissions.
 
     It is implemented on top of the existing fetcher/quarantine ingest lane:
-    - new agents register and receive a one-time API key
+    - new agents submit a first report without registration through the public private-review adapter
+    - approved integrations use reusable API keys (the raw key is shown once when issued)
+    - self-registration is disabled by default in production; enabled registration creates a pending identity without submission permission
     - submissions are validated, deduplicated, and assigned to a trust lane
     - quarantine/shadow traffic is stored + analyzed but not publicly published by default
 servers:
@@ -18,20 +20,109 @@ paths:
   /api/v1/agents/register:
     post:
       security: []
-      summary: Register a new CleanApp Wire agent and issue a one-time API key
+      summary: Request an advanced integration identity (not needed for public first reports)
+      description: |
+        Production self-registration may be disabled (403). If enabled, registration returns a pending
+        identity without report submission permission; administrative approval is required.
+        api_key is a reusable bearer credential shown only once, not a single-use token.
+        Use the public private-review adapter below for a first report without approval.
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
               $ref: "#/components/schemas/RegisterAgentRequest"
       responses:
         "200":
-          description: Agent registered
+          description: Pending integration identity created; submission is not yet authorized
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/RegisterAgentResponse"
+  /api/v1/public/agent-reports:
+    post:
+      security: []
+      summary: Submit one observed problem privately without registration or an API key
+      description: |
+        Send a factual description; add a URL or coordinates only when known. The server assigns
+        quarantine/private review and blocks routing, rewards, email and notifications.
+        No caller trust/lane overrides, batches, images or arbitrary Wire fields are accepted.
+        Request body limit is 16 KiB. Generate a private UUIDv4 source_id once before sending and
+        retain it; exact retries (including after an IP change) return the same receipt. A changed
+        payload under that UUID returns 409. Omit source_id for a fresh server-generated intent;
+        do not blindly retry a lost response when no stable source_id was retained.
+        Keep source_id and the receipt tracking token private. Identical content under different
+        intent IDs produces different receipts. Default durable limits are 5 new intents/minute and
+        50/day per IP, 30/minute and 1000/day globally, plus bounded request concurrency.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublicAgentReport"
+      responses:
+        "200":
+          description: Original report and private receipt persisted; received does not mean published, routed or resolved
+          headers:
+            Cache-Control:
+              schema: {type: string, enum: [no-store]}
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicAgentReceipt"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          description: Public intake is temporarily disabled; no report accepted
+        "409":
+          description: This source_id already belongs to a different payload; do not replace the original intent
+        "410":
+          description: Private receipt access expired 30 days after its original creation; the original report remains retained
+        "413":
+          description: Request body exceeds 16 KiB
+        "429":
+          description: Intake capacity reached; honor Retry-After and retain the same source_id and payload
+          headers:
+            Retry-After:
+              schema: {type: string}
+        "503":
+          description: |
+            Intake busy or unavailable. A response with receipt_id and tracking_token means the
+            report is retained privately with processing_status pending_retry; retry the exact same
+            source_id and payload to resume enqueueing. Without a receipt, acceptance is unconfirmed.
+          headers:
+            Retry-After:
+              schema: {type: string}
+  /api/v1/public/agent-reports/receipts/{receipt_id}:
+    get:
+      security:
+        - receiptTrackingToken: []
+      summary: Read a private receipt using its returned tracking capability
+      description: |
+        Send Authorization Bearer with tracking_token from submission. The capability is purpose-bound,
+        expires 30 days after original receipt creation, and is not renewed by retrying. Resolve
+        returned status_url against this API origin. No report body, report sequence or public link
+        is disclosed. Responses use Cache-Control no-store; never put tokens in URLs or public logs.
+      parameters:
+        - in: path
+          name: receipt_id
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          description: Private receipt status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicAgentReceipt"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /api/v1/agents/me:
     get:
       summary: Return the authenticated agent profile
@@ -160,6 +251,10 @@ paths:
           $ref: "#/components/responses/NotFound"
 components:
   securitySchemes:
+    receiptTrackingToken:
+      type: http
+      scheme: bearer
+      bearerFormat: Private receipt capability (gdt_)
     bearerAuth:
       type: http
       scheme: bearer
@@ -202,6 +297,75 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
   schemas:
+    PublicAgentReport:
+      type: object
+      additionalProperties: false
+      required: [description]
+      properties:
+        description:
+          type: string
+          minLength: 1
+          maxLength: 8192
+          description: Factual observed problem; at most 8192 UTF-8 bytes
+          x-maxLengthBytes: 8192
+        title:
+          type: string
+          maxLength: 255
+          description: Optional title; at most 255 UTF-8 bytes
+          x-maxLengthBytes: 255
+        source_id:
+          type: string
+          format: uuid
+          pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$'
+          description: Private random UUIDv4 generated once per report; retain and reuse only for exact retries
+        agent_name:
+          type: string
+          maxLength: 80
+          description: Optional self-asserted client label; not an authenticated identity
+        url:
+          type: string
+          format: uri
+          maxLength: 2048
+          x-maxLengthBytes: 2048
+          description: Optional known HTTP(S) URL without embedded credentials; at most 2048 UTF-8 bytes
+        latitude:
+          type: number
+          minimum: -90
+          maximum: 90
+          description: Optional known latitude; requires longitude
+        longitude:
+          type: number
+          minimum: -180
+          maximum: 180
+          description: Optional known longitude; requires latitude
+    PublicAgentReceipt:
+      type: object
+      required: [receipt_id, status, publication_status, idempotency_replay, status_url, received_at, processing_status, message]
+      properties:
+        receipt_id: {type: string}
+        source_id:
+          type: string
+          description: Private intent UUID returned on submission; retain for exact retries
+        status: {type: string, enum: [quarantined]}
+        publication_status: {type: string, enum: [private]}
+        idempotency_replay: {type: boolean}
+        tracking_token:
+          type: string
+          description: Private bearer capability returned on submission only
+        tracking_expires_at: {type: string, format: date-time}
+        status_url:
+          type: string
+          description: Relative same-origin receipt URL; resolve against the API base URL
+        received_at: {type: string, format: date-time}
+        processing_status: {type: string, enum: [received, pending_retry]}
+        message: {type: string}
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              code: {type: string}
+              message: {type: string}
     RegisterAgentRequest:
       type: object
       properties:

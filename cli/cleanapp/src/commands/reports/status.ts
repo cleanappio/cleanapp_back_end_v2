@@ -4,6 +4,7 @@ import { CLIError, EXIT } from "../../errors.js";
 import { httpRequest } from "../../http.js";
 import { printHuman, printJson } from "../../output.js";
 import { resolveRuntimeConfig } from "../../runtime.js";
+import { readFileUtf8 } from "../../util.js";
 
 export function addStatus(program: Command): void {
   program
@@ -12,6 +13,7 @@ export function addStatus(program: Command): void {
     .option("--report-id <seq>", "Report sequence ID (report_seq)")
     .option("--source-id <sourceId>", "Wire source_id")
     .option("--receipt-id <receiptId>", "Wire receipt_id")
+    .option("--tracking-token-file <file>", "Private public-intake receipt token file (never a command-line token)")
     .action(async function (opts: any) {
       const cfg = await resolveRuntimeConfig(this);
 
@@ -19,6 +21,17 @@ export function addStatus(program: Command): void {
       const sourceId = (opts.sourceId || "").trim();
       const receiptId = (opts.receiptId || "").trim();
       const provided = [reportId, sourceId, receiptId].filter(Boolean);
+      if (opts.trackingTokenFile) {
+        if (!receiptId || sourceId || reportId) throw new CLIError("status: --tracking-token-file requires only --receipt-id", EXIT.USER);
+        const raw = (await readFileUtf8(opts.trackingTokenFile)).trim();
+        let token = raw;
+        if (raw.startsWith("{")) token = String(JSON.parse(raw).tracking_token || "");
+        if (!token.startsWith("gdt_") || token.length > 4096) throw new CLIError("status: invalid private tracking token file", EXIT.USER);
+        const res = await httpRequest({ ...cfg, token }, { method: "GET", path: `/api/v1/public/agent-reports/receipts/${encodeURIComponent(receiptId)}` });
+        if (cfg.output === "human") printHuman(`receipt=${receiptId} status=${(res.data as any).status} publication=${(res.data as any).publication_status}`);
+        else printJson(res.data);
+        return;
+      }
 
       if (provided.length === 0) {
         throw new CLIError("status: provide one of --source-id, --receipt-id, or --report-id", EXIT.USER);

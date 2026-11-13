@@ -19,31 +19,37 @@ Wire status:
 npm i -g @cleanapp/cli
 ```
 
-## Getting Started (Humans)
+## First report, no key required (0.2.0)
 
 ```bash
-cleanapp init
-cleanapp auth whoami
+cleanapp submit --desc "Describe the problem you actually observed" --receipt-file private-receipt.json
 ```
 
-`cleanapp init` writes local config to:
+This sends one report to private review through the public adapter, without registration. The receipt does not mean publication, routing, resolution or a reward. Keep the mode-0600 receipt file private; it contains its tracking capability. The CLI retains the intent before sending and atomically replaces it with the receipt when available.
 
-- `~/.cleanapp/config.json`
+```bash
+cleanapp status --receipt-id RECEIPT_ID_FROM_THE_FILE --tracking-token-file private-receipt.json
+```
 
-If you choose to store a token locally, the CLI will attempt to chmod the config file to `0600` on unix-like systems.
+Optional `--title`, `--url`, `--lat`/`--lng` add known facts. Description-only input does not invent a location. Public intake accepts text and optional URL/coordinates; advanced source types, collected timestamps, rich media and bulk input need approved Wire credentials.
 
-## Headless / Agents (Recommended)
+The CLI prints the private UUIDv4 `source_id` to stderr before the first POST. Retain it with the exact original options/payload for a retry using `--source-id`; never reuse a static example ID or public URL. Automatic blind POST retries are disabled. If the receipt file already exists, the command stops before submission. JSON output without a file returns the private token directly; human output also provides it, so changing output format never requires resubmission.
 
-Use env vars only (no local config needed):
+A broker failure can return HTTP503 with a retained private receipt: the CLI preserves it in the requested file or stdout and exits nonzero. Polling shows `pending_retry`; repeat the original UUID/payload to resume. Honor 429/503 Retry-After. A changed payload under a UUID returns 409. Tracking expires 30 days after original receipt creation; retries do not renew it.
+
+## Approved integrations
+
+`CLEANAPP_API_TOKEN` is optional for a first report. Existing approved keys continue to use the authenticated Wire path and enable bulk/rich submissions. Production self-registration may be disabled; enabled registration creates a pending identity without submission permission. A reusable integration key is shown once when issued and remains valid until revoked or suspended.
 
 ```bash
 export CLEANAPP_API_URL="https://live.cleanapp.io"
-export CLEANAPP_API_TOKEN="cleanapp_fk_live_..."
-
+# Supply CLEANAPP_API_TOKEN through your secret store for approved Wire access.
 cleanapp auth whoami
 ```
 
-Security note: never paste tokens into chat logs or shell history. Prefer env vars or masked prompts.
+`cleanapp init` configures approved integration credentials; it is unnecessary for public first reports. Config is written to `~/.cleanapp/config.json` with mode 0600 on Unix when a token is stored. Prefer environment variables or masked prompts for credentials.
+
+Canonical onboarding: https://www.cleanapp.io/agents. Wire/OpenAPI: https://live.cleanapp.io/api/v1/openapi.yaml.
 
 ## API Base URL Resolution
 
@@ -59,7 +65,7 @@ Token resolution order:
 1. `CLEANAPP_API_TOKEN`
 2. `~/.cleanapp/config.json` (if you stored a token)
 
-## Commands (v1 MVP)
+## Commands
 
 ### Auth
 
@@ -69,7 +75,7 @@ cleanapp auth whoami
 
 Calls `GET /api/v1/agents/me` and falls back to `GET /v1/fetchers/me` for older APIs.
 
-### Submit One Report (Wire-native)
+### Submit One Report
 
 ```bash
 cleanapp submit --title "Broken login" --desc "Users stuck on OAuth callback" --source-type web
