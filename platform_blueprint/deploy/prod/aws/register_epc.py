@@ -137,10 +137,25 @@ def preflight_helpers():
         require(current in allowed, 'Runtime helper changed since review; refresh its source before applying')
 
 
+def pin_guards():
+    guards = {}
+    for path in PINS:
+        require(not path.is_symlink(), 'CI image pin must not be a symlink')
+        exists = path.exists()
+        guards[str(path)] = {'exists': exists, 'sha256': digest(private_read(path)) if exists else None}
+    return guards
+
+
+def validate_pin_guards(manifest):
+    require(manifest.get('pin_guards') == pin_guards(),
+            'CI image pins changed after EPC registration; refusing stale rollback')
+
+
 def backup(changes, image_id):
     folder = RECEIPTS / ('epc-' + datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ') + '-' + uuid.uuid4().hex[:8])
     folder.mkdir(mode=0o700)
-    manifest = {'schema': 1, 'image_id': image_id, 'state': 'prepared', 'files': []}
+    manifest = {'schema': 1, 'image_id': image_id, 'state': 'prepared', 'files': [],
+                'pin_guards': pin_guards()}
     for number, (path, after) in enumerate(changes.items()):
         row = {'path': str(path), 'after_sha256': digest(after), 'existed': path.exists()}
         if row['existed']:
@@ -216,6 +231,7 @@ def rollback(folder):
         require(not command(['docker', 'ps', '-aq', '--filter', 'name=^/' + EPC_SERVICE + '$']).strip(),
                 'Completed rollback receipt is stale; an EPC container exists')
         return {'rolled_back': True, 'already_rolled_back': True, 'receipt': str(folder), 'other_roles_restarted': 0}
+    validate_pin_guards(manifest)
     prepared = prepare_restore(folder, manifest)
     remove_epc(manifest['image_id'])
     restore_files(prepared)
@@ -261,6 +277,7 @@ def apply(image_id, env_file):
         manifest['state'] = 'applied'; write_file(folder / 'manifest.json', json_bytes(manifest))
         return {'registered': True, 'roles': len(CURRENT_SERVICES), 'receipt': str(folder), 'other_roles_restarted': 0}
     except Exception:
+        validate_pin_guards(manifest)
         prepared = prepare_restore(folder, manifest)
         remove_epc(image_id)
         restore_files(prepared)
