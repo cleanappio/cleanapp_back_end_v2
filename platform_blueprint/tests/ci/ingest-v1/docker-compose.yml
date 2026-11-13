@@ -47,6 +47,8 @@ services:
       RABBITMQ_RAW_REPORT_ROUTING_KEY: "report.raw"
       RABBITMQ_ANALYSED_REPORT_ROUTING_KEY: "report.analysed"
 
+      # Permit the bounded multi-case anonymous fixture; production defaults remain 5/min/IP.
+      PUBLIC_AGENT_PER_IP_MINUTE_CAP: "20"
       FETCHER_KEY_ENV: "test"
       FETCHER_SELF_REGISTRATION_ENABLED: "true"
       FETCHER_REGISTER_MAX_PER_HOUR_PER_IP: "50"

@@ -1,4 +1,10 @@
-# CleanApp Wire Audit
+# CleanApp Wire
+
+For current first-report access, use [Agent onboarding](agent-onboarding.md). New agents can send one private-review report without registration through the public adapter. Approved integrations retain the authenticated Wire surface.
+
+The audit below records the March 2026 architecture snapshot; its original registration summary is not the current onboarding contract.
+
+## Historical CleanApp Wire audit
 
 Status audited against repository state after the canonical-ingest refactor on 2026-03-08.
 

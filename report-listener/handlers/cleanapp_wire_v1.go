@@ -517,10 +517,10 @@ func (h *Handlers) processCleanAppWireSubmissionInternalWithHook(
 	postPersistHook cleanAppWirePostPersistHook,
 ) (cleanAppWireReceiptResponse, int) {
 	sub, generatedSubmissionID := normalizeCleanAppWireSubmission(sub)
-	// Only the canonical human adapter may preserve genuinely missing context.
+	// Only server-owned public adapters may preserve genuinely missing context.
 	// Caller-supplied agent/provenance fields cannot waive machine validation.
-	allowMissingContext := auth.ActorKind == "human" && auth.Channel == humanChannelWeb && sub.Report.Domain == "unknown"
-	errors := validateCleanAppWireSubmissionWithContext(sub, h.cfg.CleanAppWireStrictSignature, allowMissingContext)
+	allowMissingContext := (auth.ActorKind == "human" && auth.Channel == humanChannelWeb || isPublicAgentAuth(auth)) && sub.Report.Domain == "unknown"
+	errors := validateCleanAppWireSubmissionWithContext(sub, h.cfg.CleanAppWireStrictSignature && !isPublicAgentAuth(auth), allowMissingContext)
 	if len(errors) > 0 {
 		return cleanAppWireReceiptResponse{
 			ReceiptID:         newReceiptID(),
@@ -571,13 +571,16 @@ func (h *Handlers) processCleanAppWireSubmissionInternalWithHook(
 		if existing.MaterialHash == materialHash {
 			resp := h.cleanAppWireReceiptRecordToResponse(receipt, existing.SubmissionQuality)
 			resp.IdempotencyReplay = true
-			if auth.ActorKind == "human" && auth.Channel == humanChannelWeb && resp.ReportID > 0 {
+			if wireDefersQueueUntilReceipt(auth) && resp.ReportID > 0 {
 				// A durable receipt may precede a failed queue publish. Retry the
 				// same report, never insert another; completed analysis replays are
 				// harmless under the existing per-report lock/publication marker.
-				if code := h.queueCleanAppWireCoreItem(auth, cleanAppWireIngestCoreItemFromSubmission(sub), resp.ReportID, laneToVisibility(existing.Lane)); code != "" {
+				if code := h.queueCleanAppWireForReceipt(ctx, auth, cleanAppWireIngestCoreItemFromSubmission(sub), resp.ReportID, laneToVisibility(existing.Lane), resp.ReceiptID); code != "" {
 					resp.Errors = []cleanAppWireError{{Code: code, Message: "report retained; retry this same submission to resume processing"}}
 					return resp, http.StatusServiceUnavailable
+				}
+				if isPublicAgentAuth(auth) {
+					resp.Errors = nil
 				}
 			}
 			return resp, http.StatusOK
@@ -613,26 +616,11 @@ func (h *Handlers) processCleanAppWireSubmissionInternalWithHook(
 
 	quality := computeCleanAppWireSubmissionQuality(sub)
 	lane := assignCleanAppWireLane(h.cfg, auth.Tier, quality, len(sub.Report.EvidenceBundle), strings.TrimSpace(sub.Delivery.RequestedLane))
+	if isPublicAgentAuth(auth) {
+		lane = wireLaneQuarantine
+	}
 	visibility := laneToVisibility(lane)
 	trustLevel := laneToTrustLevel(lane)
-
-	coreItem := cleanAppWireIngestCoreItemFromSubmission(sub)
-	ingestResp, errCode, httpStatus := h.cleanAppWireIngestCore(ctx, auth, coreItem, visibility, trustLevel, postPersistHook)
-	if httpStatus >= 500 {
-		return cleanAppWireReceiptResponse{
-			ReceiptID:         newReceiptID(),
-			SubmissionID:      sub.SubmissionID,
-			SourceID:          sub.SourceID,
-			ReceivedAt:        time.Now().UTC().Format(time.RFC3339),
-			Status:            "rejected",
-			Lane:              wireLaneReject,
-			IdempotencyReplay: false,
-			Errors: []cleanAppWireError{{
-				Code:    errCode,
-				Message: "failed to ingest normalized report",
-			}},
-		}, httpStatus
-	}
 
 	now := time.Now().UTC()
 	receiptID := newReceiptID()
@@ -663,27 +651,61 @@ func (h *Handlers) processCleanAppWireSubmissionInternalWithHook(
 		DeliveryJSON:      h.db.EncodeJSON(sub.Delivery),
 		ExtensionsJSON:    h.db.EncodeJSON(sub.Extensions),
 	}
+
+	receiptRecord := &database.WireReceipt{
+		CreatedAt:      now,
+		ReceiptID:      receiptID,
+		SubmissionID:   sub.SubmissionID,
+		FetcherID:      auth.FetcherID,
+		SourceID:       sub.SourceID,
+		Status:         status,
+		Lane:           lane,
+		WarningsJSON:   h.db.EncodeJSON(cleanAppWireWarningsForSubmission(sub, lane)),
+		NextCheckAfter: nextCheckAfter,
+	}
+	if isPublicAgentAuth(auth) {
+		receiptRecord.RejectionCode = sql.NullString{String: "QUEUE_PENDING", Valid: true}
+	}
+	var beforeCommit func(*sql.Tx, int) error
+	if isPublicAgentAuth(auth) {
+		beforeCommit = func(tx *sql.Tx, seq int) error {
+			submissionRecord.ReportSeq = sql.NullInt64{Int64: int64(seq), Valid: true}
+			receiptRecord.ReportSeq = submissionRecord.ReportSeq
+			return h.db.InsertWireSubmissionAndReceiptTx(ctx, tx, submissionRecord, receiptRecord)
+		}
+	}
+	coreItem := cleanAppWireIngestCoreItemFromSubmission(sub)
+	ingestResp, errCode, httpStatus := h.cleanAppWireIngestCoreWithTxHook(ctx, auth, coreItem, visibility, trustLevel, postPersistHook, beforeCommit)
+	if httpStatus >= 500 {
+		return cleanAppWireReceiptResponse{
+			ReceiptID:         newReceiptID(),
+			SubmissionID:      sub.SubmissionID,
+			SourceID:          sub.SourceID,
+			ReceivedAt:        time.Now().UTC().Format(time.RFC3339),
+			Status:            "rejected",
+			Lane:              wireLaneReject,
+			IdempotencyReplay: false,
+			Errors: []cleanAppWireError{{
+				Code:    errCode,
+				Message: "failed to ingest normalized report",
+			}},
+		}, httpStatus
+	}
+
 	if ingestResp.ReportSeq > 0 {
 		submissionRecord.ReportSeq = sql.NullInt64{Int64: int64(ingestResp.ReportSeq), Valid: true}
 	}
+	receiptRecord.IdempotencyReplay = ingestResp.Status == "duplicate"
 
-	receiptRecord := &database.WireReceipt{
-		CreatedAt:         now,
-		ReceiptID:         receiptID,
-		SubmissionID:      sub.SubmissionID,
-		FetcherID:         auth.FetcherID,
-		SourceID:          sub.SourceID,
-		Status:            status,
-		Lane:              lane,
-		IdempotencyReplay: ingestResp.Status == "duplicate",
-		WarningsJSON:      h.db.EncodeJSON(cleanAppWireWarningsForSubmission(sub, lane)),
-		NextCheckAfter:    nextCheckAfter,
-	}
 	if ingestResp.ReportSeq > 0 {
 		receiptRecord.ReportSeq = sql.NullInt64{Int64: int64(ingestResp.ReportSeq), Valid: true}
 	}
 
-	if err := h.db.InsertWireSubmissionAndReceipt(ctx, submissionRecord, receiptRecord); err != nil {
+	var persistenceErr error
+	if !isPublicAgentAuth(auth) {
+		persistenceErr = h.db.InsertWireSubmissionAndReceipt(ctx, submissionRecord, receiptRecord)
+	}
+	if persistenceErr != nil {
 		return cleanAppWireReceiptResponse{
 			ReceiptID:         receiptID,
 			SubmissionID:      sub.SubmissionID,
@@ -703,11 +725,11 @@ func (h *Handlers) processCleanAppWireSubmissionInternalWithHook(
 	if auditEndpoint != "" {
 		_ = h.db.InsertIngestionAuditV1(ctx, auth.FetcherID, auth.KeyID, auditEndpoint, 1, 1, 0, nil, 0, clientIP, userAgent, requestID)
 	}
-	if auth.ActorKind == "human" && auth.Channel == humanChannelWeb {
+	if wireDefersQueueUntilReceipt(auth) {
 		// Retain the full original and receipt before any worker can consume
 		// it, including when the broker is unavailable. The browser retries
 		// this exact source_id/payload to resume enqueueing after a failure.
-		if code := h.queueCleanAppWireCoreItem(auth, coreItem, ingestResp.ReportSeq, visibility); code != "" {
+		if code := h.queueCleanAppWireForReceipt(ctx, auth, coreItem, ingestResp.ReportSeq, visibility, receiptID); code != "" {
 			resp := h.cleanAppWireReceiptRecordToResponse(receiptRecord, quality)
 			resp.Errors = []cleanAppWireError{{Code: code, Message: "report retained; retry this same submission to resume processing"}}
 			return resp, http.StatusServiceUnavailable
@@ -1229,12 +1251,27 @@ func (h *Handlers) cleanAppWireIngestCore(
 	trustLevel string,
 	postPersistHook cleanAppWirePostPersistHook,
 ) (cleanAppWireIngestCoreResult, string, int) {
+	return h.cleanAppWireIngestCoreWithTxHook(ctx, auth, item, visibility, trustLevel, postPersistHook, nil)
+}
+
+func (h *Handlers) cleanAppWireIngestCoreWithTxHook(
+	ctx context.Context,
+	auth cleanAppWireAuthContext,
+	item cleanAppWireIngestCoreItem,
+	visibility,
+	trustLevel string,
+	postPersistHook cleanAppWirePostPersistHook,
+	beforeCommit func(*sql.Tx, int) error,
+) (cleanAppWireIngestCoreResult, string, int) {
 	existing, err := h.db.GetExistingReportSeqsV1(ctx, auth.FetcherID, []string{item.SourceID})
 	if err != nil {
 		return cleanAppWireIngestCoreResult{}, "IDEMPOTENCY_LOOKUP_FAILED", http.StatusInternalServerError
 	}
 
 	if seq, dup := existing[item.SourceID]; dup {
+		if beforeCommit != nil {
+			return cleanAppWireIngestCoreResult{}, "INCOMPLETE_PUBLIC_INTENT", http.StatusServiceUnavailable
+		}
 		return cleanAppWireIngestCoreResult{
 			SourceID:   item.SourceID,
 			Status:     "duplicate",
@@ -1351,6 +1388,21 @@ func (h *Handlers) cleanAppWireIngestCore(
 		return cleanAppWireIngestCoreResult{}, "REPORT_RAW_INSERT_FAILED", http.StatusInternalServerError
 	}
 
+	if isPublicAgentAuth(auth) {
+		// Private intake cannot trigger outbound effects, even if a later reader
+		// changes its visibility. Keep this policy atomic with the report itself.
+		if _, err := tx.ExecContext(ctx, `INSERT INTO report_side_effect_policy
+			(report_seq,source_namespace,reason,policy_version,suppress_email,suppress_notifications,suppress_rewards,suppress_routing,suppress_analysis)
+			VALUES (?,'public-agent','Anonymous agent intake is private pending review',1,TRUE,TRUE,TRUE,TRUE,FALSE)`, seq); err != nil {
+			return cleanAppWireIngestCoreResult{}, "PRIVATE_POLICY_FAILED", http.StatusInternalServerError
+		}
+	}
+	if beforeCommit != nil {
+		if err := beforeCommit(tx, seq); err != nil {
+			return cleanAppWireIngestCoreResult{}, "PERSISTENCE_FAILED", http.StatusInternalServerError
+		}
+	}
+
 	if err := tx.Commit(); err != nil {
 		return cleanAppWireIngestCoreResult{}, "COMMIT_FAILED", http.StatusInternalServerError
 	}
@@ -1367,7 +1419,7 @@ func (h *Handlers) cleanAppWireIngestCore(
 			}, "POST_PERSIST_HOOK_FAILED", http.StatusInternalServerError
 		}
 	}
-	if auth.ActorKind == "human" && auth.Channel == humanChannelWeb {
+	if wireDefersQueueUntilReceipt(auth) {
 		return cleanAppWireIngestCoreResult{SourceID: item.SourceID, Status: "accepted", ReportSeq: seq, Queued: false, Visibility: visibility, TrustLevel: trustLevel}, "", http.StatusOK
 	}
 
@@ -1404,14 +1456,14 @@ func (h *Handlers) queueCleanAppWireCoreItem(auth cleanAppWireAuthContext, item 
 		"visibility":  visibility,
 		"tags":        item.Tags,
 	}
-	if auth.Channel != humanChannelWeb || item.Lat != nil {
+	if !wireDefersQueueUntilReceipt(auth) || item.Lat != nil {
 		lat := 0.0
 		if item.Lat != nil {
 			lat = *item.Lat
 		}
 		msg["latitude"] = lat
 	}
-	if auth.Channel != humanChannelWeb || item.Lng != nil {
+	if !wireDefersQueueUntilReceipt(auth) || item.Lng != nil {
 		lng := 0.0
 		if item.Lng != nil {
 			lng = *item.Lng

@@ -100,6 +100,11 @@ type Config struct {
 	HumanIngestRateLimitBurst       int
 	HumanIngestReportSourcePrefix   string
 	HumanIngestReceiptLookupEnabled bool
+	PublicAgentIngestEnabled        bool
+	PublicAgentPerIPMinuteCap       int
+	PublicAgentPerIPDailyCap        int
+	PublicAgentGlobalMinuteCap      int
+	PublicAgentGlobalDailyCap       int
 	CleanAppWireEnabled             bool
 	CleanAppWireBatchEnabled        bool
 	CleanAppWirePriorityLaneEnabled bool
@@ -225,6 +230,11 @@ func Load() (*Config, error) {
 		HumanIngestRateLimitBurst:       appenv.Int("HUMAN_INGEST_RATE_LIMIT_BURST", 5),
 		HumanIngestReportSourcePrefix:   appenv.String("HUMAN_INGEST_SOURCE_PREFIX", "human"),
 		HumanIngestReceiptLookupEnabled: appenv.Bool("HUMAN_INGEST_RECEIPT_LOOKUP_ENABLED", true),
+		PublicAgentIngestEnabled:        appenv.Bool("PUBLIC_AGENT_INGEST_ENABLED", true),
+		PublicAgentPerIPMinuteCap:       appenv.Int("PUBLIC_AGENT_PER_IP_MINUTE_CAP", 5),
+		PublicAgentPerIPDailyCap:        appenv.Int("PUBLIC_AGENT_PER_IP_DAILY_CAP", 50),
+		PublicAgentGlobalMinuteCap:      appenv.Int("PUBLIC_AGENT_GLOBAL_MINUTE_CAP", 30),
+		PublicAgentGlobalDailyCap:       appenv.Int("PUBLIC_AGENT_GLOBAL_DAILY_CAP", 1000),
 
 		CleanAppWireEnabled:             appenv.Bool("CLEANAPP_WIRE_ENABLED", true),
 		CleanAppWireBatchEnabled:        appenv.Bool("CLEANAPP_WIRE_BATCH_ENABLED", true),

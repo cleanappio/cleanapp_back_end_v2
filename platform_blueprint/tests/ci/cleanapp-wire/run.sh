@@ -4,6 +4,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 bash "$ROOT_DIR/scripts/ci/prepare_build_contexts.sh"
 COMPOSE_FILE="$ROOT_DIR/platform_blueprint/tests/ci/ingest-v1/docker-compose.yml"
+PUBLIC_AGENT_STATE="$(mktemp)"
+PUBLIC_AGENT_TEST="$ROOT_DIR/platform_blueprint/tests/ci/cleanapp-wire/public_agent_http_test.py"
+printf '{}\n' > "$PUBLIC_AGENT_STATE"
 
 dc() {
   docker compose -f "$COMPOSE_FILE" "$@"
@@ -18,6 +21,7 @@ cleanup() {
     dc ps -a >&2 || true
     dc logs --no-color --tail 100 mysql rabbitmq >&2 || true
   fi
+  rm -f "$PUBLIC_AGENT_STATE"
   dc down -v --remove-orphans >/dev/null 2>&1 || true
   return "$fixture_status"
 }
@@ -71,6 +75,9 @@ dc up -d
 echo "== wait services =="
 wait_http_200 "http://localhost:18082/health" 180 2
 wait_http_200 "http://localhost:18080/api/v3/health" 180 2
+
+echo "== fresh anonymous first report, private receipt and exact retries (no registration or approval) =="
+python3 "$PUBLIC_AGENT_TEST" --state-file "$PUBLIC_AGENT_STATE" --phase first
 
 echo "== register cleanapp wire agent =="
 reg_resp="$(
@@ -254,5 +261,31 @@ if [[ "$rep_agent" != "$agent_id" ]]; then
   echo "reputation lookup mismatch: expected=$agent_id got=$rep_agent" >&2
   exit 1
 fi
+
+echo "== public private-report policy and credential isolation =="
+public_count="$(mysql_query "SELECT COUNT(*) FROM wire_submissions_raw WHERE fetcher_id='public-agent-anonymous-v1';")"
+guarded_count="$(mysql_query "SELECT COUNT(*) FROM wire_submissions_raw w JOIN report_raw rr ON rr.report_seq=w.report_seq JOIN report_side_effect_policy p ON p.report_seq=w.report_seq WHERE w.fetcher_id='public-agent-anonymous-v1' AND w.actor_kind='machine' AND w.channel='public_agent' AND w.lane='quarantine' AND rr.visibility='shadow' AND p.suppress_email=TRUE AND p.suppress_notifications=TRUE AND p.suppress_rewards=TRUE AND p.suppress_routing=TRUE AND p.suppress_analysis=FALSE;")"
+[[ "$public_count" == "4" && "$guarded_count" == "$public_count" ]]
+[[ "$(mysql_query "SELECT COUNT(*) FROM fetchers WHERE owner_type='public_agent' AND active=FALSE AND tier=0 AND routing_enabled=FALSE AND rewards_enabled=FALSE;")" == "1" ]]
+[[ "$(mysql_query "SELECT COUNT(*) FROM fetcher_keys WHERE fetcher_id='public-agent-anonymous-v1';")" == "0" ]]
+
+echo "== receipt persistence failure rolls back the report and its original together =="
+before_reports="$(mysql_query "SELECT COUNT(*) FROM reports;")"
+mysql_query "CREATE TRIGGER ci_reject_public_receipt BEFORE INSERT ON wire_submission_receipts FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='synthetic public receipt failure';"
+python3 "$PUBLIC_AGENT_TEST" --state-file "$PUBLIC_AGENT_STATE" --phase atomic-fail
+[[ "$(mysql_query "SELECT COUNT(*) FROM reports;")" == "$before_reports" ]]
+mysql_query "DROP TRIGGER ci_reject_public_receipt;"
+python3 "$PUBLIC_AGENT_TEST" --state-file "$PUBLIC_AGENT_STATE" --phase atomic-recover
+
+echo "== durable private receipt survives broker failure and recovers the same intent =="
+dc stop rabbitmq
+python3 "$PUBLIC_AGENT_TEST" --state-file "$PUBLIC_AGENT_STATE" --phase queue-fail
+dc up -d --wait rabbitmq
+python3 "$PUBLIC_AGENT_TEST" --state-file "$PUBLIC_AGENT_STATE" --phase queue-recover
+[[ "$(mysql_query "SELECT COUNT(*) FROM wire_submissions_raw WHERE fetcher_id='public-agent-anonymous-v1';")" == "6" ]]
+
+first_receipt="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["first_receipt"]["receipt_id"])' "$PUBLIC_AGENT_STATE")"
+mysql_query "UPDATE wire_submission_receipts SET created_at=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 31 DAY) WHERE receipt_id='${first_receipt}';"
+python3 "$PUBLIC_AGENT_TEST" --state-file "$PUBLIC_AGENT_STATE" --phase expired
 
 echo "OK"

@@ -352,3 +352,20 @@ jobs:
           docker run --rm -v "$PWD":/work -w /work openapitools/openapi-generator-cli validate -i openapi/cleanapp-wire.v1.yaml
       - name: CleanApp Wire golden path
         run: make ci-cleanapp-wire
+
+  agent-clients:
+    name: Agent clients (public and approved paths)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: CLI install, tests and build
+        working-directory: cli/cleanapp
+        run: |
+          npm ci
+          npm test
+          npm run build
+      - name: OpenClaw public and approved intake tests
+        run: python3 -m unittest discover -s openclaw/cleanapp_ingest_skill -p 'test_*.py'

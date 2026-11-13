@@ -549,6 +549,9 @@ func setupRouter(cfg *config.Config, svc *service.Service) *gin.Engine {
 	{
 		apiV1.GET("/openapi.yaml", h.ServeCleanAppWireOpenAPI)
 		apiV1.GET("/docs", h.ServeCleanAppWireSwaggerUI)
+		publicAgent := apiV1.Group("/public/agent-reports")
+		publicAgent.POST("", edge.RateLimitMiddleware(edge.RateLimitConfig{RPS: 0.5, Burst: 5}), h.SubmitPublicAgentReportV1)
+		publicAgent.GET("/receipts/:receipt_id", edge.RateLimitMiddleware(edge.RateLimitConfig{RPS: 2, Burst: 10}), h.GetPublicAgentReceiptV1)
 		humanIngestV1 := apiV1.Group("/human-reports")
 		humanIngestV1.Use(
 			edge.RateLimitMiddleware(edge.RateLimitConfig{

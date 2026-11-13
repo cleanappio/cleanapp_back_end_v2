@@ -12,3 +12,9 @@ export function redactHeaders(h: Record<string, string>): Record<string, string>
   return out;
 }
 
+export function redactBodySecrets(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactBodySecrets);
+  if (value !== null && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, /token|secret|api.?key/i.test(key) ? "***redacted***" : redactBodySecrets(item)]));
+  return value;
+}
+

@@ -1,11 +1,9 @@
 {
   "name": "cleanapp_ingest_v1",
-  "version": "1.1.0",
-  "description": "Submit and inspect machine-originated reports through CleanApp Wire.",
+  "version": "1.2.0",
+  "description": "Submit one report privately without registration; approved credentials enable advanced Wire intake.",
   "entrypoint": "run.sh",
-  "secrets": [
-    "CLEANAPP_API_TOKEN"
-  ],
+  "secrets": [],
   "notes": {
     "data_handling": "Submits text + optional approximate location. No media by default. Supports dry-run.",
     "network": "HTTPS only (CleanApp ingest endpoint)."

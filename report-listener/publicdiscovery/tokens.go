@@ -20,8 +20,9 @@ const (
 type Kind string
 
 const (
-	KindReport Kind = "report"
-	KindBrand  Kind = "brand"
+	KindReport  Kind = "report"
+	KindBrand   Kind = "brand"
+	KindReceipt Kind = "public_agent_receipt"
 )
 
 type Payload struct {
@@ -30,6 +31,7 @@ type Payload struct {
 	Classification string `json:"c,omitempty"`
 	PublicID       string `json:"p,omitempty"`
 	BrandName      string `json:"b,omitempty"`
+	ReceiptID      string `json:"r,omitempty"`
 	ExpiresAtUnix  int64  `json:"e"`
 }
 

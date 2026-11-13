@@ -118,7 +118,20 @@ func (d *Database) InsertWireSubmissionAndReceipt(ctx context.Context, submissio
 	}
 	defer tx.Rollback()
 
-	_, err = tx.ExecContext(ctx, insertWireSubmissionAndReceiptSQL,
+	if err := d.InsertWireSubmissionAndReceiptTx(ctx, tx, submission, receipt); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit wire tx: %w", err)
+	}
+	return nil
+}
+
+// InsertWireSubmissionAndReceiptTx lets the canonical core persist an anonymous
+// report, its original payload, and its private receipt in one transaction.
+func (d *Database) InsertWireSubmissionAndReceiptTx(ctx context.Context, tx *sql.Tx, submission *WireSubmissionRaw, receipt *WireReceipt) error {
+	_, err := tx.ExecContext(ctx, insertWireSubmissionAndReceiptSQL,
 		submission.SubmissionID,
 		submission.ReceiptID,
 		submission.FetcherID,
@@ -169,9 +182,6 @@ func (d *Database) InsertWireSubmissionAndReceipt(ctx context.Context, submissio
 		return fmt.Errorf("insert wire receipt: %w", err)
 	}
 
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit wire tx: %w", err)
-	}
 	return nil
 }
 
@@ -193,6 +203,14 @@ func (d *Database) GetWireReceipt(ctx context.Context, fetcherID, receiptID stri
 		return nil, fmt.Errorf("get wire receipt: %w", err)
 	}
 	return &r, nil
+}
+
+// SetWireReceiptQueueState is used only by the private public-agent adapter.
+// A pending marker is persisted before enqueue; it is cleared only after a
+// successful publish. Failure/restart therefore never claims processing began.
+func (d *Database) SetWireReceiptQueueState(ctx context.Context, fetcherID, receiptID, code string) error {
+	_, err := d.db.ExecContext(ctx, `UPDATE wire_submission_receipts SET rejection_code=?,updated_at=CURRENT_TIMESTAMP WHERE fetcher_id=? AND receipt_id=?`, nullableStr(code), fetcherID, receiptID)
+	return err
 }
 
 func (d *Database) GetWireReceiptByID(ctx context.Context, receiptID string) (*WireReceipt, error) {

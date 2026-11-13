@@ -1,7 +1,7 @@
 import { setTimeout as sleep } from "node:timers/promises";
 
 import { CLIError, EXIT } from "./errors.js";
-import { redactHeaders } from "./redact.js";
+import { redactHeaders, redactBodySecrets } from "./redact.js";
 import type { RuntimeConfig } from "./runtime.js";
 
 export type HttpRequest = {
@@ -126,8 +126,8 @@ export async function httpRequest<T = unknown>(cfg: RuntimeConfig, req: HttpRequ
           continue;
         }
 
-        const msg = typeof body === "string" ? body : JSON.stringify(body);
-        throw new CLIError(`HTTP ${res.status} ${url}: ${msg}`, classifyHttpErrorExitCode(res.status), res.status);
+        const msg = typeof body === "string" ? body : JSON.stringify(redactBodySecrets(body));
+        throw new CLIError(`HTTP ${res.status} ${url}: ${msg}`, classifyHttpErrorExitCode(res.status), res.status, body);
       }
 
       return { status: res.status, data: body as T, headers: headersOut };
