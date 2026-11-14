@@ -339,7 +339,7 @@ components:
             type: object
             properties:
               channel: {type: string, enum: [email, blockscan]}
-              status: {type: string, description: Recorded transport state; sent requires transport evidence, not a queued intent}
+              status: {type: string, description: "Recorded transport state; sent requires transport evidence, not a queued intent"}
               evidence_count: {type: integer}
               last_sent_at: {type: string, format: date-time}
               reason_code: {type: string}
