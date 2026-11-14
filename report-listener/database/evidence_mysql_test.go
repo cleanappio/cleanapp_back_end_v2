@@ -979,6 +979,7 @@ func TestEvidenceMySQLFixture(t *testing.T) {
 	})
 	t.Run("PublicBrandPreview", func(t *testing.T) { testPublicBrandPreviewMySQL(t, db) })
 	t.Run("PublicDetailMixedMetadataCollations", func(t *testing.T) { testPublicDetailMixedMetadataCollationsMySQL(t, db) })
+	t.Run("PublicSubmissionProvenance", func(t *testing.T) { testPublicSubmissionProvenanceMySQL(t, db) })
 	t.Run("ProjectedMalformedPublicIDs", func(t *testing.T) { testProjectedEvidenceMalformedPublicIDsMySQL(t, db) })
 	t.Run("ProjectedFamilyRanks", func(t *testing.T) { testProjectedEvidenceSlimRanksMySQL(t, db) })
 	t.Run("ProjectedSourceWinnerIdentity", func(t *testing.T) { testProjectedEvidenceSourceWinnerIdentityMySQL(t, db) })

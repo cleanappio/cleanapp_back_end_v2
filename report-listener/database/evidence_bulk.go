@@ -543,6 +543,9 @@ func loadEvidenceBrandPageBulk(ctx context.Context, tx *sql.Tx, f EvidenceFilter
 	if err := hydrateEvidenceDisplay(ctx, tx, f, analysis, &grouped); err != nil {
 		return page, err
 	}
+	if err := hydratePublicSubmissionProvenance(ctx, tx, grouped.Records); err != nil {
+		return page, err
+	}
 	mediaSeqs := []int{}
 	for _, r := range grouped.Records {
 		if r.HasOriginalMedia && !r.PrivacyRestricted {
@@ -562,7 +565,7 @@ func loadEvidenceBrandPageBulk(ctx context.Context, tx *sql.Tx, f EvidenceFilter
 		ev := r.publicEvidence()
 		ev.HasOriginalMedia = ev.HasOriginalMedia && valid[r.Seq]
 		rec := r.publicRecurrence()
-		page.Reports = append(page.Reports, models.ReportWithMinimalAnalysis{Report: models.Report{Seq: r.Seq, PublicID: r.PublicID, Timestamp: r.IngestedAt, Latitude: r.Latitude, Longitude: r.Longitude, SourceTimestamp: ev.SourcePublishedAt, SourceURL: ev.SourceURL}, Analysis: []models.MinimalAnalysis{{Title: r.Title, Summary: r.Summary, Classification: r.Classification, SeverityLevel: r.Severity, Language: r.Language, BrandName: r.Brand, BrandDisplayName: r.BrandDisplay}}, Evidence: &ev, Recurrence: &rec})
+		page.Reports = append(page.Reports, models.ReportWithMinimalAnalysis{Report: models.Report{Seq: r.Seq, PublicID: r.PublicID, Timestamp: r.IngestedAt, Latitude: r.Latitude, Longitude: r.Longitude, SourceTimestamp: ev.SourcePublishedAt, SourceURL: ev.SourceURL}, Analysis: []models.MinimalAnalysis{r.publicMinimalAnalysis()}, Evidence: &ev, Recurrence: &rec})
 	}
 	page.Total = grouped.Total
 	page.High = grouped.High

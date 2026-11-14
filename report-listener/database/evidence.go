@@ -306,6 +306,7 @@ type evidenceRecord struct {
 	ImportCount                                                   int
 	CaseID                                                        *string
 	RelatedCount                                                  int
+	SubmissionProvenance                                          *publicSubmissionProvenance
 }
 type EvidenceBrandPage struct {
 	Overview            models.EvidenceOverview
@@ -361,6 +362,7 @@ func (d *Database) getEvidenceBrandPageSQL(ctx context.Context, f EvidenceFilter
 	page := EvidenceBrandPage{Reports: []models.ReportWithMinimalAnalysis{}, Overview: evidenceOverview(nil, f.asOf)}
 	query, args := evidenceBrandPageQuery(f)
 	mediaSeqs := []int{}
+	records := []evidenceRecord{}
 	rows, err := tx.QueryContext(queryCtx, query, args...)
 	if err != nil {
 		return page, fmt.Errorf("query evidence brand briefing: %w", err)
@@ -376,17 +378,29 @@ func (d *Database) getEvidenceBrandPageSQL(ctx context.Context, f EvidenceFilter
 		if r.Seq == 0 {
 			continue
 		}
+		records = append(records, r)
 		ev := r.publicEvidence()
 		if ev.HasOriginalMedia {
 			mediaSeqs = append(mediaSeqs, r.Seq)
 		}
 		rec := r.publicRecurrence()
-		page.Reports = append(page.Reports, models.ReportWithMinimalAnalysis{Report: models.Report{Seq: r.Seq, PublicID: r.PublicID, Timestamp: r.IngestedAt, Latitude: r.Latitude, Longitude: r.Longitude, SourceTimestamp: ev.SourcePublishedAt, SourceURL: ev.SourceURL}, Analysis: []models.MinimalAnalysis{{Title: r.Title, Summary: r.Summary, Classification: r.Classification, SeverityLevel: r.Severity, Language: r.Language, BrandName: r.Brand, BrandDisplayName: r.BrandDisplay}}, Evidence: &ev, Recurrence: &rec})
+		page.Reports = append(page.Reports, models.ReportWithMinimalAnalysis{Report: models.Report{Seq: r.Seq, PublicID: r.PublicID, Timestamp: r.IngestedAt, Latitude: r.Latitude, Longitude: r.Longitude, SourceTimestamp: ev.SourcePublishedAt, SourceURL: ev.SourceURL}, Analysis: []models.MinimalAnalysis{r.publicMinimalAnalysis()}, Evidence: &ev, Recurrence: &rec})
 	}
 	err = rows.Err()
 	rows.Close()
 	if err != nil {
 		return page, err
+	}
+	if err := hydratePublicSubmissionProvenance(queryCtx, tx, records); err != nil {
+		return page, err
+	}
+	for i, r := range records {
+		ev := r.publicEvidence()
+		rec := r.publicRecurrence()
+		page.Reports[i].Evidence = &ev
+		page.Reports[i].Recurrence = &rec
+		page.Reports[i].Analysis = []models.MinimalAnalysis{r.publicMinimalAnalysis()}
+		page.Reports[i].Report.SourceURL, page.Reports[i].Report.SourceTimestamp = ev.SourceURL, ev.SourcePublishedAt
 	}
 	if len(mediaSeqs) > 0 {
 		valid, err := loadEvidenceImageValidity(queryCtx, tx, mediaSeqs)
@@ -459,12 +473,26 @@ func evidenceText(value string, max int) *string {
 	}
 	return &value
 }
+
+func (r *evidenceRecord) redactRestrictedDisplay() {
+	if r.PrivacyRestricted {
+		r.Title, r.Summary, r.BrandDisplay = "Reported issue", "", ""
+	}
+}
+
+// Apply the restriction at serialization as well as hydration: all public brand
+// readers must cover flags discovered after their analysis display was loaded.
+func (r evidenceRecord) publicMinimalAnalysis() models.MinimalAnalysis {
+	r.redactRestrictedDisplay()
+	return models.MinimalAnalysis{Title: r.Title, Summary: r.Summary, Classification: r.Classification, SeverityLevel: r.Severity, Language: r.Language, BrandName: r.Brand, BrandDisplayName: r.BrandDisplay}
+}
+
 func (r evidenceRecord) publicEvidence() models.PublicEvidence {
 	kind := r.Kind
 	if r.Version < 1 || (kind != "firsthand" && kind != "coverage") {
 		kind = "unknown"
 	}
-	sourceURL := safeEvidenceURL(r.SourceURL)
+	sourceURL := publicProvenanceURL(r.SourceURL)
 	platform := strings.TrimSpace(r.SourcePlatform)
 	intake, label := "unknown", "Submission provenance unavailable"
 	var intakeChannel *string
@@ -485,15 +513,19 @@ func (r evidenceRecord) publicEvidence() models.PublicEvidence {
 	} else if platform != "" || r.FetcherID != "" || r.ActorKind == "machine" {
 		intake, label = "imported", "Imported public report"
 	}
-	// These repo clients submit directly through the authenticated Wire API.
-	// Machine/Wire alone also describes crawlers, so keep unknown clients and
-	// imported sources unlabeled. This transport label changes no authorship,
-	// report-kind, intake-method or observation-date claim.
-	if r.ActorKind == "machine" && r.IntakeChannel == "wire" && !r.ExternalSource &&
-		(r.GenerationMethod == "cleanapp_cli" || r.GenerationMethod == "openclaw_skill") {
+	// A relayed public post still arrives through an agent-assisted submission.
+	// Its original source is a separate field. Machine/Wire alone also describes
+	// crawlers, so require the explicit generation marker and never infer a client.
+	if r.ActorKind == "machine" && (r.IntakeChannel == "wire" || r.IntakeChannel == "public_agent") &&
+		(r.IntakeChannel == "public_agent" || r.GenerationMethod == "human_assisted" || (!r.ExternalSource && (r.GenerationMethod == "cleanapp_cli" || r.GenerationMethod == "openclaw_skill"))) {
 		channel := "agent_api"
 		intakeChannel = &channel
 		label = "Submitted through CleanApp Agentic API"
+		if r.GenerationMethod == "human_assisted" {
+			intake, label = "agent_submission", "Agent-assisted submission"
+		} else if r.IntakeChannel == "public_agent" {
+			intake = "agent_submission"
+		}
 	}
 	if platform == "" && sourceURL != "" {
 		u, _ := url.Parse(sourceURL)
@@ -513,6 +545,7 @@ func (r evidenceRecord) publicEvidence() models.PublicEvidence {
 		ingestedAt = &r.IngestedAt
 	}
 	ev := models.PublicEvidence{ReportKind: kind, IntakeMethod: intake, IntakeChannel: intakeChannel, IntakeLabel: label, SourcePlatform: evidenceText(platform, 64), SourceURL: evidenceText(sourceURL, 2048), SourcePublishedAt: publicEvidenceDate(r.PublishedAt), ObservedAt: publicEvidenceDate(r.ObservedAt), IngestedAt: ingestedAt, EntityRelationship: relationship, ValidationStatus: "not_independently_reproduced", UpstreamStatus: "unknown", ResolutionStatus: "unknown", WhySurfaced: []string{}, EvidenceVersion: r.Version, HasOriginalMedia: r.HasOriginalMedia && !r.PrivacyRestricted}
+	applyPublicSubmissionProvenance(&ev, r, time.Now().UTC())
 	if r.PrivacyRestricted {
 		ev.SourceURL = nil
 	}
@@ -570,9 +603,13 @@ func (r evidenceRecord) publicRecurrence() models.PublicRecurrence {
 		}
 	}
 	samples := []models.PublicSupportingSource{}
-	if err := json.Unmarshal(r.SupportingSourcesJSON, &samples); err == nil {
+	if r.PrivacyRestricted {
+		// A late canonical restriction also covers previously hydrated sample
+		// titles/links, which can contain this representative's own derivatives.
+		samples = []models.PublicSupportingSource{}
+	} else if err := json.Unmarshal(r.SupportingSourcesJSON, &samples); err == nil {
 		for i := range samples {
-			safe := safeEvidenceURL(stringValue(samples[i].SourceURL))
+			safe := publicProvenanceURL(stringValue(samples[i].SourceURL))
 			samples[i].SourceURL = evidenceText(safe, 2048)
 			samples[i].Title = stringValue(evidenceText(samples[i].Title, 255))
 			samples[i].SourcePublishedAt = publicEvidenceDate(samples[i].SourcePublishedAt)
@@ -641,6 +678,16 @@ func (d *Database) AttachPublicEvidence(ctx context.Context, reports []*models.R
 			return fmt.Errorf("public detail projection is incomplete")
 		}
 	}
+	provenanceRecords := make([]evidenceRecord, 0, len(bySeq))
+	for _, r := range bySeq {
+		provenanceRecords = append(provenanceRecords, r)
+	}
+	if err := hydratePublicSubmissionProvenance(queryCtx, d.db, provenanceRecords); err != nil {
+		return err
+	}
+	for _, r := range provenanceRecords {
+		bySeq[r.Seq] = r
+	}
 	mediaSeqs := []int{}
 	for _, r := range bySeq {
 		if r.HasOriginalMedia && !r.PrivacyRestricted {
@@ -673,6 +720,7 @@ func attachPublicDetailProjection(report *models.ReportWithAnalysis, r evidenceR
 		for i := range report.Analysis {
 			report.Analysis[i].Title = "Reported issue"
 			report.Analysis[i].Summary, report.Analysis[i].Description = "", ""
+			report.Analysis[i].BrandDisplayName = ""
 			report.Analysis[i].AnalysisImage, report.Analysis[i].AnalysisText = nil, ""
 		}
 	}

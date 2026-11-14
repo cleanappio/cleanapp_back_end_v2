@@ -225,7 +225,14 @@ func testProjectedEvidenceSourceWinnerIdentityMySQL(t *testing.T, db *sql.DB) {
 			}
 			for _, report := range got.Reports {
 				seq, ev := report.Report.Seq, report.Evidence
-				if seq < 6600 || seq > 6604 || report.Analysis[0].Language != "fr" || report.Analysis[0].Title != fmt.Sprint("French ", seq) || report.Analysis[0].BrandDisplayName != "French" {
+				expectedTitle, expectedSummary, expectedDisplay := fmt.Sprint("French ", seq), "French summary", "French"
+				if seq == 6603 {
+					// The latest canonical Wire winner explicitly contains PII.
+					// Keep its selected nontext tuple, but never require public
+					// derivatives of that restricted observation to be returned.
+					expectedTitle, expectedSummary, expectedDisplay = "Reported issue", "", ""
+				}
+				if seq < 6600 || seq > 6604 || len(report.Analysis) != 1 || report.Analysis[0].Language != "fr" || report.Analysis[0].Classification != "digital" || report.Analysis[0].BrandName != "narrowsource" || report.Analysis[0].Title != expectedTitle || report.Analysis[0].Summary != expectedSummary || report.Analysis[0].BrandDisplayName != expectedDisplay {
 					t.Fatal("publication guard or chosen analysis tuple changed")
 				}
 				if seq == 6603 {
