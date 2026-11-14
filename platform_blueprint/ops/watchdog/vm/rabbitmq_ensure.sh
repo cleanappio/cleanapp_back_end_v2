@@ -113,6 +113,9 @@ ensure_policy_dlx() {
   local queue_name="$2"
   local dlq_name="$3"
 
+  # Existing policies also need a routable destination to retain dead letters.
+  ensure_binding "cleanapp-dlx" "${dlq_name}" "${dlq_name}"
+
   local url="${API_BASE}/policies/%2F/${policy_name}"
   if exists "${url}"; then
     return 0
@@ -147,7 +150,6 @@ ensure_retry_for_queue "report-analysis-queue"
 ensure_queue "report-analysis-human-queue" '{"x-queue-type":"classic"}'
 ensure_queue "report-analysis-human-queue.dlq" '{"x-queue-type":"classic"}'
 ensure_policy_dlx "dlx-report-analysis-human-queue" "report-analysis-human-queue" "report-analysis-human-queue.dlq"
-ensure_binding "cleanapp-dlx" "report-analysis-human-queue.dlq" "report-analysis-human-queue.dlq"
 ensure_binding "cleanapp-exchange" "report-analysis-human-queue" "report.raw.human"
 ensure_retry_for_queue "report-analysis-human-queue"
 
