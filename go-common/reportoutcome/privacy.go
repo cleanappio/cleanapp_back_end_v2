@@ -6,7 +6,9 @@ import (
 	"net/url"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -16,6 +18,9 @@ var (
 	phonePattern  = regexp.MustCompile(`(?:\+[1-9][0-9 ()-]{7,}[0-9]|\([0-9]{3}\)[ -]?[0-9]{3}[ -]?[0-9]{4}|\b[0-9]{3}-[0-9]{2}-[0-9]{4}\b)`)
 	cardPattern   = regexp.MustCompile(`\b[0-9][0-9 -]{11,25}[0-9]\b`)
 	urlPattern    = regexp.MustCompile(`(?i)https?://[^\s<>"']+`)
+	xStatusPath   = regexp.MustCompile(`^/(?:[A-Za-z0-9_]{1,15}/status|i/web/status)/([1-9][0-9]{18})/?$`)
+	panContext    = regexp.MustCompile(`(?i)\b(?:pan|(?:credit|debit|payment|bank)[ _-]+card|card[ _-]*(?:number|no)|primary[ _-]+account[ _-]+number)\b(?:\s*\(PAN\))?\s*(?:[:=#]|\bis\b|\s+https?://)`)
+	panAfterURL   = regexp.MustCompile(`(?i)^is\s+(?:(?:my|the|a)\s+)?(?:pan|(?:credit|debit|payment|bank)[ _-]+card(?:[ _-]+number)?|card[ _-]*(?:number|no)|primary[ _-]+account[ _-]+number)\b`)
 )
 
 // PrivacyHold checks the complete text projection, not only a generated
@@ -39,15 +44,16 @@ func PrivacyHold(reportJSON []byte, imageBytes int64, declaredPII, declaredRedac
 		return "invalid_public_projection"
 	}
 	budget := 65536
-	var inspect func(any) string
-	inspect = func(value any) string {
+	now := time.Now().UTC()
+	var inspect func(any, bool) string
+	inspect = func(value any, paymentContext bool) string {
 		switch item := value.(type) {
 		case string:
 			budget -= len(item)
 			if budget < 0 {
 				return "public_projection_too_large"
 			}
-			return sensitiveText(item)
+			return sensitiveText(item, now, paymentContext)
 		case map[string]any:
 			keys := make([]string, 0, len(item))
 			for key := range item {
@@ -56,7 +62,7 @@ func PrivacyHold(reportJSON []byte, imageBytes int64, declaredPII, declaredRedac
 			sort.Strings(keys)
 			for _, key := range keys {
 				child := item[key]
-				if reason := inspect(key); reason != "" {
+				if reason := inspect(key, paymentContext); reason != "" {
 					return reason
 				}
 				if explicitSensitiveKey(key, child) {
@@ -80,13 +86,13 @@ func PrivacyHold(reportJSON []byte, imageBytes int64, declaredPII, declaredRedac
 						}
 					}
 				}
-				if reason := inspect(child); reason != "" {
+				if reason := inspect(child, paymentContext || paymentNumberKey(key)); reason != "" {
 					return reason
 				}
 			}
 		case []any:
 			for _, child := range item {
-				if reason := inspect(child); reason != "" {
+				if reason := inspect(child, paymentContext); reason != "" {
 					return reason
 				}
 			}
@@ -94,11 +100,11 @@ func PrivacyHold(reportJSON []byte, imageBytes int64, declaredPII, declaredRedac
 		return ""
 	}
 	for _, item := range text {
-		if reason := inspect(item); reason != "" {
+		if reason := inspect(item, false); reason != "" {
 			return reason
 		}
 	}
-	return inspect(report)
+	return inspect(report, false)
 }
 
 func explicitSensitiveKey(key string, value any) bool {
@@ -111,7 +117,15 @@ func explicitSensitiveKey(key string, value any) bool {
 	return value != nil && value != false && value != ""
 }
 
-func sensitiveText(text string) string {
+func paymentNumberKey(key string) bool {
+	switch strings.NewReplacer("_", "", "-", "", " ", "").Replace(strings.ToLower(key)) {
+	case "pan", "cardnumber", "creditcardnumber", "debitcardnumber", "paymentcardnumber", "primaryaccountnumber":
+		return true
+	}
+	return false
+}
+
+func sensitiveText(text string, now time.Time, paymentContext bool) string {
 	if !utf8.ValidString(text) {
 		return "invalid_public_projection"
 	}
@@ -121,25 +135,62 @@ func sensitiveText(text string) string {
 	if emailPattern.MatchString(text) || phonePattern.MatchString(text) {
 		return "personal_contact_detected"
 	}
+	var paymentText []byte
+	for _, span := range urlPattern.FindAllStringIndex(text, -1) {
+		// A prose link can end in ").". Ignore closing prose punctuation for
+		// parsing; retained text is unchanged and URL privacy checks still run.
+		raw := strings.TrimRight(text[span[0]:span[1]], ".,;:!)]}")
+		parsed, err := url.Parse(raw)
+		if err != nil || parsed.User != nil {
+			return "sensitive_url_detected"
+		}
+		if reason := sensitiveURL(parsed, 0); reason != "" {
+			return reason
+		}
+		if !paymentContext && !panContext.MatchString(text) && !panAfterURL.MatchString(strings.TrimLeft(text[span[1]:], " \r\n\t.,;:!)]}")) {
+			if start, end, ok := publicXStatusID(parsed, now); ok {
+				if paymentText == nil {
+					paymentText = []byte(text)
+				}
+				// Mask only this exact path segment. Other numbers, including
+				// the same ID outside the URL or PANs in its query, still scan.
+				for i := span[0] + start; i < span[0]+end; i++ {
+					paymentText[i] = 'x'
+				}
+			}
+		}
+	}
+	if paymentText != nil {
+		text = string(paymentText)
+	}
 	for _, candidate := range cardPattern.FindAllString(text, -1) {
 		if paymentNumber(candidate) {
 			return "payment_information_detected"
 		}
 	}
-	for _, raw := range urlPattern.FindAllString(text, -1) {
-		parsed, err := url.Parse(raw)
-		if err != nil || parsed.User != nil {
+	return ""
+}
+
+// Validate all URL components before considering an ID exception. Decoded nested
+// URL parameters cannot hide credentials behind an otherwise recognized host.
+func sensitiveURL(parsed *url.URL, depth int) string {
+	if parsed.User != nil {
+		return "sensitive_url_detected"
+	}
+	host := strings.TrimSuffix(strings.ToLower(parsed.Hostname()), ".")
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return "private_network_url_detected"
+	}
+	// IPv6 zone identifiers do not make a private/link-local address public.
+	addressHost, _, _ := strings.Cut(host, "%")
+	if address := net.ParseIP(addressHost); address != nil &&
+		(address.IsPrivate() || address.IsLoopback() || address.IsLinkLocalUnicast()) {
+		return "private_network_url_detected"
+	}
+	for _, query := range []string{parsed.RawQuery, strings.TrimPrefix(parsed.Fragment, "?")} {
+		parameters, err := url.ParseQuery(query)
+		if err != nil {
 			return "sensitive_url_detected"
-		}
-		if address := net.ParseIP(parsed.Hostname()); address != nil &&
-			(address.IsPrivate() || address.IsLoopback() || address.IsLinkLocalUnicast()) {
-			return "private_network_url_detected"
-		}
-		parameters := parsed.Query()
-		if fragment, err := url.ParseQuery(strings.TrimPrefix(parsed.Fragment, "?")); err == nil {
-			for key, values := range fragment {
-				parameters[key] = values
-			}
 		}
 		for key := range parameters {
 			switch strings.ToLower(key) {
@@ -147,8 +198,54 @@ func sensitiveText(text string) string {
 				return "sensitive_url_detected"
 			}
 		}
+		for _, values := range parameters {
+			for _, value := range values {
+				for _, raw := range urlPattern.FindAllString(value, -1) {
+					if depth >= 2 {
+						return "sensitive_url_detected"
+					}
+					nested, err := url.Parse(strings.TrimRight(raw, ".,;:!)]}"))
+					if err != nil {
+						return "sensitive_url_detected"
+					}
+					if reason := sensitiveURL(nested, depth+1); reason != "" {
+						return reason
+					}
+				}
+			}
+		}
 	}
 	return ""
+}
+
+// Recognize only the observed modern 19-digit public status-ID namespace, not
+// arbitrary numbers on trusted hosts. This does not verify a post's existence,
+// visibility, author or contents. Keep shorter IDs conservative to preserve the
+// existing 13–18-digit PAN checks. Layout: twitter-archive/snowflake IdWorker.
+func publicXStatusID(parsed *url.URL, now time.Time) (start, end int, ok bool) {
+	if !strings.EqualFold(parsed.Scheme, "https") || parsed.User != nil || parsed.Port() != "" || parsed.Opaque != "" || parsed.EscapedPath() != parsed.Path {
+		return 0, 0, false
+	}
+	switch strings.ToLower(parsed.Host) {
+	case "x.com", "www.x.com", "twitter.com", "www.twitter.com":
+	default:
+		return 0, 0, false
+	}
+	match := xStatusPath.FindStringSubmatchIndex(parsed.Path)
+	if match == nil {
+		return 0, 0, false
+	}
+	id, err := strconv.ParseUint(parsed.Path[match[2]:match[3]], 10, 63)
+	if err != nil {
+		return 0, 0, false
+	}
+	const twitterEpochMillis int64 = 1288834974657
+	created := time.UnixMilli(int64(id>>22) + twitterEpochMillis)
+	if created.After(now.Add(5 * time.Minute)) {
+		return 0, 0, false
+	}
+	prefix := len(parsed.Scheme) + len("://") + len(parsed.Host)
+	return prefix + match[2], prefix + match[3], true
 }
 
 func paymentNumber(value string) bool {
