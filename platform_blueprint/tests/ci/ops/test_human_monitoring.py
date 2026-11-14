@@ -2,6 +2,7 @@
 """Regression checks for human-lane deploy pins and passive monitoring."""
 
 import contextlib
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import importlib.util
 import io
 import json
@@ -10,6 +11,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -74,6 +76,95 @@ class WatchdogRunnerTests(unittest.TestCase):
             self.assertIn("rabbitmq_ensure.sh", status["last_error"])
             self.assertFalse((directory / "unexpected_recovery").exists())
             self.assertFalse((directory / "lock").exists())
+
+
+class RabbitMQDeadLetterTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        directory = Path(self.directory.name)
+        sudo = directory / "sudo"
+        sudo.write_text('#!/usr/bin/env bash\n'
+                        '[[ "$1" == docker && "$2" == inspect && "$3" == fixture-rabbit ]] || exit 99\n'
+                        'printf "RABBITMQ_DEFAULT_USER=fixture-user\\nRABBITMQ_DEFAULT_PASS=fixture-password\\n"\n')
+        sudo.chmod(0o700)
+        self.bindings = {}
+        self.posts = []
+        self.puts = []
+        self.fail_binding = False
+        fixture = self
+
+        class RabbitAPI(BaseHTTPRequestHandler):
+            def log_message(self, *_args):
+                pass
+
+            def reply(self, status, body):
+                raw = json.dumps(body, separators=(",", ":")).encode()
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+
+            def do_GET(self):
+                if "/bindings/" in self.path:
+                    self.reply(200, [{"routing_key": key} for key in fixture.bindings.get(self.path, [])])
+                else:
+                    # Every exchange, queue and DLX policy already exists.
+                    self.reply(200, {})
+
+            def do_POST(self):
+                payload = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                fixture.posts.append((self.path, payload))
+                if fixture.fail_binding and "/e/cleanapp-dlx/" in self.path:
+                    self.reply(503, {})
+                    return
+                fixture.bindings.setdefault(self.path, []).append(payload["routing_key"])
+                self.reply(201, {})
+
+            def do_PUT(self):
+                fixture.puts.append(self.path)
+                self.reply(201, {})
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), RabbitAPI)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.addCleanup(self.close_server)
+        self.env = {**os.environ, "PATH": str(directory) + os.pathsep + os.environ["PATH"],
+                    "API_BASE": "http://127.0.0.1:" + str(self.server.server_port) + "/api",
+                    "RABBIT_CONTAINER": "fixture-rabbit"}
+
+    def close_server(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=2)
+
+    def run_ensure(self):
+        return subprocess.run(["bash", str(WATCHDOG / "rabbitmq_ensure.sh")],
+                              env=self.env, capture_output=True, text=True, timeout=15)
+
+    def test_existing_policies_repair_all_missing_dlq_bindings_and_rerun_is_idempotent(self):
+        first = self.run_ensure()
+        self.assertEqual(first.returncode, 0, first.stderr)
+        expected = {"report-analysis-queue", "report-analysis-human-queue", "report-tags-queue",
+                    "report-renderer-queue", "report-ownership-queue", "twitter-reply-queue"}
+        repaired = {(path, payload["routing_key"]) for path, payload in self.posts if "/e/cleanapp-dlx/" in path}
+        self.assertEqual(repaired, {("/api/bindings/%2F/e/cleanapp-dlx/q/" + queue + ".dlq", queue + ".dlq")
+                                    for queue in expected})
+        self.assertEqual(len([path for path, _ in self.posts if "/e/cleanapp-dlx/" in path]), len(expected))
+        self.assertEqual(self.puts, [], "Existing policies and queues must not be replaced")
+        posts = list(self.posts)
+        second = self.run_ensure()
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertEqual(self.posts, posts, "Existing bindings must not be duplicated")
+
+    def test_binding_failure_fails_closed_even_when_policy_already_exists(self):
+        self.fail_binding = True
+        result = self.run_ensure()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(len(self.posts), 1)
+        self.assertEqual(self.posts[0][1], {"routing_key": "report-analysis-queue.dlq"})
+        self.assertEqual(self.puts, [])
 
 
 class HumanSnapshotTests(unittest.TestCase):

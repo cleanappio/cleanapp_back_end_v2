@@ -24,6 +24,8 @@ jobs:
         run: python3 -W error -m unittest discover -s platform_blueprint/deploy/prod/vm/tests -p 'test_*.py'
       - name: AWS runtime registration and recovery contracts
         run: python3 -W error -m unittest discover -s platform_blueprint/deploy/prod/aws/tests -p 'test_*.py'
+      - name: Watchdog and dead-letter retention contracts
+        run: python3 -W error -m unittest discover -s platform_blueprint/tests/ci/ops -p 'test_*.py'
       - name: Report processing alert regression tests
         run: |
           mkdir "$RUNNER_TEMP/alert-tests"
