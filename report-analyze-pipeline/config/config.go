@@ -42,6 +42,8 @@ type Config struct {
 	LogLevel             string
 	SeqStartFrom         int
 	RabbitMQ             RabbitMQConfig
+
+	EnrichExternalDigitalEnabled bool
 }
 
 type RabbitMQConfig struct {
@@ -120,6 +122,8 @@ func Load() (*Config, error) {
 			AnalysedReportRoutingKey: appenv.String("RABBITMQ_ANALYSED_REPORT_ROUTING_KEY", "report.analysed"),
 			PrefetchCount:            appenv.Int("RABBITMQ_PREFETCH_COUNT", 5),
 		},
+
+		EnrichExternalDigitalEnabled: appenv.Bool("ENRICH_EXTERNAL_DIGITAL_ENABLED", true),
 	}
 	return config, nil
 }

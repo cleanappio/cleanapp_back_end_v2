@@ -22,6 +22,16 @@ jobs:
         run: python3 -m unittest discover -s scripts/self_repair -p 'test_*.py' -v
       - name: Portable AWS and existing source-build command contracts
         run: python3 -W error -m unittest discover -s platform_blueprint/deploy/prod/vm/tests -p 'test_*.py'
+      - name: AWS runtime registration and recovery contracts
+        run: python3 -W error -m unittest discover -s platform_blueprint/deploy/prod/aws/tests -p 'test_*.py'
+      - name: Report processing alert regression tests
+        run: |
+          mkdir "$RUNNER_TEMP/alert-tests"
+          cp platform_blueprint/ops/observability/prometheus/alerts.yml "$RUNNER_TEMP/alert-tests/"
+          cp platform_blueprint/tests/ci/ops/human_alerts.test.yml "$RUNNER_TEMP/alert-tests/"
+          docker run --rm --entrypoint promtool \
+            -v "$RUNNER_TEMP/alert-tests:/work:ro" -w /work \
+            prom/prometheus:v2.52.0 test rules human_alerts.test.yml
 
   secrets:
     name: Secret Scan (gitleaks)

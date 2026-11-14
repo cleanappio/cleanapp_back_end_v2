@@ -29,7 +29,8 @@ ROOT = (Path(__file__).resolve().parent / "../../../..").resolve()
 PINS_FILE = "docker-compose.aws-backend-images.yml"
 FRONTEND_PINS_FILE = "docker-compose.aws-frontend-images.yml"
 # Production roles, not the broader legacy source-service map. In particular,
-# the human analyzer never expands to the dormant bulk analyzer or news workers.
+# the human analyzer never expands to the separately registered machine analyzer
+# or dormant news workers.
 SOURCES = {
     "cleanapp_areas_service": "areas-service",
     "cleanapp_auth_service": "auth-service",
@@ -45,6 +46,7 @@ SOURCES = {
     "cleanapp_email_service": "email-service",
     "cleanapp_epc_pusher": "epc-pusher",
     "cleanapp_report_analyze_human": "report-analyze-pipeline",
+    "cleanapp_report_analyze_pipeline": "report-analyze-pipeline",
     "cleanapp_report_renderer_service": "report-fast-renderer",
     "cleanapp_report_listener": "report-listener",
     "cleanapp_report_listener_v4": "report-listener-v4",

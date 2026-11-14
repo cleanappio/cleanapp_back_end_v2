@@ -11,7 +11,10 @@ The first migration must separately restore the captured production images,
 data, secrets, mounts, networks, nginx and complete running-role configuration.
 This release helper only replaces selected **already running Compose roles**.
 It cannot bootstrap a new host, move data, alter DNS, deploy manual containers,
-or activate dormant analyzer/social-worker roles.
+or activate unregistered analyzer/social-worker roles. The machine analyzer has
+a separate reviewed first-registration path in
+[`../aws/README.md`](../aws/README.md#agent-report-analysis); subsequent releases
+can select its exact running role `cleanapp_report_analyze_pipeline`.
 
 ## GitHub configuration
 

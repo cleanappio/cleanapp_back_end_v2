@@ -2,6 +2,39 @@ rule_files:
   - alerts.yml
 evaluation_interval: 15s
 tests:
+  - name: unreachable agent analyzer target fires after grace and clears on recovery
+    interval: 15s
+    input_series:
+      - series: 'up{job="report-analyze-pipeline",instance="cleanapp_report_analyze_pipeline:8080"}'
+        values: '0+0x12 1+0x18'
+      - series: 'up{job="report-analyze-human",instance="cleanapp_report_analyze_human:8080"}'
+        values: '1+0x30'
+    alert_rule_test:
+      - eval_time: 1m45s
+        alertname: AgentAnalyzerUnavailable
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: AgentAnalyzerUnavailable
+        exp_alerts:
+          - exp_labels:
+              job: report-analyze-pipeline
+              instance: cleanapp_report_analyze_pipeline:8080
+              severity: critical
+            exp_annotations:
+              summary: Agent report analyzer unavailable
+              description: The machine report analyzer cannot be scraped for 2+ minutes.
+      - eval_time: 4m
+        alertname: AgentAnalyzerUnavailable
+        exp_alerts: []
+  - name: available agent analyzer target remains healthy
+    interval: 15s
+    input_series:
+      - series: 'up{job="report-analyze-pipeline",instance="cleanapp_report_analyze_pipeline:8080"}'
+        values: '1+0x30'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: AgentAnalyzerUnavailable
+        exp_alerts: []
   - name: human worker stuck before any successful report
     interval: 15s
     input_series:
@@ -50,3 +83,171 @@ tests:
             exp_annotations:
               summary: Analyzer RabbitMQ disconnected
               description: Analyzer report-analyze-human reports RabbitMQ disconnected for 5+ minutes.
+  # kbudde/rabbitmq_exporter uses queue/vhost (not RabbitMQ's native name label).
+  # Include all exporter labels so these fixtures also check the matching key.
+  - name: agent backlog with zero consumers fires after grace and resolves
+    interval: 15s
+    input_series:
+      - series: 'rabbitmq_queue_messages_ready{job="rabbitmq-exporter",instance="rabbitmq_exporter:9419",cluster="rabbit@prod",vhost="/",queue="report-analysis-queue",durable="true",policy="",self="1"}'
+        values: '1+0x30'
+      - series: 'rabbitmq_queue_consumers{job="rabbitmq-exporter",instance="rabbitmq_exporter:9419",cluster="rabbit@prod",vhost="/",queue="report-analysis-queue",durable="true",policy="",self="1"}'
+        values: '0+0x12 1+0x18'
+    alert_rule_test:
+      - eval_time: 1m45s
+        alertname: AgentReportAnalysisUnconsumedBacklog
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: AgentReportAnalysisUnconsumedBacklog
+        exp_alerts:
+          - exp_labels:
+              job: rabbitmq-exporter
+              instance: rabbitmq_exporter:9419
+              cluster: rabbit@prod
+              vhost: /
+              queue: report-analysis-queue
+              durable: "true"
+              self: "1"
+              severity: critical
+            exp_annotations:
+              summary: Agent report backlog has no consumer
+              description: report-analysis-queue has waiting reports but no observed active consumer for 2+ minutes.
+      - eval_time: 4m
+        alertname: AgentReportAnalysisUnconsumedBacklog
+        exp_alerts: []
+  - name: known agent backlog with missing consumer gauge still fires
+    interval: 15s
+    input_series:
+      - series: 'rabbitmq_queue_messages_ready{job="rabbitmq-exporter",instance="rabbitmq_exporter:9419",cluster="rabbit@prod",vhost="/",queue="report-analysis-queue",durable="true",policy="",self="1"}'
+        values: '42+0x30'
+      # Neither the human queue nor a different vhost/exporter can mask it.
+      - series: 'rabbitmq_queue_consumers{job="rabbitmq-exporter",instance="rabbitmq_exporter:9419",cluster="rabbit@prod",vhost="/",queue="report-analysis-human-queue",durable="true",policy="",self="1"}'
+        values: '1+0x30'
+      - series: 'rabbitmq_queue_consumers{job="rabbitmq-exporter",instance="rabbitmq_exporter:9419",cluster="rabbit@prod",vhost="other",queue="report-analysis-queue",durable="true",policy="",self="1"}'
+        values: '1+0x30'
+      - series: 'rabbitmq_queue_consumers{job="rabbitmq-exporter",instance="other-exporter:9419",cluster="rabbit@prod",vhost="/",queue="report-analysis-queue",durable="true",policy="",self="1"}'
+        values: '1+0x30'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: AgentReportAnalysisUnconsumedBacklog
+        exp_alerts:
+          - exp_labels:
+              job: rabbitmq-exporter
+              instance: rabbitmq_exporter:9419
+              cluster: rabbit@prod
+              vhost: /
+              queue: report-analysis-queue
+              durable: "true"
+              self: "1"
+              severity: critical
+            exp_annotations:
+              summary: Agent report backlog has no consumer
+              description: report-analysis-queue has waiting reports but no observed active consumer for 2+ minutes.
+  - name: active consumer or empty agent queue does not trigger backlog alarm
+    interval: 15s
+    input_series:
+      - series: 'rabbitmq_queue_messages_ready{job="rabbitmq-exporter",instance="rabbitmq_exporter:9419",cluster="rabbit@prod",vhost="/",queue="report-analysis-queue",durable="true",policy="",self="1"}'
+        values: '42+0x30'
+      - series: 'rabbitmq_queue_consumers{job="rabbitmq-exporter",instance="rabbitmq_exporter:9419",cluster="rabbit@prod",vhost="/",queue="report-analysis-queue",durable="true",policy="",self="1"}'
+        values: '1+0x30'
+      - series: 'rabbitmq_queue_messages_ready{job="rabbitmq-exporter",instance="rabbitmq_exporter:9419",cluster="rabbit@prod",vhost="empty",queue="report-analysis-queue",durable="true",policy="",self="1"}'
+        values: '0+0x30'
+      - series: 'rabbitmq_queue_consumers{job="rabbitmq-exporter",instance="rabbitmq_exporter:9419",cluster="rabbit@prod",vhost="empty",queue="report-analysis-queue",durable="true",policy="",self="1"}'
+        values: '0+0x30'
+      - series: 'rabbitmq_queue_messages_ready{job="rabbitmq-exporter",instance="rabbitmq_exporter:9419",cluster="rabbit@prod",vhost="empty-missing-consumer",queue="report-analysis-queue",durable="true",policy="",self="1"}'
+        values: '0+0x30'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: AgentReportAnalysisUnconsumedBacklog
+        exp_alerts: []
+  - name: state-only exporter output exposes missing agent queue telemetry
+    interval: 15s
+    input_series:
+      - series: 'rabbitmq_queue_state{job="rabbitmq-exporter",instance="rabbitmq_exporter:9419",cluster="rabbit@prod",vhost="/",queue="report-analysis-queue",durable="true",policy="",self="1",state="running"}'
+        values: '1+0x30'
+      - series: 'rabbitmq_queue_messages_ready{job="rabbitmq-exporter",instance="rabbitmq_exporter:9419",cluster="rabbit@prod",vhost="/",queue="report-analysis-queue",durable="true",policy="",self="1"}'
+        values: '_ _ _ _ _ _ _ _ _ _ _ _ 0+0x18'
+      - series: 'rabbitmq_queue_consumers{job="rabbitmq-exporter",instance="rabbitmq_exporter:9419",cluster="rabbit@prod",vhost="/",queue="report-analysis-queue",durable="true",policy="",self="1"}'
+        values: '_ _ _ _ _ _ _ _ _ _ _ _ 0+0x18'
+    alert_rule_test:
+      - eval_time: 1m45s
+        alertname: AgentReportAnalysisQueueTelemetryMissing
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: AgentReportAnalysisQueueTelemetryMissing
+        exp_alerts:
+          - exp_labels:
+              job: rabbitmq-exporter
+              instance: rabbitmq_exporter:9419
+              cluster: rabbit@prod
+              vhost: /
+              queue: report-analysis-queue
+              severity: warning
+            exp_annotations:
+              summary: Agent report queue telemetry missing
+              description: report-analysis-queue is visible but its ready-message or consumer gauge is missing for 2+ minutes; backlog health cannot be verified.
+      - eval_time: 4m
+        alertname: AgentReportAnalysisQueueTelemetryMissing
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: AgentReportAnalysisUnconsumedBacklog
+        exp_alerts: []
+  - name: idle queue with ready gauge but absent consumers exposes missing telemetry
+    interval: 15s
+    input_series:
+      - series: 'rabbitmq_queue_state{job="rabbitmq-exporter",instance="rabbitmq_exporter:9419",cluster="rabbit@prod",vhost="/",queue="report-analysis-queue",durable="true",policy="",self="1",state="idle"}'
+        values: '1+0x30'
+      - series: 'rabbitmq_queue_messages_ready{job="rabbitmq-exporter",instance="rabbitmq_exporter:9419",cluster="rabbit@prod",vhost="/",queue="report-analysis-queue",durable="true",policy="",self="1"}'
+        values: '0+0x30'
+      - series: 'rabbitmq_queue_consumers{job="rabbitmq-exporter",instance="rabbitmq_exporter:9419",cluster="rabbit@prod",vhost="other",queue="report-analysis-queue",durable="true",policy="",self="1"}'
+        values: '1+0x30'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: AgentReportAnalysisQueueTelemetryMissing
+        exp_alerts:
+          - exp_labels:
+              job: rabbitmq-exporter
+              instance: rabbitmq_exporter:9419
+              cluster: rabbit@prod
+              vhost: /
+              queue: report-analysis-queue
+              severity: warning
+            exp_annotations:
+              summary: Agent report queue telemetry missing
+              description: report-analysis-queue is visible but its ready-message or consumer gauge is missing for 2+ minutes; backlog health cannot be verified.
+  - name: consumer alone cannot establish agent backlog telemetry
+    interval: 15s
+    input_series:
+      - series: 'rabbitmq_queue_state{job="rabbitmq-exporter",instance="rabbitmq_exporter:9419",cluster="rabbit@prod",vhost="/",queue="report-analysis-queue",durable="true",policy="",self="1",state="running"}'
+        values: '1+0x30'
+      - series: 'rabbitmq_queue_consumers{job="rabbitmq-exporter",instance="rabbitmq_exporter:9419",cluster="rabbit@prod",vhost="/",queue="report-analysis-queue",durable="true",policy="",self="1"}'
+        values: '1+0x30'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: AgentReportAnalysisQueueTelemetryMissing
+        exp_alerts:
+          - exp_labels:
+              job: rabbitmq-exporter
+              instance: rabbitmq_exporter:9419
+              cluster: rabbit@prod
+              vhost: /
+              queue: report-analysis-queue
+              severity: warning
+            exp_annotations:
+              summary: Agent report queue telemetry missing
+              description: report-analysis-queue is visible but its ready-message or consumer gauge is missing for 2+ minutes; backlog health cannot be verified.
+  - name: short metric gap clears before grace and zero gauges are healthy telemetry
+    interval: 15s
+    input_series:
+      - series: 'rabbitmq_queue_state{job="rabbitmq-exporter",instance="rabbitmq_exporter:9419",cluster="rabbit@prod",vhost="/",queue="report-analysis-queue",durable="true",policy="",self="1",state="running"}'
+        values: '1+0x30'
+      - series: 'rabbitmq_queue_messages_ready{job="rabbitmq-exporter",instance="rabbitmq_exporter:9419",cluster="rabbit@prod",vhost="/",queue="report-analysis-queue",durable="true",policy="",self="1"}'
+        values: '0+0x30'
+      - series: 'rabbitmq_queue_consumers{job="rabbitmq-exporter",instance="rabbitmq_exporter:9419",cluster="rabbit@prod",vhost="/",queue="report-analysis-queue",durable="true",policy="",self="1"}'
+        values: '_ _ _ _ 0+0x26'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: AgentReportAnalysisQueueTelemetryMissing
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: AgentReportAnalysisUnconsumedBacklog
+        exp_alerts: []

@@ -11,14 +11,15 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 import runtime_roles as roles
+import runtime_boot as boot
 import register_epc as deploy
 import native_restart_policy as native
 
 IMAGE = 'sha256:' + 'a' * 64
 
 
-def baseline(current=False):
-    services = roles.CURRENT_SERVICES if current else roles.LEGACY_SERVICES
+def baseline(current=False, analyzer=False):
+    services = roles.MACHINE_ANALYSIS_SERVICES if analyzer else roles.CURRENT_SERVICES if current else roles.LEGACY_SERVICES
     return {'name': roles.PROJECT, 'services': {
         s: {'container_name': roles.expected_container(s), 'image': IMAGE,
             'environment': {'UNCHANGED': s}}
@@ -35,55 +36,100 @@ def container(name, running=True):
 
 
 class RoleTests(unittest.TestCase):
-    def test_only_exact_legacy_or_epc_extension_is_admitted(self):
+    def test_only_exact_reviewed_role_extensions_are_admitted(self):
         self.assertEqual(len(roles.declared_roles(baseline())), 31)
         self.assertEqual(len(roles.declared_roles(baseline(True))), 32)
+        self.assertEqual(len(roles.declared_roles(baseline(True, True))), 33)
         wrong = baseline(); wrong['services']['unreviewed_preview'] = wrong['services'].pop('cleanapp_web')
         with self.assertRaises(ValueError): roles.declared_roles(wrong)
         wrong = baseline(); wrong['services']['cleanapp_db']['container_name'] = 'other-db'
         with self.assertRaises(ValueError): roles.declared_roles(wrong)
+        wrong = baseline(True, True); del wrong['services'][roles.EPC_SERVICE]
+        with self.assertRaises(ValueError): roles.declared_roles(wrong)
+        wrong = baseline(True, True)
+        wrong['services']['unreviewed_preview'] = wrong['services'].pop(roles.MACHINE_ANALYSIS_SERVICE)
+        with self.assertRaises(ValueError): roles.declared_roles(wrong)
+        wrong = baseline(True, True); wrong['services'][roles.MACHINE_ANALYSIS_SERVICE]['container_name'] = 'other-analyzer'
+        with self.assertRaises(ValueError): roles.declared_roles(wrong)
 
     def test_capture_targets_declared_roles_and_excludes_unrelated_preview(self):
-        names = list(roles.declared_roles(baseline(True)).values())
-        calls = []
-        def get(args):
-            calls.append(args)
-            if args[0] == 'inspect':
-                self.assertEqual(set(args[1:]), set(names))
-                return [container(n) for n in args[1:]]
-            return []
-        result = roles.capture_declared_runtime(names, get)
-        self.assertEqual(len(result['containers']), 32)
-        self.assertFalse(any('ps' in c for c in calls))
-        self.assertNotIn('cleanapp_grepped_preview', json.dumps(calls))
+        for analyzer in (False, True):
+            with self.subTest(analyzer=analyzer):
+                names = list(roles.declared_roles(baseline(True, analyzer)).values())
+                calls = []
+                def get(args):
+                    calls.append(args)
+                    if args[0] == 'inspect':
+                        self.assertEqual(set(args[1:]), set(names))
+                        return [container(n) for n in args[1:]]
+                    return []
+                result = roles.capture_declared_runtime(names, get)
+                self.assertEqual(len(result['containers']), 33 if analyzer else 32)
+                self.assertEqual(roles.MACHINE_ANALYSIS_SERVICE in calls[0], analyzer)
+                self.assertFalse(any('ps' in c for c in calls))
+                self.assertNotIn('cleanapp_grepped_preview', json.dumps(calls))
+
+    def test_boot_plan_accepts_all_reviewed_sets_and_retains_both_ci_pins(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            target = root / 'compose.json'
+            pins = [root / 'backend-pins.json', root / 'frontend-pins.json']
+            for pin in pins:
+                pin.write_text('{"services":{}}')
+            for declared in (baseline(), baseline(True), baseline(True, True)):
+                target.write_text(json.dumps(declared)); target.chmod(0o600)
+                with self.subTest(roles=len(declared['services'])), \
+                     mock.patch.object(boot, 'BASE', target), \
+                     mock.patch.object(boot, 'PINS', pins), \
+                     mock.patch.object(boot, 'BACKUP_LIBRARY', ROOT), \
+                     mock.patch.object(boot, 'run') as docker, \
+                     mock.patch.object(sys, 'argv', ['runtime_boot.py', '--action', 'plan']), \
+                     contextlib.redirect_stdout(io.StringIO()) as output:
+                    names, db, broker, command, present = boot.configuration()
+                    self.assertEqual(set(names), set(declared['services']))
+                    self.assertEqual(db, ['cleanapp_db'])
+                    self.assertEqual(broker, ['cleanapp_rabbitmq'])
+                    self.assertEqual(present, pins)
+                    self.assertTrue(all(str(pin) in command for pin in pins))
+                    boot.main()
+                    result = json.loads(output.getvalue())
+                    self.assertEqual(result['baseline_services'], len(declared['services']))
+                    self.assertEqual(result['existing_ci_pin_files'], 2)
+                    docker.assert_not_called()
 
     def test_snapshot_requires_each_role_running_and_no_duplicates(self):
-        names = list(roles.declared_roles(baseline()).values())
-        cs = [container(n) for n in names]
-        cs[0]['State']['Running'] = False
-        with self.assertRaises(ValueError): roles.snapshot_roles({'containers': cs}, names, True)
-        cs = [container(n) for n in names]; cs[-1] = cs[0]
-        with self.assertRaises(ValueError): roles.snapshot_roles({'containers': cs})
+        for declared in (baseline(), baseline(True), baseline(True, True)):
+            names = list(roles.declared_roles(declared).values())
+            with self.subTest(roles=len(names)):
+                cs = [container(n) for n in names]
+                stopped = next((c for c in cs if c['Name'] == '/' + roles.MACHINE_ANALYSIS_SERVICE), cs[0])
+                stopped['State']['Running'] = False
+                with self.assertRaises(ValueError): roles.snapshot_roles({'containers': cs}, names, True)
+                cs = [container(n) for n in names]; cs[-1] = cs[0]
+                with self.assertRaises(ValueError): roles.snapshot_roles({'containers': cs})
+                cs = [container(n) for n in names[:-1]]
+                with self.assertRaises(ValueError): roles.snapshot_roles({'containers': cs}, names)
 
     def test_native_isolation_snapshot_must_match_current_declared_baseline(self):
-        old = {'containers': [container(n) for n in roles.declared_roles(baseline()).values()]}
-        current = {'containers': [container(n) for n in roles.declared_roles(baseline(True)).values()]}
+        baselines = (baseline(), baseline(True), baseline(True, True))
+        snapshots = [{'containers': [container(n) for n in roles.declared_roles(value).values()]}
+                     for value in baselines]
         for action in ('fence', 'restore', 'verify-isolated', 'verify-restored'):
-            for declared, snapshot, valid in ((baseline(), old, True), (baseline(True), current, True),
-                                              (baseline(True), old, False), (baseline(), current, False)):
-                def private(path):
-                    return snapshot if str(path) == 'snapshot.private' else declared
-                with self.subTest(action=action, roles=len(declared['services']), snapshot=len(snapshot['containers'])), \
-                     mock.patch.object(native, 'private_json', side_effect=private), \
-                     mock.patch.object(native, 'run') as docker, \
-                     mock.patch.object(sys, 'argv', ['native_restart_policy.py', action, '--snapshot', 'snapshot.private']), \
-                     contextlib.redirect_stdout(io.StringIO()) as output:
-                    if valid:
-                        native.main()
-                        self.assertTrue(json.loads(output.getvalue())['plan'])
-                    else:
-                        with self.assertRaisesRegex(ValueError, 'differ from declared'): native.main()
-                    docker.assert_not_called()
+            for declared in baselines:
+                for snapshot in snapshots:
+                    def private(path):
+                        return snapshot if str(path) == 'snapshot.private' else declared
+                    with self.subTest(action=action, roles=len(declared['services']), snapshot=len(snapshot['containers'])), \
+                         mock.patch.object(native, 'private_json', side_effect=private), \
+                         mock.patch.object(native, 'run') as docker, \
+                         mock.patch.object(sys, 'argv', ['native_restart_policy.py', action, '--snapshot', 'snapshot.private']), \
+                         contextlib.redirect_stdout(io.StringIO()) as output:
+                        if len(declared['services']) == len(snapshot['containers']):
+                            native.main()
+                            self.assertTrue(json.loads(output.getvalue())['plan'])
+                        else:
+                            with self.assertRaisesRegex(ValueError, 'differ from declared'): native.main()
+                        docker.assert_not_called()
 
     def test_addition_preserves_all_original_service_definitions_and_replays(self):
         original = baseline(); scope = {'required': ['/original'], 'optional': []}

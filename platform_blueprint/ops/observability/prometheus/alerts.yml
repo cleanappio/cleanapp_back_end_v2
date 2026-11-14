@@ -17,6 +17,14 @@ groups:
         annotations:
           summary: "Human report analyzer unavailable"
           description: "The isolated mobile analyzer cannot be scraped for 2+ minutes."
+      - alert: AgentAnalyzerUnavailable
+        expr: up{job="report-analyze-pipeline"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Agent report analyzer unavailable"
+          description: "The machine report analyzer cannot be scraped for 2+ minutes."
       - alert: HumanReportAnalysisQueueMissing
         expr: absent(rabbitmq_queue_state{queue="report-analysis-human-queue",state="running"}) == 1
         for: 2m
@@ -45,6 +53,35 @@ groups:
         annotations:
           summary: "report-analysis-queue missing"
           description: "report-analysis-queue is missing (or not running) for 5+ minutes."
+      - alert: AgentReportAnalysisUnconsumedBacklog
+        # kbudde/rabbitmq_exporter queue gauges; a missing consumers series must
+        # not turn a known backlog into an empty (healthy) result.
+        expr: >-
+          (rabbitmq_queue_messages_ready{queue="report-analysis-queue"} > 0)
+          unless on(job, instance, cluster, vhost, queue)
+          (rabbitmq_queue_consumers{queue="report-analysis-queue"} > 0)
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Agent report backlog has no consumer"
+          description: "report-analysis-queue has waiting reports but no observed active consumer for 2+ minutes."
+      - alert: AgentReportAnalysisQueueTelemetryMissing
+        # A visible queue with omitted management statistics cannot prove an
+        # empty backlog or a healthy consumer. Keep that blind spot observable.
+        expr: >-
+          max by(job, instance, cluster, vhost, queue)
+          (rabbitmq_queue_state{queue="report-analysis-queue"} == 1)
+          unless on(job, instance, cluster, vhost, queue)
+          (rabbitmq_queue_messages_ready{queue="report-analysis-queue"}
+          and on(job, instance, cluster, vhost, queue)
+          rabbitmq_queue_consumers{queue="report-analysis-queue"})
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Agent report queue telemetry missing"
+          description: "report-analysis-queue is visible but its ready-message or consumer gauge is missing for 2+ minutes; backlog health cannot be verified."
       - alert: ReportTagsQueueMissing
         expr: absent(rabbitmq_queue_state{queue="report-tags-queue",state="running"}) == 1
         for: 5m
