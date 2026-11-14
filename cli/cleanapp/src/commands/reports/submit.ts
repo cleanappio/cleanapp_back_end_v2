@@ -6,13 +6,13 @@ import { resolveRuntimeConfig } from "../../runtime.js";
 import { genSourceId, parseFloatArg } from "../../util.js";
 import { CLI_VERSION } from "../../version.js";
 import { toWireSubmission } from "../../wire.js";
-import { toPublicAgentReport, writePrivateJson } from "../../public-report.js";
+import { toPublicAgentReport, writePrivateJson, reportHandling, formatReportOutcome } from "../../public-report.js";
 import { CLIError } from "../../errors.js";
 
 export function addSubmit(program: Command): void {
   program
     .command("submit")
-    .description("Submit one report privately without a key, or use approved Wire credentials")
+    .description("Submit one report; optionally authorize automatic publication and notices after analysis")
     .option("--title <title>", "Report title")
     .option("--desc <description>", "Report description")
     .option("--lat <lat>", "Latitude", undefined)
@@ -20,6 +20,8 @@ export function addSubmit(program: Command): void {
     .option("--source-id <sourceId>", "Idempotency key (auto-generated if omitted)")
     .option("--url <url>", "Observed HTTP(S) URL (public private-review intake)")
     .option("--receipt-file <file>", "Save private intent/receipt to a new mode-0600 JSON file")
+    .option("--publication <mode>", "private|automatic (omission retains private handling)")
+    .option("--notices <mode>", "none|automatic (omission does not authorize notices)")
     .option("--agent-id <id>", "Agent identifier", "cleanapp-cli")
     .option("--agent-version <version>", "Agent version", CLI_VERSION)
     .option("--collected-at <rfc3339>", "RFC3339 collected timestamp (defaults to now)")
@@ -40,7 +42,7 @@ export function addSubmit(program: Command): void {
             catch { printJson(r); throw new Error("Could not save the receipt file; private receipt was returned on stdout. Retain it; do not submit a new report."); }
           }
           if (cfg.output === "human" && !cfg.dryRun) {
-            printHuman(`receipt=${r.receipt_id} status=${r.status} publication=${r.publication_status}\nsource_id=${r.source_id}\n${opts.receiptFile ? `Private receipt saved: ${opts.receiptFile}` : `Private tracking token: ${r.tracking_token}`}\nKeep the receipt private. Check with cleanapp status --receipt-id ${r.receipt_id} --tracking-token-file <private-receipt.json>.`);
+            printHuman(`receipt=${r.receipt_id} status=${r.status} publication=${r.publication_status}\n${formatReportOutcome(r)}\nsource_id=${r.source_id}\n${opts.receiptFile ? `Private receipt saved: ${opts.receiptFile}` : `Private tracking token: ${r.tracking_token}`}\nKeep the receipt private. Check with cleanapp status --receipt-id ${r.receipt_id} --tracking-token-file <private-receipt.json>.`);
           } else if (opts.receiptFile && r.tracking_token) {
             const { tracking_token: _, ...summary } = r;
             printJson({ ...summary, private_receipt_file: opts.receiptFile });
@@ -84,6 +86,8 @@ export function addSubmit(program: Command): void {
         agent_version: (opts.agentVersion || "").trim() || CLI_VERSION,
         source_type: (opts.sourceType || "").trim() || "text",
       });
+      const handling = reportHandling(opts);
+      if (handling) (body.delivery as Record<string, unknown>).handling = handling;
 
       const res = await httpRequest(cfg, { method: "POST", path: "/api/v1/agent-reports:submit", body });
 
@@ -93,6 +97,7 @@ export function addSubmit(program: Command): void {
           [
             `receipt=${r.receipt_id} status=${r.status} lane=${r.lane}`,
             `source_id=${r.source_id} report_id=${r.report_id ?? "(n/a)"} replay=${Boolean(r.idempotency_replay)}`,
+            formatReportOutcome(r),
           ]
             .filter(Boolean)
             .join("\n"),

@@ -5,7 +5,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 
+	"cleanapp-common/evidence"
 	"report-analyze-pipeline/parser"
 )
 
@@ -38,7 +40,7 @@ func (c *Client) AnalyzeImage(imageData []byte, description string) (string, err
 		"digital_bug_probabilty": 0.0,
 		"severity_level":         0.2,
 		"legal_risk_estimate":    "low",
-		"is_valid":               true,
+		"is_valid":               !strings.Contains(description, "[outcome:rejected]"),
 	}
 
 	b, err := json.Marshal(out)
@@ -47,6 +49,23 @@ func (c *Client) AnalyzeImage(imageData []byte, description string) (string, err
 	}
 	return string(b), nil
 }
+
+// AnalyzeEvidence implements the actual narrow evidence.Classifier contract.
+// Fixture markers exist only in the explicitly configured no-network provider.
+func (c *Client) AnalyzeEvidence(original, _ string) (evidence.Fields, error) {
+	if strings.TrimSpace(original) == "" || strings.Contains(original, "[outcome:unknown]") {
+		return evidence.Unknown("Deterministic fixture has insufficient observation context."), nil
+	}
+	kind := "firsthand"
+	if strings.Contains(original, "[outcome:coverage]") {
+		kind = "coverage"
+	}
+	return evidence.Fields{ReportKind: kind, EntityRelationship: "affected",
+		EvidenceExcerpt:      evidence.Bound(original, evidence.MaxExcerptRunes),
+		ClassificationReason: "Deterministic fixture classification from retained original text."}, nil
+}
+
+var _ evidence.Classifier = (*Client)(nil)
 
 func (c *Client) TranslateAnalysis(jsonText, targetLanguage string) (string, error) {
 	// Keep it simple and schema-valid: round-trip JSON and annotate title/description.

@@ -33,3 +33,13 @@ Dry-run performs no network call. Optional `--approx-location` rounds supplied c
 Optional `CLEANAPP_API_TOKEN` selects the existing authenticated Wire single/batch path and accepts its previous input format. Store this credential in the OpenClaw secret store. Self-registration is disabled by default in production; if enabled it creates a pending identity without submission permission. It is not required for a public first report. An approved key is reusable and its raw value is shown once when issued.
 
 Approved Wire status by source uses `--status-source-id`; public status uses the private receipt capability as above. For Wire examples with media/source metadata, use `examples/sample_items.json` only with approved credentials. Build the self-contained package with `./build_zip.sh`. Version 1.2.0 adds the public single-report path without copying another runtime.
+
+## Get an actionable outcome
+
+Analysis is the normal review. It returns `outcome.decision` (`accepted`, `cluster_candidate`, `needs_information`, `rejected`, or `held`), a reason and `next_action`. Related reports are cluster candidates: each keeps its record, original evidence and attribution and adds support to a shared case. Exact request replay returns the original receipt and is a separate technical fact.
+
+New reports can explicitly authorize automatic publication and eligible notices after analysis and server privacy checks. Use `handling: {"publication":"automatic","notices":"automatic"}` at the public endpoint, or `delivery.handling` in Wire. Omitted permissions preserve private publication and no notices; existing submissions are never upgraded retrospectively. Permissions are immutable for retries. Automatic handling does not enable rewards.
+
+CLI 0.3.0 adds `--publication automatic --notices automatic` to `cleanapp submit`. These flags are optional and must reflect the user's permission. OpenClaw simple JSON accepts the same `handling` object.
+
+Keep the receipt and poll its existing status while `outcome.final` is false. Return the decision and specific next action. `outcome.publication` reports actual publication, and `outcome.delivery` reports recorded transport outcomes. A queued intent is not a sent notice. A final CleanApp outcome does not mean that a recipient read the notice or fixed the problem. Old private reports remain private and can receive an analysis decision.

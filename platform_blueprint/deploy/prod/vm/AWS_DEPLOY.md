@@ -270,6 +270,15 @@ match those reviewed pins. Reapplying the same reviewed images can proceed
 without interrupting the import. Unknown replacements are refused before
 migrations and leave the current import running.
 
+For a guarded release, dispatch the existing AWS workflow with `stage_only=true`
+and `dry_run=false` first. It builds and uploads the exact images, migration
+image and manifest, without loading images, running migrations, changing pins
+or restarting services. Its evidence names the retained archive and release
+directory. Review that exact manifest before quiescing the receiver. Activate
+the staged `manifest.json` with its staged helper after the review plan below;
+activation still enforces the same lock and interlock and removes the transport
+archive. If the release is abandoned, remove its retained archive explicitly.
+
 For an intentional guarded-image change, the initial supported path is a manual
 root-reviewed plan at `evidence/deployment-review-plan.json`, owner root, mode
 `0600`. Review the source and exact staged release first, stop the receiver and

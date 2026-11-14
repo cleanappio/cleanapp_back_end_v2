@@ -133,12 +133,12 @@ def wrap_wire_submission(item: Dict[str, Any]) -> Dict[str, Any]:
             "digital_context": digital_context,
             "evidence_bundle": evidence_bundle or None,
         },
-        "delivery": {"requested_lane": "auto"},
+        "delivery": {"requested_lane": "auto", **({"handling": item["handling"]} if "handling" in item else {})},
     }
 
 
 def wrap_public_submission(item: Dict[str, Any]) -> Dict[str, Any]:
-    allowed = {"source_id", "title", "description", "desc", "lat", "lng", "url", "agent_name"}
+    allowed = {"source_id", "title", "description", "desc", "lat", "lng", "url", "agent_name", "handling"}
     unsupported = set(item) - allowed
     if unsupported:
         raise SystemExit("public single-report intake does not support these fields: " + ", ".join(sorted(unsupported)) + "; use approved Wire credentials for rich/bulk input")
@@ -153,6 +153,14 @@ def wrap_public_submission(item: Dict[str, Any]) -> Dict[str, Any]:
     except ValueError:
         raise SystemExit("source_id must be a private random UUIDv4; retain it and reuse only for the same report retry")
     payload: Dict[str, Any] = {"description": description, "source_id": source_id, "agent_name": str(item.get("agent_name") or "OpenClaw CleanApp Ingest")}
+    if "handling" in item:
+        handling = item["handling"]
+        if not isinstance(handling, dict) or set(handling) - {"publication", "notices"}:
+            raise SystemExit("handling accepts only publication and notices")
+        publication, notices = handling.get("publication", "private"), handling.get("notices", "none")
+        if publication not in ("private", "automatic") or notices not in ("none", "automatic"):
+            raise SystemExit("handling requires publication private|automatic and notices none|automatic")
+        payload["handling"] = {"publication": publication, "notices": notices}
     if item.get("title"):
         if len(str(item["title"]).encode("utf-8")) > 255:
             raise SystemExit("title must be at most 255 UTF-8 bytes")

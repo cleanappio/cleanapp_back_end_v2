@@ -297,6 +297,21 @@ class PortableDeployTests(unittest.TestCase):
         self.assert_no_activation()
         self.assertEqual(self.running, self.previous)
 
+    def test_stage_only_retains_exact_artifacts_without_loading_or_activating(self):
+        self.args.stage_only = True
+        self.fail_olm_check = True  # Staging must not call or bypass activation.
+        result = self.execute()
+        self.assertTrue(result["staged_only"])
+        self.assertFalse(result["activated"])
+        self.assert_no_activation()
+        self.assertEqual(self.running, self.previous)
+        self.assertFalse(any(args[:2] == ["sudo", "-n"] for args in self.events))
+        release = Path(result["release_dir"])
+        self.assertTrue((release / "images.tar.gz").is_file())
+        self.assertEqual(hashlib.sha256((release / "images.tar.gz").read_bytes()).hexdigest(), result["archive_sha256"])
+        self.assertTrue((release / "manifest.json").is_file())
+        self.assertFalse((release / "rollback.json").exists())
+
     def test_olm_check_precedes_first_migration_under_the_existing_activation_path(self):
         self.execute()
         gate = next(i for i, a in enumerate(self.events) if a[:3] == ["sudo", "-n", AWS.OLM_DEPLOY_GUARD])

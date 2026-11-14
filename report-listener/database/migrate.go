@@ -11,6 +11,7 @@ import (
 	"cleanapp-common/evidencesourceprojection"
 	"cleanapp-common/migrator"
 	"cleanapp-common/reportmeta"
+	"cleanapp-common/reportoutcome"
 	"cleanapp-common/wiremeta"
 )
 
@@ -51,6 +52,7 @@ func RunMigrations(ctx context.Context, db *sql.DB) error {
 		{ID: "0032_evidence_source_projection_privacy_index", Description: "add online privacy_restricted index so brand readers enumerate the restricted set as one covering range", Up: evidencesourceprojection.MigratePrivacyRestrictedIndex},
 		{ID: "0033_report_side_effect_policy", Description: "create explicit historical report side-effect controls", Up: effectpolicy.Migrate},
 		{ID: "0034_report_extra_images", Description: "create storage for photos 2 to 4 of a report", Up: ensureReportExtraImagesTable},
+		{ID: "0035_report_outcomes", Description: "create durable agent review decisions and publication intents", Up: reportoutcome.Migrate},
 	})
 }
 

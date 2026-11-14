@@ -15,6 +15,10 @@ on:
         description: Skip explicit migrations for a no-schema-change release
         type: boolean
         default: false
+      stage_only:
+        description: Build/upload for exact guarded-release review, without activation
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -73,6 +77,7 @@ jobs:
           SELECTED_SERVICES: ${{ inputs.services }}
           DRY_RUN: ${{ inputs.dry_run }}
           SKIP_MIGRATIONS: ${{ inputs.skip_migrations }}
+          STAGE_ONLY: ${{ inputs.stage_only }}
           SOURCE_SHA: ${{ github.sha }}
           AWS_DEPLOY_HOST: ${{ vars.AWS_DEPLOY_HOST }}
           AWS_DEPLOY_DIR: ${{ vars.AWS_DEPLOY_DIR }}
@@ -96,6 +101,7 @@ jobs:
           options=()
           if [[ "$DRY_RUN" == true ]]; then options+=(--dry-run); fi
           if [[ "$SKIP_MIGRATIONS" == true ]]; then options+=(--skip-migrations); fi
+          if [[ "$STAGE_ONLY" == true ]]; then options+=(--stage-only); fi
           python3 platform_blueprint/deploy/prod/vm/aws_image_deploy.py \
             --ref "$SOURCE_SHA" \
             --runtime-manifest "$deploy_temp/runtime.json" \

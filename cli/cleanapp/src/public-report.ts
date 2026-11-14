@@ -3,6 +3,33 @@ import fs from "node:fs/promises";
 
 const uuidV4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+export function reportHandling(opts: Record<string, any>): Record<string, string> | undefined {
+  if (opts.publication === undefined && opts.notices === undefined) return undefined;
+  const publication = String(opts.publication ?? "private");
+  const notices = String(opts.notices ?? "none");
+  if (!["private", "automatic"].includes(publication)) throw new Error("--publication must be private or automatic");
+  if (!["none", "automatic"].includes(notices)) throw new Error("--notices must be none or automatic");
+  return { publication, notices };
+}
+
+export function formatReportOutcome(receipt: any): string {
+  const outcome = receipt?.outcome;
+  if (!outcome) return "";
+  const lines = [
+    `analysis=${outcome.processing?.status ?? "unknown"} decision=${outcome.decision?.state ?? "pending"} final=${outcome.final === true}`,
+    outcome.decision?.message ? `${outcome.decision.message}${outcome.decision.reason_code ? ` (${outcome.decision.reason_code})` : ""}` : "",
+    `publication=${outcome.publication?.status ?? "unknown"}${outcome.publication?.reason_code ? ` (${outcome.publication.reason_code})` : ""}`,
+    outcome.publication?.canonical_path ? `report=${outcome.publication.canonical_path}` : "",
+  ];
+  for (const delivery of Array.isArray(outcome.delivery) ? outcome.delivery : []) {
+    lines.push(`${delivery.channel}=${delivery.status}${delivery.reason_code ? ` (${delivery.reason_code})` : ""} evidence=${delivery.evidence_count ?? 0}${delivery.last_sent_at ? ` last_sent=${delivery.last_sent_at}` : ""}`);
+  }
+  if (outcome.relationship?.type === "cluster_candidate") lines.push("Cluster candidate: this observation retains its own record and adds evidence to a related issue.");
+  if (outcome.next_action?.type && outcome.next_action.type !== "none") lines.push(`next=${outcome.next_action.type}${outcome.next_action.fields?.length ? ` fields=${outcome.next_action.fields.join(",")}` : ""}`);
+  if (outcome.final === true) lines.push("Final describes CleanApp's current decision and actions; it does not mean the issue is fixed.");
+  return lines.filter(Boolean).join("\n");
+}
+
 export function toPublicAgentReport(opts: Record<string, any>): Record<string, unknown> {
   const description = String(opts.desc || "").trim();
   const sourceId = String(opts.sourceId || randomUUID()).trim().toLowerCase();
@@ -12,6 +39,8 @@ export function toPublicAgentReport(opts: Record<string, any>): Record<string, u
   if (!uuidV4.test(sourceId)) throw new Error("public submit: --source-id must be a private random UUIDv4; reuse it only for retries of this report");
   if (Buffer.byteLength(String(opts.title || ""), "utf8") > 255) throw new Error("public submit: --title must be at most 255 UTF-8 bytes");
   const body: Record<string, unknown> = { description, source_id: sourceId, agent_name: "CleanApp CLI" };
+  const handling = reportHandling(opts);
+  if (handling) body.handling = handling;
   if (opts.title) body.title = opts.title;
   if ((opts.lat === undefined) !== (opts.lng === undefined)) throw new Error("public submit: --lat and --lng must be provided together");
   if (opts.lat !== undefined) {

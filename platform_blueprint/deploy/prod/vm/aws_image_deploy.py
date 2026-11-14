@@ -566,21 +566,31 @@ def deploy(args):
         manifest_path = output / "image-manifest.json"
         write_json(manifest_path, manifest)
         command([*ssh, shlex.join(["mkdir", "-p", "-m", "700", release_dir])])
+        retained_for_review = False
         try:
             for local, remote_name in ((Path(__file__), "aws_image_deploy.py"),
                                        (manifest_path, "manifest.json"), (archive_path, "images.tar.gz")):
                 with local.open("rb") as stream:
                     command([*ssh, "umask 077; cat > " + shlex.quote(release_dir + "/" + remote_name)], stdin=stream)
+            if getattr(args, "stage_only", False):
+                # Guarded releases need an exact manifest/image review before
+                # the receiver can be quiesced. Staging grants no permission
+                # to migrate, load images, change pins, or replace services.
+                result = {**manifest, "staged_only": True, "activated": False}
+                write_json(output / "deployment-result.json", result)
+                retained_for_review = True
+                return result
             raw = command([*ssh, shlex.join(["python3", release_dir + "/aws_image_deploy.py",
                                             "--activate", release_dir + "/manifest.json"])],
                           failure="activation on the target", relay_helper_error=True)
         finally:
-            try:
-                command([*ssh, shlex.join(["rm", "-f", release_dir + "/images.tar.gz"])])
-            except RuntimeError:
-                # A network outage may prevent cleanup; the saved manifest names
-                # the exact partial archive to remove privately after reconnecting.
-                pass
+            if not retained_for_review:
+                try:
+                    command([*ssh, shlex.join(["rm", "-f", release_dir + "/images.tar.gz"])])
+                except RuntimeError:
+                    # A network outage may prevent cleanup; the saved manifest names
+                    # the exact partial archive to remove privately after reconnecting.
+                    pass
         result = json.loads(raw)
         write_json(output / "deployment-result.json", result)
         return result
@@ -600,6 +610,7 @@ def main():
     parser.add_argument("--ssh-port", type=int, default=22)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--dry-run", action="store_true", help="validate/print scope without Docker or SSH calls")
+    parser.add_argument("--stage-only", action="store_true", help="build and upload exact artifacts for review; never activate (retains transport archive)")
     parser.add_argument("--skip-migrations", action="store_true", help="explicit no-schema-change release only")
     parser.add_argument("services", nargs="+")
     return deploy(parser.parse_args())

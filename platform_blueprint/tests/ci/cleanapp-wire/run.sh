@@ -86,6 +86,9 @@ dc up -d --wait mysql rabbitmq
 # Runtime startup no longer applies schema migrations; prepare the fresh test DB.
 dc run --rm --no-deps analyzer ./migrate
 dc run --rm --no-deps report_listener ./migrate
+# Compose initializes the real EPC schema and the email producer's retry schema.
+# No producer or transport starts; receipt reads must still have their tables.
+[[ "$(mysql_query "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='cleanapp' AND table_name IN ('epc_outbox','email_report_retry');")" == "2" ]]
 dc up -d
 
 echo "== wait services =="
@@ -304,5 +307,12 @@ python3 "$PUBLIC_AGENT_TEST" --state-file "$PUBLIC_AGENT_STATE" --phase queue-re
 first_receipt="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["first_receipt"]["receipt_id"])' "$PUBLIC_AGENT_STATE")"
 mysql_query "UPDATE wire_submission_receipts SET created_at=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 31 DAY) WHERE receipt_id='${first_receipt}';"
 python3 "$PUBLIC_AGENT_TEST" --state-file "$PUBLIC_AGENT_STATE" --phase expired
+
+echo "== analysis decisions and explicitly authorized actions =="
+# A disposable sink gives mandatory publication a real bound queue. No email,
+# EPC, reward, or other external transport is running in this fixture.
+dc exec -T rabbitmq rabbitmqadmin declare queue name=ci-agent-outcome-events durable=true >/dev/null
+dc exec -T rabbitmq rabbitmqadmin declare binding source=cleanapp destination_type=queue destination=ci-agent-outcome-events routing_key=report.analysed >/dev/null
+python3 "$ROOT_DIR/platform_blueprint/tests/ci/cleanapp-wire/agent_outcomes_http_test.py" --compose-file "$COMPOSE_FILE"
 
 echo "OK"
