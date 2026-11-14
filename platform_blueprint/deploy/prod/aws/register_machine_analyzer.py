@@ -153,7 +153,8 @@ def verify_image(image_id, source_sha):
             'Pinned local image does not match the reviewed linux/amd64 source revision')
     config = image.get('Config') or {}
     require(not config.get('Entrypoint') and config.get('Cmd') == ['./report-analyze-pipeline'] and
-            config.get('WorkingDir') == '/root', 'Pinned analyzer image has an unexpected startup command')
+            config.get('WorkingDir') in {'/root', '/root/'},
+            'Pinned analyzer image has an unexpected startup command')
 
 
 def verify_machine(value, image_id, source_sha, healthy=True):

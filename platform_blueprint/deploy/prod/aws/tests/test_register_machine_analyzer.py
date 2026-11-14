@@ -121,7 +121,7 @@ class RegistrationTests(unittest.TestCase):
         self.resolved_environments = None
         self.image = {'Id': IMAGE, 'Os': 'linux', 'Architecture': 'amd64',
                       'Config': {'Labels': {'org.opencontainers.image.revision': SOURCE},
-                                 'Entrypoint': None, 'Cmd': ['./report-analyze-pipeline'], 'WorkingDir': '/root'}}
+                                 'Entrypoint': None, 'Cmd': ['./report-analyze-pipeline'], 'WorkingDir': '/root/'}}
         replacements = {'PACKAGE': self.package, 'BASELINE': self.baseline_path, 'DEPLOY': self.host,
                         'LIBRARY': self.library, 'RUNTIME_ROLES_TARGET': self.target,
                         'SCOPE': self.scope, 'LOCK': self.host / 'lock', 'RECEIPTS': self.receipts,
