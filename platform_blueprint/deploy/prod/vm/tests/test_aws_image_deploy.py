@@ -113,6 +113,7 @@ class PortableDeployTests(unittest.TestCase):
         self.fail_migration = False
         self.migration_overrides = {}
         self.fail_build = False
+        self.fail_olm_check = False
         self.stopped = False
         self.active = True
         self.isolated = False
@@ -190,6 +191,15 @@ class PortableDeployTests(unittest.TestCase):
             return b""
         if args[:3] == ["docker", "image", "inspect"]:
             return json.dumps([self.images[args[-1]]]).encode()
+        if args[:3] == ["sudo", "-n", AWS.OLM_DEPLOY_GUARD]:
+            if self.fail_olm_check:
+                raise RuntimeError("OLM compatibility check refused")
+            raw = Path(args[-1]).read_bytes()
+            manifest = json.loads(raw)
+            return json.dumps({"kind": "cleanapp_olm_deploy_check.v1",
+                "manifest_sha256": hashlib.sha256(raw).hexdigest(),
+                "guarded_roles": sorted(set(manifest["roles"]) & AWS.OLM_GUARDED_ROLES),
+                "decision": "not_installed"}).encode()
         if args[:3] == ["sudo", "-n", "test"] and args[-1].startswith("/etc/cleanapp-runtime/"):
             if args[-1].endswith("ISOLATED") and self.isolated:
                 raise RuntimeError("fixture runtime is isolated")
@@ -279,6 +289,20 @@ class PortableDeployTests(unittest.TestCase):
         self.assertFalse((Path(manifest["release_dir"]) / "images.tar.gz").exists())
         self.assertNotIn("never export this value", json.dumps(result))
         self.assertEqual((self.repo / "report-listener/.version").read_text(), "BUILD_VERSION=1.0.42\n")
+
+    def test_olm_refusal_prevents_every_migration_role_swap_and_pin_write(self):
+        self.fail_olm_check = True
+        with self.assertRaisesRegex(RuntimeError, "OLM compatibility"):
+            self.execute()
+        self.assert_no_activation()
+        self.assertEqual(self.running, self.previous)
+
+    def test_olm_check_precedes_first_migration_under_the_existing_activation_path(self):
+        self.execute()
+        gate = next(i for i, a in enumerate(self.events) if a[:3] == ["sudo", "-n", AWS.OLM_DEPLOY_GUARD])
+        migrations = [i for i, a in enumerate(self.events) if a[:4] == ["sudo", "-n", "docker", "compose"] and "run" in a]
+        self.assertTrue(migrations)
+        self.assertLess(gate, min(migrations))
 
     def test_containerd_runner_id_is_not_confused_with_classic_target_config_id(self):
         self.containerd_runner = True

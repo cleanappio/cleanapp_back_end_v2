@@ -242,4 +242,67 @@ the [service specification](https://docs.docker.com/reference/compose-file/servi
 
 Activation takes an exclusive `fcntl.flock` on `/opt/cleanapp/deploy/.deployment-and-backup.lock`, the same stable inode used by weekly backup and cold restore. The parent must be deployer-owned and not group/world writable. The lock must remain a non-symlink, single-link regular file owned by the deployer with mode `0600`; the helper does not replace or change an existing lock. It holds the lock across runtime inspection, migrations, image pins, restart and verification, releasing it on exceptions. Runner builds and SSH archive uploads are outside this lock. Any operator rollback using the recorded manifest must acquire this same existing lock and review the database migration boundary first.
 
+### Finite OLM import interlock
+
+Email, report-listener and human-analyzer deployments call the fixed root-owned
+`/usr/local/sbin/cleanapp-olm-deploy-check` before any migration, image-pin write
+or role replacement, while holding the existing deployment/backup lock. Other
+roles bypass this check. Missing or failed checks reject guarded deployments.
+The check is read-only: it never stops, resumes, repins or probes services.
+
+A root operator must install the reviewed `olm_deploy_guard.py` at that fixed
+path, owner `root:root`, mode `0755`, and grant the deployment identity only the
+narrow sudo command `cleanapp-olm-deploy-check --manifest <absolute-path>`.
+Use `/usr/bin/python3`, `/usr/bin/docker` and `/usr/bin/systemctl` on the host.
+No arbitrary root Python/shell permission is needed. Install the hook together
+with the merged deployment-helper change: a host-only installation cannot
+protect older per-release helpers that never call it.
+
+Presence of `/srv/cleanapp-olm-import/evidence/receiver-config.json` means an
+unfinished registered import, even when its unit is failed, inactive or
+activating. The check reads the exact `EXPECTED` image/source map from the
+root-owned guard helper whose digest is bound by `base-policy.json`; it never
+adopts whichever images are running. All three actual runtime pairs must still
+match those reviewed pins. Reapplying the same reviewed images can proceed
+without interrupting the import. Unknown replacements are refused before
+migrations and leave the current import running.
+
+For an intentional guarded-image change, the initial supported path is a manual
+root-reviewed plan at `evidence/deployment-review-plan.json`, owner root, mode
+`0600`. Review the source and exact staged release first, stop the receiver and
+verify its cgroup/DB import lock is quiescent, and keep it stopped throughout the
+deployment. The plan must contain:
+
+```json
+{
+  "kind": "cleanapp_olm_deploy_review.v1",
+  "manifest_sha256": "<SHA256 of that exact staged manifest.json>",
+  "previous_guard_sha256": "<current digest-bound guard helper SHA256>",
+  "source_review_sha256": "<review evidence SHA256>",
+  "valid_until_utc": "<timezone-aware expiry within 24 hours>",
+  "approved_runtime": {
+    "cleanapp_email_service": ["sha256:<exact config image digest>", "<full source commit>"],
+    "cleanapp_report_listener": ["sha256:<exact config image digest>", "<full source commit>"],
+    "cleanapp_report_analyze_human": ["sha256:<exact config image digest>", "<full source commit>"]
+  },
+  "manual_post_deploy_probes_and_resume": true
+}
+```
+
+Unselected role bindings must remain unchanged. A changed-image CI build is
+blocked until this exact staged release has a matching reviewed plan; this is
+not an automatic approval-after-build workflow. After activation, the operator
+must review/update both import guard bindings and dependent policy/config
+digests, pass all six existing service-account probes and health checks, then
+resume the same prepared epochs with normal replay protections. CI success
+does not mean the importer was resumed. No side-effect guard may be removed.
+
+Source review includes schema changes that add or alter image storage. Extend
+complete hash coverage and mutation tracking, and reconcile any earlier
+untracked image history before resuming the importer.
+
+After verified terminal drain, retire the receiver unit and move its root-owned
+registration config out of the active filename; only then does the check return
+`not_installed`. A failed unit alone never constitutes job completion.
+
 The helper requires `/etc/cleanapp-runtime/ISOLATED` to be absent (including dangling symlinks) and `/etc/cleanapp-runtime/ACTIVE` to be a regular non-symlink file. Sudo must permit `test -f`, `test ! -e` and `test ! -L` checks in addition to Docker. A manual GitHub trigger cannot bypass the migration/restore one-writer fence.

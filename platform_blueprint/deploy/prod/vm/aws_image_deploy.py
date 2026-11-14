@@ -60,6 +60,29 @@ EXCLUDED = (
     "target", "node_modules", "__pycache__", ".DS_Store", "buildinfo.vars",
 )
 IMAGE_ID = re.compile(r"sha256:[a-f0-9]{64}\Z")
+OLM_GUARDED_ROLES = frozenset(("cleanapp_email_service", "cleanapp_report_listener",
+                              "cleanapp_report_analyze_human"))
+OLM_DEPLOY_GUARD = "/usr/local/sbin/cleanapp-olm-deploy-check"
+
+
+def check_olm_compatibility(manifest_path, manifest, run=None):
+    """A root-installed read-only check must authorize guarded-role changes."""
+    guarded = sorted(set(manifest["roles"]) & OLM_GUARDED_ROLES)
+    if not guarded:
+        return {"decision": "unrelated_roles"}
+    run = run or command
+    raw_manifest = Path(manifest_path).read_bytes()
+    require(json.loads(raw_manifest) == manifest, "release manifest changed before OLM check")
+    digest = hashlib.sha256(raw_manifest).hexdigest()
+    raw = run(["sudo", "-n", OLM_DEPLOY_GUARD, "--manifest", str(manifest_path)],
+              failure="OLM guarded-role compatibility check")
+    receipt = json.loads(raw)
+    require(receipt.get("kind") == "cleanapp_olm_deploy_check.v1"
+            and receipt.get("manifest_sha256") == digest
+            and receipt.get("guarded_roles") == guarded
+            and receipt.get("decision") in ("not_installed", "unchanged", "reviewed_quiescent"),
+            "OLM compatibility check returned an invalid release-bound receipt")
+    return receipt
 
 
 def require(condition, message):
@@ -418,6 +441,11 @@ def _activate_locked(manifest_path):
                 require(labels.get("org.opencontainers.image.revision") == manifest["source_sha"]
                         and labels.get("org.opencontainers.image.version") == item["version"],
                         "loaded image source/version labels differ from runner build")
+        # A failed/activating receiver is still an unfinished import. Never
+        # infer compatibility from process state or accept unknown live images.
+        # This runs before every migration and role replacement, under the
+        # existing deployment/backup lock. Unrelated services bypass it.
+        olm_check = check_olm_compatibility(manifest_path, manifest)
         migrated = set()
         for service in services:
             source = SOURCES[service]
@@ -448,7 +476,8 @@ def _activate_locked(manifest_path):
                     f"deployed image ID mismatch: {service}")
         result = {"source_sha": manifest["source_sha"], "services": services,
                   "pins_file": str(old_path), "rollback_file": str(release_dir / "rollback.yml"),
-                  "verified_running_image_ids": {s: pins["services"][s]["image"] for s in services}}
+                  "verified_running_image_ids": {s: pins["services"][s]["image"] for s in services},
+                  "olm_compatibility": olm_check}
         write_json(release_dir / "result.json", result)
         return result
     finally:
