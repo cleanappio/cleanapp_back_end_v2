@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+import types
 import unittest
 from unittest import mock
 
@@ -300,6 +301,42 @@ class RegistrationTests(unittest.TestCase):
         self.assertTrue(json.loads(output.getvalue())['plan'])
         self.assertEqual(self.events, []); self.assertEqual(self.metadata(), before)
         self.assertEqual(list(self.receipts.iterdir()), []); host.assert_not_called()
+
+    def test_admission_is_rechecked_under_lock_before_registration_or_rollback(self):
+        for action in ('register', 'rollback'):
+            with self.subTest(action=action):
+                state = {'active': True}
+
+                def admitted():
+                    if not state['active']:
+                        raise ValueError('synthetic runtime became isolated')
+
+                @contextlib.contextmanager
+                def lock(_path):
+                    # Model another operator isolating the host after the
+                    # initial admission check and before this lock is acquired.
+                    state['active'] = False
+                    yield
+
+                argv = ['register_machine_analyzer.py', '--execute']
+                if action == 'register':
+                    argv += ['--image-id', IMAGE, '--source-sha', SOURCE]
+                else:
+                    argv += ['--rollback', str(self.receipts / 'machine-analyzer-fixture')]
+                before = self.metadata()
+                helper = types.SimpleNamespace(shared_deployment_lock=lock)
+                with mock.patch.object(sys, 'argv', argv), \
+                     mock.patch.dict(sys.modules, {'backup_recovery': helper}), \
+                     mock.patch.object(deploy, 'admitted_host', side_effect=admitted) as host, \
+                     mock.patch.object(deploy, 'apply') as apply, \
+                     mock.patch.object(deploy, 'rollback') as rollback:
+                    with self.assertRaisesRegex(ValueError, 'runtime became isolated'):
+                        deploy.main()
+                self.assertEqual(host.call_count, 2)
+                apply.assert_not_called(); rollback.assert_not_called()
+                self.assertEqual(self.events, [])
+                self.assertEqual(self.metadata(), before)
+                self.assertEqual(list(self.receipts.iterdir()), [])
 
 
 if __name__ == '__main__':

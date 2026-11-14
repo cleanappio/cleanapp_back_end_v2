@@ -304,6 +304,7 @@ def main():
     if str(LIBRARY) not in sys.path: sys.path.insert(0, str(LIBRARY))
     from backup_recovery import shared_deployment_lock
     with shared_deployment_lock(LOCK):
+        admitted_host()
         print(json.dumps(rollback(args.rollback) if args.rollback else apply(args.image_id, args.source_sha)))
 
 
