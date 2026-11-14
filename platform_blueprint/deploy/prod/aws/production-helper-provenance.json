@@ -2,6 +2,10 @@
   "captured_from": "AWS production",
   "captured_on": "2026-11-13",
   "files": {
+    "runtime_roles.py": {
+      "installed_path": "/usr/local/lib/cleanapp-backup/runtime_roles.py",
+      "production_sha256": "8e705a31b97e51624b9e236e8891d8fa339b4be905c3d872eab3a1338c55c3b6"
+    },
     "runtime_boot.py": {
       "installed_path": "/opt/cleanapp/host-runtime/runtime_boot.py",
       "production_sha256": "b7764f246340ad7a345b4cdc43b8f91081504437fe1c119c5c4361f810f844c4"

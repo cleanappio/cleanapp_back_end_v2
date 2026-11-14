@@ -234,21 +234,26 @@ func main() {
 		}
 	}()
 
-	// Start background enrichment job for external digital reports
-	enrichmentTicker := time.NewTicker(10 * time.Second)
-	enrichmentDone := make(chan bool)
-	go func() {
-		// Run once immediately on startup
-		analysisService.EnrichExternalDigitalReports()
-		for {
-			select {
-			case <-enrichmentTicker.C:
-				analysisService.EnrichExternalDigitalReports()
-			case <-enrichmentDone:
-				return
+	// Secondary analyzers can consume their queue without starting a duplicate
+	// global contact-enrichment job. The existing behavior remains the default.
+	var enrichmentTicker *time.Ticker
+	var enrichmentDone chan bool
+	if cfg.EnrichExternalDigitalEnabled {
+		enrichmentTicker = time.NewTicker(10 * time.Second)
+		enrichmentDone = make(chan bool)
+		go func() {
+			// Run once immediately on startup
+			analysisService.EnrichExternalDigitalReports()
+			for {
+				select {
+				case <-enrichmentTicker.C:
+					analysisService.EnrichExternalDigitalReports()
+				case <-enrichmentDone:
+					return
+				}
 			}
-		}
-	}()
+		}()
+	}
 
 	// Wait for interrupt signal to gracefully shutdown the server
 	quit := make(chan os.Signal, 1)
@@ -257,8 +262,10 @@ func main() {
 	log.Println("Shutting down server...")
 
 	// Stop the enrichment ticker
-	enrichmentTicker.Stop()
-	close(enrichmentDone)
+	if enrichmentTicker != nil {
+		enrichmentTicker.Stop()
+		close(enrichmentDone)
+	}
 
 	// Stop the analysis service
 	analysisService.Stop()

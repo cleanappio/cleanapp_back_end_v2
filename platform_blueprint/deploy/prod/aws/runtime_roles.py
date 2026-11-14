@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Reviewed AWS role identities shared by boot, backup, and isolation helpers.
 
-Keep the migrated 31-role set valid for rollback; the sole admitted extension is
-EPC. Unrelated preview containers are never captured as production roles.
+Keep the migrated 31-role and EPC32 sets valid for rollback. The restored
+machine analyzer is admitted only alongside all 32 existing production roles.
+Unrelated preview containers are never captured as production roles.
 """
 import datetime
 import json
@@ -23,6 +24,9 @@ cleanapp_alertmanager cleanapp_prometheus
 '''.split())
 EPC_SERVICE = 'cleanapp_epc_pusher'
 CURRENT_SERVICES = LEGACY_SERVICES | {EPC_SERVICE}
+MACHINE_ANALYSIS_SERVICE = 'cleanapp_report_analyze_pipeline'
+MACHINE_ANALYSIS_SERVICES = CURRENT_SERVICES | {MACHINE_ANALYSIS_SERVICE}
+SUPPORTED_SERVICE_SETS = (LEGACY_SERVICES, CURRENT_SERVICES, MACHINE_ANALYSIS_SERVICES)
 PROJECT = 'cleanapp-migrated'
 
 
@@ -38,8 +42,8 @@ def expected_container(service):
 def declared_roles(baseline):
     services = baseline.get('services', {})
     require(baseline.get('name') == PROJECT, 'Unexpected production project identity')
-    require(set(services) in (LEGACY_SERVICES, CURRENT_SERVICES),
-            'Production role set must be the reviewed legacy31 or EPC32 set')
+    require(set(services) in SUPPORTED_SERVICE_SETS,
+            'Production role set must be the reviewed legacy31, EPC32, or analyzer33 set')
     roles = {service: expected_container(service) for service in services}
     require(all(services[service].get('container_name') == name for service, name in roles.items()),
             'Production container identity differs from its reviewed role')
@@ -50,9 +54,9 @@ def snapshot_roles(snapshot, expected_names=None, require_running=False):
     containers = snapshot.get('containers', [])
     names = [value.get('Name', '').lstrip('/') for value in containers]
     allowed = [{expected_container(s) for s in services}
-               for services in (LEGACY_SERVICES, CURRENT_SERVICES)]
+               for services in SUPPORTED_SERVICE_SETS]
     require(len(names) == len(set(names)) and set(names) in allowed,
-            'Snapshot must contain exactly the reviewed legacy31 or EPC32 identities')
+            'Snapshot must contain exactly the reviewed legacy31, EPC32, or analyzer33 identities')
     if expected_names is not None:
         require(set(names) == set(expected_names), 'Captured identities differ from declared production roles')
     if require_running:

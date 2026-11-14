@@ -482,11 +482,9 @@ func (s *Service) AnalyzeReport(report *database.Report) error {
 	// Quarantine lane: reports can be analyzed but not published/routed until promoted.
 	vis, err := s.db.ReportVisibility(report.Seq)
 	if err != nil {
-		if isWebIntake {
-			return fmt.Errorf("read web intake visibility: %w", err)
-		}
-		log.Printf("Report %d: failed to read visibility (defaulting to publish): %v", report.Seq, err)
-		vis = "public"
+		// Every intake channel can contain private reports. An unavailable
+		// visibility lookup must retry rather than authorize publication.
+		return fmt.Errorf("read report visibility: %w", err)
 	}
 	if vis == "public" {
 		// Publish the analyzed report to RabbitMQ

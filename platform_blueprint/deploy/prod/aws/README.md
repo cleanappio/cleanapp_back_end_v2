@@ -4,7 +4,38 @@ This package adds only `cleanapp_epc_pusher` to the exact migrated production ru
 
 The three runtime helpers were copied from production on 2026-11-13; `production-helper-provenance.json` records their original hashes. Existing `backup_recovery.py`, `runtime_migration.py`, and `integrity_manifest.py` remain installed unchanged. Registration refuses helper files that differ from either the captured source or this reviewed package.
 
-`runtime_roles.py` admits the exact original 31 roles or those roles plus EPC. Boot preserves the legacy set for rollback. Native isolation requires its snapshot to match the currently declared role set, so a legacy snapshot cannot omit EPC after registration. Weekly backup captures the declared container identities rather than every running Docker container, so unrelated preview containers neither enter the recovery set nor break its count guard. Missing/stopped production roles still fail backup.
+`runtime_roles.py` admits the exact original 31 roles, those roles plus EPC (32), or those 32 plus the machine report analyzer (33). Boot preserves the earlier sets for rollback. Native isolation requires its snapshot to match the currently declared role set, so an older snapshot cannot omit a registered production worker. Weekly backup captures the declared container identities rather than every running Docker container, so unrelated preview containers neither enter the recovery set nor break its count guard. Missing/stopped production roles still fail backup.
+
+## Agent report analysis
+
+Machine and MCP submissions use `report.raw` and `report-analysis-queue`.
+The human analyzer consumes only `report.raw.human`; it cannot drain the machine
+queue. A stored/quarantined receipt confirms intake, while a `report_analysis`
+row confirms saved analysis. Shadow reports should be analyzed and remain private;
+their `report.analysed` event is withheld until publication is authorized.
+
+Use the main-only **Build machine analyzer for AWS registration** workflow to
+produce a secret-free exact-source image archive and its verified config digest.
+It performs no production actions or migrations. Verify the archive hash and
+image/source binding before importing it on the admitted AWS host.
+`register_machine_analyzer.py` then registers only that worker, using the
+existing protected human-analyzer environment in host memory. Run its default
+plan before `--execute`; it requires the imported immutable `--image-id` and
+full `--source-sha`. It preserves all existing container identities and image
+pins, updates the shared role registry used by boot/backup/isolation, and records
+a private rollback receipt under `/opt/cleanapp/deploy/aws-deploy/`.
+
+The worker has one consumer, prefetch one, no published host port, and no global
+evidence or external-digital enrichment job. Normal per-report analysis still
+runs. Initial activation drains the existing machine queue, including eligible
+public reports; it never promotes shadow reports. Readiness requires a connected
+subscriber, the exact broker binding/consumer, actual saved analysis and unchanged
+privacy/outbound state. An HTTP 200 health response alone is insufficient.
+
+After registration, refresh the non-secret `AWS_RUNTIME_ROLE_MANIFEST_JSON`
+repository variable to include the new role. Future image updates use the normal
+selected-role AWS deploy workflow and retain the separate human worker. Do not
+use the historical EPC registration helper to modify the 33-role runtime.
 
 Before registration, load the reviewed linux/amd64 image into Docker and provision `/opt/cleanapp/private/epc-pusher.env` as an owner-only regular file. The adapter never reads it into terminal output; it mounts the file read-only at `/run/cleanapp/epc-pusher.env` and explicitly includes the host path in backup configuration scope. Provision literal `NAME=value` entries using the worker's approved environment whitelist; do not use shell quoting or substitutions. Set the intended dispatch and namespace values explicitly.
 

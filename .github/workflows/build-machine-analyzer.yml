@@ -1,0 +1,44 @@
+name: Build machine analyzer for AWS registration
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify portable build and registration contracts
+        run: |
+          python3 -W error -m unittest discover -s platform_blueprint/deploy/prod/vm/tests -p 'test_*.py'
+          python3 -W error -m unittest discover -s platform_blueprint/deploy/prod/aws/tests -p 'test_*.py'
+      - name: Secret scan
+        run: |
+          set -euo pipefail
+          VER="8.30.0"
+          curl -fsSLo "$RUNNER_TEMP/gitleaks.tgz" "https://github.com/gitleaks/gitleaks/releases/download/v${VER}/gitleaks_${VER}_linux_x64.tar.gz"
+          tar -xzf "$RUNNER_TEMP/gitleaks.tgz" -C "$RUNNER_TEMP" gitleaks
+          "$RUNNER_TEMP/gitleaks" detect --no-git --redact
+      - name: Build exact-source archive without production credentials
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          python3 platform_blueprint/deploy/prod/vm/aws_build_machine_analyzer.py \
+            --ref "$SOURCE_SHA" --output-dir "$RUNNER_TEMP/machine-analyzer"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: machine-analyzer-image
+          path: ${{ runner.temp }}/machine-analyzer/
+          retention-days: 7
+          if-no-files-found: error
