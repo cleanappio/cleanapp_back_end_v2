@@ -88,7 +88,8 @@ func loadBrandPreviewIDs(ctx context.Context, tx *sql.Tx, f EvidenceFilter, limi
 // Only scalar metadata and original excerpt text are selected for <=6 reports.
 // Read complete text before redaction, then bound the public projection: SQL
 // truncation could hide a sensitive value that crosses the output boundary.
-// No image, coordinate, contact or raw JSON is loaded by this projection.
+// No image, coordinate, contact or raw JSON is loaded by this metadata query.
+// Selected agent rows additionally use the shared bounded provenance projection.
 const brandPreviewMetadataQuery = `SELECT ids.seq,r.id,r.public_id,DATE_FORMAT(r.ts,'%Y-%m-%d %H:%i:%s.%f'),
  rr.source_type,rr.source_id,COALESCE(rr.fetcher_id,''),
  CASE WHEN ev.evidence_version>0 AND ev.report_kind IN ('firsthand','coverage') THEN ev.report_kind ELSE 'unknown' END,
@@ -168,12 +169,19 @@ func previewText(value string, limit int, fallback string) string {
 
 func publicBrandPreviewReport(r evidenceRecord) models.PublicBrandPreviewReport {
 	ev := r.publicEvidence()
+	ev.SourcePlatform = safeProvenanceText(stringValue(ev.SourcePlatform), 64)
 	title, summary := previewText(r.Title, 240, "Reported issue"), previewText(r.Summary, 700, "")
 	if r.PrivacyRestricted {
-		title, summary, ev.SourceURL, ev.Excerpt = "Reported issue", "", nil, nil
+		title, summary, ev.SourceURL, ev.Excerpt, ev.SourcePlatform = "Reported issue", "", nil, nil, nil
 	}
 	return models.PublicBrandPreviewReport{
-		PublicID: r.PublicID, CanonicalPath: "/digital/report/" + r.PublicID,
+		SubmissionTransport: ev.SubmissionTransport, SubmissionClient: ev.SubmissionClient,
+		SubmissionClientClaimed: ev.SubmissionClientClaimed, ReporterContext: ev.ReporterContext,
+		ReportedProductOrSite: ev.ReportedProductOrSite, ReferencedURLs: ev.ReferencedURLs,
+		SourceReferences: ev.SourceReferences, SourceReferenceCount: ev.SourceReferenceCount,
+		ObservedAtBasis: ev.ObservedAtBasis, SourcePublishedAtBasis: ev.SourcePublishedAtBasis,
+		SourcePlatform: ev.SourcePlatform,
+		PublicID:       r.PublicID, CanonicalPath: "/digital/report/" + r.PublicID,
 		Title: title, Summary: summary, Language: r.Language, ReportKind: ev.ReportKind,
 		SourceURL: ev.SourceURL, SourcePublishedAt: ev.SourcePublishedAt, Excerpt: ev.Excerpt,
 		IntakeMethod: ev.IntakeMethod, IntakeChannel: ev.IntakeChannel,
@@ -235,6 +243,7 @@ func (d *Database) GetPublicBrandPreview(ctx context.Context, filter EvidenceFil
 	if err != nil {
 		return result, err
 	}
+	selected := make([]evidenceRecord, 0, len(ids))
 	for _, seq := range ids {
 		base, exists := records[seq]
 		if !exists {
@@ -246,10 +255,20 @@ func (d *Database) GetPublicBrandPreview(ctx context.Context, filter EvidenceFil
 		}
 		r := normalized[seq]
 		r.PublicID, r.Kind, r.Version, r.Excerpt = base.PublicID, base.Kind, base.Version, base.Excerpt
-		r.Title, r.Summary, r.Language = display.Title, display.Summary, display.Language
+		r.Title, r.Summary, r.Language, r.BrandDisplay = display.Title, display.Summary, display.Language, display.BrandDisplay
+		r.redactRestrictedDisplay()
+		selected = append(selected, r)
+	}
+	// One batched read for the already selected <=6 rows, on the same snapshot
+	// and three-second request context. No per-report queries or original bodies
+	// are returned, and late canonical privacy flags redact loaded display too.
+	if err := hydratePublicSubmissionProvenance(ctx, tx, selected); err != nil {
+		return result, err
+	}
+	for _, r := range selected {
 		result.Reports = append(result.Reports, publicBrandPreviewReport(r))
 		if len(result.Reports) == 1 {
-			result.BrandDisplay = previewText(display.BrandDisplay, 120, f.BrandName)
+			result.BrandDisplay = previewText(r.BrandDisplay, 120, f.BrandName)
 		}
 	}
 	result.BrandFound = len(result.Reports) > 0

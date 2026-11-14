@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -141,6 +142,51 @@ func testPublicBrandPreviewMySQL(t *testing.T, db *sql.DB) {
 	exec(`INSERT INTO report_analysis VALUES(4501,'en','claudecode','Claude Code',TRUE,'digital','2026-10-16','Alias issue','AI summary',0.5)`)
 	if aliases := read("anthropic", "firsthand", "en", 6); !aliases.found || len(aliases.ids) != 1 {
 		t.Fatal("company alias union duplicated or omitted a public report")
+	}
+	// Exercise the actual preview pipeline, including one batched canonical
+	// provenance read and a privacy flag discovered after display hydration.
+	for _, seq := range []int{4451, 4452} {
+		seed(seq, "preview-provenance", "firsthand")
+		exec(`INSERT INTO report_raw VALUES(?,'web',?,'preview-canonical','public')`, seq, fmt.Sprint("preview-source-", seq))
+	}
+	const privateSentinel = "PRIVATE_PREVIEW_DERIVATIVE_SENTINEL"
+	exec(`UPDATE report_analysis SET title=?,summary=?,brand_display_name=? WHERE seq=4452`, privateSentinel, privateSentinel, privateSentinel)
+	publicBody := `{"description":"PUBLIC_ORIGINAL_NOT_SERIALIZED https://x.com/account/access https://x.com/fixture/status/1874425336427446275","digital_context":{"platform":"twitter","product_or_site":"x.com / Cloudflare","source_url":"https://x.com/fixture/status/1874425336427446275","metadata":{"reporter_context":"relayed","source_published_at":"2025-01-01T14:00:00+02:00"}}}`
+	client := `{"cleanapp_client":{"transport":"mcp","name":"grok","name_source":"caller_provided"}}`
+	for _, row := range []struct {
+		seq               int
+		fetcher, body, at string
+	}{
+		{4451, "preview-canonical", publicBody, "2026-11-14 12:00:00"},
+		{4452, "preview-canonical", `{"privacy":{"requires_redaction":true},"description":"` + privateSentinel + `","digital_context":{"product_or_site":"` + privateSentinel + `"}}`, "2026-11-14 12:00:00"},
+		{4452, "preview-other-fetcher", `{"privacy":{"requires_redaction":false}}`, "2026-11-14 13:00:00"},
+	} {
+		exec(`INSERT INTO wire_submissions_raw(fetcher_id,report_seq,report_json,provenance_json,extensions_json,observed_at,submitted_at,actor_kind,channel) VALUES(?,?,?,'{"generation_method":"human_assisted"}',?,'2026-11-13',?,'machine','wire')`, row.fetcher, row.seq, row.body, client, row.at)
+	}
+	actual := read("preview-provenance", "firsthand", "en", 6).preview
+	if len(actual.Reports) != 2 || actual.BrandDisplay != "preview-provenance" {
+		t.Fatalf("late private display escaped the bounded preview: %+v", actual)
+	}
+	public, privateContext := actual.Reports[1], actual.Reports[0]
+	if stringValue(public.SubmissionTransport) != "mcp" || stringValue(public.SubmissionClient) != "grok" || !public.SubmissionClientClaimed || stringValue(public.ReporterContext) != "relayed" || stringValue(public.ReportedProductOrSite) != "x.com / Cloudflare" || stringValue(public.SourcePlatform) != "twitter" || len(public.ReferencedURLs) != 2 || len(public.SourceReferences) != 1 || public.SourceReferenceCount == nil || *public.SourceReferenceCount != 1 || public.ObservedAtBasis != "provided" || public.SourcePublishedAtBasis != "provided" {
+		t.Fatalf("actual preview dropped retained context: %+v", public)
+	}
+	if privateContext.Title != "Reported issue" || privateContext.Summary != "" || privateContext.SubmissionClient != nil || privateContext.ReporterContext != nil || privateContext.ReportedProductOrSite != nil || privateContext.SourcePlatform != nil || len(privateContext.ReferencedURLs) != 0 || len(privateContext.SourceReferences) != 0 || privateContext.SourceReferenceCount != nil {
+		t.Fatalf("late canonical restriction leaked preview context: %+v", privateContext)
+	}
+	encoded, err := json.Marshal(actual)
+	if err != nil || strings.Contains(string(encoded), privateSentinel) || strings.Contains(string(encoded), "PUBLIC_ORIGINAL_NOT_SERIALIZED") {
+		t.Fatalf("actual preview leaked original or derivative text: %v %s", err, encoded)
+	}
+	var publicJSON map[string]json.RawMessage
+	data, _ := json.Marshal(public)
+	if err := json.Unmarshal(data, &publicJSON); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"submission_transport", "submission_client", "submission_client_claimed", "reporter_context", "reported_product_or_site", "referenced_urls", "source_references", "source_reference_count", "observed_at_basis", "source_published_at_basis", "source_platform"} {
+		if _, exists := publicJSON[field]; !exists {
+			t.Fatalf("preview JSON omitted %s", field)
+		}
 	}
 	// EXPLAIN is executed on real SQL too; require the installed brand access
 	// index to remain in the plan without locking optimizer-specific row counts.

@@ -119,6 +119,24 @@ func TestBrandPreviewPresenceIsIndependentOfFirsthandFilter(t *testing.T) {
 	}
 }
 
+func TestBrandPreviewCarriesOnlyPublicProvenanceAndWithholdsRestrictedContext(t *testing.T) {
+	r := evidenceRecord{PublicID: "rpt_aUl-fseGsxzbWPAXbgKxGw", ActorKind: "machine", IntakeChannel: "wire", GenerationMethod: "human_assisted",
+		SubmissionProvenance: retainedSubmission(t, `{"client":{"transport":"mcp","name":"grok","name_source":"caller_provided"},"product":"x.com / Cloudflare","platform":"twitter","reporter_context":"relayed","source_url":"https://x.com/fixture/status/1874425336427446275","published_at":"2025-01-01T14:00:00+02:00","description":"ORIGINAL_BODY_NOT_PUBLIC https://x.com/account/access"}`)}
+	preview := publicBrandPreviewReport(r)
+	if stringValue(preview.SubmissionTransport) != "mcp" || stringValue(preview.SubmissionClient) != "grok" || !preview.SubmissionClientClaimed || stringValue(preview.ReporterContext) != "relayed" || stringValue(preview.ReportedProductOrSite) != "x.com / Cloudflare" || stringValue(preview.SourcePlatform) != "twitter" || len(preview.ReferencedURLs) != 1 || len(preview.SourceReferences) != 1 || preview.SourceReferenceCount == nil || *preview.SourceReferenceCount != 1 || preview.ObservedAtBasis != "not_recorded" || preview.SourcePublishedAtBasis != "provided" {
+		t.Fatalf("public provenance was dropped: %+v", preview)
+	}
+	r.PrivacyRestricted = true
+	private := publicBrandPreviewReport(r)
+	if private.SubmissionClient != nil || private.SubmissionClientClaimed || private.ReporterContext != nil || private.ReportedProductOrSite != nil || private.SourcePlatform != nil || len(private.ReferencedURLs) != 0 || len(private.SourceReferences) != 0 || private.SourceReferenceCount != nil {
+		t.Fatalf("restricted context escaped preview: %+v", private)
+	}
+	data, _ := json.Marshal([]any{preview, private})
+	if strings.Contains(string(data), "ORIGINAL_BODY_NOT_PUBLIC") {
+		t.Fatal("preview exposed the original description")
+	}
+}
+
 func TestBrandPreviewUnavailableCannotBecomeAnEmptySuccess(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
