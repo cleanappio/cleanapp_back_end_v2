@@ -33,3 +33,9 @@ Dry-run performs no network call. Optional `--approx-location` rounds supplied c
 Optional `CLEANAPP_API_TOKEN` selects the existing authenticated Wire single/batch path and accepts its previous input format. Store this credential in the OpenClaw secret store. Self-registration is disabled by default in production; if enabled it creates a pending identity without submission permission. It is not required for a public first report. An approved key is reusable and its raw value is shown once when issued.
 
 Approved Wire status by source uses `--status-source-id`; public status uses the private receipt capability as above. For Wire examples with media/source metadata, use `examples/sample_items.json` only with approved credentials. Build the self-contained package with `./build_zip.sh`. Version 1.2.0 adds the public single-report path without copying another runtime.
+
+## Analysis decisions and automatic handling
+
+When the user authorizes publication and notices after analysis, include `handling: {"publication":"automatic","notices":"automatic"}` in the simple JSON item. Without explicit permission, omit handling to preserve private publication and no notices. Exact retries must retain the same permissions and payload.
+
+Poll the existing private receipt for `outcome`. Analysis is the normal review. Return its decision, reason, publication, recorded delivery and next action. A `cluster_candidate` is valuable additional evidence, retaining its own observation and attribution; never dismiss it as a duplicate. Do not claim sent from queued intent or real-world resolution from a final CleanApp decision.

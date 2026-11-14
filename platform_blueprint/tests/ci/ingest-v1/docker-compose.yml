@@ -3,11 +3,14 @@ services:
     image: mysql:8.0
     environment:
       MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: cleanapp
     command:
       - "--default-authentication-plugin=mysql_native_password"
       - "--max_connections=250"
     volumes:
       - ../../../../db/init.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
+      - ../../../../epc-pusher/lib/sql/epc_schema.sql:/docker-entrypoint-initdb.d/01-epc-schema.sql:ro
+      - ./notification-fixture.sql:/docker-entrypoint-initdb.d/02-notification-fixture.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -proot --silent"]
       interval: 2s
@@ -73,6 +76,7 @@ services:
       SEQ_START_FROM: "1"
       TRANSLATION_LANGUAGES: "en"
       ANALYZER_LLM_PROVIDER: "stub"
+      AGENT_OUTCOME_WORKER_ENABLED: "true"
 
       DB_HOST: mysql
       DB_PORT: "3306"

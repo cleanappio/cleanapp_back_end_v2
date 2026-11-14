@@ -14,6 +14,7 @@ import (
 	"cleanapp-common/effectpolicy"
 	"cleanapp-common/events"
 	"cleanapp-common/evidence"
+	"cleanapp-common/reportoutcome"
 	"github.com/DATA-DOG/go-sqlmock"
 	"report-analyze-pipeline/config"
 	"report-analyze-pipeline/database"
@@ -42,6 +43,9 @@ type analysisStore struct {
 }
 
 func (d *analysisStore) GetDB() *sql.DB { return d.sqlDB }
+func (d *analysisStore) AgentOutcomeInput(context.Context, int) (reportoutcome.Input, bool, error) {
+	return reportoutcome.Input{}, false, nil
+}
 func (d *analysisStore) SideEffectSuppressed(_ context.Context, _ int, effect effectpolicy.Effect) (bool, error) {
 	if d.policyErr != nil {
 		return true, d.policyErr

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"cleanapp-common/reportoutcome"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -112,9 +113,10 @@ type cleanAppWireSubmission struct {
 		AgentClaimedOriginal bool     `json:"agent_claimed_original,omitempty"`
 	} `json:"dedupe,omitempty"`
 	Delivery struct {
-		RequestedLane string `json:"requested_lane,omitempty"`
-		WebhookURL    string `json:"webhook_url,omitempty"`
-		WebhookAuth   string `json:"webhook_auth,omitempty"`
+		Handling      *reportoutcome.Handling `json:"handling,omitempty"`
+		RequestedLane string                  `json:"requested_lane,omitempty"`
+		WebhookURL    string                  `json:"webhook_url,omitempty"`
+		WebhookAuth   string                  `json:"webhook_auth,omitempty"`
 	} `json:"delivery,omitempty"`
 	Extensions map[string]any `json:"extensions,omitempty"`
 }
@@ -129,18 +131,19 @@ type cleanAppWireError struct {
 }
 
 type cleanAppWireReceiptResponse struct {
-	ReceiptID         string              `json:"receipt_id"`
-	SubmissionID      string              `json:"submission_id"`
-	SourceID          string              `json:"source_id"`
-	ReceivedAt        string              `json:"received_at"`
-	Status            string              `json:"status"`
-	Lane              string              `json:"lane"`
-	ReportID          int                 `json:"report_id,omitempty"`
-	IdempotencyReplay bool                `json:"idempotency_replay"`
-	Warnings          []string            `json:"warnings,omitempty"`
-	Errors            []cleanAppWireError `json:"errors,omitempty"`
-	NextCheckAfter    string              `json:"next_check_after,omitempty"`
-	SubmissionQuality float64             `json:"submission_quality,omitempty"`
+	Outcome           *reportoutcome.Outcome `json:"outcome,omitempty"`
+	ReceiptID         string                 `json:"receipt_id"`
+	SubmissionID      string                 `json:"submission_id"`
+	SourceID          string                 `json:"source_id"`
+	ReceivedAt        string                 `json:"received_at"`
+	Status            string                 `json:"status"`
+	Lane              string                 `json:"lane"`
+	ReportID          int                    `json:"report_id,omitempty"`
+	IdempotencyReplay bool                   `json:"idempotency_replay"`
+	Warnings          []string               `json:"warnings,omitempty"`
+	Errors            []cleanAppWireError    `json:"errors,omitempty"`
+	NextCheckAfter    string                 `json:"next_check_after,omitempty"`
+	SubmissionQuality float64                `json:"submission_quality,omitempty"`
 }
 
 type cleanAppWireBatchResponse struct {
@@ -190,14 +193,15 @@ type cleanAppWireAgentReputationResponse struct {
 }
 
 type cleanAppWireStatusResponse struct {
-	SourceID          string `json:"source_id"`
-	ReceiptID         string `json:"receipt_id"`
-	SubmissionID      string `json:"submission_id"`
-	Status            string `json:"status"`
-	Lane              string `json:"lane"`
-	ReportID          int    `json:"report_id,omitempty"`
-	IdempotencyReplay bool   `json:"idempotency_replay"`
-	UpdatedAt         string `json:"updated_at"`
+	Outcome           *reportoutcome.Outcome `json:"outcome,omitempty"`
+	SourceID          string                 `json:"source_id"`
+	ReceiptID         string                 `json:"receipt_id"`
+	SubmissionID      string                 `json:"submission_id"`
+	Status            string                 `json:"status"`
+	Lane              string                 `json:"lane"`
+	ReportID          int                    `json:"report_id,omitempty"`
+	IdempotencyReplay bool                   `json:"idempotency_replay"`
+	UpdatedAt         string                 `json:"updated_at"`
 }
 
 type cleanAppWireAuthContext struct {
@@ -222,16 +226,18 @@ type cleanAppWireIngestCoreMedia struct {
 }
 
 type cleanAppWireIngestCoreItem struct {
-	SourceID     string
-	Title        string
-	Description  string
-	Lat          *float64
-	Lng          *float64
-	CollectedAt  string
-	AgentID      string
-	AgentVersion string
-	SourceType   string
-	ImageBase64  string
+	Handling        *reportoutcome.Handling
+	OutcomeEligible bool
+	SourceID        string
+	Title           string
+	Description     string
+	Lat             *float64
+	Lng             *float64
+	CollectedAt     string
+	AgentID         string
+	AgentVersion    string
+	SourceType      string
+	ImageBase64     string
 	// ExtraImagesBase64 are photos 2 to 4 of the same report (report_extra_images).
 	ExtraImagesBase64 []string
 	Tags              []string
@@ -355,6 +361,7 @@ func (h *Handlers) GetAgentReputationV1(c *gin.Context) {
 }
 
 func (h *Handlers) SubmitCleanAppWireV1(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
 	if !h.cfg.CleanAppWireEnabled {
 		c.JSON(http.StatusNotFound, gin.H{"error": "CleanApp Wire disabled"})
 		return
@@ -381,10 +388,19 @@ func (h *Handlers) SubmitCleanAppWireV1(c *gin.Context) {
 	}
 
 	resp, httpStatus := h.processCleanAppWireSubmission(c.Request.Context(), c, auth, sub)
+	if resp.ReportID > 0 {
+		if outcome, err := h.db.ReportOutcome(c.Request.Context(), resp.ReportID); err == nil {
+			resp.Outcome = outcome
+		} else {
+			httpStatus = http.StatusServiceUnavailable
+			resp.Errors = append(resp.Errors, cleanAppWireError{Code: "OUTCOME_UNAVAILABLE", Message: "Report retained; status is temporarily unavailable."})
+		}
+	}
 	c.JSON(httpStatus, resp)
 }
 
 func (h *Handlers) BatchSubmitCleanAppWireV1(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
 	if !h.cfg.CleanAppWireEnabled || !h.cfg.CleanAppWireBatchEnabled {
 		c.JSON(http.StatusNotFound, gin.H{"error": "CleanApp Wire batch submit disabled"})
 		return
@@ -422,6 +438,14 @@ func (h *Handlers) BatchSubmitCleanAppWireV1(c *gin.Context) {
 	statusCode := http.StatusOK
 	for _, item := range req.Items {
 		receipt, code := h.processCleanAppWireSubmission(c.Request.Context(), c, auth, item)
+		if receipt.ReportID > 0 {
+			outcome, err := h.db.ReportOutcome(c.Request.Context(), receipt.ReportID)
+			if err != nil {
+				code = http.StatusServiceUnavailable
+			} else {
+				receipt.Outcome = outcome
+			}
+		}
 		resp.Items = append(resp.Items, receipt)
 		switch receipt.Status {
 		case "rejected":
@@ -441,6 +465,7 @@ func (h *Handlers) BatchSubmitCleanAppWireV1(c *gin.Context) {
 }
 
 func (h *Handlers) GetCleanAppWireReceiptV1(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
 	auth, ok := h.cleanAppWireAuthContext(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
@@ -460,10 +485,20 @@ func (h *Handlers) GetCleanAppWireReceiptV1(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load receipt"})
 		return
 	}
-	c.JSON(http.StatusOK, h.cleanAppWireReceiptRecordToResponse(receipt, 0))
+	response := h.cleanAppWireReceiptRecordToResponse(receipt, 0)
+	if response.ReportID > 0 {
+		outcome, err := h.db.ReportOutcome(c.Request.Context(), response.ReportID)
+		if err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "outcome temporarily unavailable"})
+			return
+		}
+		response.Outcome = outcome
+	}
+	c.JSON(http.StatusOK, response)
 }
 
 func (h *Handlers) GetCleanAppWireStatusV1(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
 	auth, ok := h.cleanAppWireAuthContext(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
@@ -494,6 +529,14 @@ func (h *Handlers) GetCleanAppWireStatusV1(c *gin.Context) {
 	}
 	if receipt.ReportSeq.Valid {
 		resp.ReportID = int(receipt.ReportSeq.Int64)
+	}
+	if resp.ReportID > 0 {
+		outcome, err := h.db.ReportOutcome(c.Request.Context(), resp.ReportID)
+		if err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "outcome temporarily unavailable"})
+			return
+		}
+		resp.Outcome = outcome
 	}
 	c.JSON(http.StatusOK, resp)
 }
@@ -571,7 +614,7 @@ func (h *Handlers) processCleanAppWireSubmissionInternalWithHook(
 		if existing.MaterialHash == materialHash {
 			resp := h.cleanAppWireReceiptRecordToResponse(receipt, existing.SubmissionQuality)
 			resp.IdempotencyReplay = true
-			if isPublicAgentAuth(auth) && !receipt.RejectionCode.Valid {
+			if atomicWireReceipt(auth) && !receipt.RejectionCode.Valid {
 				// A confirmed enqueue is durable. Replaying the same public intent
 				// only reads its receipt; it never amplifies broker/analysis work.
 				return resp, http.StatusOK
@@ -621,6 +664,9 @@ func (h *Handlers) processCleanAppWireSubmissionInternalWithHook(
 
 	quality := computeCleanAppWireSubmissionQuality(sub)
 	lane := assignCleanAppWireLane(h.cfg, auth.Tier, quality, len(sub.Report.EvidenceBundle), strings.TrimSpace(sub.Delivery.RequestedLane))
+	if sub.Delivery.Handling != nil && auth.ActorKind == "machine" {
+		lane = wireLaneQuarantine
+	}
 	if isPublicAgentAuth(auth) {
 		lane = wireLaneQuarantine
 	}
@@ -668,11 +714,11 @@ func (h *Handlers) processCleanAppWireSubmissionInternalWithHook(
 		WarningsJSON:   h.db.EncodeJSON(cleanAppWireWarningsForSubmission(sub, lane)),
 		NextCheckAfter: nextCheckAfter,
 	}
-	if isPublicAgentAuth(auth) {
+	if atomicWireReceipt(auth) {
 		receiptRecord.RejectionCode = sql.NullString{String: "QUEUE_PENDING", Valid: true}
 	}
 	var beforeCommit func(*sql.Tx, int) error
-	if isPublicAgentAuth(auth) {
+	if atomicWireReceipt(auth) {
 		beforeCommit = func(tx *sql.Tx, seq int) error {
 			submissionRecord.ReportSeq = sql.NullInt64{Int64: int64(seq), Valid: true}
 			receiptRecord.ReportSeq = submissionRecord.ReportSeq
@@ -707,7 +753,7 @@ func (h *Handlers) processCleanAppWireSubmissionInternalWithHook(
 	}
 
 	var persistenceErr error
-	if !isPublicAgentAuth(auth) {
+	if !atomicWireReceipt(auth) {
 		persistenceErr = h.db.InsertWireSubmissionAndReceipt(ctx, submissionRecord, receiptRecord)
 	}
 	if persistenceErr != nil {
@@ -758,6 +804,9 @@ func (h *Handlers) processCleanAppWireSubmissionInternalWithHook(
 
 func cleanAppWireIngestCoreItemFromSubmission(sub cleanAppWireSubmission) cleanAppWireIngestCoreItem {
 	item := cleanAppWireIngestCoreItem{
+		Handling: sub.Delivery.Handling,
+		OutcomeEligible: sub.Agent.AgentType != "internal_service" && sub.Agent.AgentID != "report-processor" &&
+			sub.Provenance.GenerationMethod != "legacy_v3_bulk_ingest" && !strings.HasPrefix(sub.Agent.AgentID, "legacy-bulk-ingest-"),
 		SourceID:          sub.SourceID,
 		Title:             sub.Report.Title,
 		Description:       cleanAppWireDescription(sub),
@@ -871,6 +920,11 @@ func normalizeCleanAppWireSubmission(sub cleanAppWireSubmission) (cleanAppWireSu
 	if sub.Delivery.RequestedLane == "" {
 		sub.Delivery.RequestedLane = "auto"
 	}
+	if sub.Delivery.Handling != nil {
+		if normalized, err := reportoutcome.NormalizeHandling(sub.Delivery.Handling); err == nil {
+			sub.Delivery.Handling = &normalized
+		}
+	}
 	return sub, sub.SubmissionID
 }
 
@@ -880,6 +934,9 @@ func validateCleanAppWireSubmission(sub cleanAppWireSubmission, strictSignature 
 
 func validateCleanAppWireSubmissionWithContext(sub cleanAppWireSubmission, strictSignature, allowMissingContext bool) []cleanAppWireError {
 	var errs []cleanAppWireError
+	if _, err := reportoutcome.NormalizeHandling(sub.Delivery.Handling); err != nil {
+		errs = append(errs, cleanAppWireError{Code: "INVALID_HANDLING", Message: err.Error()})
+	}
 	if sub.SchemaVersion != cleanAppWireSchemaV1 {
 		errs = append(errs, cleanAppWireError{Code: "INVALID_SCHEMA_VERSION", Message: "schema_version must be cleanapp-wire.v1"})
 	}
@@ -1393,13 +1450,27 @@ func (h *Handlers) cleanAppWireIngestCoreWithTxHook(
 		return cleanAppWireIngestCoreResult{}, "REPORT_RAW_INSERT_FAILED", http.StatusInternalServerError
 	}
 
-	if isPublicAgentAuth(auth) {
+	if isPublicAgentAuth(auth) || (item.Handling != nil && item.OutcomeEligible && auth.ActorKind == "machine") {
 		// Private intake cannot trigger outbound effects, even if a later reader
 		// changes its visibility. Keep this policy atomic with the report itself.
+		namespace, reason := "agent-outcome", "Explicit agent handling permissions"
+		if isPublicAgentAuth(auth) {
+			namespace, reason = "public-agent", "Anonymous agent intake is private pending review"
+		}
+		handling, err := reportoutcome.NormalizeHandling(item.Handling)
+		if err != nil {
+			return cleanAppWireIngestCoreResult{}, "INVALID_HANDLING", http.StatusBadRequest
+		}
+		blocked := handling.Notices != "automatic"
 		if _, err := tx.ExecContext(ctx, `INSERT INTO report_side_effect_policy
 			(report_seq,source_namespace,reason,policy_version,suppress_email,suppress_notifications,suppress_rewards,suppress_routing,suppress_analysis)
-			VALUES (?,'public-agent','Anonymous agent intake is private pending review',1,TRUE,TRUE,TRUE,TRUE,FALSE)`, seq); err != nil {
+			VALUES (?,?,?,1,?,?,TRUE,?,FALSE)`, seq, namespace, reason, blocked, blocked, blocked); err != nil {
 			return cleanAppWireIngestCoreResult{}, "PRIVATE_POLICY_FAILED", http.StatusInternalServerError
+		}
+	}
+	if item.OutcomeEligible && auth.ActorKind == "machine" && (visibility != "public" || item.Handling != nil) {
+		if err := reportoutcome.IntakeRecordTx(ctx, tx, seq, item.Handling); err != nil {
+			return cleanAppWireIngestCoreResult{}, "OUTCOME_INTENT_FAILED", http.StatusInternalServerError
 		}
 	}
 	if beforeCommit != nil {

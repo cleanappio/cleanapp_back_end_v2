@@ -9,7 +9,7 @@ const state = vi.hoisted(() => ({ token: "", trace: false, output: "json" }));
 vi.mock("../src/runtime.js", () => ({ resolveRuntimeConfig: async () => ({ apiUrl: "https://fixture.invalid", token: state.token, env: "test", output: state.output, trace: state.trace, dryRun: false }) }));
 vi.mock("../src/output.js", () => ({ printJson: vi.fn(), printHuman: vi.fn() }));
 import { addSubmit } from "../src/commands/reports/submit.js";
-import { toPublicAgentReport } from "../src/public-report.js";
+import { toPublicAgentReport, formatReportOutcome } from "../src/public-report.js";
 import { printHuman, printJson } from "../src/output.js";
 
 async function submit(...args: string[]) {
@@ -47,6 +47,29 @@ describe("first report without an integration key", () => {
     await submit("--desc", "Observed problem", "--source-id", sourceId);
     const bodies = vi.mocked(fetch).mock.calls.map(([,request]) => String(request!.body));
     expect(bodies[0]).toBe(bodies[1]);
+  });
+
+  it("requires explicit immutable permission for automatic handling, on either path", async () => {
+    await submit("--desc", "Observed problem", "--publication", "automatic", "--notices", "automatic");
+    let body = JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]!.body));
+    expect(body.handling).toEqual({ publication: "automatic", notices: "automatic" });
+    state.token = "synthetic-approved-wire-key";
+    await submit("--desc", "Observed problem", "--publication", "automatic");
+    body = JSON.parse(String(vi.mocked(fetch).mock.calls[1][1]!.body));
+    expect(body.delivery.handling).toEqual({ publication: "automatic", notices: "none" });
+    expect(() => toPublicAgentReport({ desc: "Observed problem", notices: "yes" })).toThrow("--notices");
+  });
+
+  it("shows a cluster candidate and recorded delivery status without implying resolution", () => {
+    const output = formatReportOutcome({ outcome: {
+      processing: { status: "analyzed" }, decision: { state: "cluster_candidate", message: "Additional evidence retained." },
+      publication: { status: "published", canonical_path: "/reports/example" },
+      relationship: { type: "cluster_candidate" }, delivery: [{ channel: "email", status: "held", reason_code: "no_recipient" }],
+      next_action: { type: "none" }, final: true,
+    } });
+    expect(output).toContain("Cluster candidate");
+    expect(output).toContain("email=held (no_recipient)");
+    expect(output).not.toMatch(/duplicate|resolved|email=sent/);
   });
 
   it("preserves the existing authenticated Wire path", async () => {

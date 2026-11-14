@@ -5,6 +5,7 @@ import { httpRequest } from "../../http.js";
 import { printHuman, printJson } from "../../output.js";
 import { resolveRuntimeConfig } from "../../runtime.js";
 import { readFileUtf8 } from "../../util.js";
+import { formatReportOutcome } from "../../public-report.js";
 
 export function addStatus(program: Command): void {
   program
@@ -28,7 +29,7 @@ export function addStatus(program: Command): void {
         if (raw.startsWith("{")) token = String(JSON.parse(raw).tracking_token || "");
         if (!token.startsWith("gdt_") || token.length > 4096) throw new CLIError("status: invalid private tracking token file", EXIT.USER);
         const res = await httpRequest({ ...cfg, token }, { method: "GET", path: `/api/v1/public/agent-reports/receipts/${encodeURIComponent(receiptId)}` });
-        if (cfg.output === "human") printHuman(`receipt=${receiptId} status=${(res.data as any).status} publication=${(res.data as any).publication_status}`);
+        if (cfg.output === "human") printHuman(`receipt=${receiptId} status=${(res.data as any).status} publication=${(res.data as any).publication_status}\n${formatReportOutcome(res.data)}`);
         else printJson(res.data);
         return;
       }
@@ -54,6 +55,7 @@ export function addStatus(program: Command): void {
               `source_id=${r.source_id}`,
               `status=${r.status} lane=${r.lane} report_id=${r.report_id ?? "(n/a)"}`,
               `receipt=${r.receipt_id} replay=${Boolean(r.idempotency_replay)} updated_at=${r.updated_at}`,
+              formatReportOutcome(r),
             ].join("\n"),
           );
           return;
@@ -76,6 +78,7 @@ export function addStatus(program: Command): void {
               `receipt=${r.receipt_id}`,
               `status=${r.status} lane=${r.lane} source_id=${r.source_id}`,
               `report_id=${r.report_id ?? "(n/a)"} replay=${Boolean(r.idempotency_replay)} received_at=${r.received_at}`,
+              formatReportOutcome(r),
             ].join("\n"),
           );
           return;

@@ -38,6 +38,16 @@ class PublicFirstReportTest(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 ingest.wrap_public_submission(changed)
 
+    def test_automatic_handling_requires_explicit_valid_permission(self):
+        item = {"description": "Observed problem", "source_id": str(uuid.uuid4())}
+        self.assertNotIn("handling", ingest.wrap_public_submission(item))
+        handling = {"publication": "automatic", "notices": "automatic"}
+        self.assertEqual(ingest.wrap_public_submission({**item, "handling": handling})["handling"], handling)
+        self.assertEqual(ingest.wrap_wire_submission({**item, "handling": handling})["delivery"]["handling"], handling)
+        for invalid in [None, "automatic", {"publication": "yes"}, {"notices": "yes"}, {"server_privacy_clear": True}]:
+            with self.assertRaises(SystemExit):
+                ingest.wrap_public_submission({**item, "handling": invalid})
+
     def test_broker_failure_preserves_private_receipt_without_logging_token(self):
         token = "gdt_synthetic_private_capability"
         receipt = {"receipt_id": "rcpt_fixture", "tracking_token": token, "publication_status": "private", "processing_status": "pending_retry"}

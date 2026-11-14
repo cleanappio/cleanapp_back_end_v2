@@ -19,10 +19,12 @@ func TestEvidenceStoreMigrationUpgradesLegacyAppliedColumnStep(t *testing.T) {
 		steps.AddRow(id)
 	}
 	mock.ExpectQuery(`SELECT step_id FROM go_schema_migrations WHERE service_name = \?`).WithArgs("report-analyze-pipeline").WillReturnRows(steps)
-	// Only the independent evidence table is created; no report-analysis ALTER,
-	// new reports index, or baseline rebuild is expected in this upgrade.
+	// Only additive evidence/outcome tables are created; no report-analysis
+	// ALTER, new reports index, or baseline rebuild is expected in this upgrade.
 	mock.ExpectExec(`CREATE TABLE IF NOT EXISTS report_evidence`).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectExec(`INSERT INTO go_schema_migrations`).WithArgs("report-analyze-pipeline", "0007_report_evidence_store", "ensure separate per-report evidence storage").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`CREATE TABLE IF NOT EXISTS report_outcomes`).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(`INSERT INTO go_schema_migrations`).WithArgs("report-analyze-pipeline", "0009_report_outcomes", "persist agent decisions and publication recovery").WillReturnResult(sqlmock.NewResult(0, 1))
 	if err := RunMigrations(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}

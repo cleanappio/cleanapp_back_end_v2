@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"cleanapp-common/reportoutcome"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -38,28 +39,30 @@ var publicAgentSourceIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[
 var errPublicReceiptExpired = errors.New("private receipt capability has expired")
 
 type publicAgentReportRequest struct {
-	Description string   `json:"description"`
-	Title       string   `json:"title,omitempty"`
-	SourceID    string   `json:"source_id,omitempty"`
-	AgentName   string   `json:"agent_name,omitempty"`
-	URL         string   `json:"url,omitempty"`
-	Latitude    *float64 `json:"latitude,omitempty"`
-	Longitude   *float64 `json:"longitude,omitempty"`
+	Handling    *reportoutcome.Handling `json:"handling,omitempty"`
+	Description string                  `json:"description"`
+	Title       string                  `json:"title,omitempty"`
+	SourceID    string                  `json:"source_id,omitempty"`
+	AgentName   string                  `json:"agent_name,omitempty"`
+	URL         string                  `json:"url,omitempty"`
+	Latitude    *float64                `json:"latitude,omitempty"`
+	Longitude   *float64                `json:"longitude,omitempty"`
 }
 
 type publicAgentReceiptResponse struct {
-	ReceiptID         string              `json:"receipt_id"`
-	SourceID          string              `json:"source_id,omitempty"`
-	Status            string              `json:"status"`
-	PublicationStatus string              `json:"publication_status"`
-	IdempotencyReplay bool                `json:"idempotency_replay"`
-	TrackingToken     string              `json:"tracking_token,omitempty"`
-	TrackingExpiresAt string              `json:"tracking_expires_at,omitempty"`
-	StatusURL         string              `json:"status_url"`
-	ReceivedAt        string              `json:"received_at"`
-	ProcessingStatus  string              `json:"processing_status"`
-	Message           string              `json:"message"`
-	Errors            []cleanAppWireError `json:"errors,omitempty"`
+	Outcome           *reportoutcome.Outcome `json:"outcome,omitempty"`
+	ReceiptID         string                 `json:"receipt_id"`
+	SourceID          string                 `json:"source_id,omitempty"`
+	Status            string                 `json:"status"`
+	PublicationStatus string                 `json:"publication_status"`
+	IdempotencyReplay bool                   `json:"idempotency_replay"`
+	TrackingToken     string                 `json:"tracking_token,omitempty"`
+	TrackingExpiresAt string                 `json:"tracking_expires_at,omitempty"`
+	StatusURL         string                 `json:"status_url"`
+	ReceivedAt        string                 `json:"received_at"`
+	ProcessingStatus  string                 `json:"processing_status"`
+	Message           string                 `json:"message"`
+	Errors            []cleanAppWireError    `json:"errors,omitempty"`
 }
 
 func isPublicAgentAuth(auth cleanAppWireAuthContext) bool {
@@ -67,11 +70,15 @@ func isPublicAgentAuth(auth cleanAppWireAuthContext) bool {
 }
 
 func wireDefersQueueUntilReceipt(auth cleanAppWireAuthContext) bool {
-	return auth.ActorKind == "human" && auth.Channel == humanChannelWeb || isPublicAgentAuth(auth)
+	return auth.ActorKind == "human" && auth.Channel == humanChannelWeb || atomicWireReceipt(auth)
+}
+
+func atomicWireReceipt(auth cleanAppWireAuthContext) bool {
+	return isPublicAgentAuth(auth) || auth.ActorKind == "machine" && auth.Channel == "wire"
 }
 
 func (h *Handlers) queueCleanAppWireForReceipt(ctx context.Context, auth cleanAppWireAuthContext, item cleanAppWireIngestCoreItem, seq int, visibility, receiptID string) string {
-	if !isPublicAgentAuth(auth) {
+	if !atomicWireReceipt(auth) {
 		return h.queueCleanAppWireCoreItem(auth, item, seq, visibility)
 	}
 	if err := h.db.SetWireReceiptQueueState(ctx, auth.FetcherID, receiptID, "QUEUE_PENDING"); err != nil {
@@ -85,6 +92,13 @@ func (h *Handlers) queueCleanAppWireForReceipt(ctx context.Context, auth cleanAp
 }
 
 func validatePublicAgentRequest(req *publicAgentReportRequest) error {
+	if req.Handling != nil {
+		normalized, err := reportoutcome.NormalizeHandling(req.Handling)
+		if err != nil {
+			return err
+		}
+		req.Handling = &normalized
+	}
 	req.Description = strings.TrimSpace(req.Description)
 	req.Title = strings.TrimSpace(req.Title)
 	req.SourceID = strings.ToLower(strings.TrimSpace(req.SourceID))
@@ -117,6 +131,7 @@ func validatePublicAgentRequest(req *publicAgentReportRequest) error {
 func buildPublicAgentWireSubmission(req publicAgentReportRequest) cleanAppWireSubmission {
 	sum := sha256.Sum256([]byte(req.SourceID))
 	sub := cleanAppWireSubmission{SchemaVersion: cleanAppWireSchemaV1, SourceID: "public-agent:" + hex.EncodeToString(sum[:]), SubmittedAt: time.Now().UTC().Format(time.RFC3339)}
+	sub.Delivery.Handling = req.Handling
 	sub.Agent.AgentID = publicAgentActor
 	sub.Agent.AgentName = req.AgentName
 	sub.Agent.AgentType = "public_agent"
@@ -275,6 +290,19 @@ func (h *Handlers) SubmitPublicAgentReportV1(c *gin.Context) {
 		return
 	}
 	resp.SourceID = req.SourceID
+	if receipt.ReportID > 0 {
+		outcome, err := h.db.ReportOutcome(c.Request.Context(), receipt.ReportID)
+		if err != nil {
+			resp.Errors = append(resp.Errors, cleanAppWireError{Code: "OUTCOME_UNAVAILABLE", Message: "Report retained; outcome is temporarily unavailable. Keep this receipt and tracking capability."})
+			c.Header("Retry-After", "5")
+			c.JSON(http.StatusServiceUnavailable, resp)
+			return
+		}
+		resp.Outcome = outcome
+		if outcome != nil {
+			resp.PublicationStatus = outcome.Publication.Status
+		}
+	}
 	if code >= 500 {
 		c.Header("Retry-After", "5")
 		resp.ProcessingStatus = "pending_retry"
@@ -335,6 +363,17 @@ func (h *Handlers) GetPublicAgentReceiptV1(c *gin.Context) {
 		resp.ProcessingStatus = "pending_retry"
 		resp.Message = "Report retained privately. Retry the original source_id and payload to resume processing."
 		resp.Errors = []cleanAppWireError{{Code: receipt.RejectionCode.String, Message: "processing has not been confirmed"}}
+	}
+	if receipt.ReportSeq.Valid {
+		outcome, err := h.db.ReportOutcome(c.Request.Context(), int(receipt.ReportSeq.Int64))
+		if err != nil {
+			publicAgentBusy(c, "outcome is temporarily unavailable")
+			return
+		}
+		resp.Outcome = outcome
+		if outcome != nil {
+			resp.PublicationStatus = outcome.Publication.Status
+		}
 	}
 	c.JSON(http.StatusOK, resp)
 }

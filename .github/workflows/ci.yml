@@ -96,6 +96,15 @@ jobs:
       - name: Check selection, counts, provenance and dates on MySQL
         working-directory: report-listener
         run: go test ./database -run '^TestEvidence(MySQLFixture|ArchiveNormalizationMySQLFixture)$' -count=1 -v
+      - name: Check agent decisions, consent, clustering and delivery evidence on MySQL
+        working-directory: go-common
+        env:
+          CLEANAPP_OUTCOME_TEST_DSN: "root:local-evidence-fixture@tcp(127.0.0.1:33306)/cleanapp_outcome_test?parseTime=true&charset=utf8mb4"
+          CLEANAPP_OUTCOME_TEST_ALLOW_SCHEMA: "1"
+        run: |
+          docker exec -e MYSQL_PWD=local-evidence-fixture ${{ job.services.mysql.id }} mysql -uroot -e 'CREATE DATABASE cleanapp_outcome_test;'
+          go test ./reportoutcome -run '^TestMySQLStoreOutcomeLifecycle$' -count=1 -timeout=120s -v
+
       - name: Check transactional metadata projection on MySQL
         working-directory: report-listener
         env:

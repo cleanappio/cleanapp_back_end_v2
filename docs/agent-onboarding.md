@@ -2,7 +2,7 @@
 
 Start at https://www.cleanapp.io/agents. A network-capable agent can submit one observed problem without registration or an API key. Use the supported MCP connector when the client provides MCP tools; a browsing-only GET tool cannot submit a report by itself. Give that client the connector or use an HTTP-capable client.
 
-The public intake stores the original report privately for review. A receipt confirms storage, not publication, routing, resolution, or a reward. Public intake never authorizes outbound email, notifications, routing or rewards. Add only facts actually observed; a description alone is enough, and unknown location stays unknown.
+The public intake retains the original report privately while analysis runs. A receipt confirms storage, not publication, routing, resolution, or a reward. Omitted handling retains private publication and no notices. New explicit automatic handling may authorize publication and notices after analysis and server privacy checks; rewards remain disabled. Add only facts actually observed; a description alone is enough, and unknown location stays unknown.
 
 ## First report with the CLI
 
@@ -52,8 +52,18 @@ OpenClaw's included `openclaw/cleanapp_ingest_skill` uses public private-review 
 
 ## Operations and verification
 
-No new tables or runtime DDL are needed. Existing Wire, report, quota and side-effect-policy migrations must already be applied. `PUBLIC_AGENT_INGEST_ENABLED=false` disables new public intake; existing private receipts remain readable until their capabilities expire. The global Wire switch also disables new public submissions.
+Apply the additive report-outcome migration before deploying this release; no runtime DDL is performed. Existing Wire, report, quota and side-effect-policy migrations must already be applied. `PUBLIC_AGENT_INGEST_ENABLED=false` disables new public intake; existing private receipts remain readable until their capabilities expire. The global Wire switch also disables new public submissions.
 
 Default durable budgets are 5 new intents/minute and 50/day per IP, and 30/minute and 1000/day globally. Configure positive `PUBLIC_AGENT_PER_IP_MINUTE_CAP`, `PUBLIC_AGENT_PER_IP_DAILY_CAP`, `PUBLIC_AGENT_GLOBAL_MINUTE_CAP` and `PUBLIC_AGENT_GLOBAL_DAILY_CAP` as needed. Non-positive values retain safe defaults, never unlimited public access. Global and IP budgets are reserved atomically; global capacity is checked before creating an IP bucket. One server-owned actor is used, with no issued backend key and legacy bearer authentication disabled. An eight-request capacity gate and cross-replica intent locks bound concurrent work.
 
 Run `go test ./...` in `report-listener`, `npm test && npm run build` in `cli/cleanapp`, and `python3 -m unittest discover -s openclaw/cleanapp_ingest_skill -p 'test_*.py'`. `make ci-cleanapp-wire` exercises a fresh anonymous first report before any registration/approval, private receipt authorization, exact retry/conflict behavior, atomic rollback on receipt failure, private side-effect controls, broker outage/recovery, expiry and the existing approved Wire flow in a disposable MySQL/RabbitMQ fixture.
+
+## Get an actionable outcome
+
+Analysis is the normal review. It returns `outcome.decision` (`accepted`, `cluster_candidate`, `needs_information`, `rejected`, or `held`), a reason and `next_action`. Related reports are cluster candidates: each keeps its record, original evidence and attribution and adds support to a shared case. Exact request replay returns the original receipt and is a separate technical fact.
+
+New reports can explicitly authorize automatic publication and eligible notices after analysis and server privacy checks. Use `handling: {"publication":"automatic","notices":"automatic"}` at the public endpoint, or `delivery.handling` in Wire. Omitted permissions preserve private publication and no notices; existing submissions are never upgraded retrospectively. Permissions are immutable for retries. Automatic handling does not enable rewards.
+
+CLI 0.3.0 adds `--publication automatic --notices automatic` to `cleanapp submit`. These flags are optional and must reflect the user's permission. OpenClaw simple JSON accepts the same `handling` object.
+
+Keep the receipt and poll its existing status while `outcome.final` is false. Return the decision and specific next action. `outcome.publication` reports actual publication, and `outcome.delivery` reports recorded transport outcomes. A queued intent is not a sent notice. A final CleanApp outcome does not mean that a recipient read the notice or fixed the problem. Old private reports remain private and can receive an analysis decision.
