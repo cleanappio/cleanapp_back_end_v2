@@ -384,7 +384,7 @@ func (d *Database) getEvidenceBrandPageSQL(ctx context.Context, f EvidenceFilter
 			mediaSeqs = append(mediaSeqs, r.Seq)
 		}
 		rec := r.publicRecurrence()
-		page.Reports = append(page.Reports, models.ReportWithMinimalAnalysis{Report: models.Report{Seq: r.Seq, PublicID: r.PublicID, Timestamp: r.IngestedAt, Latitude: r.Latitude, Longitude: r.Longitude, SourceTimestamp: ev.SourcePublishedAt, SourceURL: ev.SourceURL}, Analysis: []models.MinimalAnalysis{{Title: r.Title, Summary: r.Summary, Classification: r.Classification, SeverityLevel: r.Severity, Language: r.Language, BrandName: r.Brand, BrandDisplayName: r.BrandDisplay}}, Evidence: &ev, Recurrence: &rec})
+		page.Reports = append(page.Reports, models.ReportWithMinimalAnalysis{Report: models.Report{Seq: r.Seq, PublicID: r.PublicID, Timestamp: r.IngestedAt, Latitude: r.Latitude, Longitude: r.Longitude, SourceTimestamp: ev.SourcePublishedAt, SourceURL: ev.SourceURL}, Analysis: []models.MinimalAnalysis{r.publicMinimalAnalysis()}, Evidence: &ev, Recurrence: &rec})
 	}
 	err = rows.Err()
 	rows.Close()
@@ -396,7 +396,10 @@ func (d *Database) getEvidenceBrandPageSQL(ctx context.Context, f EvidenceFilter
 	}
 	for i, r := range records {
 		ev := r.publicEvidence()
+		rec := r.publicRecurrence()
 		page.Reports[i].Evidence = &ev
+		page.Reports[i].Recurrence = &rec
+		page.Reports[i].Analysis = []models.MinimalAnalysis{r.publicMinimalAnalysis()}
 		page.Reports[i].Report.SourceURL, page.Reports[i].Report.SourceTimestamp = ev.SourceURL, ev.SourcePublishedAt
 	}
 	if len(mediaSeqs) > 0 {
@@ -470,6 +473,20 @@ func evidenceText(value string, max int) *string {
 	}
 	return &value
 }
+
+func (r *evidenceRecord) redactRestrictedDisplay() {
+	if r.PrivacyRestricted {
+		r.Title, r.Summary, r.BrandDisplay = "Reported issue", "", ""
+	}
+}
+
+// Apply the restriction at serialization as well as hydration: all public brand
+// readers must cover flags discovered after their analysis display was loaded.
+func (r evidenceRecord) publicMinimalAnalysis() models.MinimalAnalysis {
+	r.redactRestrictedDisplay()
+	return models.MinimalAnalysis{Title: r.Title, Summary: r.Summary, Classification: r.Classification, SeverityLevel: r.Severity, Language: r.Language, BrandName: r.Brand, BrandDisplayName: r.BrandDisplay}
+}
+
 func (r evidenceRecord) publicEvidence() models.PublicEvidence {
 	kind := r.Kind
 	if r.Version < 1 || (kind != "firsthand" && kind != "coverage") {
@@ -586,7 +603,11 @@ func (r evidenceRecord) publicRecurrence() models.PublicRecurrence {
 		}
 	}
 	samples := []models.PublicSupportingSource{}
-	if err := json.Unmarshal(r.SupportingSourcesJSON, &samples); err == nil {
+	if r.PrivacyRestricted {
+		// A late canonical restriction also covers previously hydrated sample
+		// titles/links, which can contain this representative's own derivatives.
+		samples = []models.PublicSupportingSource{}
+	} else if err := json.Unmarshal(r.SupportingSourcesJSON, &samples); err == nil {
 		for i := range samples {
 			safe := publicProvenanceURL(stringValue(samples[i].SourceURL))
 			samples[i].SourceURL = evidenceText(safe, 2048)
@@ -699,6 +720,7 @@ func attachPublicDetailProjection(report *models.ReportWithAnalysis, r evidenceR
 		for i := range report.Analysis {
 			report.Analysis[i].Title = "Reported issue"
 			report.Analysis[i].Summary, report.Analysis[i].Description = "", ""
+			report.Analysis[i].BrandDisplayName = ""
 			report.Analysis[i].AnalysisImage, report.Analysis[i].AnalysisText = nil, ""
 		}
 	}

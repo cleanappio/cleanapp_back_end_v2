@@ -362,7 +362,11 @@ func TestEvidenceCohortCacheServesLiveGuardedPageFromHeldCohort(t *testing.T) {
 				t.Fatalf("page rows changed: %+v", page.Reports)
 			}
 			for i, seq := range m.reports {
-				if page.Reports[i].Report.Seq != seq || page.Reports[i].Report.PublicID != fmt.Sprint("r_test_", seq) || page.Reports[i].Analysis[0].Title != fmt.Sprint("Title ", seq) {
+				expectedTitle := fmt.Sprint("Title ", seq)
+				if i == 1 && m.secondSourceURLWithheld {
+					expectedTitle = "Reported issue"
+				}
+				if page.Reports[i].Report.Seq != seq || page.Reports[i].Report.PublicID != fmt.Sprint("r_test_", seq) || page.Reports[i].Analysis[0].Title != expectedTitle {
 					t.Fatalf("row %d changed or lost bounded hydration: %+v", i, page.Reports[i])
 				}
 			}
@@ -377,7 +381,7 @@ func TestEvidenceCohortCacheServesLiveGuardedPageFromHeldCohort(t *testing.T) {
 			}
 			if m.secondSourceURLWithheld {
 				second := page.Reports[1]
-				if second.Evidence.SourceURL != nil || second.Evidence.Excerpt != nil || second.Evidence.ReportedImpact != nil || second.Evidence.ClassificationReason != nil || second.Evidence.HasOriginalMedia || len(second.Recurrence.SupportingSources) != 0 {
+				if second.Evidence.SourceURL != nil || second.Evidence.Excerpt != nil || second.Evidence.ReportedImpact != nil || second.Evidence.ClassificationReason != nil || second.Evidence.HasOriginalMedia || len(second.Recurrence.SupportingSources) != 0 || second.Analysis[0].Summary != "" || second.Analysis[0].BrandDisplayName != "" {
 					t.Fatalf("exact fresh restriction was lifted by an older live column: %+v", second)
 				}
 			}

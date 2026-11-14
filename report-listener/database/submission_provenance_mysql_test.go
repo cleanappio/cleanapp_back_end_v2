@@ -12,7 +12,7 @@ import (
 func testPublicSubmissionProvenanceMySQL(t *testing.T, db *sql.DB) {
 	t.Helper()
 	for _, statement := range []string{
-		`INSERT INTO reports(seq,public_id,ts) VALUES(4701,'rpt_0000000000000000004701','2026-11-14 20:06:21'),(4702,'rpt_0000000000000000004702','2026-11-14 20:06:21'),(4703,'rpt_0000000000000000004703','2026-11-14 20:06:21')`,
+		`INSERT INTO reports(seq,public_id,ts,id,latitude,longitude,image) VALUES(4701,'rpt_0000000000000000004701','2026-11-14 20:06:21','provenance-fixture-1',0,0,''),(4702,'rpt_0000000000000000004702','2026-11-14 20:06:21','provenance-fixture-2',0,0,''),(4703,'rpt_0000000000000000004703','2026-11-14 20:06:21','provenance-fixture-3',0,0,'')`,
 		`INSERT INTO report_raw VALUES(4701,'web','provenance-fixture-1','provenance-canonical','public'),(4702,'web','provenance-fixture-2','provenance-canonical','quarantine'),(4703,'web','provenance-fixture-3','provenance-canonical','public')`,
 	} {
 		if _, err := db.Exec(statement); err != nil {

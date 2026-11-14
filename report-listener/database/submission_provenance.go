@@ -117,6 +117,7 @@ func hydratePublicSubmissionProvenance(ctx context.Context, reader evidenceQuery
 		if value.ContainsPII || value.RequiresRedaction {
 			for _, i := range indices[seq] {
 				records[i].PrivacyRestricted = true
+				records[i].redactRestrictedDisplay()
 			}
 			continue
 		}

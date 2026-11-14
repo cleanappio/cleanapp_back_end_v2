@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"report-listener/models"
 )
 
 func retainedSubmission(t *testing.T, value string) *publicSubmissionProvenance {
@@ -186,5 +187,44 @@ func TestSubmissionMetadataSQLDoesNotExposeRawBodyOrUseClaimedAgentIdentity(t *t
 	}
 	if strings.Contains(string(data), "PRIVATE ORIGINAL BODY") || regexp.MustCompile(`"agent_name"|"description"`).Match(data) {
 		t.Fatal("original/agent body leaked")
+	}
+}
+
+func TestLateCanonicalPrivacyRestrictionScrubsLoadedPublicDerivatives(t *testing.T) {
+	for _, flag := range []string{"contains_pii", "requires_redaction"} {
+		t.Run(flag, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			const sentinel = "LATE_PRIVATE_DERIVATIVE_SENTINEL"
+			r := evidenceRecord{Seq: 71, ActorKind: "machine", IntakeChannel: "wire", GenerationMethod: "human_assisted", Title: sentinel, Summary: sentinel, BrandDisplay: sentinel, Excerpt: sentinel, Impact: sentinel, Reason: sentinel, Version: 1, SourceURL: "https://example.com/" + sentinel, HasOriginalMedia: true, SupportingSourcesJSON: []byte(`[{"title":"` + sentinel + `","source_url":"https://example.com/` + sentinel + `"}]`)}
+			mock.ExpectQuery(`(?s)WITH selected AS.*`).WithArgs(71).WillReturnRows(sqlmock.NewRows([]string{"report_seq", "metadata"}).AddRow(71, `{"`+flag+`":true}`))
+			records := []evidenceRecord{r}
+			if err := hydratePublicSubmissionProvenance(context.Background(), db, records); err != nil {
+				t.Fatal(err)
+			}
+			r = records[0]
+			if !r.PrivacyRestricted || r.Title != "Reported issue" || r.Summary != "" || r.BrandDisplay != "" {
+				t.Fatalf("late canonical flag left loaded display intact: %+v", r)
+			}
+			// Projected, bulk and legacy brand readers all serialize analysis
+			// through this shared privacy boundary after the selected raw read.
+			analysis, ev, rec := r.publicMinimalAnalysis(), r.publicEvidence(), r.publicRecurrence()
+			brand := models.ReportWithMinimalAnalysis{Analysis: []models.MinimalAnalysis{analysis}, Evidence: &ev, Recurrence: &rec}
+			preview := publicBrandPreviewReport(r)
+			detail := &models.ReportWithAnalysis{Report: models.Report{Seq: 71}, Analysis: []models.ReportAnalysis{{Title: sentinel, Description: sentinel, Summary: sentinel, BrandDisplayName: sentinel, AnalysisImage: []byte(sentinel)}}}
+			attachPublicDetailProjection(detail, r, true)
+			for name, output := range map[string]any{"brand": brand, "preview": preview, "detail": detail} {
+				data, err := json.Marshal(output)
+				if err != nil || strings.Contains(string(data), sentinel) {
+					t.Fatalf("%s leaked a derivative after late restriction: %v %s", name, err, data)
+				}
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
