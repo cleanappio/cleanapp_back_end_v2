@@ -435,6 +435,9 @@ func hydrateProjectedEvidencePage(ctx context.Context, tx *sql.Tx, f EvidenceFil
 	if err := hydrateEvidenceDisplay(ctx, tx, f, chosen, &grouped); err != nil {
 		return EvidenceBrandPage{}, err
 	}
+	if err := hydratePublicSubmissionProvenance(ctx, tx, grouped.Records); err != nil {
+		return EvidenceBrandPage{}, err
+	}
 	mediaSeqs := []int{}
 	for _, r := range grouped.Records {
 		if r.HasOriginalMedia && !r.PrivacyRestricted {

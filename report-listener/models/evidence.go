@@ -5,25 +5,42 @@ import "time"
 // PublicEvidence separates original observations, acquisition, and assistive analysis.
 // Nil values mean unknown; they are never inferred from ingestion or case closure.
 type PublicEvidence struct {
-	ReportKind           string     `json:"report_kind"`
-	IntakeMethod         string     `json:"intake_method"`
-	IntakeChannel        *string    `json:"intake_channel"`
-	IntakeLabel          string     `json:"intake_label"`
-	SourcePlatform       *string    `json:"source_platform"`
-	SourceURL            *string    `json:"source_url"`
-	SourcePublishedAt    *time.Time `json:"source_published_at"`
-	ObservedAt           *time.Time `json:"observed_at"`
-	IngestedAt           *time.Time `json:"ingested_at"`
-	Excerpt              *string    `json:"excerpt"`
-	ReportedImpact       *string    `json:"reported_impact"`
-	ClassificationReason *string    `json:"classification_reason"`
-	EntityRelationship   string     `json:"entity_relationship"`
-	ValidationStatus     string     `json:"validation_status"`
-	UpstreamStatus       string     `json:"upstream_status"`
-	ResolutionStatus     string     `json:"resolution_status"`
-	WhySurfaced          []string   `json:"why_surfaced"`
-	HasOriginalMedia     bool       `json:"has_original_media"`
-	EvidenceVersion      int        `json:"evidence_version"`
+	SubmissionTransport     *string                 `json:"submission_transport,omitempty"`
+	SubmissionClient        *string                 `json:"submission_client,omitempty"`
+	SubmissionClientClaimed bool                    `json:"submission_client_claimed"`
+	ReporterContext         *string                 `json:"reporter_context,omitempty"`
+	ReportedProductOrSite   *string                 `json:"reported_product_or_site,omitempty"`
+	ReferencedURLs          []string                `json:"referenced_urls"`
+	SourceReferences        []PublicSourceReference `json:"source_references"`
+	SourceReferenceCount    *int                    `json:"source_reference_count,omitempty"`
+	ObservedAtBasis         string                  `json:"observed_at_basis"`
+	SourcePublishedAtBasis  string                  `json:"source_published_at_basis"`
+	ReportKind              string                  `json:"report_kind"`
+	IntakeMethod            string                  `json:"intake_method"`
+	IntakeChannel           *string                 `json:"intake_channel"`
+	IntakeLabel             string                  `json:"intake_label"`
+	SourcePlatform          *string                 `json:"source_platform"`
+	SourceURL               *string                 `json:"source_url"`
+	SourcePublishedAt       *time.Time              `json:"source_published_at"`
+	ObservedAt              *time.Time              `json:"observed_at"`
+	IngestedAt              *time.Time              `json:"ingested_at"`
+	Excerpt                 *string                 `json:"excerpt"`
+	ReportedImpact          *string                 `json:"reported_impact"`
+	ClassificationReason    *string                 `json:"classification_reason"`
+	EntityRelationship      string                  `json:"entity_relationship"`
+	ValidationStatus        string                  `json:"validation_status"`
+	UpstreamStatus          string                  `json:"upstream_status"`
+	ResolutionStatus        string                  `json:"resolution_status"`
+	WhySurfaced             []string                `json:"why_surfaced"`
+	HasOriginalMedia        bool                    `json:"has_original_media"`
+	EvidenceVersion         int                     `json:"evidence_version"`
+}
+
+// References are submitted links, not independent users or verified accounts.
+type PublicSourceReference struct {
+	URL      string `json:"url"`
+	Kind     string `json:"kind"`
+	Platform string `json:"platform,omitempty"`
 }
 
 // Related case membership is contextual, not proof of an identical defect or

@@ -543,6 +543,9 @@ func loadEvidenceBrandPageBulk(ctx context.Context, tx *sql.Tx, f EvidenceFilter
 	if err := hydrateEvidenceDisplay(ctx, tx, f, analysis, &grouped); err != nil {
 		return page, err
 	}
+	if err := hydratePublicSubmissionProvenance(ctx, tx, grouped.Records); err != nil {
+		return page, err
+	}
 	mediaSeqs := []int{}
 	for _, r := range grouped.Records {
 		if r.HasOriginalMedia && !r.PrivacyRestricted {
