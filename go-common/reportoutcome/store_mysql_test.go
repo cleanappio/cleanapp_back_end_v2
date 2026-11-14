@@ -232,6 +232,21 @@ func TestMySQLStoreOutcomeLifecycle(t *testing.T) {
 	if record = complete(10); record.Outcome.Decision.State != NeedsInformation || record.ServerAuthorizedPublication {
 		t.Fatal("missing affected context authorized an automatic action")
 	}
+	seed(12, publicationOnly, "The upload fails on the source application.", "digital", "", true)
+	exec(`DELETE FROM report_evidence WHERE seq=12`)
+	transient := get(12)
+	if transient.Processing.Status != "analyzed" || transient.Processing.CompletedAt == nil || !transient.Processing.CompletedAt.Equal(created) ||
+		transient.Decision == nil || transient.Decision.State != Pending || transient.Final || transient.NextAction.Type != "wait" {
+		t.Fatal("saved English produced a terminal decision before durable completion")
+	}
+	var pendingDecision string
+	if err := db.QueryRow(`SELECT decision_state FROM report_outcomes WHERE report_seq=12`).Scan(&pendingDecision); err != nil || pendingDecision != "pending" {
+		t.Fatal("status projection mutated the pending decision")
+	}
+	exec(`INSERT INTO report_evidence VALUES(12,'firsthand','affected',1,'The upload fails on the source application.','','Source observation')`)
+	if record = complete(12); record.Outcome.Decision.State == Pending {
+		t.Fatal("durable completion did not finish the pending review")
+	}
 	// Recovery leaves the unexamined due tail available when a small first batch fails.
 	for seq := 20; seq < 27; seq++ {
 		seed(seq, nil, "The save button failed on example.invalid.", "digital", "", true)

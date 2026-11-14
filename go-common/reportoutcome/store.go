@@ -539,7 +539,15 @@ func (s *Store) Get(ctx context.Context, seq int) (*Outcome, error) {
 			if err != nil {
 				return nil, err
 			}
-			outcome = Review(source.input, analysis, time.Now().UTC())
+			// English analysis can precede evidence/translation persistence and
+			// durable Complete. A reader must not invent a terminal decision in
+			// that window, or agents would stop polling before the real outcome.
+			if analysis.Available {
+				outcome.Processing = Processing{Status: "analyzed", CompletedAt: analysis.CompletedAt}
+				outcome.Decision = &Decision{State: Pending, ReasonCode: "decision_pending", Message: "Analysis is saved; the automated decision is pending.", PolicyVersion: PolicyVersion}
+				outcome.Final = false
+				outcome.NextAction = NextAction{Type: "wait"}
+			}
 		}
 	}
 	if outcome.Publication.Status == "public" && (source.visibility != "public" || source.input.PrivacyHoldReason != "" || source.input.PolicyHoldReason != "") {
