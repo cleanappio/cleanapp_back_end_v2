@@ -84,7 +84,9 @@ func TestReportCounterMySQLReconciliation(t *testing.T) {
 		}
 	}
 	check(4, 2, 3) // Distinct seq across languages; one seq can count in both classes.
-	assertCounterCoveringPlan(t, ctx, dbc)
+	// The first page can legitimately scan the ordered covering index from its
+	// beginning and stop at LIMIT. A deep keyset page must seek into the range.
+	assertCounterCoveringPlan(t, ctx, dbc, 0, 100, false)
 	exec(`INSERT INTO report_analysis VALUES(5,'en',TRUE,'physical')`)
 	exec(`UPDATE report_analysis SET is_valid=TRUE WHERE seq=3`)
 	check(6, 4, 3) // Late analysis below unchanged MAX(seq)=100 is recovered.
@@ -96,11 +98,22 @@ func TestReportCounterMySQLReconciliation(t *testing.T) {
 	check(4, 3, 1)
 	exec(`DELETE FROM report_analysis`)
 	check(0, 0, 0)
+	values := make([]string, 2000)
+	args := make([]any, len(values))
+	for i := range values {
+		values[i] = "(?,'en',TRUE,'physical')"
+		args[i] = i + 1
+	}
+	if _, err := dbc.ExecContext(ctx, "INSERT INTO report_analysis VALUES "+strings.Join(values, ","), args...); err != nil {
+		t.Fatal(err)
+	}
+	exec(`ANALYZE TABLE report_analysis`)
+	assertCounterCoveringPlan(t, ctx, dbc, 1990, 2000, true)
 }
 
-func assertCounterCoveringPlan(t *testing.T, ctx context.Context, dbc *sql.DB) {
+func assertCounterCoveringPlan(t *testing.T, ctx context.Context, dbc *sql.DB, cursor, upper int, requireRange bool) {
 	t.Helper()
-	rows, err := dbc.QueryContext(ctx, "EXPLAIN "+reportCounterPageSQL, 0, 100, 2)
+	rows, err := dbc.QueryContext(ctx, "EXPLAIN "+reportCounterPageSQL, cursor, upper, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +144,8 @@ func assertCounterCoveringPlan(t *testing.T, ctx context.Context, dbc *sql.DB) {
 			continue
 		}
 		found = true
-		if plan["key"] != "idx_ra_seq_class_valid" || plan["type"] != "range" || !strings.Contains(strings.ToLower(plan["Extra"]), "using index") || strings.Contains(strings.ToLower(plan["Extra"]), "filesort") {
+		orderedAccess := plan["type"] == "range" || (!requireRange && plan["type"] == "index")
+		if plan["key"] != "idx_ra_seq_class_valid" || !orderedAccess || !strings.Contains(strings.ToLower(plan["Extra"]), "using index") || strings.Contains(strings.ToLower(plan["Extra"]), "filesort") {
 			t.Fatalf("counter page did not use the ordered covering range: %+v", plan)
 		}
 	}
