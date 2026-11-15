@@ -1,7 +1,9 @@
 package server
 
 import (
+	"context"
 	"database/sql"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -10,25 +12,55 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// reportCountCache holds cached report counts with thread-safe access
-type reportCountCache struct {
-	mu             sync.RWMutex
+const (
+	reportCounterBatchSize       = 10000
+	reportCounterQueryTimeout    = 5 * time.Second
+	reportCounterBatchPause      = time.Second
+	reportCounterRefreshInterval = 10 * time.Minute
+)
+
+// The existing covering index makes each page an ordered, index-only read of
+// at most batchSize distinct seq values. Include invalid groups for progress;
+// only has_valid contributes to the totals. All languages share one group.
+const reportCounterPageSQL = `
+	SELECT COALESCE(SUM(has_valid), 0),
+	       COALESCE(SUM(has_physical), 0),
+	       COALESCE(SUM(has_digital), 0), MAX(seq)
+	FROM (
+		SELECT seq,
+		       MAX(CASE WHEN is_valid = TRUE THEN 1 ELSE 0 END) AS has_valid,
+		       MAX(CASE WHEN is_valid = TRUE AND classification = 'physical' THEN 1 ELSE 0 END) AS has_physical,
+		       MAX(CASE WHEN is_valid = TRUE AND classification = 'digital' THEN 1 ELSE 0 END) AS has_digital
+		FROM report_analysis FORCE INDEX (idx_ra_seq_class_valid)
+		WHERE seq > ? AND seq <= ?
+		GROUP BY seq ORDER BY seq LIMIT ?
+	) grouped`
+
+type reportCountSnapshot struct {
 	totalReports   int
 	physicalCount  int
 	digitalCount   int
-	lastCountedSeq int
+	lastCountedSeq int // Completed pass upper bound, not an incremental cursor.
 	lastUpdated    time.Time
-	initialized    bool
+}
+
+type reportCountCache struct {
+	mu sync.RWMutex
+	reportCountSnapshot
+	initialized bool
 }
 
 var countCache = &reportCountCache{}
 
-// GetValidReportsCount returns cached report counts instantly (<1ms)
-// The background job updates the cache every 10 minutes
+// Requests only read the last complete snapshot; they never initiate DB work.
 func GetValidReportsCount(c *gin.Context) {
 	countCache.mu.RLock()
 	defer countCache.mu.RUnlock()
-
+	if !countCache.initialized {
+		c.Header("Retry-After", "30")
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Report counts are not available yet"})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"total_reports":          countCache.totalReports,
 		"total_physical_reports": countCache.physicalCount,
@@ -37,204 +69,147 @@ func GetValidReportsCount(c *gin.Context) {
 	})
 }
 
-// StartCounterCacheUpdater starts a background goroutine that updates report counts
-// It uses incremental counting to avoid full table scans
 func StartCounterCacheUpdater() {
-	log.Info("Starting counter cache updater...")
-
-	// Do initial update (may be slow on first run)
+	log.Info("Starting report counter reconciliation...")
 	go func() {
-		// Wait a bit for DB to be ready
 		time.Sleep(5 * time.Second)
-		updateCounterCache()
-
-		// Then update every 10 minutes
-		ticker := time.NewTicker(10 * time.Minute)
-		defer ticker.Stop()
-
-		for range ticker.C {
+		for {
 			updateCounterCache()
+			// Wait after completion, so a slow pass cannot queue overlapping work.
+			time.Sleep(reportCounterRefreshInterval)
 		}
 	}()
 }
 
-// updateCounterCache incrementally updates the cached counts
-// On first run: does a full count (slow but only once)
-// On subsequent runs: only counts new reports since lastCountedSeq (fast)
 func updateCounterCache() {
-	startTime := time.Now()
-
 	dbc, err := getServerDB()
 	if err != nil {
 		log.Errorf("Counter cache: failed to connect to DB: %v", err)
 		return
 	}
-
-	// Get current max seq
-	var maxSeq int
-	err = dbc.QueryRow("SELECT COALESCE(MAX(seq), 0) FROM report_analysis").Scan(&maxSeq)
-	if err != nil {
-		log.Errorf("Counter cache: failed to get max seq: %v", err)
-		return
-	}
-
 	countCache.mu.RLock()
 	initialized := countCache.initialized
-	lastSeq := countCache.lastCountedSeq
 	countCache.mu.RUnlock()
-
 	if !initialized {
-		// Prefer loading from the materialized counters table to avoid repeated full scans
-		// on every service restart. If the table isn't present yet, fall back to a full scan.
-		if loaded := tryLoadCounterCacheFromDB(dbc); loaded {
-			countCache.mu.RLock()
-			lastSeq = countCache.lastCountedSeq
-			countCache.mu.RUnlock()
-			log.Infof("Counter cache: loaded from DB (last_seq=%d)", lastSeq)
-		} else {
-			// First run: do full count (will be slow, ~30-60s, but only once)
-			log.Info("Counter cache: initializing with full count (this may take a minute)...")
-			fullUpdateCounterCache(dbc, maxSeq)
-			persistCounterCacheToDB(dbc)
-			log.Infof("Counter cache: initialization complete in %v", time.Since(startTime))
-			return
+		tryLoadCounterCacheFromDB(dbc)
+	}
+	started := time.Now()
+	if err := refreshCounterCache(context.Background(), dbc, countCache, reportCounterBatchSize, pauseCounterPage); err != nil {
+		log.Errorf("Counter cache: reconciliation failed; retaining previous snapshot: %v", err)
+		return
+	}
+	log.Infof("Counter cache: reconciliation complete in %v", time.Since(started))
+}
+
+// Re-read every seq on each pass. Analysis can arrive or change at any older
+// report seq; MAX(seq) therefore cannot establish that the counts are current.
+// The upper bound only makes one pass finite while new reports are arriving.
+func reconcileReportCounts(ctx context.Context, dbc *sql.DB, batchSize int, pause func(context.Context) error) (reportCountSnapshot, error) {
+	if batchSize < 1 || batchSize > reportCounterBatchSize {
+		return reportCountSnapshot{}, fmt.Errorf("invalid report counter batch size")
+	}
+	queryCtx, cancel := context.WithTimeout(ctx, reportCounterQueryTimeout)
+	var minSeq, maxSeq int
+	err := dbc.QueryRowContext(queryCtx, `SELECT COALESCE(MIN(seq), 0), COALESCE(MAX(seq), 0)
+		FROM report_analysis FORCE INDEX (idx_ra_seq_class_valid)`).Scan(&minSeq, &maxSeq)
+	cancel()
+	if err != nil {
+		return reportCountSnapshot{}, fmt.Errorf("report counter bounds: %w", err)
+	}
+	snapshot := reportCountSnapshot{lastCountedSeq: maxSeq}
+	cursor := minSeq - 1 // seq is a MySQL INT; Go int is 64-bit on this service.
+	for cursor < maxSeq {
+		var total, physical, digital int
+		var lastSeq sql.NullInt64
+		queryCtx, cancel = context.WithTimeout(ctx, reportCounterQueryTimeout)
+		err = dbc.QueryRowContext(queryCtx, reportCounterPageSQL, cursor, maxSeq, batchSize).
+			Scan(&total, &physical, &digital, &lastSeq)
+		cancel()
+		if err != nil {
+			return reportCountSnapshot{}, fmt.Errorf("report counter page: %w", err)
+		}
+		if !lastSeq.Valid {
+			break // Remaining rows may have been deleted since reading the bound.
+		}
+		if lastSeq.Int64 <= int64(cursor) || lastSeq.Int64 > int64(maxSeq) {
+			return reportCountSnapshot{}, fmt.Errorf("report counter page did not advance within its bound")
+		}
+		snapshot.totalReports += total
+		snapshot.physicalCount += physical
+		snapshot.digitalCount += digital
+		cursor = int(lastSeq.Int64)
+		if cursor < maxSeq && pause != nil {
+			if err := pause(ctx); err != nil {
+				return reportCountSnapshot{}, err
+			}
 		}
 	}
-
-	// Incremental update: only count new reports since lastSeq
-	if maxSeq <= lastSeq {
-		log.Infof("Counter cache: no new reports (max=%d, last=%d)", maxSeq, lastSeq)
-		return
-	}
-
-	incrementalUpdateCounterCache(dbc, lastSeq, maxSeq)
-	persistCounterCacheToDB(dbc)
-	log.Infof("Counter cache: incremental update complete in %v (counted seq %d to %d)",
-		time.Since(startTime), lastSeq, maxSeq)
+	snapshot.lastUpdated = time.Now().UTC()
+	return snapshot, nil
 }
 
-// fullUpdateCounterCache does a full count of all valid reports
-// This is slow (~30-60s on 1M+ rows) but only runs once on startup
-func fullUpdateCounterCache(dbc *sql.DB, maxSeq int) {
-	// Single grouped scan instead of three COUNT(DISTINCT ...) full scans.
-	// Semantics preserved: totals are distinct by seq; physical/digital count
-	// a seq if it has at least one valid row with that classification.
-	var total, physical, digital int
-	err := dbc.QueryRow(`
-		SELECT
-			COUNT(*) AS total_reports,
-			COALESCE(SUM(has_physical), 0) AS physical_reports,
-			COALESCE(SUM(has_digital), 0) AS digital_reports
-		FROM (
-			SELECT
-				seq,
-				MAX(CASE WHEN classification = 'physical' THEN 1 ELSE 0 END) AS has_physical,
-				MAX(CASE WHEN classification = 'digital' THEN 1 ELSE 0 END) AS has_digital
-			FROM report_analysis
-			WHERE is_valid = TRUE
-			GROUP BY seq
-		) grouped
-	`).Scan(&total, &physical, &digital)
+func pauseCounterPage(ctx context.Context) error {
+	timer := time.NewTimer(reportCounterBatchPause)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func refreshCounterCache(ctx context.Context, dbc *sql.DB, cache *reportCountCache, batchSize int, pause func(context.Context) error) error {
+	snapshot, err := reconcileReportCounts(ctx, dbc, batchSize, pause)
 	if err != nil {
-		log.Errorf("Counter cache: failed to count full totals: %v", err)
-		return
+		return err
 	}
-
-	// Update cache
-	countCache.mu.Lock()
-	countCache.totalReports = total
-	countCache.physicalCount = physical
-	countCache.digitalCount = digital
-	countCache.lastCountedSeq = maxSeq
-	countCache.lastUpdated = time.Now()
-	countCache.initialized = true
-	countCache.mu.Unlock()
-
-	log.Infof("Counter cache: full count complete - total=%d, physical=%d, digital=%d", total, physical, digital)
+	// Keep durable readers and the HTTP cache on the same complete snapshot.
+	// A failed write must not turn a partial or non-durable pass into freshness.
+	if err := persistCounterSnapshot(ctx, dbc, snapshot); err != nil {
+		return err
+	}
+	cache.mu.Lock()
+	cache.reportCountSnapshot = snapshot
+	cache.initialized = true
+	cache.mu.Unlock()
+	return nil
 }
 
-// incrementalUpdateCounterCache only counts new reports since lastSeq
-// This is much faster (<5s) since it only processes new rows
-func incrementalUpdateCounterCache(dbc *sql.DB, lastSeq, maxSeq int) {
-	// Single grouped incremental scan instead of three distinct scans.
-	var newTotal, newPhysical, newDigital int
-	err := dbc.QueryRow(`
-		SELECT
-			COUNT(*) AS total_reports,
-			COALESCE(SUM(has_physical), 0) AS physical_reports,
-			COALESCE(SUM(has_digital), 0) AS digital_reports
-		FROM (
-			SELECT
-				seq,
-				MAX(CASE WHEN classification = 'physical' THEN 1 ELSE 0 END) AS has_physical,
-				MAX(CASE WHEN classification = 'digital' THEN 1 ELSE 0 END) AS has_digital
-			FROM report_analysis
-			WHERE seq > ? AND is_valid = TRUE
-			GROUP BY seq
-		) grouped
-	`, lastSeq).Scan(&newTotal, &newPhysical, &newDigital)
-	if err != nil {
-		log.Errorf("Counter cache: failed to count incremental totals: %v", err)
-		return
-	}
-
-	// Update cache by adding new counts
-	countCache.mu.Lock()
-	countCache.totalReports += newTotal
-	countCache.physicalCount += newPhysical
-	countCache.digitalCount += newDigital
-	countCache.lastCountedSeq = maxSeq
-	countCache.lastUpdated = time.Now()
-	countCache.mu.Unlock()
-
-	log.Infof("Counter cache: added new reports - +%d total, +%d physical, +%d digital", newTotal, newPhysical, newDigital)
-}
-
-// tryLoadCounterCacheFromDB attempts to initialize the in-memory cache from the
-// materialized counters table. This avoids repeated full table scans on restarts.
-// Returns true if loaded successfully, false if unavailable (e.g. table missing).
 func tryLoadCounterCacheFromDB(dbc *sql.DB) bool {
-	var total, physical, digital, lastSeq int
-	err := dbc.QueryRow(`
-		SELECT total_valid, physical_valid, digital_valid, last_counted_seq
-		FROM report_counts_total
-		WHERE id = 1
-	`).Scan(&total, &physical, &digital, &lastSeq)
-	if err != nil {
-		// Most commonly: "Error 1146: Table ... doesn't exist" before patch is applied.
+	ctx, cancel := context.WithTimeout(context.Background(), reportCounterQueryTimeout)
+	defer cancel()
+	var snapshot reportCountSnapshot
+	var updatedUnix int64
+	err := dbc.QueryRowContext(ctx, `
+		SELECT total_valid, physical_valid, digital_valid, last_counted_seq,
+		       COALESCE(UNIX_TIMESTAMP(updated_at), 0)
+		FROM report_counts_total WHERE id = 1
+	`).Scan(&snapshot.totalReports, &snapshot.physicalCount, &snapshot.digitalCount, &snapshot.lastCountedSeq, &updatedUnix)
+	if err != nil || snapshot.lastCountedSeq <= 0 || updatedUnix <= 0 {
 		return false
 	}
-	if lastSeq <= 0 {
-		return false
-	}
-
+	// Loading an old snapshot is not a fresh reconciliation.
+	snapshot.lastUpdated = time.Unix(updatedUnix, 0).UTC()
 	countCache.mu.Lock()
-	countCache.totalReports = total
-	countCache.physicalCount = physical
-	countCache.digitalCount = digital
-	countCache.lastCountedSeq = lastSeq
-	countCache.lastUpdated = time.Now()
+	countCache.reportCountSnapshot = snapshot
 	countCache.initialized = true
 	countCache.mu.Unlock()
 	return true
 }
 
-func persistCounterCacheToDB(dbc *sql.DB) {
-	countCache.mu.RLock()
-	total := countCache.totalReports
-	physical := countCache.physicalCount
-	digital := countCache.digitalCount
-	lastSeq := countCache.lastCountedSeq
-	countCache.mu.RUnlock()
-
-	// Best-effort: if table doesn't exist yet, ignore silently.
-	_, _ = dbc.Exec(`
-		INSERT INTO report_counts_total (id, total_valid, physical_valid, digital_valid, last_counted_seq)
-		VALUES (1, ?, ?, ?, ?)
-		ON DUPLICATE KEY UPDATE
-			total_valid = VALUES(total_valid),
-			physical_valid = VALUES(physical_valid),
-			digital_valid = VALUES(digital_valid),
-			last_counted_seq = VALUES(last_counted_seq)
-	`, total, physical, digital, lastSeq)
+func persistCounterSnapshot(ctx context.Context, dbc *sql.DB, snapshot reportCountSnapshot) error {
+	ctx, cancel := context.WithTimeout(ctx, reportCounterQueryTimeout)
+	defer cancel()
+	_, err := dbc.ExecContext(ctx, `
+		INSERT INTO report_counts_total (id, total_valid, physical_valid, digital_valid, last_counted_seq, updated_at)
+		VALUES (1, ?, ?, ?, ?, ?)
+		ON DUPLICATE KEY UPDATE total_valid = VALUES(total_valid),
+			physical_valid = VALUES(physical_valid), digital_valid = VALUES(digital_valid),
+			last_counted_seq = VALUES(last_counted_seq), updated_at = VALUES(updated_at)
+	`, snapshot.totalReports, snapshot.physicalCount, snapshot.digitalCount, snapshot.lastCountedSeq, snapshot.lastUpdated)
+	if err != nil {
+		return fmt.Errorf("persist report counter snapshot: %w", err)
+	}
+	return nil
 }

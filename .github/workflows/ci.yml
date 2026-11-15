@@ -96,6 +96,12 @@ jobs:
       - name: Check selection, counts, provenance and dates on MySQL
         working-directory: report-listener
         run: go test ./database -run '^TestEvidence(MySQLFixture|ArchiveNormalizationMySQLFixture)$' -count=1 -v
+      - name: Reconcile late analyses and corrected legacy counts on MySQL
+        env:
+          REPORT_COUNTER_TEST_DSN: "root:local-evidence-fixture@tcp(127.0.0.1:33306)/report_counter_test?parseTime=true&charset=utf8mb4"
+        run: |
+          docker exec -e MYSQL_PWD=local-evidence-fixture ${{ job.services.mysql.id }} mysql -uroot -e 'CREATE DATABASE report_counter_test;'
+          go test ./backend/server -run '^TestReportCounterMySQLReconciliation$' -count=1 -v
       - name: Check agent decisions, consent, clustering and delivery evidence on MySQL
         working-directory: go-common
         env:
