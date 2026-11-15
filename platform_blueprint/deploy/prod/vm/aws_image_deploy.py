@@ -163,6 +163,47 @@ def write_json(path, value):
     path.chmod(0o600)
 
 
+def write_image_pins(path, value):
+    """Keep shared pins private and deployer-owned during root activation too.
+
+    Guarded releases invoke activation as root, while ordinary releases read
+    these files as the deployment-directory owner. Atomic replacement must not
+    transfer the caller's root ownership to that shared control file.
+    """
+    path = Path(path)
+    owner = path.parent.lstat()
+    require(stat.S_ISDIR(owner.st_mode) and not owner.st_mode & 0o022,
+            "image-pin directory must be regular and not publicly writable")
+    require(os.geteuid() in (0, owner.st_uid),
+            "image pins must be written by root or the deployment-directory owner")
+    try:
+        previous = path.lstat()
+    except FileNotFoundError:
+        previous = None
+    if previous is not None:
+        require(stat.S_ISREG(previous.st_mode) and previous.st_nlink == 1
+                and previous.st_uid in (0, owner.st_uid),
+                "existing image pins must be a root/deployer-owned single-link regular file")
+    descriptor, temporary = tempfile.mkstemp(prefix="." + path.name + ".", dir=path.parent)
+    temporary = Path(temporary)
+    try:
+        with os.fdopen(descriptor, "w") as stream:
+            if os.geteuid() == 0:
+                os.fchown(stream.fileno(), owner.st_uid, owner.st_gid)
+            os.fchmod(stream.fileno(), 0o600)
+            stream.write(json.dumps(value, indent=2) + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def evidence_roles(document):
     require(bool(document.get("captured_at")), "runtime evidence must include captured_at")
     datetime.fromisoformat(document["captured_at"].replace("Z", "+00:00"))
@@ -465,9 +506,7 @@ def _activate_locked(manifest_path):
         pins = {"services": {**old_pins["services"], **{
             s: {"image": manifest["images"][SOURCES[s]]["runtime"]["image_id"], "pull_policy": "never"}
             for s in services}}}
-        temporary = old_path.with_suffix(".tmp")
-        write_json(temporary, pins)
-        temporary.replace(old_path)
+        write_image_pins(old_path, pins)
         # Explicit services and --no-deps are mandatory; never start the source map.
         up_base = compose_base(remote_dir, manifest["compose_files"])
         command([*up_base, "up", "-d", "--no-deps", "--no-build", "--pull", "never",

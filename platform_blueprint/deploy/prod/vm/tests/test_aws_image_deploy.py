@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import shlex
+import stat
 import subprocess
 import sys
 import tarfile
@@ -43,6 +44,86 @@ def export_tar(configs, oci=False):
         member.size = len(data)
         archive.addfile(member, io.BytesIO(data))
     return output.getvalue()
+
+
+class ImagePinOwnershipTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.directory = Path(self.temporary.name).resolve()
+        self.pins = self.directory / AWS.PINS_FILE
+        self.previous = {"services": {"previous": {"image": image_id("previous")}}}
+        AWS.write_json(self.pins, self.previous)
+        self.updated = {"services": {"selected": {"image": image_id("selected")}}}
+
+    def test_ordinary_deployer_keeps_private_pins_readable_and_owned(self):
+        owner = self.directory.stat()
+        AWS.write_image_pins(self.pins, self.updated)
+        self.assertEqual(self.pins.stat().st_uid, owner.st_uid)
+        self.assertEqual(stat.S_IMODE(self.pins.stat().st_mode), 0o600)
+        self.assertEqual(json.loads(self.pins.read_text()), self.updated)
+        self.assertEqual(list(self.directory.iterdir()), [self.pins])
+
+    def test_root_activation_assigns_deployer_owner_before_replacement(self):
+        # Root cannot be required on CI. Model the actual root/deployer UID
+        # difference and verify the replacement is fenced on fchown succeeding.
+        real_lstat = Path.lstat
+        real_replace = os.replace
+        owner = list(real_lstat(self.directory))
+        owner[4:6] = [12345, 23456]
+        previous = list(real_lstat(self.pins))
+        previous[4:6] = [12345, 23456]
+        changed = []
+
+        def lstat(path):
+            if path == self.directory:
+                return os.stat_result(owner)
+            return os.stat_result(previous) if path == self.pins else real_lstat(path)
+
+        def replace(source, target):
+            self.assertEqual(changed, [(12345, 23456)])
+            self.assertEqual(stat.S_IMODE(Path(source).stat().st_mode), 0o600)
+            real_replace(source, target)
+
+        with patch.object(Path, "lstat", autospec=True, side_effect=lstat), \
+                patch.object(AWS.os, "geteuid", return_value=0), \
+                patch.object(AWS.os, "fchown", side_effect=lambda fd, uid, gid: changed.append((uid, gid))), \
+                patch.object(AWS.os, "replace", side_effect=replace):
+            AWS.write_image_pins(self.pins, self.updated)
+        self.assertEqual(json.loads(self.pins.read_text()), self.updated)
+        self.assertEqual(list(self.directory.iterdir()), [self.pins])
+
+    def test_failed_root_ownership_transfer_preserves_previous_pins(self):
+        before = self.pins.read_bytes()
+        with patch.object(AWS.os, "geteuid", return_value=0), \
+                patch.object(AWS.os, "fchown", side_effect=PermissionError("fixture denied")):
+            with self.assertRaises(PermissionError):
+                AWS.write_image_pins(self.pins, self.updated)
+        self.assertEqual(self.pins.read_bytes(), before)
+        self.assertEqual(list(self.directory.iterdir()), [self.pins])
+
+    def test_symlink_or_shared_inode_is_rejected_before_replacement(self):
+        original = self.directory / "original"
+        self.pins.rename(original)
+        for make_link in (lambda: self.pins.symlink_to(original),
+                          lambda: os.link(original, self.pins)):
+            with self.subTest(link=make_link):
+                make_link()
+                with self.assertRaisesRegex(ValueError, "single-link regular file"):
+                    AWS.write_image_pins(self.pins, self.updated)
+                self.assertEqual(json.loads(original.read_text()), self.previous)
+                self.pins.unlink()
+
+    def test_foreign_pin_owner_is_rejected_without_changing_bytes(self):
+        real_lstat = Path.lstat
+        foreign = list(real_lstat(self.pins))
+        foreign[4] = self.directory.stat().st_uid + 10000
+        before = self.pins.read_bytes()
+        with patch.object(Path, "lstat", autospec=True, side_effect=lambda path:
+                          os.stat_result(foreign) if path == self.pins else real_lstat(path)):
+            with self.assertRaisesRegex(ValueError, "root/deployer-owned"):
+                AWS.write_image_pins(self.pins, self.updated)
+        self.assertEqual(self.pins.read_bytes(), before)
 
 
 class PortableDeployTests(unittest.TestCase):
