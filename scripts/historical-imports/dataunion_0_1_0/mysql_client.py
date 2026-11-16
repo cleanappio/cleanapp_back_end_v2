@@ -43,4 +43,11 @@ class Mysql:
         if self.process.poll() is None:
             try:self.process.stdin.close();self.process.wait(timeout=5)
             except (OSError,subprocess.TimeoutExpired):self.process.terminate();self.process.wait(timeout=5)
-        self.selector.close();self.stderr.close()
+        # A server-side SQL error can end mysql before close() runs. Close its
+        # pipes in that case too, so failed transactions do not leak handles.
+        self.selector.close()
+        for stream in (self.process.stdin,self.process.stdout):
+            if stream is not None:
+                try:stream.close()
+                except OSError:pass  # A dead child can reject stdin's final buffered flush.
+        self.stderr.close()
