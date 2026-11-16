@@ -196,6 +196,8 @@ class PortableDeployTests(unittest.TestCase):
         self.fail_build = False
         self.fail_olm_check = False
         self.stopped = False
+        self.fail_new_image_start = False
+        self.exited = {}
         self.active = True
         self.isolated = False
         self.architecture = b"x86_64\n"
@@ -304,7 +306,9 @@ class PortableDeployTests(unittest.TestCase):
                 return json.dumps([self.images[docker[-1]]]).encode()
             if docker[0] == "inspect":
                 service = docker[1]
-                return json.dumps([{"Image": self.running[service], "State": {"Running": not self.stopped},
+                state = ({"Running": False, "Status": "exited", "ExitCode": self.exited[service], "OOMKilled": False}
+                         if service in self.exited else {"Running": not self.stopped, "Status": "running"})
+                return json.dumps([{"Image": self.running[service], "State": state,
                     "Config": {"Labels": {"com.docker.compose.service": service,
                                "com.docker.compose.project": "fixture"}}}]).encode()
             if docker[0] == "compose":
@@ -336,6 +340,11 @@ class PortableDeployTests(unittest.TestCase):
                          *self.args.services])
                     pins = json.loads(self.pins.read_text())["services"]
                     self.running.update({s: pins[s]["image"] for s in self.args.services})
+                    restored = all(self.running[s] == self.previous[s] for s in self.args.services)
+                    if self.fail_new_image_start and not restored:
+                        self.exited = {s: 1 for s in self.args.services}
+                        raise RuntimeError("fixture: secret container output")
+                    self.exited = {}
                     return b""
         self.fail("unexpected command: " + repr(args))
 
@@ -455,6 +464,76 @@ class PortableDeployTests(unittest.TestCase):
             self.execute()
         self.assertFalse(any(a[3:5] == ["image", "load"] for a in self.events))
         self.assert_no_activation()
+
+    def test_new_image_that_does_not_start_is_replaced_by_the_previous_image(self):
+        self.args.skip_migrations = True
+        self.fail_new_image_start = True
+        with self.assertRaises(RuntimeError) as raised:
+            self.execute()
+        message = str(raised.exception)
+        self.assertIn("cleanapp_report_listener: exited, exit code 1", message)
+        self.assertIn("previous images were restored and are running", message)
+        self.assertNotIn("secret container output", message)
+        self.assertEqual(self.running, self.previous)
+        pins = json.loads(self.pins.read_text())["services"]
+        self.assertEqual({s: pins[s]["image"] for s in self.previous}, self.previous)
+        self.assertEqual(pins["cleanapp_report_processor"], self.unselected)
+        self.assertEqual(len([a for a in self.command_events("compose") if "up" in a]), 2)
+
+    def test_previous_image_is_not_restored_over_a_migrated_schema(self):
+        self.fail_new_image_start = True
+        with self.assertRaisesRegex(RuntimeError, "a migration ran, so the previous images were not restored"):
+            self.execute()
+        self.assertEqual(len([a for a in self.command_events("compose") if "up" in a]), 1)
+        pins = json.loads(self.pins.read_text())["services"]
+        self.assertTrue(all(pins[s]["image"] != self.previous[s] for s in self.previous))
+
+    def test_role_stopped_by_a_failed_release_can_be_released_again(self):
+        # State left by a failed activation of the helper before it restored
+        # previous images: pins name the failed image, the role is stopped, and
+        # that release's rollback record names the image that ran before.
+        self.args.skip_migrations = True
+        failed = {s: image_id("failed:" + s) for s in self.previous}
+        AWS.write_json(self.pins, {"services": {
+            "cleanapp_report_processor": self.unselected,
+            **{s: {"image": failed[s], "pull_policy": "never"} for s in failed}}})
+        record = self.target / ".aws-releases" / "earlier-failed-release"
+        record.mkdir(parents=True)
+        AWS.write_json(record / "rollback.json", {"previous_images": self.previous})
+        self.running = dict(failed)
+        self.exited = {s: 1 for s in failed}
+        result = self.execute()
+        self.assertEqual(self.exited, {})
+        self.assertTrue(all(self.running[s] not in (failed[s], self.previous[s]) for s in failed))
+        rollback = json.loads(Path(result["rollback_file"]).read_text())["services"]
+        self.assertEqual({s: rollback[s]["image"] for s in self.previous}, self.previous)
+
+    def test_role_stopped_by_a_failed_release_falls_back_to_the_image_before_it(self):
+        self.args.skip_migrations = True
+        self.fail_new_image_start = True
+        failed = {s: image_id("failed:" + s) for s in self.previous}
+        AWS.write_json(self.pins, {"services": {
+            **{s: {"image": failed[s], "pull_policy": "never"} for s in failed}}})
+        record = self.target / ".aws-releases" / "earlier-failed-release"
+        record.mkdir(parents=True)
+        AWS.write_json(record / "rollback.json", {"previous_images": self.previous})
+        self.running = dict(failed)
+        self.exited = {s: 1 for s in failed}
+        with self.assertRaisesRegex(RuntimeError, "previous images were restored and are running"):
+            self.execute()
+        self.assertEqual(self.running, self.previous)
+        self.assertEqual(self.exited, {})
+
+    def test_stopped_role_without_a_recorded_earlier_image_still_fails_closed(self):
+        self.args.skip_migrations = True
+        failed = {s: image_id("failed:" + s) for s in self.previous}
+        AWS.write_json(self.pins, {"services": {
+            s: {"image": failed[s], "pull_policy": "never"} for s in failed}})
+        self.running = dict(failed)
+        self.exited = {s: 1 for s in failed}
+        with self.assertRaisesRegex(ValueError, "not running"):
+            self.execute()
+        self.assertFalse(any(a[3:5] == ["image", "load"] for a in self.events))
 
     def test_non_x86_target_fails_before_image_load(self):
         self.architecture = b"aarch64\n"

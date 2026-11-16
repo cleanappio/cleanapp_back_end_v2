@@ -366,16 +366,58 @@ def compose_base(remote_dir, files):
     return args
 
 
-def checked_container(container, service, project):
+def checked_container(container, service, project, failed_pin=None):
+    """Inspect a selected role. It must be running, with one exception: a role
+    left stopped by a failed activation, recognised by `failed_pin`, the image
+    this helper pinned for it. Without that exception a release whose image
+    does not start could never be replaced through this helper again."""
     data = json.loads(command(["sudo", "-n", "docker", "inspect", container]))[0]
     labels = data.get("Config", {}).get("Labels") or {}
-    require(data.get("State", {}).get("Running") is True, f"target role is not running: {service}")
+    require(data.get("State", {}).get("Running") is True
+            or (failed_pin is not None and data.get("Image") == failed_pin),
+            f"target role is not running: {service}")
     require(labels.get("com.docker.compose.service") == service,
             f"target container is not the selected Compose role: {service}")
     require(labels.get("com.docker.compose.project") == project,
             f"target container is not in the configured Compose project: {service}")
     require(IMAGE_ID.fullmatch(data["Image"]) is not None, "invalid running image ID")
     return data
+
+
+def image_before_failed_release(remote_dir, service, failed_image):
+    """The image `service` ran before the release that left it stopped, from
+    the newest rollback record that names a different image; None if unknown."""
+    records = sorted(Path(remote_dir).glob(".aws-releases/*/rollback.json"),
+                     key=lambda record: record.stat().st_mtime, reverse=True)
+    for record in records:
+        try:
+            image = json.loads(record.read_text()).get("previous_images", {}).get(service)
+        except (OSError, ValueError, AttributeError):
+            continue
+        if isinstance(image, str) and IMAGE_ID.fullmatch(image) and image != failed_image:
+            return image
+    return None
+
+
+def container_states(roles):
+    """Docker's own state words and exit codes only; never container output."""
+    states = []
+    for service, container in roles.items():
+        try:
+            state = json.loads(command(["sudo", "-n", "docker", "inspect", container]))[0].get("State", {})
+        except (RuntimeError, ValueError, IndexError, AttributeError):
+            states.append(f"{service}: state unknown")
+            continue
+        words = [str(state.get("Status", "unknown"))]
+        if not state.get("Running"):
+            words.append(f"exit code {state.get('ExitCode')}")
+        if state.get("OOMKilled"):
+            words.append("out of memory")
+        if isinstance(state.get("Health"), dict):
+            words.append(f"health {state['Health'].get('Status')}")
+        states.append(f"{service}: {', '.join(words)}")
+    text = "; ".join(states)
+    return text if text.isprintable() else "state unreadable"
 
 
 @contextlib.contextmanager
@@ -444,12 +486,6 @@ def _activate_locked(manifest_path):
         base = compose_base(remote_dir, manifest["compose_files"])
         # config includes effective secret environment values: keep it in memory.
         resolved = json.loads(command([*base, "config", "--format", "json"], cwd=remote_dir))
-        previous = {}
-        for service, container in manifest["roles"].items():
-            require(service in resolved["services"], f"selected role absent from target Compose: {service}")
-            require(resolved["services"][service].get("container_name") == container,
-                    f"target Compose container name differs from runtime evidence: {service}")
-            previous[service] = checked_container(container, service, resolved["name"])["Image"]
         old_path = remote_dir / PINS_FILE
         old_pins = json.loads(old_path.read_text()) if old_path.exists() else {"services": {}}
         require(set(old_pins) == {"services"}, "unexpected backend pin-file keys")
@@ -457,6 +493,19 @@ def _activate_locked(manifest_path):
             require(service in SOURCES and set(pin) == {"image", "pull_policy"}
                     and pin["pull_policy"] == "never" and IMAGE_ID.fullmatch(pin["image"]),
                     "existing backend pins must contain supported roles and imported image IDs only")
+        previous = {}
+        for service, container in manifest["roles"].items():
+            require(service in resolved["services"], f"selected role absent from target Compose: {service}")
+            require(resolved["services"][service].get("container_name") == container,
+                    f"target Compose container name differs from runtime evidence: {service}")
+            failed_pin = old_pins["services"].get(service, {}).get("image")
+            data = checked_container(container, service, resolved["name"], failed_pin)
+            previous[service] = data["Image"]
+            if data.get("State", {}).get("Running") is not True:
+                # Stopped by an earlier failed activation: the image to fall
+                # back on is the one recorded before that release, not this one.
+                previous[service] = image_before_failed_release(remote_dir, service, failed_pin)
+                require(previous[service] is not None, f"target role is not running: {service}")
         rollback = {"services": {**old_pins["services"],
                                  **{s: {"image": image, "pull_policy": "never"}
                                     for s, image in previous.items()}}}
@@ -509,8 +558,22 @@ def _activate_locked(manifest_path):
         write_image_pins(old_path, pins)
         # Explicit services and --no-deps are mandatory; never start the source map.
         up_base = compose_base(remote_dir, manifest["compose_files"])
-        command([*up_base, "up", "-d", "--no-deps", "--no-build", "--pull", "never",
-                 "--wait", "--wait-timeout", "180", *services], cwd=remote_dir)
+        up = [*up_base, "up", "-d", "--no-deps", "--no-build", "--pull", "never",
+              "--wait", "--wait-timeout", "180", *services]
+        try:
+            command(up, cwd=remote_dir)
+        except RuntimeError:
+            # The new image did not start or become healthy. Do not leave the
+            # role down: put the previous image back, unless a migration ran,
+            # because the previous image may not match the migrated schema.
+            states = container_states(manifest["roles"])
+            if migrated:
+                raise RuntimeError(f"new images did not start ({states}); a migration ran, so the "
+                                   "previous images were not restored") from None
+            write_image_pins(old_path, rollback)
+            command(up, cwd=remote_dir, failure="restoring the previous images")
+            raise RuntimeError(f"new images did not start ({states}); the previous images were "
+                               "restored and are running") from None
         for service, container in manifest["roles"].items():
             running = checked_container(container, service, resolved["name"])
             require(running["Image"] == pins["services"][service]["image"],
