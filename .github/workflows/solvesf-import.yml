@@ -1,0 +1,88 @@
+name: SolveSF import contracts
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'scripts/solvesf-import/**'
+      - 'scripts/historical-imports/dataunion_0_1_0/candidate_data.py'
+      - 'scripts/historical-imports/dataunion_0_1_0/mysql_client.py'
+      - 'scripts/historical-imports/dataunion_0_1_0/integration_test.py'
+      - 'go-common/sf311import/**'
+      - 'report-listener/database/migrate.go'
+      - '.github/workflows/solvesf-import.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/solvesf-import/**'
+      - 'scripts/historical-imports/dataunion_0_1_0/candidate_data.py'
+      - 'scripts/historical-imports/dataunion_0_1_0/mysql_client.py'
+      - 'scripts/historical-imports/dataunion_0_1_0/integration_test.py'
+      - 'go-common/sf311import/**'
+      - 'report-listener/database/migrate.go'
+      - '.github/workflows/solvesf-import.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: solvesf-import-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contracts:
+    name: SolveSF offline and isolated MySQL contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    defaults:
+      run:
+        working-directory: scripts/solvesf-import
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned image dependency
+        run: python3 -m pip install --disable-pip-version-check --requirement requirements.txt
+      - name: Offline collector, media, writer, guard and controller contracts
+        run: python3 -B -W error::ResourceWarning -m unittest discover -p 'test_*.py' -v
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go-common/go.mod
+          cache-dependency-path: go-common/go.sum
+      - name: Canonical migration package
+        working-directory: go-common
+        run: |
+          test -z "$(gofmt -l sf311import)"
+          go test ./sf311import
+          go vet ./sf311import
+      - name: Start disposable MySQL 8.0.44 fixture
+        run: |
+          docker pull mysql:8.0.44
+          docker run --detach --name ca-import-test-mysql \
+            --label cleanapp.solvesf.fixture=true \
+            --network none --memory 1g --memory-swap 1g --cpus 1 --pids-limit 256 \
+            --tmpfs /var/lib/mysql:rw,nosuid,nodev,size=768m \
+            --env MYSQL_ALLOW_EMPTY_PASSWORD=yes \
+            --env MYSQL_DATABASE=cleanapp_dataunion_import_test \
+            mysql:8.0.44 --innodb-buffer-pool-size=128M --performance-schema=OFF
+          for attempt in $(seq 1 60); do
+            if docker exec ca-import-test-mysql sh -c \
+              'test "$(cat /proc/1/comm)" = mysqld && mysql --protocol=socket -uroot cleanapp_dataunion_import_test --batch --skip-column-names -e "SELECT 1"' \
+              >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs --tail 60 ca-import-test-mysql
+          exit 1
+      - name: Actual MySQL atomicity, replay, privacy and schema contracts
+        env:
+          SOLVESF_TEST_MYSQL: '1'
+        run: python3 -B -W error::ResourceWarning -m unittest test_apply.ActualMysql -v
+      - name: Remove only the labelled disposable fixture
+        if: always()
+        run: |
+          docker ps --all --quiet --filter 'name=^/ca-import-test-mysql$' \
+            --filter label=cleanapp.solvesf.fixture=true \
+            | xargs --no-run-if-empty docker rm --force

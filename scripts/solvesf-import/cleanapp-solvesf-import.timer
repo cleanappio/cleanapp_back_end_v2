@@ -1,0 +1,13 @@
+[Unit]
+Description=Hourly finite SolveSF ingestion check
+
+[Timer]
+OnActiveSec=1h
+OnUnitActiveSec=1h
+AccuracySec=1min
+RandomizedDelaySec=3min
+Persistent=false
+Unit=cleanapp-solvesf-import.service
+
+[Install]
+WantedBy=timers.target

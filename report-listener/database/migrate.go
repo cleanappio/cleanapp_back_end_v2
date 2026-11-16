@@ -12,6 +12,7 @@ import (
 	"cleanapp-common/migrator"
 	"cleanapp-common/reportmeta"
 	"cleanapp-common/reportoutcome"
+	"cleanapp-common/sf311import"
 	"cleanapp-common/wiremeta"
 )
 
@@ -53,6 +54,7 @@ func RunMigrations(ctx context.Context, db *sql.DB) error {
 		{ID: "0033_report_side_effect_policy", Description: "create explicit historical report side-effect controls", Up: effectpolicy.Migrate},
 		{ID: "0034_report_extra_images", Description: "create storage for photos 2 to 4 of a report", Up: ensureReportExtraImagesTable},
 		{ID: "0035_report_outcomes", Description: "create durable agent review decisions and publication intents", Up: reportoutcome.Migrate},
+		{ID: "0036_sf311_source_ledgers", Description: "create case-based SF311 import provenance and media ledgers", Up: sf311import.Migrate},
 	})
 }
 

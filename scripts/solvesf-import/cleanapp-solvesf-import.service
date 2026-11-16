@@ -1,0 +1,30 @@
+[Unit]
+Description=Finite bounded SolveSF public-feed ingestion
+After=network-online.target docker.service cleanapp-runtime.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+WorkingDirectory=/srv/cleanapp-solvesf-import
+Environment=PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+Environment=AWS_DEFAULT_REGION=us-east-2 AWS_SHARED_CREDENTIALS_FILE=/dev/null AWS_CONFIG_FILE=/dev/null
+ExecStart=/srv/cleanapp-solvesf-import/venv/bin/python /srv/cleanapp-solvesf-import/app/service.py --run
+TimeoutStartSec=1800
+TimeoutStopSec=180
+KillMode=mixed
+MemoryMax=1G
+CPUQuota=25%
+Nice=15
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/cleanapp-solvesf-import/state /srv/cleanapp-solvesf-import/evidence /srv/cleanapp-olm-import/state/dedup /opt/cleanapp/deploy/.deployment-and-backup.lock
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
