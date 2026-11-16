@@ -22,12 +22,15 @@ mod model;
 mod reports_memory;
 mod shutdown;
 mod subscriber;
+mod tiles;
 
 use config::{get_config, init_config};
 use subscriber::FastRendererSubscriber;
 
 use crate::{
-    handlers::{get_brands_summary, get_report_points, get_stats_info},
+    handlers::{
+        get_brands_summary, get_report_hotspots, get_report_points, get_report_tile, get_stats_info,
+    },
     reports_memory::InMemoryReports,
 };
 
@@ -163,6 +166,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/stats", get(get_stats_info))
         .route("/api/v4/brands/summary", get(get_brands_summary))
         .route("/api/v4/reports/points", get(get_report_points))
+        .route("/api/v4/reports/tiles/{z}/{x}/{y}", get(get_report_tile))
+        .route("/api/v4/reports/hotspots", get(get_report_hotspots))
         .layer(
             ServiceBuilder::new()
                 .layer(TraceLayer::new_for_http())
