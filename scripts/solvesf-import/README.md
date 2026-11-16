@@ -1,9 +1,9 @@
 # SolveSF public-feed import
 
-**Release status: NOT DEPLOYED / production completion not yet recorded here.**
-The release operator must replace the status table below using actual receipts.
-Passing tests, collecting candidates, or generating a plan does not establish a
-production import or an active polling job.
+**Production canary verified on November 16, 2026:** four reports and four photos
+passed native SQL, public metadata, JPEG and map checks at 20:31 UTC. Runtime
+polling state is recorded separately in the root-owned AWS deployment receipt
+and systemd; installing the source or unit files does not establish activation.
 
 This importer reads the public feed selected by the user at `solvesf.com`. It
 does not enumerate all SF311 records, submit cases to the city, contact reporters,
@@ -154,13 +154,22 @@ explicitly record that lifecycle; shipping unit files does not enable a timer.
 
 | Production result | Verified value |
 | --- | --- |
-| Source revision and bundle digest | Not yet recorded |
-| Collection window and eligible/held counts | Not yet recorded |
-| Cases inserted and public verification | Not yet verified |
-| Identical replay skipped / duplicates | Not yet verified |
-| All five side-effect flags | Not yet verified |
-| OLM receiver resumed and cursor preserved | Not yet verified |
-| Polling enabled, configuration expiry and limits | Not enabled or verified here |
+| Core source revision and initial bundle | `38038c5c250a2706064375cf153524adfbed0680`; SHA256 `7ad2af2d5f0a7c94d90381dd3199430f98fe188ae5c98befd8d78fae0c56e766` |
+| Collection window and evolving eligible/held counts | Explicit `today`; current counts in `state/canary/stats.json` |
+| First cases inserted and public verification | Four cases and four JPEG previews; `evidence/live-canary.json` passed November 16 at 20:31 UTC |
+| Identical replay skipped / duplicates | Read `evidence/replay.json` for the checked production replay result; absence is not verification |
+| All five side-effect flags | Verified on all four initial cases |
+| OLM receiver resumed and cursor preserved | Verified after the first cycle; receiver/configuration/policy files preserved across its owned pause |
+| Polling activation | Read `evidence/deployment.json` and actual `cleanapp-solvesf-import.timer` state; source installation alone is insufficient |
+| Initial configuration expiry and limits | November 23, 2026 at 20:08:58 UTC; at most five/hour, 500 total cases, 40 GiB archived evidence |
+
+The fixed evidence paths above are under `/srv/cleanapp-solvesf-import` on AWS.
+An example verified public report is
+[SF311 case via SolveSF](https://www.cleanapp.io/physical/report/rpt_1wz6bprjyh8RAh_PNgSS1Q).
+The first schema installation encountered metadata locks held by a background
+email-summary read. Installation retained the canonical foreign keys and
+verified the deployed schema before publishing any source reports. Its private
+migration and recovery receipts retain the operational evidence.
 
 ## Optional finite hourly controller
 
@@ -207,7 +216,8 @@ limit disables this controller's timer. Archive exhaustion refuses new staging.
 
 The supplied `cleanapp-solvesf-import.service` runs on the existing AWS host with
 `MemoryMax=1G`, `CPUQuota=25%`, `Nice=15`, `UMask=0077`, and a 30-minute start
-timeout. The disabled timer has its first activation after one hour, subsequent
+timeout. The reviewed root OLM transport invokes `sudo`, so the service uses
+`NoNewPrivileges=false`. The supplied disabled timer has its first activation after one hour, subsequent
 hourly activations, and up to three minutes of jitter; it does not catch up missed
 runs. Root must install and explicitly enable it after commissioning. Today-only
 discovery can miss older or unavailable cases and does not claim historic coverage.
