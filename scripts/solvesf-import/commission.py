@@ -201,8 +201,42 @@ def configure(revision):
     return {'configured': True, 'expires_at': value['expires_at']}
 
 
+def error_summary(error):
+    result = {'error_type': type(error).__name__}
+    if isinstance(error, ValueError) and len(error.args) == 1 and isinstance(error.args[0], str) and re.fullmatch('[a-z0-9_]{1,120}', error.args[0]):
+        result['error_code'] = error.args[0]
+    code = getattr(error, 'code', None)
+    if type(code) is int and 100 <= code <= 99999:
+        result['mysql_code'] = code
+    return result
+
+
+def release_migration_lock(db, primary):
+    # The reviewed transport closes itself after SQL errors, releasing locks.
+    if not getattr(db, '_closed', False):
+        try:
+            db.query("SELECT RELEASE_LOCK('cleanapp-olm-native-import')")
+        except BaseException:
+            if primary is None:
+                raise
+
+
+def recover_migration(c, primary):
+    try:
+        c.recover_pause()
+    except BaseException as recovery:
+        if primary is None:
+            raise
+        # Preserve the primary failure while retaining safe recovery diagnostics.
+        with contextlib.suppress(Exception):
+            write(ROOT / 'evidence/migration-failure.json', json.dumps({
+                'primary': error_summary(primary), 'recovery': error_summary(recovery),
+                'recovery_verified': False}, sort_keys=True).encode() + b'\n')
+
+
 def migrate():
     service = module('service'); c = service.Controller()
+    primary = None
     try:
         with service.deployment_lock():
             require(not service.PAUSE.exists(), 'owned_pause_already_exists')
@@ -216,6 +250,7 @@ def migrate():
             with c.transport.Mysql() as db:
                 c.driver.server_check(db, c.policy)
                 require(db.scalar("SELECT GET_LOCK('cleanapp-olm-native-import',0)") == '1', 'native_advisory_lock_busy')
+                sql_failure = None
                 try:
                     schema = (ROOT / 'app/schema.sql').read_text()
                     norm = lambda x: ' '.join(re.sub(r'\bIF\s+NOT\s+EXISTS\b', '', x, flags=re.I).split())
@@ -230,10 +265,16 @@ def migrate():
                         require(db.scalar('SELECT COUNT(*) FROM sf311_source_case_ledger') == '0'
                                 and db.scalar('SELECT COUNT(*) FROM sf311_source_media_ledger') == '0', 'unowned_existing_native_import')
                         db.query('INSERT INTO go_schema_migrations(service_name,step_id,description) VALUES(' + ','.join(map(q, ('report-listener', STEP, DESCRIPTION))) + ')')
+                except BaseException as error:
+                    sql_failure = error
+                    raise
                 finally:
-                    db.query("SELECT RELEASE_LOCK('cleanapp-olm-native-import')")
+                    release_migration_lock(db, sql_failure)
+    except BaseException as error:
+        primary = error
+        raise
     finally:
-        c.recover_pause()
+        recover_migration(c, primary)
     service.write_json(ROOT / 'evidence/migration.json', {'step_id': STEP, 'schema_sha256': sha(ROOT / 'app/schema.sql'), 'verified': True})
     return {'migration_verified': True, 'step_id': STEP}
 
@@ -288,7 +329,7 @@ def sandbox_command(unit_text):
             'sandbox_service_profile_incomplete')
     require(properties['Type'] == 'oneshot' and properties['User'] == properties['Group'] == 'root'
             and properties['ProtectSystem'] == 'strict' and properties['PrivateTmp'] == 'true'
-            and properties['NoNewPrivileges'] == 'true' and properties['MemoryMax'] == '1G'
+            and properties['NoNewPrivileges'] == 'false' and properties['MemoryMax'] == '1G'
             and properties['CPUQuota'] == '25%' and properties['UMask'] == '0077', 'sandbox_limits_changed')
     require(environment == {'PYTHONUNBUFFERED': '1', 'PYTHONDONTWRITEBYTECODE': '1',
         'AWS_DEFAULT_REGION': 'us-east-2', 'AWS_SHARED_CREDENTIALS_FILE': '/dev/null',
@@ -380,8 +421,6 @@ def main():
 if __name__ == '__main__':
     try: main()
     except Exception as error:
-        result = {'commission_refused': True, 'error_type': type(error).__name__}
-        if isinstance(error, ValueError) and len(error.args) == 1 and isinstance(error.args[0], str) and re.fullmatch('[a-z0-9_]{1,120}', error.args[0]):
-            result['error_code'] = error.args[0]
+        result = {'commission_refused': True, **error_summary(error)}
         print(json.dumps(result))
         raise SystemExit(1)

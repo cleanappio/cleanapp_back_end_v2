@@ -18,7 +18,8 @@ KillMode=mixed
 MemoryMax=1G
 CPUQuota=25%
 Nice=15
-NoNewPrivileges=true
+# The reviewed root-only OLM transports invoke sudo; its policy transition needs this.
+NoNewPrivileges=false
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true

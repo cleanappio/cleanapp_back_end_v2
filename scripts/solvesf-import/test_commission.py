@@ -108,6 +108,42 @@ class FixedFixtureSafety(unittest.TestCase):
                 self.assertEqual(command.call_count, 1)
 
 
+class FailureDiagnostics(unittest.TestCase):
+    def test_dead_transport_cleanup_preserves_primary_and_records_recovery_failure(self):
+        primary = RuntimeError('private diagnostic must not be emitted')
+        primary.code = 1205
+        recovery = ValueError('recovery_not_verified')
+        db = types.SimpleNamespace(_closed=True, query=Mock(side_effect=AssertionError('closed transport reused')))
+        controller = types.SimpleNamespace(recover_pause=Mock(side_effect=recovery))
+        with patch.object(commission, 'write') as write:
+            with self.assertRaises(RuntimeError) as raised:
+                try:
+                    raise primary
+                finally:
+                    commission.release_migration_lock(db, primary)
+                    commission.recover_migration(controller, primary)
+            self.assertIs(raised.exception, primary)
+            db.query.assert_not_called()
+            receipt = json.loads(write.call_args.args[1])
+            self.assertEqual(receipt['primary'], {'error_type': 'RuntimeError', 'mysql_code': 1205})
+            self.assertEqual(receipt['recovery']['error_code'], 'recovery_not_verified')
+            self.assertFalse(receipt['recovery_verified'])
+
+    def test_cleanup_failure_is_visible_without_a_primary_error(self):
+        failure = RuntimeError('cleanup failed')
+        db = types.SimpleNamespace(_closed=False, query=Mock(side_effect=failure))
+        with self.assertRaises(RuntimeError) as raised:
+            commission.release_migration_lock(db, None)
+        self.assertIs(raised.exception, failure)
+        with self.assertRaises(RuntimeError):
+            commission.recover_migration(types.SimpleNamespace(recover_pause=Mock(side_effect=failure)), None)
+
+    def test_safe_diagnostics_exclude_arbitrary_messages_and_codes(self):
+        for code in ('1205', True, None):
+            error = RuntimeError('https://example.invalid/?token=private'); error.code = code
+            self.assertEqual(commission.error_summary(error), {'error_type': 'RuntimeError'})
+
+
 class EnableSafety(unittest.TestCase):
     def test_sandbox_profile_uses_real_restrictions_and_only_readonly_check(self):
         text = Path(__file__).with_name(commission.UNITS[0]).read_text()
@@ -115,7 +151,12 @@ class EnableSafety(unittest.TestCase):
         self.assertEqual(args[-3:], [str(commission.PYTHON), str(commission.ROOT / 'app/service.py'), '--check'])
         self.assertNotIn('--run', args)
         self.assertIn('--property=ProtectSystem=strict', args)
-        self.assertIn('--property=NoNewPrivileges=true', args)
+        self.assertIn('--property=NoNewPrivileges=false', args)
+        for old, changed in (('NoNewPrivileges=false', 'NoNewPrivileges=true'),
+                             ('ProtectSystem=strict', 'ProtectSystem=false'),
+                             ('MemoryMax=1G', 'MemoryMax=2G'), ('CPUQuota=25%', 'CPUQuota=100%')):
+            with self.subTest(setting=old), self.assertRaisesRegex(ValueError, 'limits'):
+                commission.sandbox_command(text.replace(old, changed))
         for setting in ('ExecStartPre=/bin/true', 'UnreviewedProperty=true'):
             with self.subTest(setting=setting), self.assertRaisesRegex(ValueError, 'unreviewed'):
                 commission.sandbox_command(text + '\n' + setting + '\n')
