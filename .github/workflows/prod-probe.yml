@@ -1,0 +1,29 @@
+name: Probe public production endpoints (read-only)
+
+# Temporary diagnostic on this branch only: GETs public URLs, changes nothing.
+on:
+  push:
+    branches: [claude/prod-probe]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: |
+          probe() { printf '%s -> ' "$1"; curl -sS -o /tmp/body -w '%{http_code} %{size_download}B %{time_total}s %{content_type}\n' --compressed --max-time 60 "$1" || true; }
+          for base in https://renderer.cleanapp.io https://embed.cleanapp.io; do
+            probe "$base/version"; head -c 400 /tmp/body; echo
+            probe "$base/api/v4/version"; head -c 400 /tmp/body; echo
+          done
+          probe https://renderer.cleanapp.io/health; head -c 300 /tmp/body; echo
+          probe https://renderer.cleanapp.io/stats; head -c 300 /tmp/body; echo
+          probe https://renderer.cleanapp.io/api/v4/reports/tiles/0/0/0
+          probe https://renderer.cleanapp.io/api/v4/reports/tiles/2/2/1
+          probe https://embed.cleanapp.io/api/v4/reports/tiles/0/0/0
+          probe "https://renderer.cleanapp.io/api/v4/reports/hotspots?limit=5"; head -c 400 /tmp/body; echo
+          probe "https://renderer.cleanapp.io/api/v4/reports/points?classification=physical"
+          probe "https://renderer.cleanapp.io/api/v4/brands/summary?classification=digital&lang=en"
