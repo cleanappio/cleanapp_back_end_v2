@@ -339,13 +339,17 @@ class ActualMysql(unittest.TestCase):
         module.verify_source_schema(self.db)
         name = self.db.scalar("SELECT CONSTRAINT_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='sf311_source_case_ledger' AND COLUMN_NAME='report_seq' AND REFERENCED_TABLE_NAME='reports'")
         self.assertRegex(name, r"^[A-Za-z0-9_]+$")
-        base = "ALTER TABLE sf311_source_case_ledger DROP FOREIGN KEY " + name + ", ADD CONSTRAINT " + name + " FOREIGN KEY(report_seq) REFERENCES reports(seq) ON DELETE "
-        self.db.query(base + "CASCADE")
+        drift_name = "fixture_sf311_cascade_drift"
+        self.db.query("ALTER TABLE sf311_source_case_ledger DROP FOREIGN KEY " + name)
         try:
+            self.db.query("ALTER TABLE sf311_source_case_ledger ADD CONSTRAINT " + drift_name + " FOREIGN KEY(report_seq) REFERENCES reports(seq) ON DELETE CASCADE")
             with self.assertRaises(module.GuardError):
                 module.verify_source_schema(self.db)
         finally:
-            self.db.query(base + "SET NULL")
+            present = self.db.query("SELECT CONSTRAINT_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='sf311_source_case_ledger' AND CONSTRAINT_NAME='" + drift_name + "' AND REFERENCED_TABLE_NAME='reports'")
+            if present:
+                self.db.query("ALTER TABLE sf311_source_case_ledger DROP FOREIGN KEY " + drift_name)
+            self.db.query("ALTER TABLE sf311_source_case_ledger ADD CONSTRAINT " + name + " FOREIGN KEY(report_seq) REFERENCES reports(seq) ON DELETE SET NULL")
         module.verify_source_schema(self.db)
 
 
