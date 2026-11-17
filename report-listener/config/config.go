@@ -31,6 +31,11 @@ type Config struct {
 	InboxPollInterval    time.Duration
 	InboxLookback        time.Duration
 
+	// Silence: record `no_response` for notifications with nothing back after
+	// the waiting period. Needs the inbox worker; off by default.
+	EscalationEnabled         bool
+	EscalationWaitWorkingDays int
+
 	Port                              string
 	RequestBodyLimitBytes             int64
 	AllowedOrigins                    []string
@@ -167,6 +172,9 @@ func Load() (*Config, error) {
 		InboxUser:            appenv.String("INBOX_USER", "info@cleanapp.io"),
 		InboxPollInterval:    appenv.Duration("INBOX_POLL_INTERVAL", 2*time.Minute),
 		InboxLookback:        appenv.Duration("INBOX_LOOKBACK", 72*time.Hour),
+
+		EscalationEnabled:         appenv.Bool("ESCALATION_ENABLED", false),
+		EscalationWaitWorkingDays: appenv.Int("ESCALATION_WAIT_WORKING_DAYS", 5),
 
 		Port:                              appenv.String("PORT", "8080"),
 		RequestBodyLimitBytes:             appenv.Int64("REQUEST_BODY_LIMIT_BYTES", 2*1024*1024),
