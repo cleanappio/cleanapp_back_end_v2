@@ -136,3 +136,30 @@ func TestLinkTokenRoundTripAndRejections(t *testing.T) {
 		t.Error("short secret accepted")
 	}
 }
+
+func TestDeriveSecretIsStableUsableAndDoesNotExposeTheSeed(t *testing.T) {
+	seed := strings.Repeat("p", 12)
+	secret := DeriveSecret(seed)
+	if len(secret) < 16 {
+		t.Fatalf("derived secret is too short to sign with: %d bytes", len(secret))
+	}
+	if string(DeriveSecret(seed)) != string(secret) {
+		t.Fatal("two services given the same seed must derive the same secret")
+	}
+	if string(DeriveSecret(seed+"x")) == string(secret) {
+		t.Fatal("different seeds must derive different secrets")
+	}
+	if strings.Contains(string(secret), seed) {
+		t.Fatal("the derived secret must not contain the seed")
+	}
+	if DeriveSecret("") != nil {
+		t.Fatal("no seed means no secret, so tracking stays off")
+	}
+	address, err := Address("info@cleanapp.io", "0123456789abcdef", secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id, ok := ParseAddress(address, DeriveSecret(seed)); !ok || id != "0123456789abcdef" {
+		t.Fatalf("an address signed by one service must verify in the other: %q", address)
+	}
+}

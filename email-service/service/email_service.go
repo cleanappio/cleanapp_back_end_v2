@@ -29,6 +29,8 @@ type EmailService struct {
 	db     *sql.DB
 	config *config.Config
 	email  notificationSender
+	// viewLinks: see viewLinksResolve.
+	viewLinks viewLinkCheck
 }
 
 type notificationSender interface {

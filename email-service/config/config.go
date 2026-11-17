@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"cleanapp-common/appenv"
+	"cleanapp-common/mailreply"
 	"cleanapp-common/mailtransport"
 
 	"github.com/apex/log"
@@ -117,7 +118,14 @@ func Load() (*Config, error) {
 	cfg.DryRun = appenv.Bool("EMAIL_DRY_RUN", false)
 	cfg.ReplyMailbox = appenv.String("REPLY_MAILBOX", "info@cleanapp.io")
 	cfg.ReplyTokenSecret = appenv.String("REPLY_TOKEN_SECRET", "")
-	cfg.ReplyTrackingEnabled = appenv.Bool("REPLY_TRACKING_ENABLED", false)
+	if cfg.ReplyTokenSecret == "" {
+		// No secret was set by hand: use the one derived from the database
+		// password, which report-listener derives the same way.
+		cfg.ReplyTokenSecret = string(mailreply.DeriveSecret(cfg.DBPassword))
+	}
+	// On by default since the secret no longer needs setting by hand. Set
+	// REPLY_TRACKING_ENABLED=false or VIEW_TRACKING_ENABLED=false to turn off.
+	cfg.ReplyTrackingEnabled = appenv.Bool("REPLY_TRACKING_ENABLED", true)
 	if cfg.ReplyTrackingEnabled && len(cfg.ReplyTokenSecret) < 16 {
 		// A missing secret must never stop notifications; it only means
 		// replies cannot be matched, so tracking stays off and says why.
@@ -125,7 +133,7 @@ func Load() (*Config, error) {
 		cfg.ReplyTrackingEnabled = false
 	}
 	cfg.ViewLinkBaseURL = appenv.String("VIEW_LINK_BASE_URL", "https://www.cleanapp.io/r/")
-	cfg.ViewTrackingEnabled = appenv.Bool("VIEW_TRACKING_ENABLED", false)
+	cfg.ViewTrackingEnabled = appenv.Bool("VIEW_TRACKING_ENABLED", true)
 	if cfg.ViewTrackingEnabled && !cfg.ReplyTrackingEnabled {
 		log.Error("VIEW_TRACKING_ENABLED needs working reply tracking (REPLY_TRACKING_ENABLED and REPLY_TOKEN_SECRET); view tracking is off")
 		cfg.ViewTrackingEnabled = false

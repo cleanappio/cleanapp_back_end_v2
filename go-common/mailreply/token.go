@@ -35,6 +35,27 @@ func sign(secret []byte, id string) string {
 	return strings.ToLower(b32.EncodeToString(mac.Sum(nil)[:10]))
 }
 
+// DeriveSecret returns the reply and link signing secret for a deployment
+// that has not been given REPLY_TOKEN_SECRET, derived from a secret the
+// services already share (the database password). It returns nil for an empty
+// seed.
+//
+// Why this exists: email-service signs and report-listener verifies, so both
+// need the same secret, and setting one by hand on the host was the only step
+// keeping reply and view tracking off. Deriving it needs no new stored
+// secret. HMAC is one-way, so the result does not reveal the seed, and anyone
+// who already holds the seed can write outcome rows directly anyway.
+// Changing the seed invalidates reply addresses and links already sent; set
+// REPLY_TOKEN_SECRET explicitly to keep them valid across such a change.
+func DeriveSecret(seed string) []byte {
+	if seed == "" {
+		return nil
+	}
+	mac := hmac.New(sha256.New, []byte(seed))
+	mac.Write([]byte("cleanapp reply and link token secret v1"))
+	return mac.Sum(nil)
+}
+
 // Address returns the Reply-To address for one notification. base is the
 // mailbox that receives replies (for example "info@cleanapp.io"); id is the
 // notification's opaque identifier: lower-case letters and digits, 8 to 32
