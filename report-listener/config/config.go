@@ -22,6 +22,15 @@ type Config struct {
 	// links then redirect to the home page and record nothing.
 	ReplyTokenSecret string
 
+	// Inbox worker: reads replies to notification emails (phase 1b of
+	// docs/architecture/notification-outcomes.md). Off unless InboxEnabled is
+	// set and the secret and credentials are present.
+	InboxEnabled         bool
+	InboxCredentialsFile string
+	InboxUser            string
+	InboxPollInterval    time.Duration
+	InboxLookback        time.Duration
+
 	Port                              string
 	RequestBodyLimitBytes             int64
 	AllowedOrigins                    []string
@@ -152,6 +161,12 @@ func Load() (*Config, error) {
 		JWTSecret:  jwtSecret,
 
 		ReplyTokenSecret: appenv.String("REPLY_TOKEN_SECRET", ""),
+
+		InboxEnabled:         appenv.Bool("INBOX_ENABLED", false),
+		InboxCredentialsFile: appenv.String("INBOX_CREDENTIALS_FILE", ""),
+		InboxUser:            appenv.String("INBOX_USER", "info@cleanapp.io"),
+		InboxPollInterval:    appenv.Duration("INBOX_POLL_INTERVAL", 2*time.Minute),
+		InboxLookback:        appenv.Duration("INBOX_LOOKBACK", 72*time.Hour),
 
 		Port:                              appenv.String("PORT", "8080"),
 		RequestBodyLimitBytes:             appenv.Int64("REQUEST_BODY_LIMIT_BYTES", 2*1024*1024),

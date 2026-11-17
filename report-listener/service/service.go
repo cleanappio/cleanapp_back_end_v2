@@ -124,6 +124,7 @@ func (s *Service) Start() error {
 		defer s.wg.Done()
 		s.db.RunEvidenceSourceProjectionWorker(refreshCtx)
 	}()
+	s.startInboxWorker(refreshCtx)
 
 	log.Printf("Report listener service started successfully")
 	return nil

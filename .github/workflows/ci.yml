@@ -161,6 +161,14 @@ jobs:
           docker exec -e MYSQL_PWD=local-evidence-fixture ${{ job.services.mysql.id }} mysql -uroot -e 'CREATE DATABASE report_notification_test;'
           go test ./database -run '^TestReportNotificationsMySQLFixture$' -count=1 -v
 
+      - name: Check inbound reply outcomes, opt-out and handled-once ledger on MySQL
+        working-directory: report-listener
+        env:
+          INBOX_TEST_DSN: "root:local-evidence-fixture@tcp(127.0.0.1:33306)/listener_inbox_test?parseTime=true&charset=utf8mb4"
+        run: |
+          docker exec -e MYSQL_PWD=local-evidence-fixture ${{ job.services.mysql.id }} mysql -uroot -e 'CREATE DATABASE listener_inbox_test;'
+          go test ./database -run '^TestInboxMessagesMySQLFixture$' -count=1 -v
+
       - name: Check accepted email events and public evidence selection on MySQL
         working-directory: email-service
         env:
