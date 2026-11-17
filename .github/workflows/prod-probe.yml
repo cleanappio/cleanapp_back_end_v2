@@ -13,6 +13,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
+      - run: |
+          for o in https://embed.cleanapp.io https://www.cleanapp.io https://cleanapp.io https://evil.example; do
+            echo "CORS areas from $o: $(curl -sS -o /tmp/b -D - --max-time 15 -H "Origin: $o" 'https://areas.cleanapp.io/api/v3/get_areas?sw_lat=47.36&sw_lon=8.52&ne_lat=47.38&ne_lon=8.55&type=poi' | grep -i -E '^(HTTP|access-control-allow-origin)' | tr '\r\n' '  ') bytes=$(wc -c < /tmp/b)"
+          done
+          echo "CORS areas version: $(curl -sS --max-time 15 https://areas.cleanapp.io/version | head -c 300)"
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:

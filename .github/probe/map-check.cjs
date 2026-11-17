@@ -27,7 +27,7 @@ const { chromium, webkit, devices } = require('playwright');
         const shot = await page.screenshot({ type: 'jpeg', quality: 38 });
         console.log(`SHOT ${name} ${tag} t=${Date.now() - t0}ms state=${JSON.stringify(state)}`);
         const b64 = shot.toString('base64');
-        for (let i = 0; i < b64.length; i += 4000) console.log(`IMG ${name}-${tag} ${b64.slice(i, i + 4000)}`);
+        if (tag === '30s') for (let i = 0; i < b64.length; i += 4000) console.log(`IMG ${name}-${tag} ${b64.slice(i, i + 4000)}`);
       };
       await page.waitForTimeout(3000);
       await snap('3s');
@@ -41,7 +41,7 @@ const { chromium, webkit, devices } = require('playwright');
       await snap('12s');
       await page.waitForTimeout(18000);
       await snap('30s');
-      for (const l of [...new Set(logs)].slice(0, 25)) console.log(`SHOT ${name} log ${l}`);
+      for (const l of [...new Set(logs)].filter((l) => /^(error|pageerror|warning)|areas/i.test(l)).slice(0, 25)) console.log(`SHOT ${name} log ${l}`);
     } catch (e) {
       console.log(`SHOT ${name} crashed: ${String(e.message).slice(0, 300)}`);
     } finally {
