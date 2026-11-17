@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"cleanapp-common/mailreply"
@@ -80,6 +82,9 @@ func (s *EmailService) prepareViewLinks(summary *models.BrandReportSummary, id s
 	if id == "" || !s.config.ViewTrackingEnabled || !strings.HasPrefix(s.config.ViewLinkBaseURL, "https://") {
 		return
 	}
+	if !s.viewLinksResolve(context.Background()) {
+		return
+	}
 	links := make(map[int64]string, len(summary.ReportSeqs))
 	for _, seq := range summary.ReportSeqs {
 		token, err := mailreply.LinkToken(id, seq, []byte(s.config.ReplyTokenSecret))
@@ -112,4 +117,80 @@ func (s *EmailService) recordNotificationMessage(ctx context.Context, id, compan
 			log.Errorf("notification_message_recovery id=%s seq=%d error=%v", id, seq, err)
 		}
 	}
+}
+
+// viewLinkCheck remembers whether report-listener has been seen to resolve a
+// link signed by this service.
+type viewLinkCheck struct {
+	mu        sync.Mutex
+	resolved  bool
+	lastTried time.Time
+}
+
+const viewLinkCheckInterval = 10 * time.Minute
+
+// viewLinksResolve reports whether tracked links may be used. A tracked link
+// that report-listener cannot verify sends the recipient to the home page
+// instead of the report, so nothing is assumed: this asks report-listener to
+// resolve a link for a report an earlier notification carried, and tracked
+// links stay off until one resolves to a report page. Until then, and with
+// no earlier notification to test with, emails keep their plain links. It
+// re-tries at most every viewLinkCheckInterval and, once true, stays true.
+//
+// The request is not recorded as a view: report-listener ignores this
+// client's user agent.
+func (s *EmailService) viewLinksResolve(ctx context.Context) bool {
+	s.viewLinks.mu.Lock()
+	defer s.viewLinks.mu.Unlock()
+	if s.viewLinks.resolved {
+		return true
+	}
+	if !s.viewLinks.lastTried.IsZero() && time.Since(s.viewLinks.lastTried) < viewLinkCheckInterval {
+		return false
+	}
+	s.viewLinks.lastTried = time.Now()
+	if s.config.ReportListenerURL == "" {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT m.notification_id, mr.seq
+		FROM notification_messages m
+		JOIN notification_message_reports mr ON mr.notification_id = m.notification_id
+		ORDER BY m.sent_at DESC LIMIT 5`)
+	if err != nil {
+		log.Warnf("View link check skipped: %v", err)
+		return false
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var seq int64
+		if err := rows.Scan(&id, &seq); err != nil {
+			return false
+		}
+		token, err := mailreply.LinkToken(id, seq, []byte(s.config.ReplyTokenSecret))
+		if err != nil {
+			continue
+		}
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, s.config.ReportListenerURL+"/api/v3/r/"+token, nil)
+		if err != nil {
+			return false
+		}
+		response, err := companyReaderClient.Do(request) // does not follow redirects
+		if err != nil {
+			log.Warnf("View link check failed: %v", err)
+			return false
+		}
+		response.Body.Close()
+		// A verified link for a public report redirects to its report page; an
+		// unverified one, or a report no longer public, goes to the home page.
+		if response.StatusCode == http.StatusFound && strings.Contains(response.Header.Get("Location"), "/report/") {
+			s.viewLinks.resolved = true
+			log.Infof("View links verified against report-listener; tracked links are on")
+			return true
+		}
+	}
+	return false
 }

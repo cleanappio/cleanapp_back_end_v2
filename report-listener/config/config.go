@@ -3,6 +3,7 @@ package config
 import (
 	"cleanapp-common/anthropic"
 	"cleanapp-common/appenv"
+	"cleanapp-common/mailreply"
 	"fmt"
 	"strings"
 	"time"
@@ -165,7 +166,8 @@ func Load() (*Config, error) {
 		DBName:     appenv.String("DB_NAME", "cleanapp"),
 		JWTSecret:  jwtSecret,
 
-		ReplyTokenSecret: appenv.String("REPLY_TOKEN_SECRET", ""),
+		// Unset: the secret email-service derives from the same database password.
+		ReplyTokenSecret: appenv.String("REPLY_TOKEN_SECRET", string(mailreply.DeriveSecret(dbPassword))),
 
 		InboxEnabled:         appenv.Bool("INBOX_ENABLED", false),
 		InboxCredentialsFile: appenv.String("INBOX_CREDENTIALS_FILE", ""),

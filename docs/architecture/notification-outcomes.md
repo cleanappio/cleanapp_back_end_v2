@@ -282,9 +282,9 @@ must not be routed to companies.
 | Phase | State | PR | Deployed |
 | --- | --- | --- | --- |
 | 0 Reply library | done | #196 | not applicable (library only) |
-| 1a Reply addresses and `notification_messages` | code merged, flag off | #197 | not yet deployed; `REPLY_TRACKING_ENABLED` unset |
+| 1a Reply addresses and `notification_messages` | on by default (see "2026-11-18" below) | #197 | in the build deployed 2026-11-12, off until this change is released |
 | 1b Inbox worker | code merged, flag off; turning it on needs mailbox access (section 10) | #227 | not yet deployed; `INBOX_ENABLED` unset |
-| 2 Viewed links | code merged, flag off | #198, plus the site forward in `cleanapp-frontend` #58 | `VIEW_TRACKING_ENABLED` unset |
+| 2 Viewed links | on by default once a link is seen to resolve | #198, plus the site forward in `cleanapp-frontend` #58 | endpoint live; links off until this change is released |
 | 3 Timeline | code merged, no flag (empty until outcomes exist) | #199, plus `ReceiptStatus` in `cleanapp-frontend` #59 | not yet deployed |
 | 4 Merge by issue | not started | | |
 | 5a Silence (`no_response`) | code written, flag off | #228 | not yet deployed; `ESCALATION_ENABLED` unset |
@@ -315,6 +315,36 @@ must not be routed to companies.
   If the flag is on and the secret is missing or too short, the service logs
   one error, keeps tracking off and sends normally. Tracking can never stop
   or fail a notification.
+
+### 2026-11-18: reply and view tracking no longer need host changes
+
+Both stayed off for one reason: someone had to put `REPLY_TOKEN_SECRET` on the
+host for two services and set two flags. That is now unnecessary.
+
+- **Secret.** When `REPLY_TOKEN_SECRET` is unset, both services use
+  `mailreply.DeriveSecret(DB_PASSWORD)`: an HMAC of a fixed label under the
+  database password they already share. No new secret is stored. HMAC is
+  one-way, so the result does not reveal the password, and anyone who holds
+  the password can already write outcome rows directly. An explicit
+  `REPLY_TOKEN_SECRET` still wins. Changing the database password without
+  setting an explicit secret invalidates reply addresses and links already
+  sent (a reply is then still matched by `In-Reply-To` once 1b runs).
+- **Flags.** `REPLY_TRACKING_ENABLED` and `VIEW_TRACKING_ENABLED` now default
+  to `true`. Set either to `false` to turn it off.
+- **Tracked links prove themselves first.** A link report-listener cannot
+  verify would send a company to the home page instead of the report. So
+  `email-service` asks report-listener to resolve a signed link for a report
+  an earlier notification carried, and uses tracked links only after one
+  resolves to a report page (`viewLinksResolve`). Until then emails keep
+  plain links. The first tracked notification therefore has a signed
+  Reply-To and plain links; later ones have both.
+- **Release order.** `report-listener` first, then `email-service`. Neither
+  needs a migration for this.
+- The inbox worker (1b) and silence (5a) are unchanged: still off, still
+  needing mailbox access.
+
+The two "Turning ... on" sections below describe the manual route, which
+still works and is now optional.
 
 ### Turning 1a on
 
