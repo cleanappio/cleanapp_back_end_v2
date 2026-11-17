@@ -1,0 +1,12 @@
+measured_at,as_of,metric,value,numerator,denominator,sample,status,note
+2026-11-11T00:00:00Z,2026-11-11T00:00:00Z,chain_3_seen,,0,,,manual,No viewed or replied outcome existed; cohort not measured. From docs/architecture/notification-outcomes.md section 2.
+2026-11-11T00:00:00Z,2026-11-11T00:00:00Z,chain_4_answered,,0,,,manual,No replied outcome existed; cohort not measured. Same source.
+2026-11-11T00:00:00Z,2026-11-11T00:00:00Z,chain_5_fixed,,0,,,manual,No fixed outcome existed; cohort not measured. Same source.
+2026-11-11T00:00:00Z,2026-11-11T00:00:00Z,parties_seen_ever,0,0,,,manual,Seven outcomes in total: five sent and two bounced. Same source.
+2026-11-11T00:00:00Z,2026-11-11T00:00:00Z,fixed_total,0,0,,,manual,Same source.
+2026-11-11T00:00:00Z,2026-11-11T00:00:00Z,cases_total,31,31,,,manual,Same source.
+2026-11-11T00:00:00Z,2026-11-11T00:00:00Z,reports_in_cases,760,760,,,manual,Same source.
+2026-11-17T00:00:00Z,2026-11-17T00:00:00Z,verified_routes,3,3,,,manual,email-service/service/company_routing.go at bc799bd.
+2026-11-17T00:00:00Z,2026-11-17T00:00:00Z,routes_to_named_role,0,0,,,manual,All three routes are general support addresses.
+2026-11-17T00:00:00Z,2026-11-17T00:00:00Z,public_board_real,0,0,,,manual,The /epc page reads sample data (cleanapp-frontend at build 1.0.465).
+2026-11-17T00:00:00Z,2026-11-17T00:00:00Z,epc_addresses_claimed,0,0,,,manual,No way to claim an address exists.

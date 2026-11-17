@@ -7,6 +7,12 @@ a stake in it, make the notice impossible to deny, and find out what they did.
 This wiki records each approach CleanApp has taken to that problem, what it
 produced, and what is still open.
 
+**Why it matters.** An organisation can only fix what it learns about. The
+founder's claim is that the capability worth calling superintelligence is the
+one that gets a true signal through the filters to the people who decide, so
+that they improve faster and everyone gains (page 01). Page 11 measures how
+close CleanApp is to that.
+
 **Why it exists.** `WHY.md` and `THEORY.md` say what CleanApp believes. The
 decision log says what was decided since March 2026. The architecture
 documents say how the system is built. None of them says what was attempted,
@@ -31,9 +37,10 @@ corrected. Where the code is silent, the page says so.
 | [08 Intake and corpus](08-intake-and-corpus.md) | Where reports come from and what the database actually holds. |
 | [09 Incentives and buyers](09-incentives-and-buyers.md) | Who gains from reporting, from fixing and from knowing. |
 | [10 Open problems](10-open-problems.md) | Where the code and the idea disagree, working hypotheses, and what to measure next. |
+| [11 Scorecard](11-scorecard.md) | The numbers that say whether CleanApp works, where they stand, and the loop for improving them. |
 | [Glossary](glossary.md) | Terms, including the 2018 vocabulary. |
 
-Short on time: read 01, then 10.
+Short on time: read 01, then 11, then 10.
 
 ## Conventions
 
@@ -73,6 +80,8 @@ Dates are year-month-day.
   why. The failures are the most useful part.
 - When a number is re-measured, replace it and change the date in its tag.
 - Opinions go under "Questions" or in page 10, never in an inventory.
+- A change meant to move a number gets a row in the experiments table of
+  page 11 before it ships, and a result after.
 
 ## What this wiki does not know
 

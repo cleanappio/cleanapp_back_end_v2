@@ -77,9 +77,23 @@ recorded answer would give the first ground truth.
 *Wrong if:* the reply tracking merged on 2026-11-17 produces enough outcomes
 by itself.
 
+Which number tests which hypothesis (metrics are defined in page 11):
+
+| Hypothesis | Number | Reads as support when |
+| --- | --- | --- |
+| H1 | `notices_seen`, `chain_3_seen` | private notices alone stay near zero |
+| H2 | `same_issue_agreement` | two people agree on most pairs |
+| H3 | `signal_share_of_sends` against `notices_seen` | the seen share rises as the first-hand share of sends rises |
+| H4 | none yet | a buyer acts on counts and dates alone |
+| H5 | none yet | an interested party asks for an issue file |
+| H6 | `chain_4_answered` | answers arrive when they are recorded and shown |
+| H7 | `fixed_total` | it stays at zero until issues are carried by hand |
+
 ## C. What can be measured this month
 
 None of these needs a large build. Each replaces an assumption with a number.
+Rows 1 and 4 are now queries in the scorecard (page 11) and need only a run
+against production.
 
 | # | Measurement | What it settles |
 | --- | --- | --- |
