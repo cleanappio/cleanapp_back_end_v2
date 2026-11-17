@@ -86,4 +86,5 @@ Before changing the system, ask:
 ## Where to read next
 
 - Notification outcomes (what happens after a report is sent, and the phased plan to track it): `docs/architecture/notification-outcomes.md`
+- What has been tried and what is still unsolved (notice channels, EPC and public notice, quantification, clustering, evidence, incentives): `docs/wiki/README.md`
 
