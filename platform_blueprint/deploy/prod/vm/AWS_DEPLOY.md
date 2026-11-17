@@ -61,6 +61,14 @@ also checks the target's current running state, Compose project/service labels,
 and container names before importing or activating anything. A stopped or
 missing selected role fails closed.
 
+If a new image does not start or become healthy, activation puts the previous
+image back and reports Docker's state and exit code for the failed container
+(never its output). It does not do this when a migration ran in the same
+release, because the previous image may not match the migrated schema. The one
+stopped role that may be selected is a role this helper itself left stopped
+with the image it pinned; the image to fall back on is then taken from the
+rollback record written before that release.
+
 Image identities come from the SHA256 of the exact config bytes referenced by
 the exported Docker-save manifest, bound to exactly the selected build tags,
 linux/amd64 and the expected source/version labels. `runner_image_id` preserves
