@@ -11,7 +11,7 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - run: |
           probe() { printf '%s -> ' "$1"; curl -sS -o /tmp/body -w '%{http_code} %{size_download}B %{time_total}s %{content_type}\n' --compressed --max-time 60 "$1" || true; }
@@ -35,5 +35,5 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/check" && cd "$RUNNER_TEMP/check"
           npm init -y >/dev/null && npm install --no-audit --no-fund playwright@latest >/dev/null
-          npx playwright install --with-deps chromium >/dev/null
+          npx playwright install --with-deps chromium webkit >/dev/null
           cp "$GITHUB_WORKSPACE/.github/probe/map-check.cjs" . && node map-check.cjs
