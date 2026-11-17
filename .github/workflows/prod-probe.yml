@@ -14,15 +14,9 @@ jobs:
     timeout-minutes: 5
     steps:
       - run: |
-          for u in https://www.cleanapp.io/uptime.json https://cleanapp.io/uptime.json; do
-            echo "STATUS $u -> $(curl -sS -o /tmp/u.json -w '%{http_code} %{size_download}B' --compressed --max-time 20 "$u")"
-            python3 -c "
-          import json,sys
-          try:
-              d=json.load(open('/tmp/u.json'))
-          except Exception as e:
-              print('STATUS not json', e); sys.exit(0)
-          s=json.dumps(d)
-          for i in range(0,len(s),900): print('STATUSJSON', s[i:i+900])
-          "
+          for u in https://www.cleanapp.io/r/x https://live.cleanapp.io/r/x https://live.cleanapp.io/api/v3/r/x; do
+            echo "LINK $u -> $(curl -sS -o /dev/null -w '%{http_code} location=%{redirect_url}' --max-time 20 "$u")"
+          done
+          for u in https://live.cleanapp.io/version https://email.cleanapp.io/version; do
+            echo "VER $u -> $(curl -sS --max-time 20 "$u" | head -c 300)"
           done
