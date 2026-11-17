@@ -19,6 +19,10 @@ jobs:
             probe "$base/version"; head -c 400 /tmp/body; echo
             probe "$base/api/v4/version"; head -c 400 /tmp/body; echo
           done
+          for u in https://embed.cleanapp.io/ https://www.cleanapp.io/; do echo "HEADERS $u"; curl -sS -D - -o /tmp/page.html --compressed --max-time 30 "$u" | grep -i -E "^(HTTP|cache-control|etag|last-modified|age|server|cf-cache-status|x-nextjs|expires|vary|content-type|x-powered-by|via):" | sed 's/^/HEADERS   /'; echo "HEADERS   bytes=$(wc -c < /tmp/page.html) chunks=$(grep -o '/_next/static/[^"]*' /tmp/page.html | sort -u | wc -l) build=$(grep -o '/_next/static/[A-Za-z0-9_-]*/_buildManifest.js' /tmp/page.html | head -1)"; done
+          chunk=$(grep -o '/_next/static/chunks/[^"]*\.js' /tmp/page.html | head -1); echo "HEADERS chunk $chunk"; curl -sS -D - -o /dev/null --max-time 30 "https://www.cleanapp.io$chunk" | grep -i -E "^(HTTP|cache-control|etag|last-modified|age|cf-cache-status):" | sed 's/^/HEADERS   /'
+          chunk=$(curl -sS --compressed https://embed.cleanapp.io/ | grep -o '/_next/static/chunks/[^"]*\.js' | head -1); echo "HEADERS embed chunk $chunk"; curl -sS -D - -o /dev/null --max-time 30 "https://embed.cleanapp.io$chunk" | grep -i -E "^(HTTP|cache-control|etag|last-modified|age|cf-cache-status):" | sed 's/^/HEADERS   /'
+          echo "HEADERS missing-chunk"; curl -sS -o /dev/null -w 'HEADERS   %{http_code} %{content_type}\n' https://embed.cleanapp.io/_next/static/chunks/does-not-exist-123.js
           probe https://renderer.cleanapp.io/health; head -c 300 /tmp/body; echo
           probe https://renderer.cleanapp.io/stats; head -c 300 /tmp/body; echo
           probe https://renderer.cleanapp.io/api/v4/reports/tiles/0/0/0

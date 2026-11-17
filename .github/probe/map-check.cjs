@@ -35,7 +35,20 @@ const { chromium, webkit, devices } = require('playwright');
         });
         let loaded = 'ok';
         try { await page.goto('https://embed.cleanapp.io/', { waitUntil: 'load', timeout: 60000 }); } catch (e) { loaded = String(e.message).slice(0, 160); }
-        await page.waitForTimeout(25000);
+        await page.waitForTimeout(8000);
+        if (withNative) {
+          // Same message the app injects after the page loads (a Zurich location).
+          await page.evaluate(() => {
+            const message = JSON.stringify({ type: 'NATIVE_LOCATION', lat: 47.3769, lng: 8.5417, accuracy: 20 });
+            window.localStorage.setItem('cleanapp_user_location', JSON.stringify({ latitude: 47.3769, longitude: 8.5417, accuracy: 20, timestamp: Date.now() }));
+            window.localStorage.setItem('cleanapp_location_permission', 'granted');
+            window.dispatchEvent(new MessageEvent('message', { data: message }));
+            document.dispatchEvent(new MessageEvent('message', { data: message }));
+          });
+        }
+        await page.waitForTimeout(17000);
+        const shot = await page.screenshot().catch(() => Buffer.alloc(0));
+        console.log(`MAPCHECK ${label} screenshotBytes=${shot.length}`);
         const dom = await page.evaluate(() => {
           const canvas = document.querySelector('canvas.mapboxgl-canvas');
           let gl = 'n/a';
