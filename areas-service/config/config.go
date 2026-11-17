@@ -58,7 +58,10 @@ func allowedOrigins() []string {
 	frontendURL := appenv.String("FRONTEND_URL", "https://cleanapp.io")
 	origins := []string{frontendURL}
 	if strings.Contains(frontendURL, "://cleanapp.io") {
-		origins = append(origins, strings.Replace(frontendURL, "://cleanapp.io", "://www.cleanapp.io", 1))
+		// www is the canonical site; embed is the map shown inside the mobile app.
+		for _, host := range []string{"www", "embed"} {
+			origins = append(origins, strings.Replace(frontendURL, "://cleanapp.io", "://"+host+".cleanapp.io", 1))
+		}
 	}
 	return origins
 }
