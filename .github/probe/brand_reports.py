@@ -13,35 +13,30 @@ def get(params):
 def short(value, n):
     return " ".join(str(value or "").split())[:n]
 
-def host(url):
-    try:
-        return urllib.parse.urlparse(url or "").netloc
-    except Exception:
-        return ""
+# 1. What an archive-import row actually exposes.
+data = get({"brand_name": "anthropic", "kind": "unknown", "sort": "recent", "n": 6, "offset": 2400, "full_data": "false"})
+for r in (data.get("reports") or [])[:6]:
+    a = (r.get("analysis") or [{}])[0]
+    ev = r.get("evidence") or {}
+    print("STUB %s | T: %s | S: %s | platform=%s intake=%s/%s label=%s validation=%s reason=%s why=%s" % (
+        (r.get("report") or {}).get("public_id"), short(a.get("title"), 80), short(a.get("summary"), 400),
+        ev.get("source_platform"), ev.get("intake_method"), ev.get("intake_channel"), short(ev.get("intake_label"), 60),
+        ev.get("validation_status"), short(ev.get("classification_reason"), 160), short(ev.get("why_surfaced"), 160)))
 
-def rows(kind, offset, n, tag, wide):
+# 2. How the system itself groups repeats: the recurrence block of known duplicates.
+data = get({"brand_name": "anthropic", "kind": "firsthand", "sort": "recent", "n": 50, "offset": 0, "full_data": "false"})
+for r in data.get("reports") or []:
+    title = ((r.get("analysis") or [{}])[0].get("title") or "")
+    if "TelemetrySafeError" in title or "Billing" in title or "Motion" in title:
+        rec = dict(r.get("recurrence") or {})
+        rec.pop("supporting_sources", None)
+        print("RECUR %s | %s | %s" % ((r.get("report") or {}).get("public_id"), short(title, 70), short(json.dumps(rec), 420)))
+
+# 3. Same composition check for the three biggest brands and two others.
+for brand in ["apple", "google", "microsoft", "openai", "bluesky"]:
     try:
-        data = get({"brand_name": "anthropic", "kind": kind, "sort": "recent", "n": n, "offset": offset, "full_data": "false"})
+        d = get({"brand_name": brand, "kind": "all", "sort": "recent", "n": 1, "full_data": "false"})
+        ov = d.get("overview") or {}
+        print("COMP %s kind_counts=%s last30=%s last7=%s latest=%s" % (brand, json.dumps(d.get("kind_counts")), ov.get("reports_last_30_days"), ov.get("reports_last_7_days"), ov.get("latest_report_at")))
     except Exception as e:
-        print("BR2 %s offset=%s error=%s" % (kind, offset, str(e)[:160]))
-        return
-    reports = data.get("reports") or []
-    print("BR2META %s offset=%s returned=%d has_more=%s api_offset=%s" % (kind, offset, len(reports), data.get("has_more"), data.get("offset")))
-    for i, r in enumerate(reports):
-        rep = r.get("report") or {}
-        a = (r.get("analysis") or [{}])[0]
-        ev = r.get("evidence") or {}
-        when = ev.get("observed_at") or ev.get("source_published_at") or ev.get("ingested_at") or ""
-        if i == 0:
-            print("BR2REC %s recurrence=%s" % (kind, short(json.dumps(r.get("recurrence")), 400)))
-        print("%s %s | %s | sev=%.2f | %s/%s | %s %s | T: %s | I: %s | X: %s" % (
-            tag, rep.get("public_id"), short(when, 10), float(a.get("severity_level") or 0),
-            ev.get("entity_relationship"), ev.get("intake_method"), ev.get("source_platform"), host(ev.get("source_url")),
-            short(a.get("title"), 130), short(ev.get("reported_impact"), 130 if wide else 0), short(ev.get("excerpt"), 230 if wide else 170)))
-
-rows("firsthand", 50, 50, "FH", True)
-rows("firsthand", 100, 50, "FH", True)
-for off in (0, 1200, 2400, 3600, 4800):
-    rows("unknown", off, 40, "UN", False)
-for off in (0, 1000):
-    rows("coverage", off, 25, "CV", False)
+        print("COMP %s error=%s" % (brand, str(e)[:120]))
