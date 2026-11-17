@@ -8,6 +8,72 @@ never sent to someone else's form. The idea has been stable since 2013. The
 system implements the first half of it (collect, describe, publish) far more
 fully than the second half (group, value, put on notice, learn what happened).
 
+## The claim
+
+`[founder]`, 2026-11-17: superintelligence is "the ability to cut through the
+spam filters and actually reach the people who are making these decisions so
+[they] improve their processes faster, making EVERYONE better off, them
+included". The examples given were the Google Ads bug and faults in LinkedIn,
+Grok and Anthropic's products.
+
+This wiki uses the word in that sense. It is narrower than the usual meaning
+in AI research, a system that outperforms people at nearly everything. It is
+more useful here, because it can be measured.
+
+Why the claim holds `[inference]`:
+
+1. **An organisation can only correct what it perceives.** Most knowledge of
+   its defects is outside it, with the people who meet them (`THEORY.md` §1).
+2. **Between those people and the decision stand filters:** support queues,
+   forms behind a login, spam filters, triage that answers "intended
+   behavior". They exist to protect attention from noise.
+3. **More writers mean more noise, so the filters tighten.** People, and now
+   machines, produce far more text than any organisation can read. True
+   signals are lost more often. Feedback slows down while everything else
+   speeds up.
+4. **So the scarce capability is getting a true signal to the point of
+   decision.** An organisation's ability to improve is bounded by how fast
+   and how accurately it learns of its own faults. Whatever raises that bound
+   for every organisation at once raises the intelligence of the whole
+   system, whatever the ability of any single model.
+
+Where AI comes in `[inference]`:
+
+- **It makes the middle of the chain possible.** Reading a million reports,
+  deciding which describe the same issue, working out who answers for it and
+  what it is worth were not feasible at this scale before.
+- **It also makes the noise.** So the hard step moves to the end of the chain:
+  being believed and being attended to.
+- **AI products are parties too.** A report about Claude, Grok or ChatGPT is an
+  error signal for that system. A channel that carries it to the lab is part
+  of how these systems get better. Machines can already file reports
+  (page 08). Today a model that notices a fault in its own product has no
+  channel to its maker.
+- **CleanApp can be improved the same way.** A measured objective (page 11), a
+  record of what was tried (this wiki), and agents that read both before each
+  change: the system's own measurements steer its next change.
+
+What "cutting through" has to mean `[inference]`:
+
+A filter can be passed in two ways: by evading it, or by deserving to pass.
+Evasion is what spam does. It is blocked harder each time, and it costs every
+later notice its standing. The only durable way through is to be worth letting
+through: evidence the recipient can check, a record of having been right,
+independent sources honestly counted, and a posting that other people can
+see. That makes noise CleanApp's own problem first. A sender whose mail is
+mostly repeats and stubs is what the filters are for (pages 06, 07, 08).
+
+What the claim predicts, and so how it can be tested:
+
+- Parties with a working channel fix reported defects sooner than parties
+  without one.
+- The party itself comes to value the channel: it answers, claims its
+  address, pays.
+- Where it does not, the attention of interested parties supplies the reason
+  (page 09).
+
+Page 11 turns the claim into four numbers: loss, latency, noise and effect.
+
 ## The problem in two cases
 
 **Google Ads install counts.** `[live 2026-11-17]` The case-studies page links
@@ -68,6 +134,7 @@ they are not in the code.
    introduced to give public notice.
 6. **This is a research-grade problem**, worked on since 2013, and should be
    treated as one.
+7. **Superintelligence, in this field, is reach.** See "The claim" above.
 
 ## Six problems inside the one problem
 

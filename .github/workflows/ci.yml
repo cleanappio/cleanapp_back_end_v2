@@ -185,6 +185,12 @@ jobs:
           docker exec -e MYSQL_PWD=local-evidence-fixture ${{ job.services.mysql.id }} mysql -uroot -e 'CREATE DATABASE pipeline_contact_routing_test;'
           go test ./contacts -run '^TestContactRoutingMySQLFixture$' -count=1 -v
 
+      - name: Check every scorecard metric against the real table definitions on MySQL
+        working-directory: tools/scorecard
+        env:
+          SCORECARD_TEST_MYSQL: "docker exec -i -e MYSQL_PWD=local-evidence-fixture ${{ job.services.mysql.id }} mysql -uroot"
+        run: python3 -W error -m unittest -v
+
   evidence_original_mysql:
     name: Original lookup and online index (MySQL 8.0.44)
     runs-on: ubuntu-latest

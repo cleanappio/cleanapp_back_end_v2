@@ -70,6 +70,18 @@ given in `code font`.
 | Fetcher | A registered machine source with a key. |
 | Indexer | A program CleanApp runs to collect posts from a platform. |
 
+## Measurement
+
+| Term | Meaning |
+| --- | --- |
+| Scorecard | The set of numbers in page 11, computed by `tools/scorecard/`. |
+| Eligible first-hand report | The unit the scorecard counts: first-hand by its evidence label, valid, and public. |
+| Chain | The five steps a report is followed through: received, sent, seen, answered, fixed. |
+| Matured window | From 37 days ago to 7 days ago: reports and notices old enough for an answer to have arrived. |
+| Loss, latency, noise, effect | The four quantities the scorecard reads together: what never arrived, how long it took, what should not have been sent, and what changed. |
+| Ledger | `scorecard-ledger.csv`: every measurement, one row per metric per run. |
+| Experiment | A row in page 11: a change, the one number it should move, the prediction, and the result. |
+
 ## The 2018 vocabulary
 
 From the earlier wiki. Most of these ideas are still open.
