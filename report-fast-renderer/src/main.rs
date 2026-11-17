@@ -1,12 +1,13 @@
 use std::sync::Arc;
 
 use axum::{
+    extract::State,
     http::{header, HeaderValue, Method},
     response::Json,
     routing::get,
     Router,
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use tower::ServiceBuilder;
 use tower_http::{
     compression::CompressionLayer,
@@ -19,6 +20,7 @@ mod config;
 mod db;
 mod handlers;
 mod model;
+mod quiet_refresh;
 mod reports_memory;
 mod shutdown;
 mod subscriber;
@@ -46,18 +48,34 @@ fn build_time() -> &'static str {
     option_env!("CLEANAPP_BUILD_TIME").unwrap_or("")
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize)]
 struct HealthResponse {
     status: String,
     service: String,
     version: String,
+    map_refresh: quiet_refresh::RefreshStatus,
 }
 
-async fn health_check() -> Json<HealthResponse> {
+async fn health_check(State(reports_memory): State<Arc<InMemoryReports>>) -> Json<HealthResponse> {
+    let map_refresh = reports_memory
+        .refresh_status
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
+    health_response(map_refresh)
+}
+
+fn health_response(map_refresh: quiet_refresh::RefreshStatus) -> Json<HealthResponse> {
     Json(HealthResponse {
-        status: "healthy".to_string(),
+        status: if map_refresh.consecutive_failures == 0 {
+            "healthy"
+        } else {
+            "degraded"
+        }
+        .to_string(),
         service: "report-fast-renderer".to_string(),
         version: build_version().to_string(),
+        map_refresh,
     })
 }
 
@@ -127,6 +145,10 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("📥 Loading reports into in-memory storage...");
     let pool = db::connect_pool()?;
     let reports_memory = Arc::new(InMemoryReports::new(pool.clone()).await);
+    let startup_policy_seq = db::latest_policy_seq(&pool).unwrap_or_else(|_| {
+        tracing::warn!("quiet map policy cursor unavailable; background refresh will report degraded health and retry");
+        0
+    });
     let physical_reports = db::fetch_report_points(&pool, "physical")?;
     {
         let physical_map = reports_memory.get_physical_content();
@@ -205,6 +227,11 @@ async fn main() -> anyhow::Result<()> {
             started.map_err(|e| anyhow::anyhow!("Failed to start subscriber: {}", e))?;
         }
     }
+    let quiet_refresh = quiet_refresh::QuietRefresh::start(
+        reports_memory.get_physical_content(),
+        reports_memory.refresh_status.clone(),
+        startup_policy_seq,
+    );
     let (http_stop, stopped) = tokio::sync::oneshot::channel::<()>();
     use std::future::IntoFuture;
     let server = axum::serve(listener, app)
@@ -219,15 +246,40 @@ async fn main() -> anyhow::Result<()> {
             tracing::info!(signal = reason?, "renderer stopping intake and draining HTTP/callbacks");
             subscriber.request_stop();
             let _ = http_stop.send(());
-            let (served, drained) = tokio::join!(&mut server, subscriber.close());
+            let (served, drained, ()) = tokio::join!(&mut server, subscriber.close(), quiet_refresh.stop());
             drained?;
             served?;
             tracing::info!("renderer HTTP, callbacks and acknowledgments drained; service stopped");
             return Ok(());
         }
     };
+    quiet_refresh.stop().await;
     subscriber.close().await?;
     served?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod health_tests {
+    use super::*;
+    use axum::response::IntoResponse;
+
+    #[test]
+    fn refresh_failure_is_visible_but_preserves_http_200_liveness() {
+        let status = quiet_refresh::RefreshStatus {
+            state: "degraded",
+            last_success_unix_seconds: Some(123),
+            consecutive_failures: 1,
+            error_code: Some("quiet_map_sql_refresh_failed"),
+        };
+        let response = health_response(status);
+        assert_eq!(response.0.status, "degraded");
+        assert_eq!(response.0.map_refresh.last_success_unix_seconds, Some(123));
+        assert_eq!(response.0.map_refresh.consecutive_failures, 1);
+        assert_eq!(
+            response.into_response().status(),
+            axum::http::StatusCode::OK
+        );
+    }
 }

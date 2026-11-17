@@ -1,0 +1,59 @@
+name: Build reviewed renderer image without production access
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'report-fast-renderer/**'
+      - 'rust-common/**'
+      - 'platform_blueprint/deploy/prod/vm/aws_build_reviewed_renderer.py'
+      - 'platform_blueprint/deploy/prod/vm/aws_image_deploy.py'
+      - 'platform_blueprint/deploy/prod/vm/tests/test_aws_build_reviewed_renderer.py'
+      - '.github/workflows/build-reviewed-renderer.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reviewed-renderer-build-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify portable build and export contracts
+        run: python3 -B -W error -m unittest discover -s platform_blueprint/deploy/prod/vm/tests -p 'test_*.py'
+      - name: Secret scan
+        run: |
+          set -euo pipefail
+          VER="8.30.0"
+          curl -fsSLo "$RUNNER_TEMP/gitleaks.tgz" "https://github.com/gitleaks/gitleaks/releases/download/v${VER}/gitleaks_${VER}_linux_x64.tar.gz"
+          tar -xzf "$RUNNER_TEMP/gitleaks.tgz" -C "$RUNNER_TEMP" gitleaks
+          "$RUNNER_TEMP/gitleaks" detect --no-git --redact
+      - name: Build and bind the single Linux amd64 renderer image
+        run: |
+          set -euo pipefail
+          umask 077
+          python3 -B platform_blueprint/deploy/prod/vm/aws_build_reviewed_renderer.py \
+            --ref "$SOURCE_SHA" --output-dir "$RUNNER_TEMP/reviewed-renderer"
+      - name: Retain the exact archive and identity proof for review
+        uses: actions/upload-artifact@v4
+        with:
+          name: reviewed-renderer-${{ env.SOURCE_SHA }}
+          path: |
+            ${{ runner.temp }}/reviewed-renderer/images.tar.gz
+            ${{ runner.temp }}/reviewed-renderer/image-manifest.json
+          compression-level: 0
+          retention-days: 3
+          if-no-files-found: error

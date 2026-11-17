@@ -110,56 +110,132 @@ fn merge_brand_summary_groups(rows: Vec<(String, String, u64)>) -> Vec<BrandSumm
     brands.into_values().map(|(summary, _)| summary).collect()
 }
 
-pub fn fetch_report_points(pool: &my::Pool, classification: &str) -> Result<Vec<ReportPoint>> {
-    let mut conn = pool.get_conn()?;
-    let base = r#"
-        SELECT r.seq,
-               COALESCE(MAX(ra.severity_level), 0.0) AS severity_level,
-               r.latitude,
-               r.longitude
-        FROM reports r
-        INNER JOIN report_analysis ra ON r.seq = ra.seq
-        LEFT JOIN report_status rs ON r.seq = rs.seq
-        LEFT JOIN reports_owners ro ON r.seq = ro.seq
+// Shared by startup and quiet refresh. Keep the publication predicates in one
+// place: a targeted refresh must never expose a point startup would exclude.
+const PHYSICAL_POINT_FILTERS: &str = r#"
         WHERE ra.is_valid = TRUE
           AND (rs.status IS NULL OR rs.status = 'active')
           AND (ro.owner IS NULL OR ro.owner = '' OR ro.is_public = TRUE)
           AND r.latitude IS NOT NULL AND r.longitude IS NOT NULL
           AND r.latitude BETWEEN -90 AND 90 AND r.longitude BETWEEN -180 AND 180
           AND (r.latitude <> 0 OR r.longitude <> 0)
-    "#;
-    let sql = if classification.eq_ignore_ascii_case("all") {
-        format!(
-            "{} GROUP BY r.seq, r.latitude, r.longitude ORDER BY r.seq DESC",
-            base
+"#;
+
+fn point_query(classification: &str, id_count: Option<usize>) -> String {
+    // The targeted path must start with at most one chunk of reports.PRIMARY
+    // lookups rather than scan the large analysis table on every tick.
+    let (hint, index, join) = if id_count.is_some() {
+        (
+            "/*+ MAX_EXECUTION_TIME(5000) */",
+            " FORCE INDEX (PRIMARY)",
+            "STRAIGHT_JOIN",
         )
     } else {
-        format!(
-            "{} AND ra.classification = ? GROUP BY r.seq, r.latitude, r.longitude ORDER BY r.seq DESC",
-            base
-        )
+        ("", "", "INNER JOIN")
     };
+    let mut sql = format!(
+        "SELECT {hint} r.seq, \
+         COALESCE(MAX(ra.severity_level), 0.0) AS severity_level, r.latitude, r.longitude \
+         FROM reports r{index} {join} report_analysis ra ON r.seq = ra.seq \
+         LEFT JOIN report_status rs ON r.seq = rs.seq \
+         LEFT JOIN reports_owners ro ON r.seq = ro.seq {PHYSICAL_POINT_FILTERS}"
+    );
+    if let Some(count) = id_count {
+        sql.push_str(" AND r.seq IN (");
+        sql.push_str(&vec!["?"; count].join(","));
+        sql.push(')');
+    }
+    if !classification.eq_ignore_ascii_case("all") {
+        sql.push_str(" AND ra.classification = ?");
+    }
+    sql.push_str(" GROUP BY r.seq, r.latitude, r.longitude ORDER BY r.seq DESC");
+    sql
+}
 
-    let rows: Vec<my::Row> = if classification.eq_ignore_ascii_case("all") {
-        conn.exec(sql, ())?
-    } else {
-        conn.exec(sql, (classification,))?
-    };
-
-    let mut out: Vec<ReportPoint> = Vec::with_capacity(rows.len());
+fn query_report_points<Q: Queryable>(
+    conn: &mut Q,
+    classification: &str,
+    ids: Option<&[i64]>,
+) -> Result<Vec<ReportPoint>> {
+    if ids.is_some_and(|ids| ids.is_empty()) {
+        return Ok(Vec::new());
+    }
+    let mut params: Vec<my::Value> = ids
+        .unwrap_or_default()
+        .iter()
+        .map(|id| (*id).into())
+        .collect();
+    if !classification.eq_ignore_ascii_case("all") {
+        params.push(classification.into());
+    }
+    let rows: Vec<my::Row> = conn.exec(
+        point_query(classification, ids.map(<[i64]>::len)),
+        my::Params::Positional(params),
+    )?;
+    let mut out = Vec::with_capacity(rows.len());
     for mut row in rows {
-        let seq: i64 = row.take::<i64, _>(0).unwrap_or(0);
-        let severity_level: f64 = row.take::<Option<f64>, _>(1).unwrap_or(None).unwrap_or(0.0);
-        let latitude: f64 = row.take::<Option<f64>, _>(2).unwrap_or(None).unwrap_or(0.0);
-        let longitude: f64 = row.take::<Option<f64>, _>(3).unwrap_or(None).unwrap_or(0.0);
         out.push(ReportPoint {
-            seq,
-            severity_level,
-            latitude,
-            longitude,
+            seq: row.take::<i64, _>(0).unwrap_or(0),
+            severity_level: row.take::<Option<f64>, _>(1).unwrap_or(None).unwrap_or(0.0),
+            latitude: row.take::<Option<f64>, _>(2).unwrap_or(None).unwrap_or(0.0),
+            longitude: row.take::<Option<f64>, _>(3).unwrap_or(None).unwrap_or(0.0),
         });
     }
     Ok(out)
+}
+
+pub fn fetch_report_points(pool: &my::Pool, classification: &str) -> Result<Vec<ReportPoint>> {
+    query_report_points(&mut pool.get_conn()?, classification, None)
+}
+
+// Capture BEFORE the startup physical snapshot; a commit during that snapshot
+// will then be replayed by the incremental lane, never skipped by a later MAX.
+pub fn latest_policy_seq(pool: &my::Pool) -> Result<i64> {
+    Ok(pool.get_conn()?.query_first::<i64, _>(
+        "SELECT /*+ MAX_EXECUTION_TIME(5000) */ COALESCE(MAX(report_seq),0) FROM report_side_effect_policy",
+    )?.unwrap_or(0))
+}
+
+pub struct PhysicalRefreshDb(my::Conn);
+impl PhysicalRefreshDb {
+    pub fn connect() -> Result<Self> {
+        let cfg = crate::config::get_config();
+        let opts = my::OptsBuilder::new()
+            .ip_or_hostname(Some(cfg.db_host.clone()))
+            .tcp_port(cfg.db_port.parse().unwrap_or(3306))
+            .user(Some(cfg.db_user.clone()))
+            .pass(Some(cfg.db_password.clone()))
+            .db_name(Some(cfg.db_name.clone()))
+            .tcp_connect_timeout(Some(Duration::from_secs(5)))
+            .read_timeout(Some(Duration::from_secs(6)))
+            .write_timeout(Some(Duration::from_secs(5)));
+        let mut conn = my::Conn::new(opts)?;
+        // Bound metadata-lock waits too; MAX_EXECUTION_TIME alone does not.
+        // This is session-local and changes no tables, grants or global settings.
+        conn.query_drop("SET SESSION lock_wait_timeout=5")?;
+        Ok(Self(conn))
+    }
+}
+impl crate::quiet_refresh::PointSource for PhysicalRefreshDb {
+    fn policy_ids_after(&mut self, after: i64, limit: usize) -> Result<Vec<i64>> {
+        Ok(self.0.exec(
+            "SELECT /*+ MAX_EXECUTION_TIME(5000) */ report_seq FROM report_side_effect_policy FORCE INDEX (PRIMARY) WHERE report_seq > ? ORDER BY report_seq LIMIT ?",
+            (after, limit as u64),
+        )?)
+    }
+    fn recent_policy_ids(&mut self, limit: usize) -> Result<Vec<i64>> {
+        Ok(self.0.exec(
+            "SELECT /*+ MAX_EXECUTION_TIME(5000) */ report_seq FROM report_side_effect_policy FORCE INDEX (PRIMARY) ORDER BY report_seq DESC LIMIT ?",
+            (limit as u64,),
+        )?)
+    }
+    fn points(&mut self, ids: &[i64]) -> Result<Vec<ReportPoint>> {
+        anyhow::ensure!(
+            ids.len() <= crate::quiet_refresh::QUERY_CHUNK,
+            "refresh chunk bound"
+        );
+        query_report_points(&mut self.0, "physical", Some(ids))
+    }
 }
 
 pub fn fetch_report_with_analysis(pool: &my::Pool, seq: i64) -> Result<ReportWithAnalysis> {
@@ -419,3 +495,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "quiet_mysql_tests.rs"]
+mod quiet_mysql_tests;

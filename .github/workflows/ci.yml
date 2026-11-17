@@ -347,7 +347,7 @@ jobs:
           cargo test --manifest-path news-indexer/Cargo.toml --locked --lib --bin analyzer_twitter --test shutdown_process
       - name: Rust HTTP and consumer graceful shutdown
         run: |
-          cargo test --manifest-path report-fast-renderer/Cargo.toml --locked shutdown::tests
+          cargo test --manifest-path report-fast-renderer/Cargo.toml --locked
           cargo test --manifest-path report-listener-v4/Cargo.toml --locked shutdown
           cargo test --manifest-path replier-twitter/Cargo.toml --locked shutdown::tests
           cargo test --manifest-path report-fast-renderer/vendor/cleanapp_rustlib/Cargo.toml --locked shutdown_tests
