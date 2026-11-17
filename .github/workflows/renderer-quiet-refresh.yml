@@ -26,6 +26,8 @@ jobs:
     name: Quiet renderer bounded MySQL 8.0.44
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      RENDERER_FIXTURE_NAME: renderer-quiet-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -39,8 +41,8 @@ jobs:
       - name: Start disposable loopback-only MySQL fixture
         run: |
           docker pull mysql:8.0.44
-          docker run --detach --name renderer-quiet-mysql \
-            --label cleanapp.renderer.quiet.fixture=true \
+          docker run --detach --name "$RENDERER_FIXTURE_NAME" \
+            --label "cleanapp.renderer.quiet.fixture=$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
             --publish 127.0.0.1::3306 \
             --memory 1g --memory-swap 1g --cpus 1 --pids-limit 256 \
             --tmpfs /var/lib/mysql:rw,nosuid,nodev,size=768m \
@@ -48,23 +50,23 @@ jobs:
             --env MYSQL_DATABASE=cleanapp_renderer_quiet_test \
             mysql:8.0.44 --innodb-buffer-pool-size=128M --performance-schema=OFF
           for attempt in $(seq 1 60); do
-            if docker exec renderer-quiet-mysql sh -c \
+            if docker exec "$RENDERER_FIXTURE_NAME" sh -c \
               'test "$(cat /proc/1/comm)" = mysqld && mysql --protocol=socket -uroot cleanapp_renderer_quiet_test --batch --skip-column-names -e "SELECT 1"' \
               >/dev/null 2>&1; then
-              port=$(docker inspect --format '{{(index (index .NetworkSettings.Ports "3306/tcp") 0).HostPort}}' renderer-quiet-mysql)
+              port=$(docker inspect --format '{{(index (index .NetworkSettings.Ports "3306/tcp") 0).HostPort}}' "$RENDERER_FIXTURE_NAME")
               case "$port" in ''|*[!0-9]*) exit 1;; esac
               echo "CLEANAPP_RENDERER_QUIET_MYSQL_URL=mysql://root@127.0.0.1:$port/cleanapp_renderer_quiet_test" >> "$GITHUB_ENV"
               exit 0
             fi
             sleep 1
           done
-          docker logs --tail 60 renderer-quiet-mysql
+          docker logs --tail 60 "$RENDERER_FIXTURE_NAME"
           exit 1
       - name: Actual SQL filters, covering plans and 441k-row synthetic budget
         run: cargo test --manifest-path report-fast-renderer/Cargo.toml --locked quiet_mysql_tests::bounded_refresh_mysql_contracts -- --ignored --nocapture
       - name: Remove only this labelled disposable fixture
         if: always()
         run: |
-          docker ps --all --quiet --filter 'name=^/renderer-quiet-mysql$' \
-            --filter label=cleanapp.renderer.quiet.fixture=true \
+          docker ps --all --quiet --filter "name=^/$RENDERER_FIXTURE_NAME$" \
+            --filter "label=cleanapp.renderer.quiet.fixture=$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
             | xargs --no-run-if-empty docker rm --force
