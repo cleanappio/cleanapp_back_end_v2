@@ -39,6 +39,7 @@ func (s *Service) startInboxWorker(ctx context.Context) {
 	go func() {
 		defer s.wg.Done()
 		log.Printf("inbox worker started: mailbox=%s every=%s lookback=%s", cfg.InboxUser, interval, cfg.InboxLookback)
+		var lastSilencePass time.Time
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
@@ -50,6 +51,14 @@ func (s *Service) startInboxWorker(ctx context.Context) {
 			}
 			if err != nil && ctx.Err() == nil {
 				log.Printf("warn: inbox worker: %v", err)
+			}
+			// Only a complete read of the inbox can show that nothing came back.
+			// The waiting period is days, so one silence pass an hour is enough.
+			if now := time.Now().UTC(); err == nil && now.Sub(lastSilencePass) >= time.Hour {
+				silenceCtx, cancelSilence := context.WithTimeout(ctx, interval)
+				s.recordSilence(silenceCtx, now)
+				cancelSilence()
+				lastSilencePass = now
 			}
 			select {
 			case <-ctx.Done():

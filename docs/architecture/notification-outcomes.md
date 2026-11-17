@@ -287,7 +287,8 @@ must not be routed to companies.
 | 2 Viewed links | code merged, flag off | #198, plus the site forward in `cleanapp-frontend` #58 | `VIEW_TRACKING_ENABLED` unset |
 | 3 Timeline | code merged, no flag (empty until outcomes exist) | #199, plus `ReceiptStatus` in `cleanapp-frontend` #59 | not yet deployed |
 | 4 Merge by issue | not started | | |
-| 5 Escalation on silence | not started (needs outcomes from 1b and 2) | | |
+| 5a Silence (`no_response`) | code written, flag off | this PR | not yet deployed; `ESCALATION_ENABLED` unset |
+| 5b Next route after silence | not started (needs routes with a second contact, phase 6) | | |
 | 6 Route coverage | not started | | |
 
 ### What 1a changed
@@ -385,6 +386,32 @@ to match them later starts accumulating.
    mailbox you control, reply to it, and within one poll interval
    `SELECT result, COUNT(*) FROM inbox_messages GROUP BY result` shows a
    `replied` row and the report's public timeline shows "Replied".
+
+### What 5a changed
+
+- `report-listener/database/notification_silence.go`: `SilenceCandidates`
+  lists notifications past the waiting period; `RecordNoResponse` writes one
+  `no_response` row per report the notification carried, unless a `bounced`,
+  `viewed`, `acknowledged`, `replied` or `unsubscribed` outcome exists for it
+  or it was recorded before. An absence notice does not count as a response.
+  It adds one to `contact_endpoint_memory.no_response_count` for the address.
+- A `no_response` row looks like: `source_type='silence'`,
+  `source_ref=<notification id>`, `evidence_json` holding
+  `waiting_working_days` and `notification_id`. It is in the public timeline.
+- `report-listener/service/silence_worker.go` runs at most once an hour and
+  only straight after an inbox pass that completed without error.
+- **A notification is judged only if a reply to it would have been seen**: it
+  was sent no earlier than `INBOX_LOOKBACK` before the inbox worker's first
+  handled message. Notifications older than that, and everything while the
+  inbox worker has handled nothing, are never marked. Without this rule,
+  turning the flag on would mark every past notification as unanswered,
+  including ones that were answered by email before the inbox was read.
+- Working days are Monday to Friday; public holidays are not known.
+- Config: `ESCALATION_ENABLED` (default `false`) and
+  `ESCALATION_WAIT_WORKING_DAYS` (default `5`). It needs 1b running.
+- Not in this change: sending to a second contact (5b). Every verified route
+  has one address today, so there is nobody to send to until phase 6 adds
+  reviewed second contacts.
 
 ### What 2 changed
 

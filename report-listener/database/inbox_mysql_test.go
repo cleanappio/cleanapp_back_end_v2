@@ -166,4 +166,73 @@ func TestInboxMessagesMySQLFixture(t *testing.T) {
 	if n := count(`SELECT COUNT(*) FROM inbox_messages WHERE notification_id IS NULL AND result IN ('unmatched','unparseable')`); n != 2 {
 		t.Fatalf("unmatched mail is still remembered as handled: %d", n)
 	}
+
+	// Silence. The inbox worker's first handled message here was processed
+	// "now" (the rows above), so with a 30-day lookback every notification in
+	// this fixture is one whose reply would have been seen.
+	lookback := 30 * 24 * time.Hour
+	for _, query := range []string{
+		// quiet: sent long ago, nothing back. recent: inside the waiting period.
+		// viewed: a link was followed. away: only an absence notice came back.
+		`INSERT INTO notification_messages (notification_id, provider_message_id, recipient_email, company_key, sent_at) VALUES
+		 ('aaaaaaaaaaaaaaaa','q@mail','Quiet@Example.com','example', NOW() - INTERVAL 20 DAY),
+		 ('bbbbbbbbbbbbbbbb','r@mail','recent@example.com','example', NOW() - INTERVAL 1 DAY),
+		 ('cccccccccccccccc','v@mail','viewed@example.com','example', NOW() - INTERVAL 20 DAY),
+		 ('dddddddddddddddd','o@mail','away@example.com','example', NOW() - INTERVAL 20 DAY)`,
+		`INSERT INTO notification_message_reports VALUES ('aaaaaaaaaaaaaaaa',1),('aaaaaaaaaaaaaaaa',2),('aaaaaaaaaaaaaaaa',3),('bbbbbbbbbbbbbbbb',1),('cccccccccccccccc',1),('dddddddddddddddd',2)`,
+		`INSERT INTO notify_outcomes (subject_kind, subject_ref, endpoint_key, outcome_type, source_type, source_ref) VALUES
+		 ('report','rpt_one','viewed@example.com','viewed','notification_link','cccccccccccccccc'),
+		 ('report','rpt_two','away@example.com','out_of_office','inbox','dddddddddddddddd')`,
+	} {
+		if _, err := db.Exec(query); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Now().UTC()
+	cutoff := AddWorkingDays(now, -5)
+	candidates, err := d.SilenceCandidates(ctx, cutoff, lookback)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Old enough and inside the scan window: quiet, viewed, away, plus the two
+	// notifications dated 2026-11-10/11 above when those are in the window.
+	listed := map[string]bool{}
+	for _, id := range candidates {
+		listed[id] = true
+	}
+	if !listed["aaaaaaaaaaaaaaaa"] || !listed["cccccccccccccccc"] || !listed["dddddddddddddddd"] || listed["bbbbbbbbbbbbbbbb"] {
+		t.Fatalf("candidates=%v: everything past the waiting period, nothing inside it", candidates)
+	}
+	if narrow, err := d.SilenceCandidates(ctx, cutoff, time.Hour); err != nil || len(narrow) != 0 {
+		t.Fatalf("notifications sent before the inbox was being read must not be judged: %v err=%v", narrow, err)
+	}
+	if written, err := d.RecordNoResponse(ctx, "aaaaaaaaaaaaaaaa", 5, now); err != nil || written != 2 {
+		t.Fatalf("one row per public report carried: written=%d err=%v", written, err)
+	}
+	if again, err := d.RecordNoResponse(ctx, "aaaaaaaaaaaaaaaa", 5, now); err != nil || again != 0 {
+		t.Fatalf("a repeat must write nothing: written=%d err=%v", again, err)
+	}
+	if n := count(`SELECT COUNT(*) FROM notify_outcomes WHERE outcome_type='no_response' AND source_type='silence' AND source_ref='aaaaaaaaaaaaaaaa' AND endpoint_key='quiet@example.com' AND JSON_EXTRACT(evidence_json,'$.waiting_working_days')=5`); n != 2 {
+		t.Fatalf("no_response rows=%d", n)
+	}
+	quietMemory, err := d.GetContactEndpointMemory(ctx, "email:quiet@example.com")
+	if err != nil || quietMemory == nil || quietMemory.NoResponseCount != 1 || quietMemory.LastResult != "no_response" {
+		t.Fatalf("memory=%+v err=%v", quietMemory, err)
+	}
+	// A followed link, a bounce or an acknowledgement means it is not silence.
+	for _, answered := range []string{"cccccccccccccccc", "0123456789abcdef"} {
+		if written, err := d.RecordNoResponse(ctx, answered, 5, now); err != nil || written != 0 {
+			t.Fatalf("%s got something back: written=%d err=%v", answered, written, err)
+		}
+	}
+	// An absence notice is not a response.
+	if written, err := d.RecordNoResponse(ctx, "dddddddddddddddd", 5, now); err != nil || written != 1 {
+		t.Fatalf("an absence notice does not stop no_response: written=%d err=%v", written, err)
+	}
+	if written, err := d.RecordNoResponse(ctx, "0000000000000000", 5, now); err != nil || written != 0 {
+		t.Fatalf("unknown notification: written=%d err=%v", written, err)
+	}
+	if timeline, err := d.ReportOutcomeTimeline(ctx, "rpt_two"); err != nil || len(timeline) == 0 || timeline[len(timeline)-1].Type != "no_response" {
+		t.Fatalf("no_response is published on the report timeline: %+v err=%v", timeline, err)
+	}
 }
