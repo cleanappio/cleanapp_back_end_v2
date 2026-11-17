@@ -27,3 +27,13 @@ jobs:
           probe "https://renderer.cleanapp.io/api/v4/reports/hotspots?limit=5"; head -c 400 /tmp/body; echo
           probe "https://renderer.cleanapp.io/api/v4/reports/points?classification=physical"
           probe "https://renderer.cleanapp.io/api/v4/brands/summary?classification=digital&lang=en"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Open the public map in a browser and report its data requests
+        run: |
+          mkdir -p "$RUNNER_TEMP/check" && cd "$RUNNER_TEMP/check"
+          npm init -y >/dev/null && npm install --no-audit --no-fund playwright@1.56.1 >/dev/null
+          npx playwright install --with-deps chromium >/dev/null
+          cp "$GITHUB_WORKSPACE/.github/probe/map-check.cjs" . && node map-check.cjs
