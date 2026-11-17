@@ -283,11 +283,11 @@ must not be routed to companies.
 | --- | --- | --- | --- |
 | 0 Reply library | done | #196 | not applicable (library only) |
 | 1a Reply addresses and `notification_messages` | code merged, flag off | #197 | not yet deployed; `REPLY_TRACKING_ENABLED` unset |
-| 1b Inbox worker | code written, flag off; turning it on needs mailbox access (section 10) | this PR | not yet deployed; `INBOX_ENABLED` unset |
+| 1b Inbox worker | code merged, flag off; turning it on needs mailbox access (section 10) | #227 | not yet deployed; `INBOX_ENABLED` unset |
 | 2 Viewed links | code merged, flag off | #198, plus the site forward in `cleanapp-frontend` #58 | `VIEW_TRACKING_ENABLED` unset |
 | 3 Timeline | code merged, no flag (empty until outcomes exist) | #199, plus `ReceiptStatus` in `cleanapp-frontend` #59 | not yet deployed |
 | 4 Merge by issue | not started | | |
-| 5a Silence (`no_response`) | code written, flag off | this PR | not yet deployed; `ESCALATION_ENABLED` unset |
+| 5a Silence (`no_response`) | code written, flag off | #228 | not yet deployed; `ESCALATION_ENABLED` unset |
 | 5b Next route after silence | not started (needs routes with a second contact, phase 6) | | |
 | 6 Route coverage | not started | | |
 
