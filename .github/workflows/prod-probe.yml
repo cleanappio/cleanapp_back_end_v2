@@ -1,6 +1,6 @@
 name: Probe public production endpoints (read-only)
 
-# Temporary diagnostic on this branch only: GETs CleanApp's own public API, changes nothing.
+# Temporary diagnostic on this branch only: reads one of CleanApp's own public pages, changes nothing.
 on:
   push:
     branches: [claude/prod-probe]
@@ -11,7 +11,14 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - run: python3 .github/probe/brand_reports.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: |
+          mkdir -p "$RUNNER_TEMP/check" && cd "$RUNNER_TEMP/check"
+          npm init -y >/dev/null && npm install --no-audit --no-fund playwright@latest >/dev/null
+          npx playwright install --with-deps chromium >/dev/null
+          cp "$GITHUB_WORKSPACE/.github/probe/page-text.cjs" . && node page-text.cjs
