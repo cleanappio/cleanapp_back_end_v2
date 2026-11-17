@@ -282,7 +282,7 @@ must not be routed to companies.
 | Phase | State | PR | Deployed |
 | --- | --- | --- | --- |
 | 0 Reply library | done | #196 | not applicable (library only) |
-| 1a Reply addresses and `notification_messages` | on by default (see "2026-11-18" below) | #197 | in the build deployed 2026-11-12, off until this change is released |
+| 1a Reply addresses and `notification_messages` | on by default (see "2026-11-17" below) | #197 | in the build deployed 2026-11-12, off until this change is released |
 | 1b Inbox worker | code merged, flag off; turning it on needs mailbox access (section 10) | #227 | not yet deployed; `INBOX_ENABLED` unset |
 | 2 Viewed links | on by default once a link is seen to resolve | #198, plus the site forward in `cleanapp-frontend` #58 | endpoint live; links off until this change is released |
 | 3 Timeline | code merged, no flag (empty until outcomes exist) | #199, plus `ReceiptStatus` in `cleanapp-frontend` #59 | not yet deployed |
@@ -316,7 +316,7 @@ must not be routed to companies.
   one error, keeps tracking off and sends normally. Tracking can never stop
   or fail a notification.
 
-### 2026-11-18: reply and view tracking no longer need host changes
+### 2026-11-17: reply and view tracking no longer need host changes
 
 Both stayed off for one reason: someone had to put `REPLY_TOKEN_SECRET` on the
 host for two services and set two flags. That is now unnecessary.
