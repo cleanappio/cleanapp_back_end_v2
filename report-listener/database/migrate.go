@@ -55,6 +55,7 @@ func RunMigrations(ctx context.Context, db *sql.DB) error {
 		{ID: "0034_report_extra_images", Description: "create storage for photos 2 to 4 of a report", Up: ensureReportExtraImagesTable},
 		{ID: "0035_report_outcomes", Description: "create durable agent review decisions and publication intents", Up: reportoutcome.Migrate},
 		{ID: "0036_sf311_source_ledgers", Description: "create case-based SF311 import provenance and media ledgers", Up: sf311import.Migrate},
+		{ID: "0037_inbox_messages", Description: "create the handled-once ledger for inbound notification replies", Up: ensureInboxMessagesTable},
 	})
 }
 

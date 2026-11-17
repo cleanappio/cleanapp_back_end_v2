@@ -283,7 +283,7 @@ must not be routed to companies.
 | --- | --- | --- | --- |
 | 0 Reply library | done | #196 | not applicable (library only) |
 | 1a Reply addresses and `notification_messages` | code merged, flag off | #197 | not yet deployed; `REPLY_TRACKING_ENABLED` unset |
-| 1b Inbox worker | blocked on mailbox access (section 10) | | |
+| 1b Inbox worker | code written, flag off; turning it on needs mailbox access (section 10) | this PR | not yet deployed; `INBOX_ENABLED` unset |
 | 2 Viewed links | code merged, flag off | #198, plus the site forward in `cleanapp-frontend` #58 | `VIEW_TRACKING_ENABLED` unset |
 | 3 Timeline | code merged, no flag (empty until outcomes exist) | #199, plus `ReceiptStatus` in `cleanapp-frontend` #59 | not yet deployed |
 | 4 Merge by issue | not started | | |
@@ -329,6 +329,62 @@ must not be routed to companies.
 Turning it on before the inbox worker exists is harmless and useful: replies
 still arrive in `info@cleanapp.io` exactly as today, and the mapping needed
 to match them later starts accumulating.
+
+### What 1b changed
+
+- `report-listener/inbox`: `Parse` reads a raw message (bounded: 64 KB of
+  text, four MIME levels); `Handle` matches it to a notification and
+  classifies it with `mailreply`; `Poll` runs one pass over the mailbox;
+  `Gmail` is the read-only mailbox reader (service account, the single
+  `gmail.readonly` scope, acting as `INBOX_USER` only).
+- Matching: the signed reply address first (`mailreply.FindID`). If there is
+  none, an exact `In-Reply-To`, `References` or returned `Message-ID` match
+  against `notification_messages.provider_message_id`, which is how a bounce
+  is matched. Anything else is recorded as `unmatched` with no outcome.
+- `report-listener/database/inbox.go`: migration `0037_inbox_messages`
+  creates `inbox_messages` (one row per handled mailbox message).
+  `RecordInboxMessage` writes that row, one `notify_outcomes` row per report
+  the notification carried, and an opt-out for an unsubscribe, in one
+  transaction. A repeat changes nothing. It then updates
+  `contact_endpoint_memory` for bounces and acknowledgements (permanent
+  bounce: 14-day cool-down; acknowledgement: 72 hours, as on the case path).
+- An inbound row in `notify_outcomes` looks like: `subject_kind='report'`,
+  `subject_ref=<public id>`, `endpoint_key=<recipient address>`,
+  `source_type='inbox'`, `source_ref=<notification id>`, `recorded_at=<time
+  the mailbox received it>`. `evidence_json` holds `kind`, `notification_id`,
+  `mailbox_message_id`, `from_recipient_domain`, and when present
+  `status_code`, `permanent`, `ticket_ref`. It never holds message text or a
+  sender address.
+- Outcome types written: `bounced`, `acknowledged`, `out_of_office`,
+  `replied`, and `unsubscribed` (internal; not in the public timeline).
+- Config (`report-listener/config/config.go`):
+
+  | Variable | Default | Meaning |
+  | --- | --- | --- |
+  | `INBOX_ENABLED` | `false` | Start the inbox worker. |
+  | `INBOX_CREDENTIALS_FILE` | none | Path of the service-account JSON key (section 10). |
+  | `INBOX_USER` | `info@cleanapp.io` | The one mailbox read. |
+  | `INBOX_POLL_INTERVAL` | `2m` | Time between passes (30 seconds at least). |
+  | `INBOX_LOOKBACK` | `72h` | How far back each pass lists. Handled messages are skipped, so an outage shorter than this loses nothing. |
+
+  It also needs `REPLY_TOKEN_SECRET` (the same value as `email-service`).
+  With the flag on and the secret, the file or the key missing or unreadable,
+  the worker logs one error and stays off; the service starts normally.
+- Only the Gmail API reader exists. The IMAP app-password alternative in
+  section 10 is not implemented.
+
+### Turning 1b on
+
+1. Do section 10 (a human, once). Mount the key file into the
+   `report-listener` container.
+2. 1a must be on first: with no `notification_messages` rows there is
+   nothing to match a reply to.
+3. Release `report-listener` with migrations (not `skip_migrations`), then set
+   `INBOX_ENABLED=true`, `INBOX_CREDENTIALS_FILE` and `REPLY_TOKEN_SECRET`.
+4. Check: the log shows `inbox worker started`; send a test notification to a
+   mailbox you control, reply to it, and within one poll interval
+   `SELECT result, COUNT(*) FROM inbox_messages GROUP BY result` shows a
+   `replied` row and the report's public timeline shows "Replied".
 
 ### What 2 changed
 
