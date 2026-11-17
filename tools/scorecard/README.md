@@ -22,12 +22,14 @@ with any account (see below), so this is a second lock, not the only one.
 python3 tools/scorecard/scorecard.py run --mysql 'mysql --defaults-extra-file=/path/readonly.cnf cleanapp'
 ```
 
-When the database runs in a container and its own environment holds the
-credentials, let the container supply them:
+On the production host the database container keeps a read-only account,
+`importer` (`db/init.sql` grants it `SELECT` only; `db/set_passwords.sh` sets
+its password from `MYSQL_READER_PASSWORD`). Let the container supply the
+password from its own environment:
 
 ```bash
 python3 tools/scorecard/scorecard.py run \
-  --mysql "docker exec -i cleanapp_db sh -c 'MYSQL_PWD=\"\$MYSQL_ROOT_PASSWORD\" exec mysql -uroot cleanapp'"
+  --mysql "docker exec -i cleanapp_db sh -c 'MYSQL_PWD=\"\$MYSQL_READER_PASSWORD\" exec mysql -uimporter cleanapp'"
 ```
 
 Never put a password in the command. It would be visible to other processes
