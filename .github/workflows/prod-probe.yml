@@ -1,6 +1,6 @@
 name: Probe public production endpoints (read-only)
 
-# Temporary diagnostic on this branch only: GETs CleanApp's own public URLs, changes nothing.
+# Temporary diagnostic on this branch only: GETs CleanApp's own public API, changes nothing.
 on:
   push:
     branches: [claude/prod-probe]
@@ -13,7 +13,5 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - run: |
-          for u in https://live.cleanapp.io/version https://email.cleanapp.io/version https://live.cleanapp.io/api/v3/reports/health https://www.cleanapp.io/uptime.json; do
-            echo "VER $u -> $(curl -sS -o /tmp/b -w '%{http_code}' --max-time 20 "$u") $(head -c 420 /tmp/b | tr -d '\n')"
-          done
+      - uses: actions/checkout@v4
+      - run: python3 .github/probe/brand_reports.py
