@@ -1,6 +1,6 @@
 name: Probe public production endpoints (read-only)
 
-# Temporary diagnostic on this branch only: GETs public URLs, changes nothing.
+# Temporary diagnostic on this branch only: GETs CleanApp's own public URLs, changes nothing.
 on:
   push:
     branches: [claude/prod-probe]
@@ -14,14 +14,6 @@ jobs:
     timeout-minutes: 5
     steps:
       - run: |
-          curl -sS --compressed --max-time 60 -o /tmp/brands.json "https://renderer.cleanapp.io/api/v4/brands/summary?classification=digital&lang=en"
-          python3 - <<'PY'
-          import json
-          rows = json.load(open('/tmp/brands.json'))
-          rows.sort(key=lambda r: -r.get('total', 0))
-          print('BRANDS total_brands=%d total_reports=%d' % (len(rows), sum(r.get('total', 0) for r in rows)))
-          for i, r in enumerate(rows[:60], 1):
-              print('BRAND %d\t%s\t%s\t%d' % (i, r.get('brand_name'), r.get('brand_display_name'), r.get('total', 0)))
-          for threshold in (1000, 100, 10):
-              print('BRANDS with>=%d: %d covering %d reports' % (threshold, sum(1 for r in rows if r.get('total', 0) >= threshold), sum(r.get('total', 0) for r in rows if r.get('total', 0) >= threshold)))
-          PY
+          for u in https://live.cleanapp.io/version https://email.cleanapp.io/version https://live.cleanapp.io/api/v3/reports/health https://www.cleanapp.io/uptime.json; do
+            echo "VER $u -> $(curl -sS -o /tmp/b -w '%{http_code}' --max-time 20 "$u") $(head -c 420 /tmp/b | tr -d '\n')"
+          done
