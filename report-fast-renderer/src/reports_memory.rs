@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     io,
     sync::{Arc, RwLock},
 };
@@ -10,8 +10,87 @@ use crate::db;
 use crate::model::{BrandSummaryItem, ReportPoint, ReportWithAnalysis};
 use cleanapp_rustlib::rabbitmq::subscriber::{permanent, Callback, Message};
 
+/// A refresh records queue writes while SQL runs outside this lock. Even a
+/// removal of an absent point is a tombstone: an older SQL result must not
+/// resurrect it. The fence is bounded to one nonoverlapping refresh cycle.
+#[derive(Default)]
+pub struct PhysicalReports {
+    points: BTreeMap<i64, ReportPoint>,
+    queue_writes: Option<BTreeSet<i64>>,
+}
+impl PhysicalReports {
+    pub fn insert(&mut self, seq: i64, point: ReportPoint) {
+        if let Some(writes) = &mut self.queue_writes {
+            writes.insert(seq);
+        }
+        self.points.insert(seq, point);
+    }
+    pub fn remove(&mut self, seq: &i64) {
+        if let Some(writes) = &mut self.queue_writes {
+            writes.insert(*seq);
+        }
+        self.points.remove(seq);
+    }
+    pub fn values(&self) -> impl Iterator<Item = &ReportPoint> {
+        self.points.values()
+    }
+    pub fn len(&self) -> usize {
+        self.points.len()
+    }
+    pub fn keys_after(&self, after: i64, limit: usize) -> Vec<i64> {
+        use std::ops::Bound::{Excluded, Unbounded};
+        self.points
+            .range((Excluded(after), Unbounded))
+            .take(limit)
+            .map(|(&seq, _)| seq)
+            .collect()
+    }
+    pub fn begin_refresh(&mut self) -> anyhow::Result<()> {
+        anyhow::ensure!(self.queue_writes.is_none(), "overlapping physical refresh");
+        self.queue_writes = Some(BTreeSet::new());
+        Ok(())
+    }
+    pub fn cancel_refresh(&mut self) {
+        self.queue_writes = None;
+    }
+    pub fn finish_refresh(&mut self, ids: &[i64], rows: Vec<ReportPoint>) -> anyhow::Result<usize> {
+        let requested: BTreeSet<_> = ids.iter().copied().collect();
+        let mut selected = BTreeMap::new();
+        for point in rows {
+            anyhow::ensure!(requested.contains(&point.seq), "unexpected refresh point");
+            anyhow::ensure!(
+                !selected.contains_key(&point.seq),
+                "duplicate refresh point"
+            );
+            anyhow::ensure!(
+                has_map_location(point.latitude, point.longitude),
+                "invalid refresh location"
+            );
+            selected.insert(point.seq, point);
+        }
+        let writes = self
+            .queue_writes
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("refresh fence missing"))?;
+        let mut applied = 0;
+        for id in ids {
+            if writes.contains(id) {
+                continue;
+            }
+            if let Some(point) = selected.remove(id) {
+                self.points.insert(*id, point);
+            } else {
+                self.points.remove(id);
+            }
+            applied += 1;
+        }
+        Ok(applied)
+    }
+}
+
 pub struct InMemoryReports {
-    physical_content: Arc<RwLock<BTreeMap<i64, ReportPoint>>>,
+    physical_content: Arc<RwLock<PhysicalReports>>,
+    pub refresh_status: Arc<RwLock<crate::quiet_refresh::RefreshStatus>>,
     digital_content: Arc<RwLock<BTreeMap<String, BrandSummaryItem>>>,
     pool: my::Pool,
 }
@@ -19,7 +98,8 @@ pub struct InMemoryReports {
 impl InMemoryReports {
     pub async fn new(pool: my::Pool) -> Self {
         Self {
-            physical_content: Arc::new(RwLock::new(BTreeMap::new())),
+            physical_content: Arc::new(RwLock::new(PhysicalReports::default())),
+            refresh_status: Arc::new(RwLock::new(crate::quiet_refresh::RefreshStatus::default())),
             digital_content: Arc::new(RwLock::new(BTreeMap::new())),
             pool,
         }
@@ -27,7 +107,7 @@ impl InMemoryReports {
     pub fn get_digital_content(&self) -> Arc<RwLock<BTreeMap<String, BrandSummaryItem>>> {
         self.digital_content.clone()
     }
-    pub fn get_physical_content(&self) -> Arc<RwLock<BTreeMap<i64, ReportPoint>>> {
+    pub fn get_physical_content(&self) -> Arc<RwLock<PhysicalReports>> {
         self.physical_content.clone()
     }
 }
@@ -56,7 +136,7 @@ impl Callback for InMemoryReports {
                     a.brand_display_name.as_str(),
                 )
             })
-            .last()
+            .next_back()
             .unwrap_or(("", 0f64, "", ""));
 
         match classification {

@@ -20,9 +20,7 @@ impl FastRendererSubscriber {
         );
 
         let subscriber = Subscriber::new(&amqp_url, exchange_name, queue_name).await?;
-        Ok(Self {
-            subscriber: subscriber,
-        })
+        Ok(Self { subscriber })
     }
 
     pub async fn start_listening(

@@ -191,6 +191,7 @@ pub async fn get_stats_info(
     let physical_map = reports_memory.get_physical_content();
     let digital_map = reports_memory.get_digital_content();
     let stats = serde_json::json!({
+        "physical_map_refresh": reports_memory.refresh_status.read().map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to access refresh status".to_string()))?.clone(),
         "total_physical_reports": {
             "count": physical_map.read().map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to access reports memory".to_string()))?.len(),
         },

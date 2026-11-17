@@ -1,0 +1,70 @@
+name: Quiet renderer MySQL contracts
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'report-fast-renderer/**'
+      - 'rust-common/**'
+      - '.github/workflows/renderer-quiet-refresh.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'report-fast-renderer/**'
+      - 'rust-common/**'
+      - '.github/workflows/renderer-quiet-refresh.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quiet-renderer-mysql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mysql-contracts:
+    name: Quiet renderer bounded MySQL 8.0.44
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: report-fast-renderer -> target
+      - name: Install build dependencies
+        run: sudo apt-get update -qq && sudo apt-get install -y pkg-config libssl-dev
+      - name: Compile exact production SQL contracts before starting fixture
+        run: cargo test --manifest-path report-fast-renderer/Cargo.toml --locked --no-run
+      - name: Start disposable loopback-only MySQL fixture
+        run: |
+          docker pull mysql:8.0.44
+          docker run --detach --name renderer-quiet-mysql \
+            --label cleanapp.renderer.quiet.fixture=true \
+            --publish 127.0.0.1::3306 \
+            --memory 1g --memory-swap 1g --cpus 1 --pids-limit 256 \
+            --tmpfs /var/lib/mysql:rw,nosuid,nodev,size=768m \
+            --env MYSQL_ALLOW_EMPTY_PASSWORD=yes \
+            --env MYSQL_DATABASE=cleanapp_renderer_quiet_test \
+            mysql:8.0.44 --innodb-buffer-pool-size=128M --performance-schema=OFF
+          for attempt in $(seq 1 60); do
+            if docker exec renderer-quiet-mysql sh -c \
+              'test "$(cat /proc/1/comm)" = mysqld && mysql --protocol=socket -uroot cleanapp_renderer_quiet_test --batch --skip-column-names -e "SELECT 1"' \
+              >/dev/null 2>&1; then
+              port=$(docker inspect --format '{{(index (index .NetworkSettings.Ports "3306/tcp") 0).HostPort}}' renderer-quiet-mysql)
+              case "$port" in ''|*[!0-9]*) exit 1;; esac
+              echo "CLEANAPP_RENDERER_QUIET_MYSQL_URL=mysql://root@127.0.0.1:$port/cleanapp_renderer_quiet_test" >> "$GITHUB_ENV"
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs --tail 60 renderer-quiet-mysql
+          exit 1
+      - name: Actual SQL filters, covering plans and 441k-row synthetic budget
+        run: cargo test --manifest-path report-fast-renderer/Cargo.toml --locked quiet_mysql_tests::bounded_refresh_mysql_contracts -- --ignored --nocapture
+      - name: Remove only this labelled disposable fixture
+        if: always()
+        run: |
+          docker ps --all --quiet --filter 'name=^/renderer-quiet-mysql$' \
+            --filter label=cleanapp.renderer.quiet.fixture=true \
+            | xargs --no-run-if-empty docker rm --force
