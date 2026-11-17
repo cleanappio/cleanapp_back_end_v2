@@ -1,6 +1,6 @@
 name: Probe public production endpoints (read-only)
 
-# Temporary diagnostic on this branch only: loads public pages, changes nothing.
+# Temporary diagnostic on this branch only: GETs public URLs, changes nothing.
 on:
   push:
     branches: [claude/prod-probe]
@@ -11,20 +11,18 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 5
     steps:
       - run: |
-          for o in https://embed.cleanapp.io https://www.cleanapp.io https://cleanapp.io https://evil.example; do
-            echo "CORS areas from $o: $(curl -sS -o /tmp/b -D - --max-time 15 -H "Origin: $o" 'https://areas.cleanapp.io/api/v3/get_areas?sw_lat=47.36&sw_lon=8.52&ne_lat=47.38&ne_lon=8.55&type=poi' | grep -i -E '^(HTTP|access-control-allow-origin)' | tr '\r\n' '  ') bytes=$(wc -c < /tmp/b)"
+          for u in https://www.cleanapp.io/uptime.json https://cleanapp.io/uptime.json; do
+            echo "STATUS $u -> $(curl -sS -o /tmp/u.json -w '%{http_code} %{size_download}B' --compressed --max-time 20 "$u")"
+            python3 -c "
+          import json,sys
+          try:
+              d=json.load(open('/tmp/u.json'))
+          except Exception as e:
+              print('STATUS not json', e); sys.exit(0)
+          s=json.dumps(d)
+          for i in range(0,len(s),900): print('STATUSJSON', s[i:i+900])
+          "
           done
-          echo "CORS areas version: $(curl -sS --max-time 15 https://areas.cleanapp.io/version | head -c 300)"
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Open the mobile map in phone-sized browsers
-        run: |
-          mkdir -p "$RUNNER_TEMP/check" && cd "$RUNNER_TEMP/check"
-          npm init -y >/dev/null && npm install --no-audit --no-fund playwright@latest >/dev/null
-          npx playwright install --with-deps chromium webkit >/dev/null
-          cp "$GITHUB_WORKSPACE/.github/probe/map-check.cjs" . && node map-check.cjs
