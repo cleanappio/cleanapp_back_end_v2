@@ -1,6 +1,6 @@
 name: Probe public production endpoints (read-only)
 
-# Temporary diagnostic on this branch only: DNS lookups and GETs of public URLs, changes nothing.
+# Temporary diagnostic on this branch only: loads public pages, changes nothing.
 on:
   push:
     branches: [claude/prod-probe]
@@ -11,24 +11,15 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
-      - run: |
-          for h in embed.cleanapp.io www.embed.cleanapp.io www.cleanapp.io cleanapp.io renderer.cleanapp.io live.cleanapp.io api.cleanapp.io areas.cleanapp.io; do
-            for t in A AAAA CNAME; do
-              for ns in 1.1.1.1 8.8.8.8; do echo "DNS $h $t @$ns: $(dig +short +time=3 +tries=1 $t $h @$ns | tr '\n' ' ')"; done
-            done
-          done
-          echo "DNS NS cleanapp.io: $(dig +short NS cleanapp.io | tr '\n' ' ')"
-          for h in embed.cleanapp.io www.cleanapp.io live.cleanapp.io api.cleanapp.io areas.cleanapp.io; do
-            for ip in $(dig +short A $h @1.1.1.1); do
-              echo "TLS $h via $ip: $(curl -sS -o /dev/null -w 'http=%{http_code} connect=%{time_connect}s total=%{time_total}s verify=%{ssl_verify_result}' --max-time 15 --resolve $h:443:$ip https://$h/ 2>&1 | tail -1)"
-              echo "TLS $h cert: $(echo | openssl s_client -connect $ip:443 -servername $h 2>/dev/null | openssl x509 -noout -subject -issuer -enddate 2>/dev/null | tr '\n' ' ')"
-              echo "TLS $h chain-depth: $(echo | openssl s_client -connect $ip:443 -servername $h -showcerts 2>/dev/null | grep -c 'BEGIN CERTIFICATE') verify: $(echo | openssl s_client -connect $ip:443 -servername $h 2>&1 | grep 'Verify return code' | head -1)"
-              echo "TLS $h tls1.2: $(echo | openssl s_client -connect $ip:443 -servername $h -tls1_2 2>&1 | grep -E 'Protocol|Cipher is' | tr '\n' ' ')"
-            done
-            echo "HTTP $h plain: $(curl -sS -o /dev/null -w 'http=%{http_code} redirect=%{redirect_url}' --max-time 15 http://$h/ 2>&1 | tail -1)"
-          done
-          echo "CORS areas from embed: $(curl -sS -o /dev/null -D - --max-time 15 -H 'Origin: https://embed.cleanapp.io' 'https://areas.cleanapp.io/api/v3/get_areas?sw_lat=47.36&sw_lon=8.52&ne_lat=47.38&ne_lon=8.55&type=poi' | grep -i -E '^(HTTP|access-control)' | tr '\r\n' '  ')"
-          echo "CORS areas from www: $(curl -sS -o /dev/null -D - --max-time 15 -H 'Origin: https://www.cleanapp.io' 'https://areas.cleanapp.io/api/v3/get_areas?sw_lat=47.36&sw_lon=8.52&ne_lat=47.38&ne_lon=8.55&type=poi' | grep -i -E '^(HTTP|access-control)' | tr '\r\n' '  ')"
-          echo "CORS live from embed: $(curl -sS -o /dev/null -D - --max-time 15 -H 'Origin: https://embed.cleanapp.io' 'https://live.cleanapp.io/api/v3/reports/health' | grep -i -E '^(HTTP|access-control)' | tr '\r\n' '  ')"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Open the mobile map in phone-sized browsers
+        run: |
+          mkdir -p "$RUNNER_TEMP/check" && cd "$RUNNER_TEMP/check"
+          npm init -y >/dev/null && npm install --no-audit --no-fund playwright@latest >/dev/null
+          npx playwright install --with-deps chromium webkit >/dev/null
+          cp "$GITHUB_WORKSPACE/.github/probe/map-check.cjs" . && node map-check.cjs
