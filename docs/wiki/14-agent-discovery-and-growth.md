@@ -12,12 +12,14 @@ observation network. [Hybrid superintelligence](13-hybrid-superintelligence.md)
 | --- | --- | --- |
 | Public site | The homepage links to `/agents`. The guide links to `/agents.txt`. The sitemap lists the guide and the public crawler instructions advertise it. | Check the anonymous route from homepage to guide to machine instructions. Verify records against the deployed endpoint and public package versions. |
 | Tool catalogs and packages | The official MCP Registry returns the active CleanApp 1.1.0 entry by brand. The OpenClaw skill and CLI are published. The live, no-key MCP endpoint initialized and returned five tools. | Check catalog lookup, registered endpoint and live tool inventory from a fresh connection. Test where a host installs the tool and where the operator must configure it. |
+| Claude setup | The repository marketplace now includes a CleanApp plugin pointed at the same public MCP endpoint. | Verify installation and live tool selection from a clean Claude session. Check official directory placement separately. |
 | Brandless discovery | Sampled registry and web queries about reporting a problem or an accessibility barrier did not surface CleanApp. These are dated spot checks. | Repeat a small set of unbranded intent queries in selected search surfaces and supported hosts. Record query, surface, date, visibility and whether the result could be connected. |
 
 [Agent guide](https://www.cleanapp.io/agents) ·
 [Machine instructions](https://www.cleanapp.io/agents.txt) ·
 [Official MCP Registry lookup](https://registry.modelcontextprotocol.io/v0.1/servers?search=cleanapp&version=latest) ·
 [Published packages](https://github.com/cleanappio/cleanapp-agent001/blob/main/distribution/README.md) ·
+[Claude marketplace plugin](https://github.com/cleanappio/cleanapp_back_end_v2/pull/235) ·
 [Glama listing](https://glama.ai/mcp/connectors/io.github.cleanappio/cleanapp) ·
 [ProtocolProbe listing](https://protocolprobe.com/mcp/servers/io.github.cleanappio/cleanapp)
 
