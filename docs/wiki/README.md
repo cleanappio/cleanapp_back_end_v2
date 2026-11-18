@@ -43,10 +43,12 @@ corrected. Where the code is silent, the page says so.
 | [11 Scorecard](11-scorecard.md) | The numbers that say whether CleanApp works, where they stand, and the loop for improving them. |
 | [12 Notice, response and remediation](12-notice-and-remediation.md) | What notice can establish, why a party might fix silently, and how CleanApp can verify a change. |
 | [13 Hybrid superintelligence](13-hybrid-superintelligence.md) | How people, agents, and institutions learn from each handoff and how to test that learning. |
+| [14 Agent discovery, reporting and growth](14-agent-discovery-and-growth.md) | How agents find and use CleanApp, how repeat use is measured, and which teams keep the work moving. |
 | [Glossary](glossary.md) | Terms, including the 2018 vocabulary. |
 
 Start with pages 01 and 13 for the thesis and learning loop. Pages 12 and 11
-cover incentives and measurement.
+cover incentives and measurement. Page 14 covers agent adoption and the
+workstreams that maintain it.
 
 ## Conventions
 
