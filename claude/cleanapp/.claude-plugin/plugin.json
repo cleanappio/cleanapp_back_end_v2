@@ -1,0 +1,18 @@
+{
+  "name": "cleanapp",
+  "displayName": "CleanApp",
+  "version": "1.0.0",
+  "description": "Report an observed problem to CleanApp from Claude, then track its analysis decision and recorded action. Connects the public CleanApp MCP server; no account or API key.",
+  "author": {
+    "name": "CleanApp",
+    "email": "info@cleanapp.io",
+    "url": "https://www.cleanapp.io"
+  },
+  "homepage": "https://www.cleanapp.io/agents",
+  "repository": "https://github.com/cleanappio/cleanapp_back_end_v2",
+  "license": "GPL-3.0-only",
+  "keywords": ["cleanapp", "reporting", "bug-report", "incident", "hazard", "accessibility", "mcp"],
+  "documentationUrl": "https://www.cleanapp.io/agents",
+  "supportUrl": "https://www.cleanapp.io/agents",
+  "privacyPolicyUrl": "https://live.cleanapp.io/openai/privacy"
+}

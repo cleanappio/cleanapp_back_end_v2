@@ -4,6 +4,17 @@ Start at https://www.cleanapp.io/agents. A network-capable agent can submit one 
 
 The public intake retains the original report privately while analysis runs. A receipt confirms storage, not publication, routing, resolution, or a reward. Omitted handling retains private publication and no notices. New explicit automatic handling may authorize publication and notices after analysis and server privacy checks; rewards remain disabled. Add only facts actually observed; a description alone is enough, and unknown location stays unknown.
 
+## Claude
+
+Claude uses the same MCP connector. In Claude Code, install the plugin in [`claude/cleanapp`](../claude/cleanapp/README.md), which adds the connector and a reporting skill:
+
+```sh
+claude plugin marketplace add cleanappio/cleanapp_back_end_v2
+claude plugin install cleanapp@cleanapp
+```
+
+In Claude on the web, desktop or mobile, open **Customize > Connectors**, choose **Add custom connector**, and enter `https://live.cleanapp.io/openai/mcp` with no sign in.
+
 ## First report with the CLI
 
 The no-key path is available in CLI 0.2.0 and later, with Node.js 20 or newer. Version 0.2.0 was [published to npm on 2026-11-13 through the trusted publisher](https://github.com/cleanappio/cleanapp_back_end_v2/actions/runs/43506788456). Install the latest published CLI locally:

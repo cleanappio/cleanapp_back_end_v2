@@ -1,0 +1,15 @@
+{
+  "name": "cleanapp",
+  "description": "CleanApp for Claude: report observed physical and digital problems and track what happens next.",
+  "owner": {
+    "name": "CleanApp",
+    "email": "info@cleanapp.io"
+  },
+  "plugins": [
+    {
+      "name": "cleanapp",
+      "source": "./claude/cleanapp",
+      "description": "Report an observed problem to CleanApp from Claude, then track its analysis decision and recorded action."
+    }
+  ]
+}
