@@ -143,6 +143,42 @@ official-guide, and no-submission instruction.
 | ChatGPT | Pending index evidence | Pending |
 | Grok | Pending index evidence | Pending |
 
+### Product and symptom search
+
+Repeat this check as part of the post-refresh retest, in a separate fresh
+chat per host. Use the public web with connected apps off. Give each host
+the same prompt without naming CleanApp, its domain, or the expected URL.
+This measures whether a user can find one specific observation by searching
+for the problem itself. Check the individual report's public availability
+and external search visibility separately from the agent guide's index.
+
+> Has anyone reported that Google Docs document tabs fail to import when transferring a document? Search the public web and link directly to up to three matching public reports. Don’t submit anything.
+
+Count a hit when a citation resolves anonymously to a CleanApp report detail
+page and its source supports both the product and the symptom. Record the
+date, host, visible model and mode, and the links or kinds of sources it
+returned. Track relevant reports on other sites, adjacent symptoms,
+CleanApp collection pages, and broken or mismatched citations separately.
+A result documents a reported observation. It leaves current product
+behavior and independent reproduction open.
+
+For the 2026-11-18 baseline, the matching CleanApp page appeared in an
+external search result and returned HTTP 200 with a self-canonical URL.
+The page identifies the source as a personal observation imported from
+Bluesky and records no independent reproduction. The report was already
+searchable while the guide refresh remained pending, so the baseline can
+be compared with the later retest using the same prompt. [Public report used for the check](https://www.cleanapp.io/digital/report/rpt_5JS7otf0iAAJ7LxCqEFcJw)
+
+| Host and visible mode | Matching CleanApp citation | Sources returned |
+| --- | --- | --- |
+| Claude, Fable 5.2 Medium, Incognito | Miss | Superhuman Docs import documentation, a GitHub issue about a Google Docs integration skipping non-default tabs, and a GitHub pull request about tab-aware import. |
+| ChatGPT, Pro, Temporary Chat | Hit | Linked the matching [CleanApp report](https://www.cleanapp.io/digital/report/rpt_5JS7otf0iAAJ7LxCqEFcJw) first, linked its original Bluesky source, and cited two related Google Docs community threads on retaining tabs and downloading documents. |
+| Grok, Fast, Private Chat | Miss | A Reddit thread about PDF export, a Google Docs community thread about moving tabs, and a community thread about Word document conversion. |
+
+One of the three fresh sessions cited the observed report. This is one
+prompt on one indexed report. Repeat the prompt after the guide refresh and
+compare the citations for each host before drawing conclusions about recall.
+
 ## The first useful report and the reason to return
 
 1. **Offer help when the workflow encounters a real blocker.** Start with
