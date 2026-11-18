@@ -53,9 +53,10 @@ Intake rules worth knowing:
 
 ## What is in it
 
-`[live 2026-11-17]`
+`[live 2026-11-17]`, grouped public briefing entries by company scope.
+See the [briefing API counting rules](../../report-listener/docs/evidence-first-api.md#response-semantics).
 
-| Scope | Records | First-hand | Added in the last 30 days |
+| Scope | All entries | First-hand entries | Added in the last 30 days |
 | --- | --- | --- | --- |
 | Google | 61,045 | 28 | 1 |
 | Microsoft | 53,175 | 11 | 1 |
@@ -65,10 +66,12 @@ Intake rules worth knowing:
 
 Three observations:
 
-1. **First-hand records are a small part.** Between 0.02% (Microsoft) and 2.3%
-   (Bluesky) of each scope; 572 of 148,730 across the five, or 0.4%.
-2. **Intake from social sources has nearly stopped.** Five large scopes gained
-   nine records between them in thirty days.
+1. **First-hand entries were a small share of this sample.** The scope
+   ratios ranged from 0.02% (Microsoft) to 2.3% (Bluesky). The five scopes
+   showed 572 first-hand entries against 148,730 grouped entries.
+2. **Recent additions were sparse in this sample.** The five scopes showed
+   nine additions in thirty days. This view alone gives limited evidence
+   about any individual intake source.
 3. **Much of the "unknown" class is empty.** In a sample of 200 unknown
    Anthropic records, 160 were archive stubs with no text (page 07).
 
@@ -84,8 +87,8 @@ Three observations:
 
 ## Questions to reason through
 
-1. Is the headline number the corpus (1.1 million) or the first-hand part of
-   it (under one percent in the scopes measured)?
+1. Which published count explains the value to the reader: corpus size,
+   distinct source observations, or human-validated issues?
 2. Should intake favour recall, as `THEORY.md` says, once notices are public
    and carry weight?
 3. Which sources produce first-hand accounts at a useful rate? Bluesky's

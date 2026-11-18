@@ -164,17 +164,19 @@ deterministic `cluster_id_coarse` (brand, issue type, two "atoms").
 `ingest_to_cleanapp.py` builds a `cluster_id` and then does not write it, so
 it is lost at import.
 
-## What does not exist
+## Production gaps and offline evidence
 
-- **Meaning-based matching of text.** No embeddings, vectors or similarity
-  search in any service. Text similarity is word overlap (4, 5, 7).
-  "Embeddings" appear only as a planned stage in `tools/reddit_funnel/README.md`.
-- **Automatic visual matching beyond 10 m pairs.** The case-studies page
-  (`cleanapp.io/clustersamples`) links nine views of one wall by "ceiling
-  corner, doorway and crack pattern" and states that the examples "were
-  checked against source photographs… with AI assistance". The source of that
-  page is not in the repositories reviewed, so how those links were made is
-  not recorded here.
+- **Production text matching.** The services reviewed here use word overlap
+  (4, 5, 7). The Reddit funnel documents embeddings as a proposed stage.
+  Offline retrieval experiments should keep their inputs, review judgments
+  and errors in the internal operating record so future work can reuse them.
+- **Production visual matching.** The 10 m comparison path is the automated
+  matcher in this inventory. The [published case examples](https://www.cleanapp.io/clustersamples)
+  include a source-reviewed set of nine views of one wall, matched using
+  details such as the ceiling corner, doorway and crack pattern. The
+  [showcase data](https://www.cleanapp.io/clustersamples/samples.json)
+  preserves individual observations and limits, and provides a public
+  regression example for grouping and provenance.
 - **A single store.** `report_clusters`, `case_reports`, `report_outcomes`
   candidates and the request-time `source_key` are separate and unconnected.
 
@@ -211,3 +213,6 @@ it is lost at import.
 3. The system can say "same place, 0.7" for two photos 10 m apart. What is
    the equivalent statement for two descriptions of a software fault?
 4. Which grouping, if any, should a notice be built from?
+5. Can two reviewers consistently distinguish a duplicated source, a related
+   issue and independently corroborating evidence? Include near-match
+   negatives in evaluation and measure false merges separately.

@@ -2,11 +2,12 @@
 
 **In short.** A person who sees a defect usually has no way to get that
 observation to anyone who will act on it. CleanApp takes the observation,
-works out who is responsible and who else has a stake, puts them on notice,
-and keeps a public record of the notice and of what came back. The reporter is
-never sent to someone else's form. The idea has been stable since 2013. The
-system implements the first half of it (collect, describe, publish) far more
-fully than the second half (group, value, put on notice, learn what happened).
+works out who can act and who else has a stake, routes through the appropriate
+channels, and preserves evidence of notice, response, and what changed.
+CleanApp owns the routing and follow-up for the reporter. The idea has been
+stable since 2013. The system has matured at collecting, describing, and
+publishing observations. Grouping, valuation, notice, and outcome evidence
+remain less developed.
 
 ## The claim
 
@@ -65,35 +66,42 @@ mostly repeats and stubs is what the filters are for (pages 06, 07, 08).
 
 What the claim predicts, and so how it can be tested:
 
-- Parties with a working channel fix reported defects sooner than parties
-  without one.
+- Comparable issues routed to an accountable role see earlier independently
+  verified improvements.
 - The party itself comes to value the channel: it answers, claims its
   address, pays.
-- Where it does not, the attention of interested parties supplies the reason
-  (page 09).
+- Where a public record reaches interested parties with the standing and
+  ability to act, leaving a credible issue unresolved may become more costly.
 
-Page 11 turns the claim into four numbers: loss, latency, noise and effect.
+Repair and reporting a repair are separate decisions. A party can fix quietly
+or reply without making a change. CleanApp can recheck the underlying condition
+and record what happened within the measured scope. Whether CleanApp caused
+the change is a further question. [Notice and remediation](12-notice-and-remediation.md)
+
+Page 11 defines separate measures for notice, confirmed reach, recipient
+burden, and verified remediation.
 
 ## The problem in two cases
 
-**Google Ads install counts.** `[live 2026-11-17]` The case-studies page links
-twelve records, dated 2025-08-14 to 2026-10-10, showing install counts that
-cannot be true (6 billion, 1.43 billion, 807 million). CleanApp emailed a
-general Google support address three times (2026-09-20, 10-09, 10-16). The
-page records each as "Accepted for sending". `[founder]` A vulnerability
-disclosure was also filed through Google's own programme and was answered
-"intended behavior". So the official door was found, used, and closed. That
-answer is not recorded anywhere in the system, because the system has no place
-for it (pages 03 and 07).
+**Google Ads install-count displays.** `[live 2026-11-18]` The case studies
+link twelve records from 2025-08-14 to 2026-10-10. Eight contain standalone
+captures and four share one promotional composite. The captures show
+displayed totals such as 6 billion, 1.43 billion, and 807 million. The contact
+log shows relay acceptance for three outreach rounds on 2026-09-20, 10-09,
+and 10-16. Original message contents and recipient attention are unknown.
+`[founder]` Google's disclosure programme returned "intended behavior".
+The account provides a reported disposition from that channel. Decision-owner
+reach, the basis for the display, and any fix remain unverified in this record.
+[Google Ads case and contact log](https://www.cleanapp.io/clustersamples#google-ads)
 
-**Claude.** `[live 2026-11-17]` CleanApp holds 7,144 records in Anthropic's
-scope, 120 of them first-hand. The only route to the company is one reviewed
-support address. Nothing has ever recorded an acknowledgement from it
-`[db 2026-11-11]`.
+**Claude.** `[live 2026-11-17]` Anthropic's public briefing showed 7,144
+grouped entries, including 120 first-hand entries. The verified company email
+path uses one reviewed support address. The `[db 2026-11-11]` snapshot
+contained no recorded acknowledgment from that route.
 
-The two cases fail differently. In the first, a channel exists and the answer
-is "no". In the second, there is no channel that is known to be read. Both are
-the same problem: the notice depends on the party being put on notice.
+The Google Ads record supports a reported answer from an official programme.
+The Anthropic record supports a transport route to support. Each leaves open
+whether the issue reached the role able to decide on it.
 
 ## What CleanApp has said it is
 
@@ -108,10 +116,10 @@ the same problem: the notice depends on the party being put on notice.
 | 2026-10 | `docs/evidence-first-release.md` | Lead with original observations. Never present source counts as affected-user totals. |
 | 2026-11-17 | `[founder]` | See the next section. |
 
-`[inference]` Five things have not changed in thirteen years: the observation
-comes from outside the institution; it goes on a public record; more than one
-party is entitled to it; it has money value because it bears on liability; and
-the people who supply it should be rewarded.
+`[inference]` Five aims recur across this history. Preserve observations
+from outside the institution. Publish suitable evidence. Route to parties
+with a legitimate stake. Help those parties make decisions about risk and
+repair. Reward useful contributions.
 
 ## The founder's positions, 2026-11-17
 
@@ -144,7 +152,7 @@ they are not in the code.
 | 2 | Truth | What does a record establish, and how many independent people stand behind it? | 07 |
 | 3 | Value | What is it worth, to whom, to know this and to fix it? | 05 |
 | 4 | Responsibility | Who can fix it, and who else has a stake? | 03 |
-| 5 | Notice | What makes it impossible for those parties to say they did not know? | 03, 04 |
+| 5 | Notice | What was published, where was the evidence sent, and which decision roles can we show it reached? | 03, 04, 12 |
 | 6 | Incentive | Why would any of them act, or pay? | 09 |
 
 They depend on each other in a loop:
@@ -156,11 +164,13 @@ identity ──► truth ──► value ──► notice ──► incentive �
 ```
 
 - Independent observers cannot be counted until reports are grouped by issue.
-- An issue cannot be valued until it is known how many people it affects.
+- A credible severe observation can warrant action with prevalence unknown.
+  Estimate prevalence separately where the evidence supports it.
 - A notice is only as strong as the claim it carries.
-- A party acts when ignoring the notice costs more than acting on it.
-- What the party then did is the only ground truth that can correct the
-  earlier steps.
+- A party is more likely to act when the expected benefit of repair exceeds
+  its cost. Appropriate notice may change that calculation.
+- An owner decision, an independent recheck, or a corrected source can each
+  teach CleanApp something different about the earlier steps.
 
 `[inference]` Each step is weak today, and the weakness passes down the chain:
 see the table at the end of this page.
@@ -202,5 +212,5 @@ What follows from treating it as research:
 | Not an inbox. | `WHY.md`, `INVARIANTS.md` §14 | The main live channel is email to support inboxes. | 03 |
 | A public board gives notice. | `[founder]`, the `/epc` page | Addresses and delivery are built. The board shows sample rows. | 04 |
 | The data is liability data. | `[2018 wiki]` | One sentence of dollar text per report since 2025-12. Never added up. | 05 |
-| Ignoring a signal becomes costly. | `WHY.md` | Nothing in the system makes silence cost anything. | 09 |
-| The system learns who acts. | decision 2026-03-13 | 7 outcomes ever recorded `[db 2026-11-11]`. Reply and silence tracking merged 2026-11-17, not yet live. | 03 |
+| Credible notice makes a persistent defect harder to ignore. | `WHY.md` | Effect on remediation is unmeasured. The responsible party can repair without replying. | 09, 12 |
+| The system learns who acts. | decision 2026-03-13 | 7 outcomes in the `[db 2026-11-11]` snapshot. The tracking build is deployed `[live 2026-11-18]`. Worker activity and recipient outcomes require separate verification. | 03, 11 |

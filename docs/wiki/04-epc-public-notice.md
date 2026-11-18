@@ -2,18 +2,16 @@
 
 **In short.** The idea of the Ethereum Plus Code is that every brand and every
 place has a public address which exists before anyone claims it, and that
-CleanApp posts its notices there, on a board anyone can read. It is the one
-mechanism in the system designed so that notice is complete without the
-recipient's help. Three parts are built: an address for each brand, a durable
-queue of notices, and delivery of a one-line notice through a chat service.
-The parts that would make the notice public are not built: the contracts, a
-way to claim an address, codes for places, any record a third party can
-verify, and the board itself. The page `/epc` is titled "CleanApp Public
-Noticeboard" and shows invented rows.
+CleanApp posts its notices on a board anyone can read. Publication can be
+verified independently of recipient participation. Three parts are built:
+an address for each brand, a durable queue and dispatch through a chat
+service. The live `/epc` page is titled "CleanApp Public Noticeboard" and
+shows sample rows. The proposed board would publish an issue-specific notice
+with evidence, dates and a correction history. [Notice and remediation](12-notice-and-remediation.md)
 
-Last reviewed: 2026-11-17, code at `bc799bd`, frontend at `3f7f0e8` (build
-1.0.465). The noticeboard finding is from the frontend code; the live page was
-not loaded for this review.
+Last reviewed 2026-11-18. The [live page](https://www.cleanapp.io/epc) loaded
+a [browser bundle](https://www.cleanapp.io/_next/static/chunks/pages/epc-db00250a1c44ecec.js)
+containing hard-coded counts for real brands and generated EPC identifiers.
 
 ## The idea, in the project's words
 
@@ -39,8 +37,9 @@ separate it from every channel on page 03:
 
 1. **The address exists first.** Nobody has to sign up, publish a contact or
    agree to be reachable.
-2. **The notice is posted, not delivered.** It is complete when it is on the
-   board, whether or not anyone reads it.
+2. **Publication has its own receipt.** A reader can inspect the issue and
+   see when it was posted. Transport acceptance, accountable-role reach and
+   legal effect each need separate evidence.
 3. **Anyone can check it.** That a notice was posted, about what and when,
    does not rest on CleanApp's word.
 4. **The addressee can claim the address later** and answer in the same
@@ -52,7 +51,7 @@ separate it from every channel on page 03:
 | --- | --- | --- | --- |
 | A key per subject | `cleanapp/<brand>` today. A different prefix per campaign, for example `gplus/<shortcode>` for places. | `epc_campaigns`, `epc_contracts`; `OVERVIEW.md` | brands live; places plan |
 | An address per key | CREATE3 gives an address that depends only on the key and the factory, so it can be known before any contract exists. The worker asks the factory contract at `0xDc41…FAA`, in a local EVM, for the address of a key. | `epc-pusher/src/epc.ts` | live |
-| A notice per public report | "You have a new CleanApp Report. Please see `https://cleanapp.io/digital/<brand>`. This is your new Ethereum Plus Code. Please check in periodically for updates and future CleanApp reports." | `lib/templates/report_notification.tpl` | live |
+| A notice per public report | "You have a new CleanApp Report. Please see `https://cleanapp.io/digital/<brand>`. This is your new Ethereum Plus Code. Please check in periodically for updates and future CleanApp reports." | [Report template](../../epc-pusher/lib/templates/report_notification.tpl) | live |
 | A durable queue | One row per notice: campaign, key, address, event key (`prod:report:<seq>`), rendered text, status (held, pending, sending, sent, error, uncertain), the provider's message ID, attempts, times. | `epc_outbox`; patch `20261113_epc_cumulative_dispatch.sql` | live |
 | Delivery | Blockscan Chat, a messaging service addressed by Ethereum address. Sends are paced: 1.2 seconds apart in the recommended settings, never under 1 second. | `epc-pusher/src/worker.ts`, `notifyReports.ts` | live, pilot scope |
 | Guards | Only reports that are public, active, have a public ID and no private owner. Suppressed imports are skipped. Rechecked before sending. | `epc-pusher/README.md` | live |
@@ -79,42 +78,43 @@ have been sent, is in the production database and was not read for this page.
 
 | Missing | Why it matters | Evidence |
 | --- | --- | --- |
-| The contracts | An EPC address today is a number nobody controls. Nothing is deployed there. | README: the worker "does not deploy contracts or put report text on Ethereum". `OVERVIEW.md`: "I'll get around to all this pretty soon". |
+| The contracts | The worker derives an address. Contract deployment and control of the resulting address are separate steps. | [EPC worker documentation](../../epc-pusher/README.md) |
 | Claiming | A brand or a place cannot take over its address, read as its owner, or reply. | no code |
 | Place codes | "Every brand and place": only brands have keys. | `gplus/` appears only as an example |
-| A record others can verify | The proof that a notice was posted is a row in CleanApp's own database and an ID from a chat provider. | `epc_outbox` |
-| The board | `/epc` renders 24 hard-coded brand names with invented counts ("Google got 1,247 CleanApp Reports about Google") and codes of the form `EPC-000001`. | `src/hooks/epc/useBrandData.ts`, `src/utils/mockData.ts` |
+| A record others can verify | The private outbox stores dispatch state and the chat provider's receipt. Public publication of the exact issue needs a separate record. | `epc_outbox` |
+| The board | `/epc` generates rows from 24 hard-coded brand names and sample counts, with codes of the form `EPC-000001`. | [Browser bundle observed 2026-11-18](https://www.cleanapp.io/_next/static/chunks/pages/epc-db00250a1c44ecec.js) |
 
-## What is public today, and what is not
+## Public surfaces and evidence
 
-| Thing | Public? |
+| Thing | What a reader can establish |
 | --- | --- |
 | The address for a brand | Yes, in principle: anyone can compute it from the key and the factory. Nowhere is it shown. |
 | The brand page the notice points to | Yes, and it is real. |
-| That a notice was posted, and when | No. It is in a private table. |
+| EPC chat dispatch | Provider status and timestamps reside in the private outbox. |
 | The text of the notice | Not on any chain. Whether a third party can read a Blockscan Chat message addressed to someone else is `[not verified]`. |
-| Reading as the addressee | `[not verified]` As far as I know it requires signing in with the key of the address. No key exists for an address with no contract, so today's notices may sit in a mailbox nobody can open. This needs checking against Blockscan's documentation. |
+| Reading as the addressee | `[not verified]` Determine who can sign in to the derived address and read an actual message. |
 
-`[inference]` So the present system gives **a private delivery to a public
-address**. Of the four properties above it has the first. The second, third
-and fourth are what "public notice" means, and they are the unbuilt part.
+The [case studies](https://www.cleanapp.io/clustersamples) already demonstrate
+an evidence-backed public record. The Google Ads example exposes the dated
+transport receipts it can support and the limits of the underlying evidence.
 
-One more consequence. The sample rows on `/epc` are presented under the
-CleanApp name as counts of reports about real companies. A notice board draws
-all its force from being accurate. This page should show real notices or say
-plainly that it is a preview.
+**First correction.** Label `/epc` clearly as a preview or remove the
+sample rows. A public noticeboard derives its credibility from accurate
+issue-level evidence and a visible correction history.
 
 ## What would make the notice public
 
-Listed from least to most work. None of it has been started.
-
-1. **Publish the queue.** `/epc` reads `epc_outbox`: subject, address, date,
-   link, and the provider's receipt. The data exists.
-2. **Show the address** on each brand page, with the count and dates of
-   notices posted to it.
+1. **Publish a reviewed notice.** Show the issue reference, date and version,
+   a safe evidence summary, public links, and corrections or responses cleared
+   for publication. The private outbox can supply dispatch evidence for a
+   separate delivery status. Keep private recipients and provider identifiers
+   in the operating record.
+2. **Show the address** on relevant public pages when it can be verified,
+   alongside the dated notices actually published there.
 3. **Make the record tamper-evident.** For example, publish a daily hash of
-   the day's notices to a public chain. This proves that a notice existed by
-   a given date without putting its text on chain.
+   approved public notice versions to a public chain. With a reproducible
+   proof, a reader could verify that a specific version was committed by a
+   given date. Keep notice content and restricted evidence off chain.
 4. **Deploy the factory's contracts** so that an address can hold state:
    notices, their dates, and later a reply.
 5. **Claiming.** A way for the named party to prove it is the brand or the
@@ -135,8 +135,9 @@ Listed from least to most work. None of it has been started.
 3. **One notice per report, or per issue?** Today it is per report, and every
    notice is the same sentence with a link to the brand page.
 4. **What goes on the board when the party answers "no"?**
-5. **Can a party pay to come off the board?** Today a private owner removes
-   its reports from public view and from EPC notices (page 03).
+5. **How should private intake coexist with the board?** Matching ownership
+   rows can suppress public visibility. Keep publication decisions independent
+   of subscription status. [Ownership filter](03-notice-and-routing.md#private-ownership-and-public-visibility)
 6. **Why Ethereum, stated as a requirement?** The 2018 answer was resistance
    to censorship. If the requirement is "CleanApp cannot later alter or
    remove the record, and neither can the party named", several designs meet

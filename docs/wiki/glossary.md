@@ -74,13 +74,14 @@ given in `code font`.
 
 | Term | Meaning |
 | --- | --- |
-| Scorecard | The set of numbers in page 11, computed by `tools/scorecard/`. |
-| Eligible first-hand report | The unit the scorecard counts: first-hand by its evidence label, valid, and public. |
-| Chain | The five steps a report is followed through: received, sent, seen, answered, fixed. |
-| Matured window | From 37 days ago to 7 days ago: reports and notices old enough for an answer to have arrived. |
-| Loss, latency, noise, effect | The four quantities the scorecard reads together: what never arrived, how long it took, what should not have been sent, and what changed. |
-| Ledger | `scorecard-ledger.csv`: every measurement, one row per metric per run. |
-| Experiment | A row in page 11: a change, the one number it should move, the prediction, and the result. |
+| Scorecard | The shipped diagnostic queries and the proposed outcome measures described in [page 11](11-scorecard.md). |
+| Eligible first-hand report | The unit of the shipped report diagnostics. Eligibility uses an evidence label, valid analysis, public visibility and notification rules. |
+| Chain | The shipped `chain_*` queries are parallel diagnostics on one report cohort. Later outcomes can exist without earlier milestones or a common notice. |
+| Matured window | The legacy SQL cohort window from 37 to 7 days before measurement. The follow-up window for proposed issue cohorts is specified at enrollment. |
+| Confirmed decision-owner reach | Issue-specific acknowledgment or verified assignment to a role with authority to decide, prioritize, assign or fix the issue. |
+| Verified remediation | A documented independent check that the reported condition changed. Recipient participation is optional. |
+| Ledger | The public `scorecard-ledger.csv` holds dated aggregate measurements. The private operating record holds case evidence and restricted observations. |
+| Experiment | A documented hypothesis, cohort, comparator, prediction, evidence and outcome with a steward and review date. |
 
 ## The 2018 vocabulary
 
