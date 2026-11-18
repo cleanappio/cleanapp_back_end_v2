@@ -55,11 +55,12 @@ that something happened and the reporter was told. That depends on outcomes
 
 Who pays, and how much has been paid, is not in the repositories.
 
-`[inference]` Everything on this list is a carrot that only works after the
-party has decided to look. None of it changes the sum for a party that would
-rather not know. `WHY.md` sets the bar: "action becomes cheaper than
-inaction" and "ignoring signals becomes reputationally and economically
-costly". Nothing built so far raises the cost of ignoring.
+`[inference]` These surfaces can help a team that already wants useful
+feedback. The operating question is whether CleanApp lowers the recipient's
+cost of investigating and acting. A compact issue with before evidence, a
+specific ask, and a route into the team's existing workflow can save time.
+A verified repair record and fewer duplicate follow-ups can give the team
+a reason to share an update.
 
 ## The party with a stake
 
@@ -76,38 +77,42 @@ implicated. "The same cluster can support multiple valid value propositions."
 What exists for them:
 
 - Notify plans have a second and a third wave, "Authorities and oversight"
-  and "Other stakeholders" (page 03). Nothing sends them.
+  and "Other stakeholders" (page 03). An operator can select eligible targets
+  through case escalation. Routine automated delivery and observed buyer
+  use remain unverified.
 - `authority_directory_rules` holds seeded rules for public bodies.
 - No page, feed, export, alert or price is aimed at an insurer, a regulator,
   a journalist or an investor.
 
-`[inference]` This is the largest gap between the idea and the system. It is
-also where the economics may be simplest. An interested party wants to know.
-It does not have to be persuaded, and its attention is exactly what gives the
-responsible party a reason to act.
+`[inference]` The value to an interested party depends on the decision it can
+make with this evidence. An insurer could use a verified timeline in a risk
+review. A regulator could use a scoped record to prioritize an inspection.
+Buyers and concrete uses need validation before they drive product design.
 
 ## The shape of the problem
 
 `[inference]`
 
-1. For the responsible party, a report is a cost to acknowledge and often a
-   cost to fix. Silence is free. This is true however valuable the report is.
-2. Silence stops being free when someone the party cares about can see the
-   notice, its date and the lack of an answer. That someone is an interested
-   party.
-3. So the two kinds of customer are not two markets. The second creates the
-   first. A responsible party pays to respond well in a place where its
-   insurers, regulators and customers are already looking.
-4. That only works if the record is accurate (pages 06, 07) and public
-   (page 04). A board with repeats and stubs on it gives the party a reason
-   to dismiss the whole board.
+1. A responsible team may act because the evidence saves investigation time,
+   because the defect imposes ongoing costs, or because someone with oversight
+   can act on the record.
+2. A party may repair quietly and still prefer silence. Offer a low-friction
+   reply, an existing ticket reference, and visible credit for an independently
+   verified change. Keep reply and correction access free.
+3. Public visibility can influence priorities if the facts are reliable and
+   a relevant audience has reason to use them. Private and official channels
+   can deliver evidence into a workflow with real authority. The applicable
+   legal effect needs its own analysis.
+4. Paid integration, analysis, and partner commitments are business
+   hypotheses. A party's payment should have no bearing on the public evidence
+   or the ability to reply. [Notice and remediation](12-notice-and-remediation.md)
 
 ## Questions to reason through
 
 1. Which interested party would pay first, for which class of defect?
-2. What would a responsible party pay for that it cannot get by ignoring
-   CleanApp: a verified reply on the public record, early warning before
-   posting, a "resolved" mark that others trust?
-3. Is "pay to make your reports private" compatible with a public board?
+2. What would a responsible party pay for in triage, workflow integration,
+   or evidence that its fixes hold up?
+3. How should independently submitted observations and authorized
+   enterprise-private intake coexist?
 4. What should a reporter earn, and should it depend on the outcome?
 5. Does the token still have a role, and if so, what does it reward?

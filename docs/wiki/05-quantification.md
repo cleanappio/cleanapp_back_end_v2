@@ -8,7 +8,7 @@ added up for an issue, a brand or a place, and none is tied to evidence in the
 report. Everything else the system computes is a score from 0 to 1, a count,
 or a token balance.
 
-Last reviewed: 2026-11-17, code at `bc799bd`.
+Last reviewed 2026-11-18. The email service reported `bc799bd`.
 
 ## Where the idea comes from
 
@@ -48,20 +48,19 @@ Last reviewed: 2026-11-17, code at `bc799bd`.
   API and no frontend component reads it.
 - Added `af0b9997`, 2025-12-09. The wording has not changed since.
 
-**A2. "Estimated Liability" box and "Legal Risk Factor" gauge — live on one
-email path.**
+**A2. "Estimated Liability" box and "Legal Risk Factor" gauge — present on
+the current per-report email path.**
 
-- `email-service/email/email_sender.go:544-593`.
-- The gauge is not a risk model. It is `HazardProbability * 100` under a new
-  label (`:548`).
+- The [email template](../../email-service/email/email_sender.go#L544-L593)
+  labels `HazardProbability * 100` as "Legal Risk Factor" and can render
+  `LegalRiskEstimate` from model output.
 - Before 2025-12-09 the email showed three gauges: litter, hazard, severity.
 - Two days after it was added, brand emails became a digest (`d263dcc0`). The
   digest shows counts only. Since 2026-10-16 it adds that a brand association
   "does not establish fault, ownership or legal responsibility"
   (`aggregate.go:259`).
-- The box survives on the per-report path, which serves model-proposed
-  addresses and area contacts. That it still reaches people is `[inference]`
-  from the code paths, not from send logs.
+- That path serves model-proposed addresses and area contacts. Actual
+  frequency and recipient exposure are unverified.
 
 **A3. Prices — live.** Free; Pro at $99 a month; Enterprise at $499 a month
 for up to five brands or places (`cleanapp-frontend/src/pages/pricing.tsx`).
@@ -120,6 +119,11 @@ value placed on a report.
    every claim the evidence does not support. The December 2025 table asserts
    seven-figure liability from a photograph.
 
+**First correction.** Remove the "Legal Risk Factor" gauge and unsupported
+liability figures from outbound notices. Use observed impact, original
+evidence, recurrence and the specific action requested. Preserve the
+historical record of the experiment.
+
 ## Why the present figures cannot carry weight
 
 `[inference]`
@@ -142,7 +146,7 @@ value placed on a report.
 | Number of independent people affected | prevalence | No. `independence` is "unassessed" (page 06). |
 | Exposure | how many people or transactions meet the defect | No. A constant 0.6. |
 | Harm if it happens, and how often | base rates | No. Only the unsourced table. |
-| Time the party has known | from first notice to now | Partly. Send times are stored. Acknowledgement is not. |
+| Time the party has known | from issue-specific confirmed reach to now | Transport timestamps exist. Accountable-role awareness is unverified. |
 | What fixing it costs and returns | the party's side | No. |
 | What happened in similar cases | outcomes | No. Zero fixes recorded `[db 2026-11-11]`. |
 
@@ -153,13 +157,15 @@ What can be measured now, without any of the missing inputs, and is hard to
 dismiss:
 
 - how many distinct sources report an issue, and over how long;
-- how long since the first notice was posted;
+- how long since the first notice was published and, separately, when a
+  private route accepted it;
 - whether the issue came back after it was said to be fixed;
-- how long the party took to answer, or that it has not.
+- how long the party took to answer, or the period during which a monitored
+  channel had no observed reply.
 
-`[inference]` These four are also the facts that liability turns on: what was
-known, since when, and what was done. They may be the honest first form of
-"liability data".
+These observations can inform risk decisions and establish a dated activity
+record. The relevance of that record to liability depends on the applicable
+duty, facts and process. [Notice and remediation](12-notice-and-remediation.md)
 
 ## Three framings, to be kept apart
 

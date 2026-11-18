@@ -1,9 +1,9 @@
 # CleanApp wiki: what has been tried, and what is still unsolved
 
 **The problem this wiki tracks.** Someone notices a defect: a hazard in a
-street, a fault in a product. CleanApp's job is to take that observation off
-their hands, get it to the parties responsible for it and to the parties with
-a stake in it, make the notice impossible to deny, and find out what they did.
+street, a fault in a product. CleanApp's job is to preserve that observation,
+route it to people who can act, keep evidence of notice and response, and
+check what changed for the reporter and others affected.
 This wiki records each approach CleanApp has taken to that problem, what it
 produced, and what is still open.
 
@@ -11,7 +11,8 @@ produced, and what is still open.
 founder's claim is that the capability worth calling superintelligence is the
 one that gets a true signal through the filters to the people who decide, so
 that they improve faster and everyone gains (page 01). Page 11 measures how
-close CleanApp is to that.
+close CleanApp is to that. Page 12 describes how a public record and direct
+notice might change incentives, and how to observe remediation independently.
 
 **Why it exists.** `WHY.md` and `THEORY.md` say what CleanApp believes. The
 decision log says what was decided since March 2026. The architecture
@@ -38,9 +39,10 @@ corrected. Where the code is silent, the page says so.
 | [09 Incentives and buyers](09-incentives-and-buyers.md) | Who gains from reporting, from fixing and from knowing. |
 | [10 Open problems](10-open-problems.md) | Where the code and the idea disagree, working hypotheses, and what to measure next. |
 | [11 Scorecard](11-scorecard.md) | The numbers that say whether CleanApp works, where they stand, and the loop for improving them. |
+| [12 Notice, response and remediation](12-notice-and-remediation.md) | What notice can establish, why a party might fix silently, and how CleanApp can verify a change. |
 | [Glossary](glossary.md) | Terms, including the 2018 vocabulary. |
 
-Short on time: read 01, then 11, then 10.
+Start with pages 01, 12, and 11 for the thesis, the incentives, and the measures.
 
 ## Conventions
 
@@ -62,7 +64,7 @@ Other claims carry a tag.
 
 | Tag | Meaning |
 | --- | --- |
-| `[live 2026-11-17]` | Read from the public API or the public site on that date. |
+| `[live YYYY-MM-DD]` | Read from the public API, a public version endpoint, or the deployed site on that date. |
 | `[db 2026-11-11]` | Measured on the production database and recorded in `docs/architecture/notification-outcomes.md`. Not re-measured here. |
 | `[2018 wiki]` | From the GitHub wiki of `cleanappio/wiki` (81 edits, 2018-07-09 to 2019-12-21). |
 | `[founder]` | Said by the founder on 2026-11-17. Not in the code. |
@@ -78,10 +80,28 @@ Dates are year-month-day.
   request: status word, date, and one line on what changed.
 - When something is switched off or abandoned, keep the entry and write down
   why. The failures are the most useful part.
-- When a number is re-measured, replace it and change the date in its tag.
-- Opinions go under "Questions" or in page 10, never in an inventory.
-- A change meant to move a number gets a row in the experiments table of
-  page 11 before it ships, and a result after.
+- Preserve dated measurements in the ledger. Record the cohort, window,
+  metric definition or revision, and evidence source with new runs. Link
+  the current result from prose and keep corrections traceable.
+- For a live claim, record the check date and what was verified. A build
+  revision, a worker processing traffic, and a real recipient outcome need
+  different evidence.
+- Write hypotheses in page 10. Record the owner, next check, expected result,
+  and observed outcome for an experiment that changes routing or measurement.
+
+## Internal operating record
+
+This wiki is in a public repository. Use the private **CleanApp Internal
+Operating Record** in ChatGPT Pages for route details, contacts, correspondence,
+case decisions, rechecks, release receipts, and commercial evidence. Authorized
+operators can find the record by title or get access from its owner. Keep
+restricted originals in approved storage and link to them inside the record.
+Publish reviewed summaries and appropriate aggregate measurements here.
+
+For each issue, record who will follow up and when. Keep notice receipts,
+decision-owner acknowledgment, reported remediation, and independent
+observations distinct. The public record should carry corrections and
+uncertainty in the same place as the original observation.
 
 ## What this wiki does not know
 
@@ -90,10 +110,12 @@ Dates are year-month-day.
   repositories.
 - **Customers and revenue.** The code has plans and prices. It has no record
   of who pays.
-- **The current state of the production database.** Numbers tagged `[db]` are
-  six days old.
-- **The source of the case-studies page** (`cleanapp.io/clustersamples`). It
-  is not in the repositories I could read.
+- **The current state of the production database.** Use the date on each
+  `[db]` observation. The November 11 figures are a historical snapshot.
+- **Case-study source packages.** The public [case studies](https://www.cleanapp.io/clustersamples)
+  and their [published data](https://www.cleanapp.io/clustersamples/samples.json)
+  are available. The October 18 release materials and offline matching
+  experiments live outside the product repositories.
 - **What happened outside the system:** calls, meetings, disclosures, replies
   sent to people rather than to `info@cleanapp.io`. The Google Ads disclosure
   in page 01 is the example.

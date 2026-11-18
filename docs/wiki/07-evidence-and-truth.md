@@ -2,12 +2,11 @@
 
 **In short.** Since October 2026 every public record says what kind of thing
 it is (a first-hand account, coverage of someone else's, or unknown), where it
-came from, and what it does not prove. That is the most careful part of the
-system. Four things are still missing: whether two reports are independent,
-whether a report is true, whether a fix happened, and what the party named
-has to say.
+came from, and the limits of the underlying evidence. Independence, factual
+verification, remediation and the named party's disposition each need
+their own evidence.
 
-Last reviewed: 2026-11-17, code at `bc799bd`.
+Last reviewed 2026-11-18. Notification services reported `bc799bd`.
 
 ## What a record states today
 
@@ -39,9 +38,9 @@ Principles behind it: "AI is a compression tool, not an authority"
 
 ## What the labels show
 
-`[live 2026-11-17]`, by company scope:
+`[live 2026-11-17]`, public briefing entries by company scope:
 
-| Scope | Records | First-hand | Coverage | Unknown |
+| Scope | All entries | First-hand | Coverage | Unknown |
 | --- | --- | --- | --- | --- |
 | Anthropic | 7,144 | 120 | 2,053 | 4,970 |
 | OpenAI | 14,499 | 120 | not read | not read |
@@ -49,15 +48,19 @@ Principles behind it: "AI is a compression tool, not an authority"
 | Microsoft | 53,175 | 11 | not read | not read |
 | Bluesky | 12,867 | 293 | not read | not read |
 
-A closer look at Anthropic's 120 first-hand records: about 90 are distinct,
+The [briefing API](../../report-listener/docs/evidence-first-api.md#response-semantics)
+counts source observations and existing families after grouping and
+visibility filtering. A family can appear in multiple kinds. Keep the
+company scope, kind and observation date with any reused count.
+
+A closer look at Anthropic's 120 first-hand entries: about 90 are distinct,
 genuine complaints from single voices over 19 months (12 of them submitted
 directly to CleanApp); about 14 are repeats of the same posts; about 15 are
 not about a product fault. Of 200 sampled "unknown" records, 160 are Reddit
 archive stubs whose text reads "Stored original text is unavailable".
 
-`[inference]` The labels are honest, and what they honestly show is that
-first-hand accounts are a very small part of what is counted: 572 of the
-148,730 records in these five scopes, or 0.4%.
+`[inference]` The first-hand entry count was 572 against 148,730 grouped
+entries across these five scopes, roughly 0.4% in this dated sample.
 
 ## Four things that are not assessed
 
@@ -89,46 +92,59 @@ then people have reasons to file false ones.
 
 ### 3. Whether a fix happened
 
-- **Photos:** when a new photo of the same place shows the hazard gone, the
-  earlier report is marked resolved
-  (`report-processor/handlers/handlers.go:274-278`). This is the only
-  automatic detection of a fix in the system.
-- **Everything else:** "Upstream/resolution states remain unknown when the
-  stored evidence does not establish them." A `fixed` outcome exists and has
-  never been recorded `[db 2026-11-11]`.
+- **Photo comparison:** the close-range matching handler can mark an
+  earlier report resolved and create a response based on a model comparing
+  two images. Treat that as a candidate for verification.
+  [Match handler](../../report-processor/handlers/handlers.go#L274-L288)
+- **Source of a resolution:** a responsible party can report a fix, a
+  reporter or reviewer can independently observe improvement, or a public
+  operational record can identify a change. Store the source, date, scope
+  and confidence. A repeat observation should match the location and
+  condition for a physical issue or the relevant product version and
+  conditions for a digital issue.
+- **Outcome and attribution:** record a verified change even if nobody
+  responds through CleanApp. Credit CleanApp's role only where evidence
+  links its notice to the action. Preserve unknown and unobservable
+  outcomes explicitly. The 2026-11-11 snapshot contained zero `fixed`
+  outcomes. [Scorecard](11-scorecard.md)
 
 ### 4. The other side
 
-A party named in a report cannot put anything on the record. There is:
+The inbox worker can associate a reply with a notification and classify the
+message. A case operator can record a supported outcome with a note. The
+outcome model still needs structured dispositions, a source reference and
+evidence that the response concerns the issue and comes from the relevant
+role. [Inbox outcomes](../architecture/notification-outcomes.md#what-1b-changed)
+· [Case outcome handling](../../report-listener/handlers/case_escalations.go#L146-L164)
 
-- no claimed, verified identity for a brand that is not a paying customer;
-- no response attached to a report or a case;
-- no outcome type for "declined", "disputed" or "works as designed";
-- no way to show that a company did answer, and what it said.
+Make it easy for a verified party to correct a fact, forward the notice,
+dispute a claim, identify an existing ticket or volunteer a fix. Preserve
+original correspondence in the private operating record. Publish a reviewed
+summary where appropriate, and show the observation window for any "no
+response recorded" status.
 
-`[founder]` The Google Ads disclosure was answered "intended behavior". That
-sentence is the most informative fact in the case, and it lives only in
-someone's inbox.
-
-`[inference]` A board that carries only the accusation is weaker than one that
-carries the answer as well. An answer of "intended behavior", next to
-screenshots of six billion installs, makes the case better than any summary
-CleanApp could write. Silence, with a date, does the same.
+`[founder]` Google Ads reportedly answered "intended behavior" through its
+disclosure process. The [published case](https://www.cleanapp.io/clustersamples#google-ads)
+documents displayed values and dates of relay acceptance. It links eight
+standalone captures and four records sharing a later composite. Observer
+independence, the source reply and the responding role are unverified in
+this review.
 
 ## Privacy and visibility pull the other way
 
 | Rule | Since | Effect |
 | --- | --- | --- |
 | Faces are blurred | 2025-09-03 `c00accdc` | Photos stay publishable. |
-| Owner-private reports | 2025-08-19 `1e535020` | A customer's brand or area can keep its reports off the public record (page 03). |
+| Owner-private reports | 2025-08-19 `1e535020` | A qualifying private ownership row excludes a report from public surfaces (page 03). |
 | Quarantine lane | 2026-02-14 `719061d` | Untrusted machine input is stored and not shown. |
 | Opaque public IDs | 2026-03-11 `746c35f` | Reports cannot be enumerated by number. |
 | Agent intake private by default | 2026-11-13 `b0f8bd8` | A machine's first reports are not public until reviewed. |
 | Import suppression | 2026-11-07 `8931f82a` | Recovered archives never trigger notices or rewards. |
 
-Each rule is sound alone. Together they mean "public record" has several
-exceptions, and one of them (owner-private) is controlled by the party being
-reported on.
+Apply the same publication rules to reports and to their notices, replies
+and corrections. Keep moderation, privacy and private intake rules explicit.
+Review any business rule that could make public visibility depend on who
+pays. [Ownership filter](03-notice-and-routing.md#private-ownership-and-public-visibility)
 
 ## Questions to reason through
 

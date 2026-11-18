@@ -111,7 +111,8 @@ commit below was checked against the repository on 2026-11-17.
 | 2026-11-13 | `47f3313e`, `ebbbd02e`, `b0f8bd8` | **EPC notices in AWS production.** Agent intake, private by default. |
 | 2026-11-14 | `54c3d58a` | Agents get outcomes back. Listed in the MCP Registry. |
 | 2026-11-16 | `38038c5c`, `9bce5092` | SolveSF import. Map tiles. |
-| 2026-11-17 | `68aef91`, `02835f1`, `bc799bd` | Reading replies, recording silence, tracked links. Merged, not yet deployed. |
+| 2026-11-17 | `68aef91`, `02835f1`, `bc799bd` | Tracking-capable listener and email binaries deployed. Inbox migration applied. Mailbox processing and silence detection default off, with live coverage unverified. [Release status and evidence](03-notice-and-routing.md#deployment-and-proof). |
+| 2026-11-17 | `bdacb7e`, `ff4f580` | Wiki and read-only scorecard merged. The ledger starts from prior measurements and code review. [Scorecard](11-scorecard.md). |
 
 ## What the order shows
 
@@ -131,6 +132,6 @@ commit below was checked against the repository on 2026-11-17.
 4. **The routing engine of March 2026 is the most complete design in the
    repository and the least used.** It serves escalations that a person
    sends by hand (page 03).
-5. **Public notice has been one step from complete since October 2025.**
-   Addresses and sending work. The public board and the contracts do not
-   exist (page 04).
+5. **EPC began as address derivation and private chat dispatch.** Those
+   functions predate the work of publishing a checkable notice and recording
+   later corrections or resolutions (page 04).
