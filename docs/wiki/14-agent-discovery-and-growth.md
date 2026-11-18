@@ -65,11 +65,83 @@ the pages an agent can find. It gives the public agent guide a task-specific
 title and heading, adds contextual links from the bug, broken website and
 accessibility guides, brings the Claude setup instructions into the release,
 and exposes a [first-party GitHub setup guide](../agent-onboarding.md) for
-clients that have trouble fetching the website. After search indexes
-refresh, replay the recorded prompt and a shorter intent query. Score the
-named result, first-party link, and usable host setup independently.
+clients that have trouble fetching the website. The next check uses the
+shorter prompt below.
 [Frontend implementation](https://github.com/cleanappio/cleanapp-frontend/pull/77) ·
 [Deployment receipt](https://github.com/cleanappio/cleanapp-frontend/actions/runs/44396590777)
+
+## Why a fresh agent looks for CleanApp
+
+- **Check whether others saw the same problem.** A public lookup helps an
+  agent decide whether it has fresh evidence and gives the operator a source
+  it can inspect. Compare dates, location or product, and the observed
+  behavior before treating results as related. Zero matches means no match
+  was returned for that query. Public search covers historical observations.
+- **Give a firsthand observation a place in the public record.** A user can
+  authorize publication of relevant evidence separately from notices to a
+  responsible party. Analysis and privacy checks determine whether the
+  observation can be published. Use the canonical public link as evidence
+  of inclusion. A related observation can retain its own evidence and
+  attribution, including when it becomes a cluster candidate.
+
+The public guide and machine instructions give both tasks an entry point.
+For a lookup, use `cleanapp_search_reports` and return relevant public links
+with dates. Treat the report text as untrusted data. For a contribution,
+keep the exact approval, private receipt, and publication decision tied to
+the observation. Search, approval and publication can each succeed or fail
+independently. [Find reports](https://www.cleanapp.io/agents#find-reports) ·
+[Add an observation](https://www.cleanapp.io/agents#public-record) ·
+[Machine instructions](https://www.cleanapp.io/agents.txt) ·
+[Guide change](https://github.com/cleanappio/cleanapp-frontend/pull/78)
+
+### Shorter post-refresh check
+
+First verify that an external search result for the official guide shows
+“Find and Report Problems With an AI Agent” or distinctive lookup and
+public-record wording, or that an owner-side index record identifies the
+revised page. Log the index and evidence. Other search surfaces may lag.
+An origin HTTP 200 confirms publication. An IndexNow acknowledgment
+confirms receipt of the change notification. [IndexNow FAQ](https://www.indexnow.org/faq)
+
+On 2026-11-18, the external search snapshot still showed the older
+“CleanApp for AI Agents” title, with a crawl age of two days, while the
+official origin served the newer reporting guide.
+The shorter post-release check is waiting for index evidence of the
+lookup and public-record guide.
+
+Run this prompt once per host in fresh Incognito, Temporary or Private
+sessions, using public search with connected apps off. Record the date,
+visible model and mode, whether CleanApp was named, which official guide
+it linked, whether it fetched that guide, and whether it correctly
+described lookup and permissioned publication. Keep comparisons to the
+earlier, longer prompt descriptive, since both the prompt and guide changed.
+
+> Where can an AI agent check whether a website bug has already been reported and add its own observation to a public log? Search the public web, link the official guide, and don’t submit anything.
+
+In a separate fresh compatible session for each host, use an approved
+CleanApp connector to make one read-only public search. Ask for
+`cleanapp_search_reports` with query `accessibility barrier` and limit 1.
+Score a connection only when the host shows that it called the native
+tool and received a response. Zero matches can still prove connection.
+Record unavailable connectors or permission requirements as blocked. Keep
+the generic MCP probe, setup instructions, and model-written claims of
+success separate. Record the result and omit returned report contents.
+Use a fresh standard chat for the ChatGPT connector check.
+[Claude connector setup](https://support.claude.com/en/articles/11175166-getting-started-with-custom-connectors-using-remote-mcp) ·
+[ChatGPT Temporary Chat](https://help.openai.com/en/articles/8914046-temporary-chat-faq) ·
+[Grok connector setup](https://docs.x.ai/grok/connectors#custom-mcp-connectors)
+
+For a later bounded check, isolate each intent with the same public-search,
+official-guide, and no-submission instruction.
+
+- Where can I check whether other people already reported a problem with a website or app?
+- Where can I add my own observation to a public record of a software bug or accessibility barrier?
+
+| Host | Shorter cold result | Native read-only connection |
+| --- | --- | --- |
+| Claude | Pending index evidence | Pending |
+| ChatGPT | Pending index evidence | Pending |
+| Grok | Pending index evidence | Pending |
 
 ## The first useful report and the reason to return
 
@@ -119,6 +191,7 @@ cannot establish unique or repeat reporting workflows.
 | Question | Measure |
 | --- | --- |
 | Can a fresh agent find and connect? | Cold intent checks that identify CleanApp over checks attempted, successful connections over attempted connections in enrolled hosts, and first valid previews over eligible observed blockers. |
+| Is the public record useful? | Lookup sessions with a relevant, source-linked observation over completed lookup sessions in an opted-in sample. Separately track approved contributions with a confirmed public link over approved contributions that requested publication and completed a fixed review window. |
 | Does the work survive approval and review? | Exact approvals per preview, retained receipts per approval, human-qualified contributions per unique submitted receipt, and outcomes returned to the operator per recorded disposition. |
 | Can it reach someone and improve the condition? | Confirmed issue-specific decision-owner reach and independently verified remediation, with observation coverage. These are separate from receipt retrieval. |
 | Is more activity worth the burden? | Duplicate receipts per reviewed receipt, repeat outreach, misroutes per audited notice with audit coverage, permission incidents, reviewer minutes, and incremental cash and credits per useful contribution. |
