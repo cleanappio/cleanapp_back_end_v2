@@ -51,22 +51,25 @@ case study was involved.
 | ChatGPT, Pro, Temporary Chat | First | Linked the public guide and machine instructions, gave the MCP endpoint and exact approval flow, and distinguished the MCP and HTTPS receipt paths. |
 | Grok, Fast, Private Chat | First | Linked the public guide and OpenAPI contract. It gave the MCP and HTTPS endpoints and described approval and receipt lookup. |
 
-The answers establish discovery for this prompt. They did not demonstrate
-an installation or an end-to-end host connection. A local public fetch
-returned HTTP 200 for the guide and machine instructions, including with
-the `Claude-User` header. The cause of Claude's fetch failure is unknown.
-The official registry's API searches server names. Its brandless results
-measure a different surface from the assistants' web search. [Registry search behavior](https://github.com/modelcontextprotocol/registry/blob/main/docs/reference/api/official-registry-api.md#server-list-filtering)
+The answers establish discovery for this prompt. Installation and end-to-end
+host connection remain untested. Local public fetches returned HTTP 200 for
+the guide and machine instructions, including with the `Claude-User` header.
+In a separate, explicitly named follow-up, Claude reported successful direct
+fetches of both the official site guide and the GitHub setup guide. The
+earlier failure's cause remains unknown. The official registry's API searches
+server names. Its brandless results measure a different surface from the
+assistants' web search. [Registry search behavior](https://github.com/modelcontextprotocol/registry/blob/main/docs/reference/api/official-registry-api.md#server-list-filtering)
 
-The gap to address is reaching accurate first-party setup from the pages
-an agent can find. Give the public agent guide a task-specific title and
-heading. Add contextual links from the bug, broken website and accessibility
-guides. Surface host setup and retain a [first-party GitHub setup guide](../agent-onboarding.md)
-for clients that cannot fetch the website. After search indexes refresh,
-replay the recorded prompt and a shorter intent query. Score the named
-result, first-party link, and usable host setup independently. A passing
-deployment check establishes the published path.
-[Frontend implementation](https://github.com/cleanappio/cleanapp-frontend/pull/77)
+The frontend change makes accurate first-party setup easier to reach from
+the pages an agent can find. It gives the public agent guide a task-specific
+title and heading, adds contextual links from the bug, broken website and
+accessibility guides, brings the Claude setup instructions into the release,
+and exposes a [first-party GitHub setup guide](../agent-onboarding.md) for
+clients that have trouble fetching the website. After search indexes
+refresh, replay the recorded prompt and a shorter intent query. Score the
+named result, first-party link, and usable host setup independently.
+[Frontend implementation](https://github.com/cleanappio/cleanapp-frontend/pull/77) ·
+[Deployment receipt](https://github.com/cleanappio/cleanapp-frontend/actions/runs/44396590777)
 
 ## The first useful report and the reason to return
 
