@@ -87,5 +87,6 @@ Before changing the system, ask:
 
 - Notification outcomes (what happens after a report is sent, and the phased plan to track it): `docs/architecture/notification-outcomes.md`
 - Before choosing what to work on, the numbers that say whether CleanApp works and the open experiments: `docs/wiki/11-scorecard.md`
+- How human and agent handoffs pass learning forward and how to evaluate it: `docs/wiki/13-hybrid-superintelligence.md`
 - What has been tried and what is still unsolved (notice channels, EPC and public notice, quantification, clustering, evidence, incentives): `docs/wiki/README.md`
 
