@@ -13,7 +13,7 @@ observation network. [Hybrid superintelligence](13-hybrid-superintelligence.md)
 | Public site | The homepage links to `/agents`. The guide links to `/agents.txt`. The sitemap lists the guide and the public crawler instructions advertise it. | Check the anonymous route from homepage to guide to machine instructions. Verify records against the deployed endpoint and public package versions. |
 | Tool catalogs and packages | The official MCP Registry returns the active CleanApp 1.1.0 entry by brand. The OpenClaw skill and CLI are published. The live, no-key MCP endpoint initialized and returned five tools. | Check catalog lookup, registered endpoint and live tool inventory from a fresh connection. Test where a host installs the tool and where the operator must configure it. |
 | Claude setup | The repository marketplace now includes a CleanApp plugin pointed at the same public MCP endpoint. | Verify installation and live tool selection from a clean Claude session. Check official directory placement separately. |
-| Brandless discovery | Sampled registry and web queries about reporting a problem or an accessibility barrier did not surface CleanApp. These are dated spot checks. | Repeat a small set of unbranded intent queries in selected search surfaces and supported hosts. Record query, surface, date, visibility and whether the result could be connected. |
+| Brandless discovery | All three tested assistants recommended CleanApp first for one detailed reporting prompt. Broader queries returned mixed public web results and missed CleanApp in the official registry's name search. | Repeat a small set of unbranded intent queries. Record naming, first-party guidance, host-specific setup and connection as distinct steps. |
 
 [Agent guide](https://www.cleanapp.io/agents) ·
 [Machine instructions](https://www.cleanapp.io/agents.txt) ·
@@ -35,6 +35,38 @@ For example, start a fresh session and ask where a browser agent can report
 a reproducible blocker with a receipt. Record whether CleanApp appeared
 without being named, the path it offered, and which steps the host supports.
 Use a bounded set of agreed prompts so changes can be compared over time.
+
+### Cold discovery check on 2026-11-18
+
+Sent the same prompt to one fresh session per host, using the visible
+temporary or private chat mode. The prompt named no service and requested
+public search only. No connector installation, draft, report submission or
+case study was involved.
+
+> Use public web search to find a service an AI browser agent can use to report a reproducible software bug or accessibility barrier it encounters on someone else's website. I want a reusable reporting integration that lets a human preview and approve what gets sent and gives the agent a receipt it can check later. Prefer a service that works across organizations. Give up to three real options with official setup links, and say which requirements each actually meets. Use public sources only, and do not use connected apps, draft a report, or submit anything.
+
+| Host and visible mode | Ranked CleanApp | Sources and setup in the answer |
+| --- | --- | --- |
+| Claude, Fable 5.2 Medium, Incognito | First | Found the MCP endpoint through the directories and the public repository. Claude said it could not open the official guide. It described generic Streamable HTTP setup. |
+| ChatGPT, Pro, Temporary Chat | First | Linked the public guide and machine instructions, gave the MCP endpoint and exact approval flow, and distinguished the MCP and HTTPS receipt paths. |
+| Grok, Fast, Private Chat | First | Linked the public guide and OpenAPI contract. It gave the MCP and HTTPS endpoints and described approval and receipt lookup. |
+
+The answers establish discovery for this prompt. They did not demonstrate
+an installation or an end-to-end host connection. A local public fetch
+returned HTTP 200 for the guide and machine instructions, including with
+the `Claude-User` header. The cause of Claude's fetch failure is unknown.
+The official registry's API searches server names. Its brandless results
+measure a different surface from the assistants' web search. [Registry search behavior](https://github.com/modelcontextprotocol/registry/blob/main/docs/reference/api/official-registry-api.md#server-list-filtering)
+
+The gap to address is reaching accurate first-party setup from the pages
+an agent can find. Give the public agent guide a task-specific title and
+heading. Add contextual links from the bug, broken website and accessibility
+guides. Surface host setup and retain a [first-party GitHub setup guide](../agent-onboarding.md)
+for clients that cannot fetch the website. After search indexes refresh,
+replay the recorded prompt and a shorter intent query. Score the named
+result, first-party link, and usable host setup independently. A passing
+deployment check establishes the published path.
+[Frontend implementation](https://github.com/cleanappio/cleanapp-frontend/pull/77)
 
 ## The first useful report and the reason to return
 

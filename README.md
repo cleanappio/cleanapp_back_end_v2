@@ -18,6 +18,7 @@ For implementation-reality and fast navigation, use these as supplements to the 
 
 Topical implementation guides:
 
+- Public reporting with an AI agent, human approval, and receipt lookup: [Agent reporting setup](./docs/agent-onboarding.md)
 - Cases: [`docs/cleanapp-cases.md`](./docs/cleanapp-cases.md)
 - CleanApp Wire: [`docs/cleanapp-wire.md`](./docs/cleanapp-wire.md)
 - Security hardening: [`docs/security-hardening-2026-03-11.md`](./docs/security-hardening-2026-03-11.md)
