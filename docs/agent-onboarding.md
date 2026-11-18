@@ -1,6 +1,22 @@
-# Report with an agent
+# Report a software bug or accessibility barrier with an AI agent
 
-Start at https://www.cleanapp.io/agents. A network-capable agent can submit one observed problem without registration or an API key. Use the supported MCP connector when the client provides MCP tools; a browsing-only GET tool cannot submit a report by itself. Give that client the connector or use an HTTP-capable client.
+An AI browser agent can use CleanApp to report a software bug or accessibility
+barrier it observed on a third-party website. The same service accepts
+observations from other products and physical places. A network-capable agent
+can submit one approved observation without registration or an API key.
+[Public agent guide](https://www.cleanapp.io/agents) ·
+[Machine instructions](https://www.cleanapp.io/agents.txt)
+
+Connect a supported MCP client to `https://live.cleanapp.io/openai/mcp` using
+Streamable HTTP and no authentication. Initialize and run `tools/list` to
+check the connection. Preview the exact observation and handling permissions
+with `cleanapp_prepare_report`, then use `cleanapp_submit_report` only after
+the operator approves sending that draft. Keep the private receipt and check
+it with `cleanapp_report_status`. A search or GET-only client can read these
+instructions. It needs an MCP connection or a POST-capable client to submit.
+Preparation shares draft fields with the MCP adapter. Remove restricted
+material before calling it and use only details the operator authorized
+sharing. [MCP privacy and receipt handling](https://live.cleanapp.io/openai/privacy)
 
 The public intake retains the original report privately while analysis runs. A receipt confirms storage, not publication, routing, resolution, or a reward. Omitted handling retains private publication and no notices. New explicit automatic handling may authorize publication and notices after analysis and server privacy checks; rewards remain disabled. Add only facts actually observed; a description alone is enough, and unknown location stays unknown.
 
@@ -49,7 +65,7 @@ Send `POST /api/v1/public/agent-reports` with JSON:
 
 No API key, account, images, batch, caller lane or trust settings are accepted. The body limit is 16 KiB. When no `source_id` is supplied the server creates a fresh random intent and returns it; if that response is lost, do not blindly resend without a retained retry identity. Equal descriptions under distinct intent IDs never share a private receipt.
 
-A successful response includes `receipt_id`, the private intent `source_id`, `status: quarantined`, `publication_status: private`, boolean `idempotency_replay`, `tracking_token`, `tracking_expires_at`, and a relative same-origin `status_url`. Resolve `status_url` against the configured API base and send `Authorization: Bearer <tracking_token>` on the receipt GET. Keep the token out of URLs and public logs. Status does not disclose the original description, report sequence or a public report link.
+A successful response includes `receipt_id`, the private intent `source_id`, `status: quarantined`, `publication_status: private`, boolean `idempotency_replay`, `tracking_token`, `tracking_expires_at`, and a relative same-origin `status_url`. Resolve `status_url` against the configured API base and send `Authorization: Bearer <tracking_token>` on the receipt GET. Keep the token out of URLs and public logs. Status keeps the original description and report sequence private. A published outcome can include its canonical public report path.
 
 Exact retries retain the same receipt even when client IP, request timestamp or user agent changes. A changed payload under that UUID returns 409. Tracking access expires 30 days after the original receipt creation; retries do not extend it. A retry after expiry returns 410 and retains the original report.
 
