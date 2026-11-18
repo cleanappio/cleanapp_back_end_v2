@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "cleanapp": {
+      "type": "http",
+      "url": "https://live.cleanapp.io/openai/mcp"
+    }
+  }
+}
