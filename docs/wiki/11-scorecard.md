@@ -10,6 +10,10 @@ The tool is in [`tools/scorecard/`](../../tools/scorecard/README.md). The
 public historical measurements are in
 [`scorecard-ledger.csv`](scorecard-ledger.csv).
 
+Use the separate [handoff replay design](13-hybrid-superintelligence.md#test-whether-the-next-handoff-improves)
+to test whether prior human judgments improve a fresh team's decisions.
+Reach and remediation remain field outcomes.
+
 ## Measures for a future issue cohort
 
 Use one human-validated issue for the outcome denominator. Agree on the

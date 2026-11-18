@@ -17,9 +17,10 @@ spam filters and actually reach the people who are making these decisions so
 included". The examples given were the Google Ads bug and faults in LinkedIn,
 Grok and Anthropic's products.
 
-This wiki uses the word in that sense. It is narrower than the usual meaning
-in AI research, a system that outperforms people at nearly everything. It is
-more useful here, because it can be measured.
+The capability belongs to a network of observers, agents, reviewers, and
+institutions. It improves when the evidence and decisions from one handoff
+make the next handoff more accurate, more useful, or less expensive.
+[Hybrid superintelligence](13-hybrid-superintelligence.md)
 
 Why the claim holds `[inference]`:
 

@@ -13,6 +13,8 @@ one that gets a true signal through the filters to the people who decide, so
 that they improve faster and everyone gains (page 01). Page 11 measures how
 close CleanApp is to that. Page 12 describes how a public record and direct
 notice might change incentives, and how to observe remediation independently.
+Page 13 defines how human–agent handoffs compound knowledge and how to test
+whether they improve the next decision.
 
 **Why it exists.** `WHY.md` and `THEORY.md` say what CleanApp believes. The
 decision log says what was decided since March 2026. The architecture
@@ -40,9 +42,11 @@ corrected. Where the code is silent, the page says so.
 | [10 Open problems](10-open-problems.md) | Where the code and the idea disagree, working hypotheses, and what to measure next. |
 | [11 Scorecard](11-scorecard.md) | The numbers that say whether CleanApp works, where they stand, and the loop for improving them. |
 | [12 Notice, response and remediation](12-notice-and-remediation.md) | What notice can establish, why a party might fix silently, and how CleanApp can verify a change. |
+| [13 Hybrid superintelligence](13-hybrid-superintelligence.md) | How people, agents, and institutions learn from each handoff and how to test that learning. |
 | [Glossary](glossary.md) | Terms, including the 2018 vocabulary. |
 
-Start with pages 01, 12, and 11 for the thesis, the incentives, and the measures.
+Start with pages 01 and 13 for the thesis and learning loop. Pages 12 and 11
+cover incentives and measurement.
 
 ## Conventions
 
