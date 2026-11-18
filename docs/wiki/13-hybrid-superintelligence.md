@@ -80,3 +80,7 @@ handoffs move the real-world outcomes, beyond what offline replay can show.
 [Scorecard](11-scorecard.md) · [Open problems](10-open-problems.md)
 
 Both tests are proposals. Case studies and new outreach remain deferred.
+
+The [agent discovery and growth workstreams](14-agent-discovery-and-growth.md)
+put this learning loop into practice. Each team records what the next run
+can use and checks whether it made a better decision.

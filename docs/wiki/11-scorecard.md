@@ -14,6 +14,9 @@ Use the separate [handoff replay design](13-hybrid-superintelligence.md#test-whe
 to test whether prior human judgments improve a fresh team's decisions.
 Reach and remediation remain field outcomes.
 
+See [agent growth measures](14-agent-discovery-and-growth.md#measures-for-agent-growth)
+for discovery, approval, receipt follow-through and 30-day repeat contribution.
+
 ## Measures for a future issue cohort
 
 Use one human-validated issue for the outcome denominator. Agree on the
