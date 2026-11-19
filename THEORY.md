@@ -135,6 +135,11 @@ but because signals were not delivered to:
 Routing is not “sending a notification.”  
 It is a **signal distribution problem**.
 
+One issue can warrant complementary routes. An official intake can create a
+ticket and a relevant professional can help route the same evidence internally.
+The goal is to reach a role that can act while minimizing redundant contact.
+[Parallel methods of notice](docs/wiki/03-notice-and-routing.md#parallel-methods-of-notice)
+
 ---
 
 ## 6. AI Is a Compression Tool, Not an Authority

@@ -120,3 +120,14 @@ New reports can explicitly authorize automatic publication and eligible notices 
 CLI 0.3.0 adds `--publication automatic --notices automatic` to `cleanapp submit`. These flags are optional and must reflect the user's permission. OpenClaw simple JSON accepts the same `handling` object.
 
 Keep the receipt and poll its existing status while `outcome.final` is false. Return the decision and specific next action. `outcome.publication` reports actual publication, and `outcome.delivery` reports recorded transport outcomes. A queued intent is not a sent notice. A final CleanApp outcome does not mean that a recipient read the notice or fixed the problem. Old private reports remain private and can receive an analysis decision.
+
+### Coordinate separate contact with the operator
+
+The report permission applies to CleanApp's eligible notices. Get separate
+explicit authorization before an agent contacts anyone directly through
+another account, platform or phone number. Tie an approved contact to the
+existing report, check prior notices and keep one person responsible for
+follow-up. A private DM can request an internal referral. A platform send
+confirmation establishes that send. Confirm separately whether an accountable
+team accepted the issue and whether the condition changed.
+[Parallel methods of notice](wiki/03-notice-and-routing.md#parallel-methods-of-notice)

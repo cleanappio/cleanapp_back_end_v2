@@ -108,6 +108,23 @@ Case escalation API responses now expose:
 - sent timestamps
 - per-recipient failures
 
+### Coordinate supplemental outreach
+
+Use the same report or case reference for approved contact outside the email
+API. Review prior notices and the case owner before choosing an additional
+route. Give each route a specific purpose, such as creating an official ticket
+or asking a relevant person to introduce the team that can act. Reuse an
+existing ticket or thread and suppress redundant follow-up.
+
+In the report or case outcome ledger, record the recipient organization and role,
+channel, observed time at its known precision, approved evidence scope, and the
+basis for the transport outcome. A support receipt, an
+internal referral, an issue-specific acknowledgment by the decision owner, and
+an independently verified change are distinct milestones. Keep private
+correspondence in access-controlled storage. An agent-assisted phone call
+requires a human-authorized workflow and remains proposed.
+[Parallel methods of notice](wiki/03-notice-and-routing.md#parallel-methods-of-notice)
+
 ## Authentication
 
 Case writes are protected by:

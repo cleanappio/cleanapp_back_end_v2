@@ -65,6 +65,13 @@ independent sources honestly counted, and a posting that other people can
 see. That makes noise CleanApp's own problem first. A sender whose mail is
 mostly repeats and stubs is what the filters are for (pages 06, 07, 08).
 
+One issue can justify parallel methods of notice. An official intake route
+can create a case reference while a targeted private message can ask a
+relevant colleague for an internal handoff. CleanApp coordinates them around
+one evidence record and stops redundant contact once an accountable role
+takes the issue. The [routing chapter](03-notice-and-routing.md#parallel-methods-of-notice)
+records the first LinkedIn test and explains how to choose and measure routes.
+
 What the claim predicts, and so how it can be tested:
 
 - Comparable issues routed to an accountable role see earlier independently
