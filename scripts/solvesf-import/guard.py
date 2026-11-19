@@ -526,8 +526,15 @@ class ProductionGuard:
             ('sf311/case/' + candidate['source_id']).encode()).digest()[:16]).decode().rstrip('=')
         reporter = 'historical:sf311:' + hashlib.sha256(candidate['source_id'].encode()).hexdigest()
         compact, full = self.media_module.apply.presentation(candidate)
-        require(compact == html.escape('source: SolveSF.com\n' + candidate['text'], quote=True)[:255],
+        require(compact == html.escape(self.media_module.apply.feed_text(candidate), quote=True)[:255],
                 'compact_issue_projection_changed')
+        # Match one entire reviewed projection. Independent source/title IN
+        # lists would accidentally admit mixed or partially rewritten rows.
+        display_matches = []
+        for report_text, title, summary, source in self.media_module.apply.presentation_variants(candidate):
+            display_matches.append('(' + ' AND '.join('BINARY ' + column + '=BINARY ' + q(value)
+                for column, value in (('r.description', report_text), ('a.title', title),
+                                      ('a.summary', summary), ('a.source', source))) + ')')
         material = hashlib.sha256(canonical({'candidate_sha256': candidate['candidate_sha256'], 'media': refs}).encode()).hexdigest()
         observed = dt.datetime.fromisoformat(candidate['requested_at'].replace('Z', '+00:00'))
         unix_seconds = int(observed.timestamp())
@@ -549,9 +556,8 @@ class ProductionGuard:
             + ' AND UNIX_TIMESTAMP(r.ts)=' + str(unix_seconds)
             + ' AND CAST(r.latitude AS DOUBLE)=CAST(CAST(' + q(candidate['latitude']) + ' AS FLOAT) AS DOUBLE)'
             + ' AND CAST(r.longitude AS DOUBLE)=CAST(CAST(' + q(candidate['longitude']) + ' AS FLOAT) AS DOUBLE)'
-            + ' AND BINARY r.description=BINARY ' + q(compact)
-            + " AND BINARY a.title=BINARY 'Historical SF311 case via SolveSF' AND BINARY a.description=BINARY " + q(full)
-            + ' AND BINARY a.summary=BINARY ' + q(compact)
+            + ' AND (' + ' OR '.join(display_matches) + ')'
+            + ' AND BINARY a.description=BINARY ' + q(full)
             + " AND a.needs_ai_review=0 AND BINARY a.inferred_contact_emails=BINARY '[]' AND a.severity_level=0"
             + " AND BINARY a.language=BINARY 'en' AND BINARY a.brand_name=BINARY '' AND BINARY a.brand_display_name=BINARY ''"
             + ' AND EXISTS(SELECT 1 FROM sf311_source_case_ledger l WHERE l.report_seq=r.seq AND l.recorded_report_seq=r.seq'
@@ -562,7 +568,7 @@ class ProductionGuard:
             + ' AND l.candidate_json=CAST(' + q(canonical(candidate)) + ' AS JSON)'
             + ' AND l.source_record_json=CAST(' + q(canonical(candidate['source_record'])) + ' AS JSON)'
             + ' AND l.media_json=CAST(' + q(canonical(refs)) + ' AS JSON))'
-            + " AND a.is_valid=1 AND BINARY a.source=BINARY 'SolveSF' AND BINARY a.classification=BINARY 'physical' FOR UPDATE")
+            + " AND a.is_valid=1 AND BINARY a.classification=BINARY 'physical' FOR UPDATE")
         require(len(rows) == 1, 'changed_or_private_native_case')
         values = rows[0].split('\t')
         primary = refs[0]['display']['sha256'] if refs else hashlib.sha256(b'').hexdigest()

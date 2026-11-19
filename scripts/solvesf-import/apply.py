@@ -33,7 +33,9 @@ _spec.loader.exec_module(_helpers)
 canonical, sql_string, sql_bytes, sql_num = (_helpers.canonical, _helpers.sql_string,
                                             _helpers.sql_bytes, _helpers.sql_num)
 NAMESPACE = "sf311"
-SOURCE = "SolveSF"
+PUBLISHER = "SolveSF"
+SOURCE = "SSF"
+LEGACY_TITLE = "Historical SF311 case via SolveSF"
 SERVER_UUID = "f2c484f6-3c5d-11ef-aace-0242ac120003"
 MAX_BATCH = 5
 MAX_DISPLAY = 128 * 1024
@@ -119,7 +121,7 @@ def valid_candidate(c):
     if (c.get("schema") != "cleanapp-solvesf-candidate-v1"
             or c.get("source_namespace") != NAMESPACE
             or not isinstance(ident, str) or not re.fullmatch(r"[1-9][0-9]{0,31}", ident)
-            or c.get("publisher") != SOURCE or c.get("publisher_record_id") != ident
+            or c.get("publisher") != PUBLISHER or c.get("publisher_record_id") != ident
             or c.get("source_url") != "https://solvesf.com/report/" + ident):
         raise Hold("invalid_canonical_city_case_identity")
     material = {k: v for k, v in c.items() if k != "candidate_sha256"}
@@ -195,6 +197,26 @@ def read_candidates(path, expected_sha):
     return rows
 
 
+def feed_text(c):
+    """Original issue wording, without an acquisition-label prefix."""
+    text = c["text"].strip()
+    text = re.sub(r"^(?:from\s+solvesf(?:\.com)?|source:\s*solvesf(?:\.com)?)(?=\s|[:–—-]|$)\s*[:–—-]?\s*",
+                  "", text, count=1, flags=re.IGNORECASE)
+    if not text.strip():
+        source = c["source_record"]
+        text = next((value for value in (source.get("service_name"), source.get("category"))
+                     if isinstance(value, str) and value.strip()), "SF311 case " + c["source_id"])
+    return " ".join(text.split())
+
+
+def report_title(c):
+    """Extract a bounded title; never invent a classification or call a model."""
+    title = re.split(r"(?<=[.!?])\s+", feed_text(c), maxsplit=1)[0]
+    if len(title) > 180:
+        title = title[:179].rsplit(" ", 1)[0].rstrip() + "…"
+    return title
+
+
 def presentation(c):
     status = str(c["source_record"].get("status", "not supplied"))
     text = ("source: SolveSF public feed (SF311 case " + c["source_id"] + ")\n"
@@ -202,8 +224,26 @@ def presentation(c):
             + "Description authorship is unverified and may be AI generated.\n"
             + c["text"] + "\nSource: " + c["source_url"])
     safe = html.escape(text, quote=True)
-    compact = html.escape("source: SolveSF.com\n" + c["text"], quote=True)[:255]
+    compact = html.escape(feed_text(c), quote=True)[:255]
     return compact, safe
+
+
+def raw_description(c):
+    """Retain the original report compact; feed text lives in analysis.summary."""
+    return html.escape("source: SolveSF.com\n" + c["text"], quote=True)[:255]
+
+
+def presentation_variants(c):
+    """Only complete legacy or curated display tuples may survive replay.
+
+    Raw report text, source identity and source JSON remain unchanged. Only the
+    analysis metadata changes; the old tuple stays replayable for safe rollback.
+    Tuple order: reports.description, analysis.title, analysis.summary, source.
+    """
+    compact, _ = presentation(c)
+    legacy = raw_description(c)
+    return ((legacy, report_title(c), compact, SOURCE),
+            (legacy, LEGACY_TITLE, legacy, PUBLISHER))
 
 
 def plan(rows):
@@ -287,7 +327,7 @@ def write_one(db, guard, c, media, data):
         db.query(insert("reports", {"public_id": sql_string(public_id(c)), "ts": sql_string(observed),
             "id": sql_string(reporter), "team": "0", "latitude": sql_num(c["latitude"]),
             "longitude": sql_num(c["longitude"]), "x": "0", "y": "0", "image": sql_bytes(primary),
-            "action_id": "NULL", "description": sql_string(compact)}))
+            "action_id": "NULL", "description": sql_string(raw_description(c))}))
         seq = int(db.scalar("SELECT LAST_INSERT_ID()"))
         for position, body in enumerate(data[1:], 1):
             db.query(insert("report_extra_images", {"seq": str(seq), "position": str(position),
@@ -303,13 +343,13 @@ def write_one(db, guard, c, media, data):
         db.query(insert("external_ingest_index", {"source": sql_string(NAMESPACE), "external_id": sql_string(c["source_id"]),
             "seq": str(seq), "source_timestamp": sql_string(observed), "source_url": sql_string(c["source_url"])}))
         db.query(insert("report_analysis", {"seq": str(seq), "source": sql_string(SOURCE),
-            "title": sql_string("Historical SF311 case via SolveSF"), "description": sql_string(full),
+            "title": sql_string(report_title(c)), "description": sql_string(full),
             "summary": sql_string(compact), "severity_level": "0", "language": sql_string("en"),
             "brand_name": sql_string(""), "brand_display_name": sql_string(""), "is_valid": "1",
             "classification": sql_string("physical"), "needs_ai_review": "0", "inferred_contact_emails": sql_string("[]")}))
         db.query(insert("sf311_source_case_ledger", {"source_namespace": sql_string(NAMESPACE),
             "source_id": sql_string(c["source_id"]), "payload_sha256": sql_string(c["candidate_sha256"]),
-            "material_sha256": sql_string(material_sha), "publisher": sql_string(SOURCE),
+            "material_sha256": sql_string(material_sha), "publisher": sql_string(PUBLISHER),
             "source_url": sql_string(c["source_url"]), "source_record_json": sql_string(canonical(c["source_record"])),
             "candidate_json": sql_string(canonical(c)), "media_json": sql_string(canonical(media)),
             "report_seq": str(seq), "recorded_report_seq": str(seq), "report_public_id": sql_string(public_id(c)),

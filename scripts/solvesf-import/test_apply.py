@@ -84,7 +84,8 @@ class Contracts(unittest.TestCase):
         issue = "Broken sidewalk blocks wheelchair access at the crossing."
         row["text"] = issue + " More observed detail." * 20
         compact, full = app.presentation(row)
-        self.assertTrue(compact.startswith("source: SolveSF.com\n" + issue))
+        self.assertTrue(compact.startswith(issue))
+        self.assertNotIn("source: SolveSF", compact)
         self.assertLessEqual(len(compact), 255)
         self.assertIn("Original city status: closed; this is not a verified resolution.", full)
         self.assertIn("Description authorship is unverified and may be AI generated.", full)
@@ -92,6 +93,27 @@ class Contracts(unittest.TestCase):
         row["text"] = "Broken & blocked <crossing>"
         compact, _ = app.presentation(row)
         self.assertIn("Broken &amp; blocked &lt;crossing&gt;", compact)
+
+    def test_report_title_uses_original_issue_and_preserves_source_identity(self):
+        row = candidate()
+        self.assertEqual(app.report_title(row), "Dumped litter.")
+        row["text"] = "From SolveSF: Broken sidewalk. More details follow."
+        self.assertEqual(app.report_title(row), "Broken sidewalk.")
+        self.assertEqual(app.presentation(row)[0], "Broken sidewalk. More details follow.")
+        self.assertEqual((app.SOURCE, app.PUBLISHER, app.NAMESPACE), ("SSF", "SolveSF", "sf311"))
+        row["text"] = " \n\t "
+        row["source_record"]["service_name"] = "Blocked sidewalk"
+        row["source_record"]["category"] = "Street cleaning"
+        self.assertEqual(app.report_title(row), "Blocked sidewalk")
+        row["source_record"]["service_name"] = "  \n "
+        self.assertEqual(app.report_title(row), "Street cleaning")
+        del row["source_record"]["category"]
+        self.assertEqual(app.report_title(row), "SF311 case 101")
+        row["text"] = "Long issue " * 100
+        title = app.report_title(row)
+        self.assertLessEqual(len(title), 180)
+        self.assertTrue(title.endswith("…"))
+        self.assertFalse(any(ord(char) < 32 for char in title))
 
     def test_actual_collector_output_matches_writer_contract(self):
         import collect
@@ -157,6 +179,14 @@ class Contracts(unittest.TestCase):
         self.assertTrue(policy.endswith(",1,1,1,1,1,1)"))
         self.assertIn("privacy_and_current_boundary", guard.checks)
         self.assertEqual(db.statements[-1], "COMMIT")
+        analysis = next(s for s in db.statements if s.startswith("INSERT INTO report_analysis"))
+        report = next(s for s in db.statements if s.startswith("INSERT INTO reports "))
+        ledger = next(s for s in db.statements if s.startswith("INSERT INTO sf311_source_case_ledger"))
+        self.assertIn(app.sql_string("SSF"), analysis)
+        self.assertIn(app.sql_string("Dumped litter."), analysis)
+        self.assertIn(app.sql_string(app.raw_description(candidate())), report)
+        self.assertEqual(app.presentation_variants(candidate())[0][0], app.presentation_variants(candidate())[1][0])
+        self.assertIn(app.sql_string("SolveSF"), ledger)
         bad = FakeDB(fail_insert=True)
         with self.assertRaises(ValueError):
             app.write_one(bad, Guard(), candidate(), [], [])
@@ -351,6 +381,37 @@ class ActualMysql(unittest.TestCase):
                 self.db.query("ALTER TABLE sf311_source_case_ledger DROP FOREIGN KEY " + drift_name)
             self.db.query("ALTER TABLE sf311_source_case_ledger ADD CONSTRAINT " + name + " FOREIGN KEY(report_seq) REFERENCES reports(seq) ON DELETE SET NULL")
         module.verify_source_schema(self.db)
+
+    def test_real_guard_allows_exact_presentation_backfill_and_rollback_only(self):
+        module, g = self.real_sql_guard()
+        row = candidate("400006")
+        seq = app.write_one(self.db, Guard(), row, [], [])["seq"]
+        current, legacy = app.presentation_variants(row)
+        before = self.db.scalar("SELECT COUNT(*) FROM reports")
+        self.assertEqual(app.write_one(self.db, g, row, [], [])["action"], "replay_skip")
+        self.assertEqual(self.db.scalar("SELECT COUNT(*) FROM reports"), before)
+        self.assertEqual(self.db.scalar("SELECT publisher FROM sf311_source_case_ledger WHERE report_seq=" + str(seq)), "SolveSF")
+
+        def rewrite(values):
+            return ("UPDATE reports r JOIN report_analysis a ON a.seq=r.seq SET "
+                + ",".join(column + "=" + app.sql_string(value) for column, value in
+                    zip(("r.description", "a.title", "a.summary", "a.source"), values))
+                + " WHERE r.seq=" + str(seq))
+
+        self.assert_sql_replay(g, row, [], seq, rewrite(legacy))
+        self.assert_sql_replay(g, row, [], seq, rewrite(current))
+        for index in range(len(current)):
+            mixed = list(current)
+            mixed[index] = legacy[index]
+            if tuple(mixed) == current:
+                continue
+            with self.subTest(mixed_field=index):
+                self.assert_sql_replay(g, row, [], seq, rewrite(mixed), module.GuardError)
+        tampered = list(current)
+        tampered[1] = "Unrelated title"
+        self.assert_sql_replay(g, row, [], seq, rewrite(tampered), module.GuardError)
+        self.assert_sql_replay(g, row, [], seq)
+
 
 
 if __name__ == "__main__":
