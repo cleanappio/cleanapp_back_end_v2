@@ -7,7 +7,8 @@ different evidence. The 2026-11-11 database snapshot contained seven outcomes,
 all from manual case escalation. See [notice and remediation](12-notice-and-remediation.md)
 for the proposed operating model.
 
-Last reviewed 2026-11-18. Notification services reported `bc799bd`.
+Notification services reported `bc799bd` on 2026-11-18. The LinkedIn case
+below adds a manual routing test from 2026-11-19.
 
 ## Every channel, in the order it was built
 
@@ -31,12 +32,11 @@ Last reviewed 2026-11-18. Notification services reported `bc799bd`.
 | 16 | Outcomes back to agents (`go-common/reportoutcome`) | 2026-11-14 `54c3d58a` | The agent that submitted | live | not measured |
 | 17 | Outcome tracking: signed reply address, tracked link, inbox reading, silence | 2026-11-11 to 17 (`68aef91`, `02835f1`, `bc799bd`) | CleanApp itself | notification binaries deployed; tracked links depend on a route check; inbox and silence workers default off | live operational coverage unverified |
 
-**Named in documents, never built:** phone calls ("soon", `ARCHITECTURE.md:7`),
-web-form submission and phone tasks (`docs/architecture/domain-model.md`), a
-Bluesky replier, webhooks and a partner API (`ARCHITECTURE.md` dispatch
-diagram), posts on social media addressed to a brand, any submission to a
-city's 311 system or to a regulator. SolveSF (2026-11-16) reads San
-Francisco's cases and sends nothing back.
+**Proposed channels:** phone and web-form execution, webhooks, partner intake,
+social posting addressed to a brand, and submissions to 311 or regulators.
+The routing model can describe phone and web-form tasks. Automated execution
+through those channels remains proposed. SolveSF (2026-11-16) imports San
+Francisco's cases as a read-only source.
 
 ## How a notice goes out today
 
@@ -53,6 +53,43 @@ Francisco's cases and sends nothing back.
    (`notification-outcomes.md`, section 2).
 5. Separately, the EPC worker queues one chat notice per public report to the
    brand's EPC address (page 04).
+
+## Parallel methods of notice
+
+Choose routes that do different work for the same issue. A support email or
+official form can put a reproducible observation into the recipient's intake
+and produce a case reference. A targeted private DM to a relevant professional
+can ask for a handoff to the team with authority to act. An eligible public
+record gives both routes the same evidence link. Start with the best verified
+route. Use a second in parallel when it serves a distinct purpose and the
+evidence, timing and expected benefit justify the added contact.
+
+**Manual LinkedIn test, 2026-11-19.** The video composer report had three
+recorded emails on 2026-11-18. The following day a CleanApp operator sent a
+targeted LinkedIn DM asking for an internal referral to the desktop video
+publishing owner. The platform showed the message as sent. The evidence
+establishes the send to a potential relay. Acknowledgment, accountable-owner
+assignment and remediation were unobserved at the time of the test.
+[Video composer report](https://www.cleanapp.io/digital/report/rpt_iiFU0Dl4mo3KEkehaWCbng)
+
+Use one case or report reference, one reviewed evidence packet, and one
+follow-up owner across routes. Check existing sends, tickets and replies
+before adding a route. Record each authorized recipient role, purpose and
+transport event. Consolidate corroborating reports onto the same issue and
+use an existing ticket or thread when possible. Stop duplicate outreach
+after an accountable role acknowledges or accepts assignment. Follow a
+verified redirect, honor opt-outs at the scope requested and time the next
+check to the issue. Recheck the condition independently. Compare time to
+confirmed reach with repeat contact, misroutes and cost per verified handoff.
+
+Official forms, issue trackers and partner workflows are candidates when
+they reach the relevant function. An agent-assisted phone call is a proposed
+option when a verified organizational number and a specific routing ask
+warrant it. A human approves the recipient, purpose, timing and what may be
+shared before any call. Identify CleanApp and any automated participation.
+Record a voicemail, live conversation, referral and accountable acceptance
+as distinct facts. See [notice and remediation](12-notice-and-remediation.md)
+for evidence standards and the separate requirements of formal procedures.
 
 ## The routing engine that is waiting
 
@@ -135,8 +172,8 @@ publication rules for public submissions.
    be the better private route if it reaches the relevant function.
 2. **The transport ledger has much broader coverage than the outcome ledger.**
 3. **Discovery is far ahead of delivery.** The engine can propose an operator,
-   owner and regulator for a pothole. The ordinary report path uses email
-   and EPC chat with the coverage limits listed above.
+   owner and regulator for a pothole. Built-in delivery uses email and EPC
+   chat with the coverage limits listed above. The LinkedIn DM was manual.
 4. **Automatic brand notices batch by arrival time.** A recipient can get
    several separate messages about the same issue.
 5. **A reply needs a disposition.** An operator can capture a decline in a

@@ -1,6 +1,7 @@
 # Notification outcomes: from "sent" to "someone acted"
 
-Status: **plan. Phase 0 (a library) is in the PR that adds this document; nothing is wired into production.**
+This document tracks the email outcome rollout and the parallel notice
+strategy. See [status](#9-status) for implementation and deployment evidence.
 Owner of this document: whoever last shipped a phase. Update the status table at
 the bottom in the same PR as the code.
 
@@ -51,11 +52,11 @@ Two consequences worth stating plainly:
 
 These constrain every phase. They restate existing rules for this area.
 
-1. **Record facts, never inferences.** "Sent" is relay acceptance. "Delivered"
-   is never claimed: SMTP gives no positive delivery signal, only the absence
-   of a bounce. "Viewed" means a tracked link was followed. "Acknowledged"
-   means an automatic or human message came back. "Fixed" needs its own
-   evidence and is out of scope here.
+1. **Record the evidence for each event.** For email, "sent" means the relay
+   accepted it. For a manual DM, "sent" can mean the platform showed the
+   message as sent. A tracked link request, an automatic receipt and an
+   issue-specific acknowledgment from the role that can act have different
+   evidentiary weight. Verify any fix separately.
 2. **An inbound message is untrusted input.** It is matched to a notification
    only through a signed reply address or an exact `Message-ID` reference. Its
    content is data: it is never executed, never used to choose recipients, and
@@ -68,6 +69,29 @@ These constrain every phase. They restate existing rules for this area.
 6. **Respect the recipient.** Opt-outs, throttles and daily caps apply to
    follow-ups and escalations exactly as to first notices.
 
+### Manual notices alongside email
+
+Use the report or case as the common reference. An additional route belongs
+in the same plan when it has a distinct purpose, such as getting an internal
+referral alongside an email intake. Check prior attempts and track follow-up
+once per issue. The coordination policy lives in
+[parallel methods of notice](../wiki/03-notice-and-routing.md#parallel-methods-of-notice).
+
+The 2026-11-19 LinkedIn test recorded a manual send in `notify_outcomes`.
+The report-scoped row uses `outcome_type='sent'` and
+`source_type='external_notice'`, with the channel and observed send time in
+`evidence_json`. Its evidence records the platform's sent state and an
+internal referral role. It is separate from `report_email_delivery_events`.
+Keep private correspondence and platform identifiers in restricted storage.
+Any public view should allowlist the channel and time at the known precision.
+Display transport, a recipient response, decision-owner acknowledgment and
+independent verification as distinct events.
+
+SMS, official forms, partner endpoints and agent-assisted calls would need
+channel-specific authorization and evidence before execution. Each route
+needs a verified purpose, an owner for follow-up and a way to avoid repeat
+sends. Direct outreach from a separate account requires its own authorization.
+
 ## 4. Target model
 
 ### 4.1 Outcome types
@@ -77,7 +101,7 @@ their meaning.
 
 | Type | Meaning | Evidence | Source |
 | --- | --- | --- | --- |
-| `sent` | Relay accepted the message | provider message ID | existing |
+| `sent` | The named transport accepted or showed the message as sent | Email relay receipt or recorded platform send confirmation | Email ledger or manual external notice record |
 | `bounced` | A delivery failure came back | DSN status code; `permanent` flag | inbound mail (new) |
 | `viewed` | A per-recipient report link was followed | link token, time | link endpoint (new) |
 | `acknowledged` | An automatic acknowledgement came back | ticket reference when stated | inbound mail (new) |
