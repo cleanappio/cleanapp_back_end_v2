@@ -30,9 +30,10 @@ def fixtures():
         'flags': [1] * 5, 'raw_public': 1, 'analysis_ok': 1}
     compact, full = app.presentation(candidate)
     public = {'report': {'seq': 77, 'public_id': row['public_id'], 'source_url': candidate['source_url'],
-        'description': compact, 'timestamp': candidate['requested_at'], 'source_timestamp': candidate['requested_at'],
+        'description': app.raw_description(candidate), 'timestamp': candidate['requested_at'], 'source_timestamp': candidate['requested_at'],
         'latitude': lat, 'longitude': lon, 'image': base64.b64encode(JPEG).decode()},
-        'analysis': [{'source': 'SolveSF', 'classification': 'physical', 'description': full}]}
+        'analysis': [{'source': app.SOURCE, 'title': app.report_title(candidate),
+            'summary': compact, 'classification': 'physical', 'description': full}]}
     point = {'seq': 77, 'latitude': lat, 'longitude': lon}
     return candidate, row, public, point
 
@@ -85,6 +86,24 @@ class CanaryProof(unittest.TestCase):
             altered = copy.deepcopy(public); altered['report'][field] = value
             with self.subTest(field=field), self.assertRaises(verify.VerifyError):
                 verify.public_case(row, candidate, app, lambda _: (json.dumps(altered).encode(), 'application/json'))
+
+    def test_exact_legacy_or_curated_display_passes_but_mixed_or_tampered_fails(self):
+        candidate, row, public, _ = fixtures()
+        current, legacy = app.presentation_variants(candidate)
+        def get(value):
+            return lambda url: ((JPEG, 'image/jpeg') if '/rawimage/' in url
+                else (json.dumps(value).encode(), 'application/json'))
+        for report_text, title, summary, source in (current, legacy):
+            value = copy.deepcopy(public)
+            value['report']['description'] = report_text
+            value['analysis'][0].update(title=title, summary=summary, source=source)
+            verify.public_case(row, candidate, app, get(value))
+        for mutation in ({'source': legacy[3]}, {'title': legacy[1]},
+                         {'summary': legacy[2]}, {'title': 'An unrelated invented issue'}):
+            value = copy.deepcopy(public)
+            value['analysis'][0].update(mutation)
+            with self.subTest(mutation=mutation), self.assertRaises(verify.VerifyError):
+                verify.public_case(row, candidate, app, get(value))
 
     def test_map_presence_and_native_float32_projection_required(self):
         candidate, row, _, point = fixtures()

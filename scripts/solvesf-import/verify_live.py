@@ -126,7 +126,7 @@ def native_rows(db, candidates, app):
         "'policy_version',p.policy_version,'flags',JSON_ARRAY(" + flags + "),"
         "'raw_public',EXISTS(SELECT 1 FROM report_raw rr WHERE rr.report_seq=r.seq AND rr.fetcher_id='sf311' "
         "AND rr.source_id=l.source_id AND rr.visibility='public'),"
-        "'analysis_ok',EXISTS(SELECT 1 FROM report_analysis a WHERE a.seq=r.seq AND a.source='SolveSF' "
+        "'analysis_ok',EXISTS(SELECT 1 FROM report_analysis a WHERE a.seq=r.seq AND a.source IN ('SolveSF','SSF') "
         "AND a.language='en' AND a.classification='physical' AND a.is_valid=1))) "
         "FROM sf311_source_case_ledger l LEFT JOIN reports r ON r.seq=l.report_seq "
         "LEFT JOIN report_side_effect_policy p ON p.report_seq=l.report_seq "
@@ -158,14 +158,15 @@ def public_case(row, candidate, app, get):
     value = json_response(get, API + 'by-public-id?public_id=' + pid)
     require(isinstance(value, dict) and isinstance(value.get('report'), dict), 'public_report_shape')
     report = value['report']
-    compact, full = app.presentation(candidate)
+    _, full = app.presentation(candidate)
     require(report.get('seq') == row['seq'] and report.get('public_id') == pid
-        and report.get('source_url') == candidate['source_url'] and report.get('description') == compact, 'public_report_metadata_mismatch')
+        and report.get('source_url') == candidate['source_url'], 'public_report_metadata_mismatch')
     expected_time = app.timestamp(candidate['requested_at']).replace(microsecond=0)
     require(app.timestamp(report.get('source_timestamp')) == expected_time
         and app.timestamp(report.get('timestamp')) == expected_time, 'public_report_timestamp_mismatch')
     coordinates(report, candidate)
-    require(any(analysis.get('source') == 'SolveSF' and analysis.get('classification') == 'physical'
+    require(any((report.get('description'), analysis.get('title'), analysis.get('summary'), analysis.get('source'))
+        in app.presentation_variants(candidate) and analysis.get('classification') == 'physical'
         and analysis.get('description') == full for analysis in value.get('analysis', []) if isinstance(analysis, dict)), 'public_source_attribution_missing')
     refs = row['media']
     require(report.get('extra_image_count', 0) == max(0, len(refs) - 1), 'public_extra_photo_count_mismatch')
