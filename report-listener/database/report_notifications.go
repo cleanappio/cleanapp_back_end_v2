@@ -81,6 +81,41 @@ func (d *Database) ReportNotificationHistory(ctx context.Context, seq int) (*mod
 	return buildReportNotificationHistory(receipts), nil
 }
 
+const reportExternalNoticesSQL = `
+ SELECT COALESCE(JSON_UNQUOTE(JSON_EXTRACT(evidence_json, '$.channel')), ''),
+        COALESCE(JSON_UNQUOTE(JSON_EXTRACT(evidence_json, '$.sent_at')), '')
+ FROM notify_outcomes
+ WHERE subject_kind = 'report' AND subject_ref = ?
+   AND source_type = 'external_notice' AND outcome_type = 'sent'
+ ORDER BY recorded_at DESC, id DESC LIMIT 50`
+
+// ReportExternalNotices reads the channel and observed send time from the
+// outcome ledger. No recipient or correspondence data enters this projection.
+func (d *Database) ReportExternalNotices(ctx context.Context, publicID string) ([]models.ReportExternalNotice, error) {
+	rows, err := d.db.QueryContext(ctx, reportExternalNoticesSQL, publicID)
+	if err != nil {
+		return nil, fmt.Errorf("query external report notices: %w", err)
+	}
+	defer rows.Close()
+	var notices []models.ReportExternalNotice
+	for rows.Next() {
+		var channel, sentAt string
+		if err := rows.Scan(&channel, &sentAt); err != nil {
+			return nil, fmt.Errorf("scan external report notice: %w", err)
+		}
+		at, err := time.Parse(time.RFC3339, sentAt)
+		if channel != "linkedin_dm" || err != nil || at.IsZero() {
+			continue
+		}
+		notices = append(notices, models.ReportExternalNotice{Channel: channel, SentAt: at.UTC()})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read external report notices: %w", err)
+	}
+	sort.SliceStable(notices, func(i, j int) bool { return notices[i].SentAt.After(notices[j].SentAt) })
+	return notices, nil
+}
+
 func notificationContentKind(source string) string {
 	switch source {
 	case "aggregate_brand":
