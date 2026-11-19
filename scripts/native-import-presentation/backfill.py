@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bounded host-local OLM/SolveSF display repair. Dry run is the default.
+"""Bounded host-local source presentation repair. Dry run is the default.
 
 Only exact complete legacy analysis presentations are changed. Retained report
 description, analysis.description, provenance, identities, media and quiet
