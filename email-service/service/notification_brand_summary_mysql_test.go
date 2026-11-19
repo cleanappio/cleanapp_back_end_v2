@@ -60,6 +60,12 @@ func TestBrandSummaryCountsTotalsOnlyForSelectedBrands(t *testing.T) {
 	if derived < 0 || total < 0 || total > derived || limit < derived || limit > closed || strings.Count(query, "LIMIT 100") != 1 || strings.Contains(query, "ra2.brand_name = ra.brand_name") {
 		t.Fatal("brand total must be evaluated outside the top-100 pending selection")
 	}
+	pending := strings.Index(query, "SELECT /*+ INDEX(pra "+brandCoreIndex+") */ r.seq")
+	wide := strings.Index(query, "INNER JOIN report_analysis ra ON ra.seq = pending.seq")
+	if pending < 0 || wide < pending || !strings.Contains(query, "NO_MERGE(pending)") || strings.Contains(query, "INNER JOIN report_analysis ra ON r.seq = ra.seq") ||
+		strings.Count(query, notificationPublicStateSQL("r")) != 1 || !strings.Contains(query, genericCompanyExclusionSQL("pra.brand_name")) {
+		t.Fatal("pending reports must be selected from the covering brand index before wide analysis rows are read")
+	}
 }
 
 func readBrandSummaries(ctx context.Context, t *testing.T, db *sql.DB, query string) []models.BrandReportSummary {
@@ -138,6 +144,11 @@ func testBrandSummaryLegacyParityMySQL(t *testing.T, db *sql.DB) {
 	exec("INSERT INTO report_raw VALUES(?,'shadow')", base+70*1000+2)
 	exec("INSERT INTO email_report_retry VALUES(?,DATE_ADD(NOW(),INTERVAL 1 DAY),'no_valid_emails')", base+80*1000+2)
 
+	// Production carries this covering index; without it the hint is inert.
+	exec("ALTER TABLE report_analysis ADD INDEX " + brandCoreIndex + "(brand_name,is_valid,classification,seq,language)")
+	t.Cleanup(func() { db.Exec("ALTER TABLE report_analysis DROP INDEX " + brandCoreIndex) })
+	assertPendingFirstPlan(ctx, t, db)
+
 	legacy := readBrandSummaries(ctx, t, db, legacyBrandSummaryQuery())
 	got := readBrandSummaries(ctx, t, db, brandSummaryQuery())
 	for i := 1; i < len(got); i++ {
@@ -166,5 +177,39 @@ func testBrandSummaryLegacyParityMySQL(t *testing.T, db *sql.DB) {
 	}
 	if _, ok := byBrand["parity-brand-001"]; ok {
 		t.Fatal("brand below the top-100 cutoff was selected")
+	}
+}
+
+// The pending scan must be covered by the brand index, and full analysis rows
+// must be read only by primary key for pending reports.
+func assertPendingFirstPlan(ctx context.Context, t *testing.T, db *sql.DB) {
+	t.Helper()
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	var plan string
+	if err := conn.QueryRowContext(ctx, "EXPLAIN FORMAT=TREE "+brandSummaryQuery()).Scan(&plan); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(plan, "on pra using "+brandCoreIndex) || strings.Contains(plan, "Table scan on pra") ||
+		!strings.Contains(plan, "Single-row index lookup on ra using PRIMARY (seq=pending.seq)") || strings.Contains(plan, "Table scan on ra ") {
+		t.Fatalf("pending-first plan not used:\n%s", plan)
+	}
+	rows, err := conn.QueryContext(ctx, "SHOW WARNINGS")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var level, message string
+		var code int
+		if err := rows.Scan(&level, &code, &message); err != nil {
+			t.Fatal(err)
+		}
+		if level == "Warning" && (strings.Contains(message, "pra") || strings.Contains(message, "pending")) {
+			t.Fatalf("optimizer rejected a pending-first hint: %d %s", code, message)
+		}
 	}
 }
