@@ -1,6 +1,6 @@
 # CleanApp physical evaluation preview
 
-Read-only buyer preview intended for **https://cleanapp.io/grepped/**. This app reads only one frozen physical-500 evaluation ZIP. It has no database credentials, remote-data client, digital-preview inputs, review persistence, upload facility, or bulk ZIP endpoint. It does not alter or decode originals on the server.
+Read-only buyer preview for `https://cleanapp.io/grepped/` and `https://cleanapp.io/licensing/`. Each instance reads the same approved frozen physical-500 evaluation ZIP. The app has no database credentials, remote-data client, digital-preview inputs, review persistence, upload facility, or bulk ZIP endpoint. It does not alter or decode originals on the server.
 
 The server hashes the archive with a streaming file digest before loading metadata. It retains that descriptor so pathname replacement cannot redirect media reads; before serving an original it checks the archive's size/change timestamps and verifies the member's byte length and SHA-256 against the pinned record. Media is returned from those exact verified bytes. The input archive is never extracted.
 
@@ -19,11 +19,13 @@ Optional environment:
 - `GREPPED_PUBLIC_ORIGIN=https://cleanapp.io` is the canonical HTTPS origin. Host and mutation Origin must match exactly. Redirect `www` preview requests to this canonical origin in nginx.
 - `GREPPED_TRUSTED_PROXY_IPS`: comma-separated **exact socket-peer IPs** of your dedicated proxy, only if per-client throttling behind it is needed. Such a peer must overwrite `X-Real-IP` with its actual client address. The app ignores all forwarding headers from other peers and never trusts `X-Forwarded-For`. Without this setting, all clients behind a proxy share its throttle bucket.
 - `GREPPED_PORT=8790` applies only to `python server.py`, which binds loopback. The Docker factory below binds port 8000 inside its isolated container.
+- `GREPPED_PREVIEW_PATH=/licensing` selects the licensing instance with a case-insensitive password and its own path-scoped cookie. The default `/grepped` uses a case-sensitive password.
 
 Generate the server-side password hash in the operator terminal; the password is entered using a hidden prompt:
 
 ```sh
 python server.py --hash-password
+GREPPED_PREVIEW_PATH=/licensing python server.py --hash-password
 ```
 
 Protect the environment file with mode `0600`. Do not paste secrets in logs or command arguments. The dollar signs in the stored hash must remain literal; Docker `--env-file` preserves them. Compose interpolation needs appropriate escaping if used instead.
@@ -40,6 +42,8 @@ docker run --name cleanapp-grepped-preview --restart unless-stopped \
 ```
 
 The process runs as UID 10001; ensure the mounted ZIP and its parent directory are readable/searchable by this UID. The file need not be writable. No database Docker network should be attached. Runtime startup command is `uvicorn server:create_from_env --factory --host 0.0.0.0 --port 8000 --no-access-log --no-proxy-headers`. Use one worker: sessions and throttles are process-local. A restart invalidates all sessions. TLS and public reachability belong to the host nginx; preserve the `/grepped` URI in `proxy_pass` and overwrite `Host` and `X-Real-IP`. Expose only `/grepped` and `/grepped/…`, with a `www` → apex redirect. Do not alias or serve the ZIP/data directory in nginx.
+
+Deploy `/licensing` as its own container with its own protected environment file and case-insensitive password hash. Mount the same approved ZIP read-only and bind `127.0.0.1:8795` to the container port 8000. Install `nginx-licensing.conf` as a snippet in both TLS vhosts for `cleanapp.io` and `www.cleanapp.io`, then validate with `nginx -t` before reloading. The same route and privacy rules apply under `/licensing`.
 
 ## Auth and routes
 

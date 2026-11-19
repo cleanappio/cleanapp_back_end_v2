@@ -1,6 +1,7 @@
 import hashlib
 import io
 import json
+from dataclasses import replace
 from pathlib import Path
 import tempfile
 import sys
@@ -116,6 +117,44 @@ class PreviewSecurityTests(unittest.TestCase):
         self.assertEqual(self.client.post('/grepped/logout',headers={'Origin':'https://cleanapp.io'},follow_redirects=False).status_code,303)
         self.client.cookies.set(COOKIE,token)
         self.assertEqual(self.client.get('/grepped/api/items').status_code,401)
+
+    def test_licensing_password_and_session_are_scoped_to_its_routes(self):
+        prefix = '/licensing'
+        phrase = 'ExampleAccessPhrase'
+        config = replace(self.cfg, prefix=prefix, password_hash=make_password_hash(phrase, prefix))
+        with TestClient(create_app(config), base_url='https://cleanapp.io') as licensing:
+            self.assertIn('action="/licensing/login"', licensing.get(prefix + '/login').text)
+            self.assertEqual(licensing.get(prefix + '/api/items').status_code, 401)
+            self.assertEqual(licensing.get(prefix + '/media/CA-0001').status_code, 401)
+            self.assertEqual(licensing.get(prefix + '/brand/logo.png').status_code, 200)
+            self.assertEqual(self.login().status_code, 303)
+            licensing.cookies.set(COOKIE, self.client.cookies.get(COOKIE))
+            self.assertEqual(licensing.get(prefix + '/api/items').status_code, 401)
+
+            for spelling in (phrase, phrase.lower(), phrase.upper()):
+                result = licensing.post(prefix + '/login', data={'password': spelling},
+                    headers={'Origin': 'https://cleanapp.io'}, follow_redirects=False)
+                self.assertEqual(result.status_code, 303)
+                self.assertEqual(result.headers['location'], prefix + '/')
+                self.assertIn('__Secure-cleanapp_licensing=', result.headers['set-cookie'])
+                self.assertIn('Path=/licensing', result.headers['set-cookie'])
+
+            page = licensing.get(prefix + '/')
+            self.assertIn('data-preview-prefix="/licensing"', page.text)
+            self.assertIn('src="/licensing/static/app.js"', page.text)
+            self.assertNotIn('/grepped', page.text)
+            items = licensing.get(prefix + '/api/items').json()['items']
+            self.assertEqual(items[0]['image_url'], prefix + '/media/CA-0001')
+            self.assertEqual(licensing.get(items[0]['image_url']).content, self.raw)
+            self.assertEqual(licensing.get('/grepped/api/items').status_code, 401)
+            token = licensing.cookies.get('__Secure-cleanapp_licensing')
+            self.assertEqual(self.client.get('/grepped/api/items', headers={
+                'Cookie': f'__Secure-cleanapp_licensing={token}',
+            }).status_code, 401)
+            self.assertEqual(licensing.post(prefix + '/logout',
+                headers={'Origin': 'https://cleanapp.io'}, follow_redirects=False).status_code, 303)
+            self.assertEqual(licensing.get(prefix + '/api/items').status_code, 401)
+        self.assertEqual(self.login('TEST-ONLY-EVALUATION-PASSWORD').status_code, 401)
 
     def test_metadata_allowlist_and_original_unchanged_bytes(self):
         self.login()

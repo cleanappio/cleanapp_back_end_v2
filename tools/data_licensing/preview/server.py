@@ -25,6 +25,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 
 ROOT = Path(__file__).resolve().parent
 PREFIX = '/grepped'
+LICENSING_PREFIX = '/licensing'
 COOKIE = '__Secure-cleanapp_grepped'
 HEX = re.compile(r'^[a-f0-9]{64}$')
 SAMPLE = re.compile(r'^CA-[0-9]{4}$')
@@ -39,9 +40,13 @@ COUNT_FIELDS = ('total_report_records', 'image_bearing_report_records',
                 'valid_physical_report_records', 'valid_physical_reports_with_stored_images')
 
 
-def make_password_hash(password: str) -> str:
+def normalize_password(password: str, prefix: str) -> str:
+    return password.casefold() if prefix == LICENSING_PREFIX else password
+
+
+def make_password_hash(password: str, prefix: str = PREFIX) -> str:
     salt = secrets.token_bytes(24)
-    digest = hashlib.pbkdf2_hmac('sha256', password.encode(), salt, 600_000)
+    digest = hashlib.pbkdf2_hmac('sha256', normalize_password(password, prefix).encode(), salt, 600_000)
     return 'pbkdf2_sha256$600000$' + base64.b64encode(salt).decode() + '$' + base64.b64encode(digest).decode()
 
 
@@ -67,12 +72,14 @@ class Config:
     trusted_proxy_ips: tuple[str, ...] = ()
     session_seconds: int = 7200
     expected_count: int = 500
+    prefix: str = PREFIX
 
     @classmethod
     def from_env(cls):
         return cls(Path(os.environ['GREPPED_ZIP']), os.environ['GREPPED_ZIP_SHA256'],
                    os.environ['GREPPED_PASSWORD_HASH'], os.environ.get('GREPPED_PUBLIC_ORIGIN', 'https://cleanapp.io'),
-                   tuple(filter(None, os.environ.get('GREPPED_TRUSTED_PROXY_IPS', '').split(','))))
+                   tuple(filter(None, os.environ.get('GREPPED_TRUSTED_PROXY_IPS', '').split(','))),
+                   prefix=os.environ.get('GREPPED_PREVIEW_PATH', PREFIX))
 
 
 class FrozenBundle:
@@ -115,7 +122,7 @@ class FrozenBundle:
                 raise ValueError('Original image size mismatch')
             public = {k: row.get(k) for k in RECORD_FIELDS}
             public['annotations'] = [{k: a.get(k) for k in ANNOTATION_FIELDS} for a in row.get('annotations', [])]
-            public['image_url'] = f'{PREFIX}/media/{sid}'
+            public['image_url'] = f'{cfg.prefix}/media/{sid}'
             self.items.append(public)
             self.images[sid] = (image, size, row['sha256'])
         manifest = json.loads(self.zip.read('manifest.json'))
@@ -191,7 +198,8 @@ class AuthState:
             self.global_attempts.append(now)
             if len(self.attempts) > 4096:
                 self.attempts.popitem(last=False)
-        got = hashlib.pbkdf2_hmac('sha256', password.encode(), self.salt, self.rounds)
+        got = hashlib.pbkdf2_hmac('sha256', normalize_password(password, self.cfg.prefix).encode(),
+                                  self.salt, self.rounds)
         if not hmac.compare_digest(got, self.digest):
             return None, 401
         token = secrets.token_urlsafe(32)
@@ -211,11 +219,22 @@ LOGIN_STYLE = 'body{margin:0;background:#f4f6ef;color:#21382a;font:15px system-u
 LOGIN_STYLE_HASH = base64.b64encode(hashlib.sha256(LOGIN_STYLE.encode()).digest()).decode()
 
 
-def login_page(error=''):
-    return HTMLResponse('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>CleanApp · Private evaluation</title><style>' + LOGIN_STYLE + '</style><main><img class="brand-logo" src="/grepped/brand/logo.png" alt="CleanApp"><h2>Private image evaluation</h2><p>500 original physical-world images and their existing source-labeled annotations.</p><form action="/grepped/login" method="post"><label for="password">Access password</label><input id="password" name="password" type="password" autocomplete="current-password" required maxlength="256" autofocus><p class="error" role="status">' + error + '</p><button type="submit">Open evaluation →</button></form></main></html>')
+def login_page(prefix, error=''):
+    return HTMLResponse(f'''<!doctype html><html lang="en">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CleanApp · Private evaluation</title><style>{LOGIN_STYLE}</style>
+<main><img class="brand-logo" src="{prefix}/brand/logo.png" alt="CleanApp">
+<h2>Private image evaluation</h2><p>500 original physical-world images and their existing source-labeled annotations.</p>
+<form action="{prefix}/login" method="post"><label for="password">Access password</label>
+<input id="password" name="password" type="password" autocomplete="current-password" required maxlength="256" autofocus>
+<p class="error" role="status">{error}</p><button type="submit">Open evaluation →</button></form></main></html>''')
 
 
 def create_app(cfg: Config, *, clock=time.monotonic):
+    prefix = cfg.prefix
+    if prefix not in (PREFIX, LICENSING_PREFIX):
+        raise ValueError('Unsupported preview path')
+    cookie = COOKIE if prefix == PREFIX else '__Secure-cleanapp_licensing'
     origin = urlsplit(cfg.public_origin)
     if origin.scheme != 'https' or not origin.netloc or origin.path or origin.query or origin.fragment:
         raise ValueError('Public origin must be an HTTPS origin without a path')
@@ -223,6 +242,7 @@ def create_app(cfg: Config, *, clock=time.monotonic):
         raise ValueError('Invalid session lifetime')
     for address in cfg.trusted_proxy_ips:
         ipaddress.ip_address(address)
+    index_html = (ROOT / 'static/index.html').read_text(encoding='utf-8').replace('__PREVIEW_PREFIX__', prefix)
     auth, bundle = AuthState(cfg, clock), FrozenBundle(cfg)
     @asynccontextmanager
     async def lifespan(app):
@@ -238,12 +258,12 @@ def create_app(cfg: Config, *, clock=time.monotonic):
             response = Response('Invalid host', status_code=403)
         elif request.method in ('POST', 'PUT', 'DELETE', 'PATCH') and request.headers.get('origin') != cfg.public_origin:
             response = Response('Origin mismatch', status_code=403)
-        elif path == PREFIX + '/brand/logo.png' and request.method in ('GET', 'HEAD'):
+        elif path == prefix + '/brand/logo.png' and request.method in ('GET', 'HEAD'):
             response = await call_next(request)
-        elif path == PREFIX + '/login' and request.method in ('GET', 'HEAD', 'POST'):
+        elif path == prefix + '/login' and request.method in ('GET', 'HEAD', 'POST'):
             response = await call_next(request)
-        elif not auth.valid(request.cookies.get(COOKIE)):
-            response = RedirectResponse(PREFIX + '/login', status_code=303) if path in (PREFIX, PREFIX + '/') else JSONResponse({'error': 'Authentication required'}, status_code=401)
+        elif not auth.valid(request.cookies.get(cookie)):
+            response = RedirectResponse(prefix + '/login', status_code=303) if path in (prefix, prefix + '/') else JSONResponse({'error': 'Authentication required'}, status_code=401)
         else:
             response = await call_next(request)
         response.headers.update({'Cache-Control': 'no-store, private', 'Pragma': 'no-cache',
@@ -252,15 +272,17 @@ def create_app(cfg: Config, *, clock=time.monotonic):
             'Content-Security-Policy': "default-src 'none'; img-src 'self'; style-src 'self' 'sha256-" + LOGIN_STYLE_HASH + "'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"})
         return response
 
-    @app.api_route(PREFIX + '/brand/logo.png', methods=['GET', 'HEAD'])
+    @app.api_route(prefix + '/brand/logo.png', methods=['GET', 'HEAD'])
     def brand_logo():
         return FileResponse(ROOT / 'brand/logo.png', media_type='image/png')
 
-    @app.get(PREFIX + '/login')
+    @app.get(prefix + '/login')
     def login_get(request: Request):
-        return RedirectResponse(PREFIX + '/', status_code=303) if auth.valid(request.cookies.get(COOKIE)) else login_page()
+        if auth.valid(request.cookies.get(cookie)):
+            return RedirectResponse(prefix + '/', status_code=303)
+        return login_page(prefix)
 
-    @app.post(PREFIX + '/login')
+    @app.post(prefix + '/login')
     async def login_post(request: Request):
         if request.headers.get('content-type', '').split(';')[0] != 'application/x-www-form-urlencoded':
             raise HTTPException(415, 'Form required')
@@ -284,44 +306,44 @@ def create_app(cfg: Config, *, clock=time.monotonic):
                 raise HTTPException(400, 'Trusted proxy must supply a valid X-Real-IP') from None
         token, status = auth.login(peer, password)
         if token is None:
-            response = login_page('Please wait before trying again.' if status == 429 else 'Password not recognized.')
+            response = login_page(prefix, 'Please wait before trying again.' if status == 429 else 'Password not recognized.')
             response.status_code = status
             if status == 429:
                 response.headers['Retry-After'] = '900'
             return response
-        auth.logout(request.cookies.get(COOKIE))
-        response = RedirectResponse(PREFIX + '/', status_code=303)
-        response.set_cookie(COOKIE, token, max_age=cfg.session_seconds, path=PREFIX,
+        auth.logout(request.cookies.get(cookie))
+        response = RedirectResponse(prefix + '/', status_code=303)
+        response.set_cookie(cookie, token, max_age=cfg.session_seconds, path=prefix,
                             secure=True, httponly=True, samesite='strict')
         return response
 
-    @app.post(PREFIX + '/logout')
+    @app.post(prefix + '/logout')
     def logout(request: Request):
-        auth.logout(request.cookies.get(COOKIE))
-        response = RedirectResponse(PREFIX + '/login', status_code=303)
-        response.delete_cookie(COOKIE, path=PREFIX, secure=True, httponly=True, samesite='strict')
+        auth.logout(request.cookies.get(cookie))
+        response = RedirectResponse(prefix + '/login', status_code=303)
+        response.delete_cookie(cookie, path=prefix, secure=True, httponly=True, samesite='strict')
         return response
 
-    @app.get(PREFIX)
-    @app.get(PREFIX + '/')
+    @app.get(prefix)
+    @app.get(prefix + '/')
     def index():
-        return FileResponse(ROOT / 'static/index.html')
+        return HTMLResponse(index_html)
 
-    @app.get(PREFIX + '/static/{name}')
+    @app.get(prefix + '/static/{name}')
     def static(name: str):
         if name not in ('app.js', 'style.css'):
             raise HTTPException(404)
         return FileResponse(ROOT / 'static' / name)
 
-    @app.get(PREFIX + '/api/summary')
+    @app.get(prefix + '/api/summary')
     def summary():
         return bundle.summary
 
-    @app.get(PREFIX + '/api/items')
+    @app.get(prefix + '/api/items')
     def items():
         return {'items': bundle.items}
 
-    @app.get(PREFIX + '/media/{sample_id}')
+    @app.get(prefix + '/media/{sample_id}')
     def media(sample_id: str):
         return Response(bundle.original(sample_id), media_type='image/jpeg',
                         headers={'Content-Disposition': f'inline; filename="{sample_id}.jpg"'})
@@ -338,7 +360,10 @@ if __name__ == '__main__':
     parser.add_argument('--hash-password', action='store_true')
     args = parser.parse_args()
     if args.hash_password:
-        print(make_password_hash(getpass.getpass('Preview password: ')))
+        prefix = os.environ.get('GREPPED_PREVIEW_PATH', PREFIX)
+        if prefix not in (PREFIX, LICENSING_PREFIX):
+            parser.error('Unsupported preview path')
+        print(make_password_hash(getpass.getpass('Preview password: '), prefix))
     else:
         import uvicorn
         uvicorn.run(create_app(Config.from_env()), host='127.0.0.1',
