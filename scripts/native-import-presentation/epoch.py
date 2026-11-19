@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bounded OLM epoch preparation and guarded native insertion. PLAN is default.
+"""Bounded source epoch preparation and guarded native insertion. PLAN is default.
 
 No migrations, queue publication, upstream HTTP calls or original-image downloads.
 Production apply requires actual root-owned live evidence, current server/schema/
@@ -57,7 +57,7 @@ def _identifier(value):
 def _label(value):
     if not isinstance(value, str) or len(value) > 1024:
         return None
-    # Match the existing OLM public projection's treatment of markup: retain
+    # Match the existing public projection's treatment of markup: retain
     # source-controlled data without executable markup/entity delimiters.
     value = "".join(c for c in value if not unicodedata.category(c).startswith("C"))
     value = " ".join(value.replace("_", " ").split()).strip()
