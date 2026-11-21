@@ -91,7 +91,7 @@ func (h *Handlers) respondReportNotifications(c *gin.Context, full bool) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "notifications_unavailable"})
 		return
 	}
-	h.attachOutcomeTimeline(ctx, &history.ReportNotificationSummary, publicID)
+	h.attachReportNotificationActivity(ctx, &history.ReportNotificationSummary, publicID)
 	if full {
 		c.JSON(http.StatusOK, history)
 	} else {
@@ -108,23 +108,28 @@ func (h *Handlers) attachPublicNotificationSummary(ctx context.Context, report *
 		report.NotificationSummary = database.UnavailableNotificationSummary()
 	} else {
 		report.NotificationSummary = &history.ReportNotificationSummary
-		h.attachOutcomeTimeline(ctx, report.NotificationSummary, report.Report.PublicID)
+		h.attachReportNotificationActivity(ctx, report.NotificationSummary, report.Report.PublicID)
 	}
 }
 
-// attachOutcomeTimeline adds what came back after sending. It is best
-// effort: if outcomes cannot be read, the summary still says where the
-// report was sent and the timeline is simply empty.
-func (h *Handlers) attachOutcomeTimeline(ctx context.Context, summary *models.ReportNotificationSummary, publicID string) {
+// Attach external sends and later outcomes without making either a dependency
+// of the existing email summary.
+func (h *Handlers) attachReportNotificationActivity(ctx context.Context, summary *models.ReportNotificationSummary, publicID string) {
 	if summary == nil || strings.TrimSpace(publicID) == "" {
 		return
 	}
 	timeline, err := h.db.ReportOutcomeTimeline(ctx, publicID)
 	if err != nil {
 		log.Printf("warn: outcome timeline unavailable: %v", err)
-		return
+	} else {
+		summary.Timeline = timeline
 	}
-	summary.Timeline = timeline
+	notices, err := h.db.ReportExternalNotices(ctx, publicID)
+	if err != nil {
+		log.Printf("warn: external report notices unavailable: %v", err)
+	} else {
+		summary.ExternalNotices = notices
+	}
 }
 
 func redactPublicReportContacts(report *models.ReportWithAnalysis) {

@@ -28,9 +28,16 @@ type ReportNotificationSummary struct {
 	FullLogRequiresSubscription bool                      `json:"full_log_requires_subscription"`
 	ContentKind                 string                    `json:"content_kind"`
 	Events                      []ReportNotificationEvent `json:"events"`
+	ExternalNotices             []ReportExternalNotice    `json:"external_notices,omitempty"`
 	// Timeline is what came back after sending, oldest first. Always a list
 	// (possibly empty); free for everyone. See ReportOutcomeEvent.
 	Timeline []ReportOutcomeEvent `json:"timeline"`
+}
+
+// ReportExternalNotice records a verified send outside CleanApp's email delivery system.
+type ReportExternalNotice struct {
+	Channel string    `json:"channel"`
+	SentAt  time.Time `json:"sent_at"`
 }
 
 // ReportOutcomeEvent is one recorded outcome of notifying someone about a

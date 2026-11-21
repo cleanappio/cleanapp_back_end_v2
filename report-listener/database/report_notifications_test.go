@@ -87,6 +87,38 @@ func TestReportNotificationReceiptQueryIsSequenceBoundAndStripsProvider(t *testi
 	}
 }
 
+func TestReportExternalNoticesUseObservedTimeAndAllowlistedChannel(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectQuery(regexp.QuoteMeta(reportExternalNoticesSQL)).WithArgs("rpt_public").WillReturnRows(
+		sqlmock.NewRows([]string{"channel", "sent_at"}).
+			AddRow("linkedin_dm", "2026-11-19T15:09:00+01:00").
+			AddRow("linkedin_dm", "unknown").
+			AddRow("email", "2026-11-19T15:00:00Z").
+			AddRow("linkedin_dm", "2026-11-19T14:11:00Z"),
+	)
+	notices, err := (&Database{db: db}).ReportExternalNotices(context.Background(), "rpt_public")
+	if err != nil {
+		t.Fatal(err)
+	}
+	history := buildReportNotificationHistory(nil)
+	history.ExternalNotices = notices
+	publicJSON, err := json.Marshal(history.ReportNotificationSummary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notices) != 2 || history.EmailCount != 0 || !strings.Contains(string(publicJSON),
+		`"external_notices":[{"channel":"linkedin_dm","sent_at":"2026-11-19T14:11:00Z"},{"channel":"linkedin_dm","sent_at":"2026-11-19T14:09:00Z"}]`) {
+		t.Fatalf("unexpected public notice summary: %s", publicJSON)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestNotificationSubscriptionUsesVerifiedSubjectAndActivePaidPlan(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
