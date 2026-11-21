@@ -25,6 +25,15 @@ Topical implementation guides:
 - Contact discovery: [`docs/case-contact-discovery-2026-03-11.md`](./docs/case-contact-discovery-2026-03-11.md)
 - Password-gated physical data licensing preview: [`tools/data_licensing/preview/README.md`](./tools/data_licensing/preview/README.md)
 
+## Dataset quality and licensing review
+
+The reusable **evidence-first reconciliation and 500-image selection algorithm**
+lives in [`tools/data_licensing/`](./tools/data_licensing/README.md). Its versioned
+profile preserves source/hash bindings, typed holds, saved-annotation consensus,
+specific supersession and deterministic diversity selection for later database
+exports. It runs offline and produces owner-review proposals; it does not modify
+production, generate new vision analysis, delete originals or upload data.
+
 ## Standard Commands
 
 We use a root `Makefile` as the primary entry point for common tasks:
