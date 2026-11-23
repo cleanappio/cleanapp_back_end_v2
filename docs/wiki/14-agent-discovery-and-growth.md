@@ -252,9 +252,14 @@ Use a bounded agent review for changes that need judgment. Start with
 discovery and a shared steward. Add dedicated scheduled teams once there is
 an authorized queue, evidence to work on, and a measured budget. Keep
 schedule ownership and verified runs in the internal operating record.
-The [public discovery probe](https://github.com/cleanappio/cleanapp-agent001/actions/workflows/agent-discovery.yml)
-checks the guide, official Registry lookup, and fresh MCP tool inventory
-every six hours. Its result measures the published connection path.
+The public discovery probe is scheduled every six hours. Each run checks
+the guide, official Registry lookup, and fresh MCP tool inventory. Use the
+actual scheduled run time to measure coverage and flag a gap after 12 hours.
+On 2026-11-23 at 20:54 UTC, the latest scheduled run was 13 hours old. It
+passed, and the preceding two intervals between scheduled runs also exceeded
+12 hours. Recheck the run history at the next review to see whether
+scheduled coverage resumes. [Probe history](https://github.com/cleanappio/cleanapp-agent001/actions/workflows/agent-discovery.yml) ·
+[Most recent pass at the time of review](https://github.com/cleanappio/cleanapp-agent001/actions/runs/45133872091)
 
 To improve Codex and other agents, review corrections for their scope and
 freshness. Put approved, publishable lessons in versioned agent context
